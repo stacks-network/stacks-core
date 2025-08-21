@@ -25,7 +25,6 @@ use crate::core::{
     EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     STACKS_EPOCH_MAX,
 };
-
 use crate::net::db::*;
 use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::*;

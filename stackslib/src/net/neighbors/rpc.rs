@@ -126,43 +126,39 @@ impl NeighborRPC {
         let mut dead = vec![];
         let mut ret = vec![];
         for (naddr, (event_id, mut request_opt)) in self.state.drain() {
-            let response = match NeighborRPC::poll_next_reply(
-                network,
-                &naddr,
-                event_id,
-                &mut request_opt,
-            ) {
-                Ok(Some(response)) => response,
-                Ok(None) => {
-                    // keep trying
-                    debug!("Still waiting for next reply from {naddr}");
-                    inflight.insert(naddr, (event_id, request_opt));
-                    continue;
-                }
-                Err(NetError::WaitingForDNS) => {
-                    // keep trying
-                    debug!("Could not yet poll next reply from {naddr}: waiting for DNS",);
-                    inflight.insert(naddr, (event_id, request_opt));
-                    continue;
-                }
-                Err(NetError::InProgress) => {
-                    // keep trying
-                    debug!(
+            let response =
+                match NeighborRPC::poll_next_reply(network, &naddr, event_id, &mut request_opt) {
+                    Ok(Some(response)) => response,
+                    Ok(None) => {
+                        // keep trying
+                        debug!("Still waiting for next reply from {naddr}");
+                        inflight.insert(naddr, (event_id, request_opt));
+                        continue;
+                    }
+                    Err(NetError::WaitingForDNS) => {
+                        // keep trying
+                        debug!("Could not yet poll next reply from {naddr}: waiting for DNS",);
+                        inflight.insert(naddr, (event_id, request_opt));
+                        continue;
+                    }
+                    Err(NetError::InProgress) => {
+                        // keep trying
+                        debug!(
                         "Could not yet poll next reply from {naddr}: request already in progress",
                     );
-                    inflight.insert(naddr, (event_id, request_opt));
-                    continue;
-                }
-                Err(e) => {
-                    // declare this neighbor as dead by default
-                    debug!("Failed to poll next reply from {naddr}: {e}");
-                    dead.push((
-                        naddr,
-                        DropReason::DeadConnection(format!("Failed to poll next reply: {e}")),
-                    ));
-                    continue;
-                }
-            };
+                        inflight.insert(naddr, (event_id, request_opt));
+                        continue;
+                    }
+                    Err(e) => {
+                        // declare this neighbor as dead by default
+                        debug!("Failed to poll next reply from {naddr}: {e}");
+                        dead.push((
+                            naddr,
+                            DropReason::DeadConnection(format!("Failed to poll next reply: {e}")),
+                        ));
+                        continue;
+                    }
+                };
 
             ret.push((naddr, response));
         }
