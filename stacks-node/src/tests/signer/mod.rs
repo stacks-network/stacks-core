@@ -70,9 +70,9 @@ use super::nakamoto_integrations::{
 use super::neon_integrations::{
     copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
 };
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_wait_for_commits, POX_4_DEFAULT_STACKER_BALANCE,
 };
