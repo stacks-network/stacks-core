@@ -810,7 +810,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Ok(());
         }
         if neighbor_rpc.is_dead_or_broken(network, &self.naddr) {
-            return Err(NetError::PeerNotConnected);
+            return Err(NetError::PeerNotConnected(format!("Failed to send next unconfirmed download request to {:?}: connection is dead or broken", &self.naddr)));
         }
 
         let Some(peerhost) = NeighborRPC::get_peer_host(network, &self.naddr) else {
@@ -821,7 +821,10 @@ impl NakamotoUnconfirmedTenureDownloader {
                 DropReason::DeadConnection("No authenticated connection open".into()),
                 DropSource::NakamotoUnconfirmedTenureDownloader,
             );
-            return Err(NetError::PeerNotConnected);
+            return Err(NetError::PeerNotConnected(format!(
+                "No authenticated connection open to {:?} for unconfirmed tenure download",
+                &self.naddr
+            )));
         };
 
         let Some(request) = self.make_next_download_request(peerhost) else {
