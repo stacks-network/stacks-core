@@ -21,6 +21,7 @@ use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{
     compute_cost, ClarityCostFunctionEvaluator, ClarityCostFunctionReference, CostErrors,
     DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
+    COSTS_4_NAME,
 };
 use clarity::vm::errors::Error;
 use clarity::vm::events::StacksTransactionEvent;
@@ -935,7 +936,8 @@ fn proptest_cost_fn(cost_fn: &ClarityCostFunction, cost_contract_name: &str) {
         let epoch = match cost_contract_name {
             COSTS_1_NAME => StacksEpochId::Epoch20,
             COSTS_2_NAME => StacksEpochId::Epoch2_05,
-            COSTS_3_NAME => StacksEpochId::latest(),
+            COSTS_3_NAME => StacksEpochId::Epoch30,
+            COSTS_4_NAME => StacksEpochId::Epoch33,
             _ => panic!(),
         };
         with_owned_env(epoch, use_mainnet, |mut owned_env| {
@@ -969,6 +971,11 @@ fn proptest_replacements_costs_2() {
 #[test]
 fn proptest_replacements_costs_3() {
     proptest_cost_contract(COSTS_3_NAME);
+}
+
+#[test]
+fn proptest_replacements_costs_4() {
+    proptest_cost_contract(COSTS_4_NAME);
 }
 
 fn test_program_cost(
