@@ -193,6 +193,7 @@ impl NeighborRPC {
     }
 
     /// Send an HTTP request to the given neighbor's HTTP endpoint.
+    /// The peer must already be connected and authenticated via the p2p network.
     /// Returns Ok(()) if we successfully queue the request.
     /// Returns Err(..) if we fail to connect to the remote peer for some reason.
     pub fn send_request(
@@ -288,7 +289,11 @@ impl NeighborRPC {
 
             // drive socket I/O
             if let Some(request) = request_opt.take() {
-                convo.send_request(request)?;
+                let res = convo.send_request(request.clone());
+                if let Err(NetError::InProgress) = res {
+                    // try again -- another state machine is using this conversation
+                    request_opt.replace(request);
+                }
             };
             HttpPeer::saturate_http_socket(socket, convo)?;
 

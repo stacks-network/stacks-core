@@ -543,7 +543,7 @@ impl HttpPeer {
                 }
             }
         }
-    }, 
+    }
 
     /// Process sockets that are ready, but specifically inbound or outbound only.
     /// Advance the state of all such conversations with remote peers.
