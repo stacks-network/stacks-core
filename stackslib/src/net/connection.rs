@@ -1318,7 +1318,10 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         );
 
         if total_sent == 0 && disconnected && !blocked {
-            return Err(net_error::PeerNotConnected);
+            return Err(net_error::PeerNotConnected(format!(
+                "Failed to send bytes: total_sent = {}, disconnected = {}, blocked = {}",
+                total_sent, disconnected, blocked
+            )));
         }
         update_outbound_bandwidth(total_sent as i64);
         Ok(total_sent)
