@@ -35,7 +35,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64, MAX_VALUE_SIZE,
+    TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
 use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 

@@ -221,7 +221,7 @@ impl HeadersDB for UnitTestHeaderDB {
         {
             Some(FIRST_BURNCHAIN_CONSENSUS_HASH)
         } else {
-            Some(consensus_hash_from_height(id_bhh.as_bytes()[0] as u32).into())
+            Some(consensus_hash_from_height(id_bhh.as_bytes()[0] as u32))
         }
     }
 
