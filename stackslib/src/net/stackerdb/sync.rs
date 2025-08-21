@@ -887,7 +887,10 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                 &self.smart_contract_id,
                 network.get_local_peer()
             );
-            return Err(net_error::PeerNotConnected);
+            return Err(net_error::PeerNotConnected(format!(
+                "StackerDB connect_try_finish: no valid replicas for {}",
+                &self.smart_contract_id
+            )));
         }
 
         Ok(true)
@@ -1102,7 +1105,9 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
             .map(|naddr| self.unpin_connected_replica(network, &naddr));
 
         if requested == 0 && self.comms.count_inflight() == 0 {
-            return Err(net_error::PeerNotConnected);
+            return Err(net_error::PeerNotConnected(format!(
+                "StackerDB getchunks_begin: no chunks to request"
+            )));
         }
 
         self.next_chunk_fetch_priority = cur_priority;
