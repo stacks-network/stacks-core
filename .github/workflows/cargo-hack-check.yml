@@ -130,9 +130,6 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1.13.0
         with:
           toolchain: nightly
-          cache: true
-          cache-key: >
-            fuzz-nightly-${{ runner.os }}-${{ hashFiles('clarity/fuzz/Cargo.lock') }}
 
       - name: Check fuzz targets
         run: |
