@@ -125,27 +125,6 @@ struct LeaderBlockCommitFees {
     final_size: u64,
 }
 
-#[cfg(test)]
-pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
-    if let BitcoinAddress::Segwit(segwit_addr) = btc_addr {
-        error!("CANARY: Re-encoding {segwit_addr}");
-        panic!("CANARY: Some test use SEGWIT");
-        /*
-        // regtest segwit addresses use a different hrp
-        let s = segwit_addr.to_bech32_hrp("bcrt");
-        warn!("Re-encoding {segwit_addr} to {s}");
-        s
-        */
-    } else {
-        format!("{btc_addr}")
-    }
-}
-
-#[cfg(not(test))]
-pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
-    format!("{btc_addr}")
-}
-
 // TODO: add tests from mutation testing results #4862
 #[cfg_attr(test, mutants::skip)]
 pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParameters {
@@ -640,7 +619,7 @@ impl BitcoinRegtestController {
     pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
         // Configure UTXO filter, disregard what epoch we're in
         let address = self.get_miner_address(StacksEpochId::Epoch21, public_key);
-        let filter_addresses = vec![addr2str(&address)];
+        let filter_addresses = vec![address.to_string()];
 
         let pubk = if self.config.miner.segwit {
             let mut p = public_key.clone();
@@ -659,11 +638,7 @@ impl BitcoinRegtestController {
         let max_conf = 9999999i64;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(1);
 
-        test_debug!(
-            "List unspent for '{}' ('{}')",
-            &addr2str(&address),
-            pubk.to_hex()
-        );
+        test_debug!("List unspent for '{address}' ('{}')", pubk.to_hex());
         let payload = BitcoinRPCRequest {
             method: "listunspent".to_string(),
             params: vec![
@@ -759,8 +734,8 @@ impl BitcoinRegtestController {
 
         // Configure UTXO filter
         let address = self.get_miner_address(epoch_id, &pubk);
-        test_debug!("Get UTXOs for {} ({})", pubk.to_hex(), addr2str(&address),);
-        let filter_addresses = vec![addr2str(&address)];
+        test_debug!("Get UTXOs for {} ({address})", pubk.to_hex());
+        let filter_addresses = vec![address.to_string()];
 
         let mut utxos = loop {
             let result = BitcoinRPCRequest::list_unspent(
@@ -1688,9 +1663,8 @@ impl BitcoinRegtestController {
                 Some(utxos) => utxos,
                 None => {
                     warn!(
-                        "No UTXOs for {} ({}) in epoch {epoch_id}",
+                        "No UTXOs for {} ({addr}) in epoch {epoch_id}",
                         &public_key.to_hex(),
-                        &addr2str(&addr)
                     );
                     return Err(BurnchainControllerError::NoUTXOs);
                 }
@@ -1972,7 +1946,7 @@ impl BitcoinRegtestController {
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
         let result =
-            BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, addr2str(&address));
+            BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, address.to_string());
 
         match result {
             Ok(_) => {}
@@ -1996,7 +1970,8 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let result = BitcoinRPCRequest::generate_empty_to_address(&self.config, addr2str(&address));
+        let result =
+            BitcoinRPCRequest::generate_empty_to_address(&self.config, address.to_string());
 
         match result {
             Ok(_) => {}
@@ -2120,14 +2095,13 @@ impl BitcoinRegtestController {
             // if we only have one pubkey, just generate all the blocks at once
             let address = self.get_miner_address(StacksEpochId::Epoch21, &pks[0]);
             debug!(
-                "Generate to address '{}' for public key '{}'",
-                &addr2str(&address),
+                "Generate to address '{address}' for public key '{}'",
                 &pks[0].to_hex()
             );
             if let Err(e) = BitcoinRPCRequest::generate_to_address(
                 &self.config,
                 num_blocks.try_into().unwrap(),
-                addr2str(&address),
+                address.to_string(),
             ) {
                 error!("Bitcoin RPC failure: error generating block {e:?}");
                 panic!();
@@ -2142,12 +2116,12 @@ impl BitcoinRegtestController {
             if i < pks.len() {
                 debug!(
                     "Generate to address '{}' for public key '{}'",
-                    &addr2str(&address),
+                    address.to_string(),
                     &pk.to_hex(),
                 );
             }
             if let Err(e) =
-                BitcoinRPCRequest::generate_to_address(&self.config, 1, addr2str(&address))
+                BitcoinRPCRequest::generate_to_address(&self.config, 1, address.to_string())
             {
                 error!("Bitcoin RPC failure: error generating block {e:?}");
                 panic!();
@@ -2706,14 +2680,13 @@ impl BitcoinRPCRequest {
 
         for address in addresses.into_iter() {
             debug!(
-                "Import address {} for public key {}",
-                addr2str(&address),
+                "Import address {address} for public key {}",
                 public_key.to_hex()
             );
 
             let payload = BitcoinRPCRequest {
                 method: "getdescriptorinfo".to_string(),
-                params: vec![format!("addr({})", &addr2str(&address)).into()],
+                params: vec![format!("addr({address})").into()],
                 id: "stacks".to_string(),
                 jsonrpc: "2.0".to_string(),
             };
@@ -2725,14 +2698,13 @@ impl BitcoinRPCRequest {
                 .and_then(|obj| obj.get("checksum"))
                 .and_then(|checksum_val| checksum_val.as_str())
                 .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{}\"`",
-                    &addr2str(&address)
+                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{address}\"`",
                 )))?;
 
             let payload = BitcoinRPCRequest {
                 method: "importdescriptors".to_string(),
                 params: vec![
-                    json!([{ "desc": format!("addr({})#{checksum}", &addr2str(&address)), "timestamp": 0, "internal": true }]),
+                    json!([{ "desc": format!("addr({address})#{checksum}"), "timestamp": 0, "internal": true }]),
                 ],
                 id: "stacks".to_string(),
                 jsonrpc: "2.0".to_string(),

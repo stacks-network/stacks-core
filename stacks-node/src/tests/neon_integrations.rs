@@ -86,7 +86,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use super::bitcoin_regtest::BitcoinCoreController;
 use super::{ADDR_4, SK_1, SK_2, SK_3};
-use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -10018,7 +10018,7 @@ fn listunspent_max_utxos() {
     )
     .expect("Public key incorrect");
 
-    let filter_addresses = vec![addr2str(&address)];
+    let filter_addresses = vec![address.to_string()];
 
     let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
     let utxos = res.expect("Failed to get utxos");
