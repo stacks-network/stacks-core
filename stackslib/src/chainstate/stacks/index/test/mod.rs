@@ -107,13 +107,12 @@ pub fn merkle_test(s: &mut TrieStorageConnection<BlockHeaderHash>, path: &[u8], 
     marf_value.copy_from_slice(&value[0..40]);
 
     let proof =
-        TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value.clone()), &block_header)
-            .unwrap();
+        TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value), &block_header).unwrap();
     let empty_root_to_block = HashMap::new();
 
     assert!(proof.verify(
         &triepath,
-        &MARFValue(marf_value.clone()),
+        &MARFValue(marf_value),
         &root_hash,
         &empty_root_to_block
     ));
@@ -137,7 +136,7 @@ pub fn merkle_test_marf(
 
     s.open_block(header).unwrap();
     let (_, root_hash) = Trie::read_root(s).unwrap();
-    let triepath = TrieHash::from_bytes(&path[..]).unwrap();
+    let triepath = TrieHash::from_bytes(path).unwrap();
 
     let mut marf_value = [0u8; 40];
     marf_value.copy_from_slice(&value[0..40]);

@@ -375,7 +375,7 @@ fn pox_extend_transition() {
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -423,7 +423,7 @@ fn pox_extend_transition() {
     // produce blocks until epoch 2.1
     while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch21].start_height {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        alice_rewards_to_v2_start_checks(latest_block, &mut peer);
+        alice_rewards_to_v2_start_checks(latest_block.clone(), &mut peer);
     }
 
     // in the next tenure, PoX 2 should now exist.
@@ -1385,7 +1385,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -1773,7 +1773,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -1939,7 +1939,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 
     let tip = get_tip(peer.sortdb.as_ref());
     let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
-    assert_eq!(tipId, latest_block.unwrap());
+    assert_eq!(tipId, latest_block.clone().unwrap());
 
     let in_prepare_phase = burnchain.is_in_prepare_phase(tip.block_height);
     assert!(in_prepare_phase);
@@ -2125,7 +2125,12 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     with_sortdb(&mut peer, |chainstate, sortdb| {
         let mut check_cycle = next_reward_cycle as u64;
         let reward_set = chainstate
-            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .get_reward_addresses_in_cycle(
+                &burnchain,
+                sortdb,
+                check_cycle,
+                latest_block.as_ref().unwrap(),
+            )
             .unwrap();
         assert_eq!(reward_set.len(), 2);
         assert_eq!(reward_set[0].stacker.as_ref(), Some(&steph_principal));
@@ -2137,7 +2142,12 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 
         check_cycle += 1;
         let reward_set = chainstate
-            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .get_reward_addresses_in_cycle(
+                &burnchain,
+                sortdb,
+                check_cycle,
+                latest_block.as_ref().unwrap(),
+            )
             .unwrap();
         assert_eq!(reward_set.len(), 1);
         assert_eq!(reward_set[0].stacker.as_ref(), Some(&steph_principal));
@@ -2146,7 +2156,12 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 
         check_cycle += 1;
         let reward_set = chainstate
-            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .get_reward_addresses_in_cycle(
+                &burnchain,
+                sortdb,
+                check_cycle,
+                latest_block.as_ref().unwrap(),
+            )
             .unwrap();
         assert!(reward_set.is_empty());
     });
@@ -2416,7 +2431,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2536,7 +2551,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2767,7 +2782,7 @@ fn pox_4_revoke_delegate_stx_events() {
     let steph = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
 
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -4186,7 +4201,7 @@ impl StackerSignerInfo {
         let public_key = StacksPublicKey::from_private(&private_key);
         let address = key_to_stacks_addr(&private_key);
         let pox_address =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *address.bytes());
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, address.bytes().clone());
         let principal = PrincipalData::from(address.clone());
         let nonce = 0;
         Self {
@@ -5725,7 +5740,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -5762,7 +5777,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -5799,7 +5814,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -7092,18 +7107,8 @@ fn test_scenario_one(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, next_reward_cycle);
     // Alice vote
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
@@ -7130,12 +7135,8 @@ fn test_scenario_one(use_nakamoto: bool) {
     if let Some(test_signers) = test_signers.clone() {
         let tester_key = test_signers.signer_keys[0].clone();
         let tester_addr = key_to_stacks_addr(&tester_key);
-        let tester_index = get_signer_index(
-            &mut peer,
-            latest_block,
-            tester_addr.clone(),
-            next_reward_cycle,
-        );
+        let tester_index =
+            get_signer_index(&mut peer, &latest_block, &tester_addr, next_reward_cycle);
         let tester_vote = make_signers_vote_for_aggregate_public_key(
             &tester_key,
             1, // only tx is a stack-stx
@@ -7166,7 +7167,7 @@ fn test_scenario_one(use_nakamoto: bool) {
         &mut test_signers,
     );
 
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, next_reward_cycle)
         .expect("No approved key found");
 
     // Start replay transactions
@@ -7818,18 +7819,8 @@ fn test_scenario_two(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, next_reward_cycle);
     // Alice expected vote
     let alice_vote_expected = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
@@ -8565,18 +8556,8 @@ fn test_scenario_four(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, next_reward_cycle);
     // Alice err vote
     let alice_vote_err = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
@@ -8613,12 +8594,8 @@ fn test_scenario_four(use_nakamoto: bool) {
     if let Some(test_signers) = test_signers.clone() {
         let tester_key = test_signers.signer_keys[0].clone();
         let tester_addr = key_to_stacks_addr(&tester_key);
-        let tester_index = get_signer_index(
-            &mut peer,
-            latest_block,
-            tester_addr.clone(),
-            next_reward_cycle,
-        );
+        let tester_index =
+            get_signer_index(&mut peer, &latest_block, &tester_addr, next_reward_cycle);
         let tester_vote = make_signers_vote_for_aggregate_public_key(
             &tester_key,
             1, // only tx is a stack-stx
@@ -8675,7 +8652,7 @@ fn test_scenario_four(use_nakamoto: bool) {
         .unwrap();
     assert_eq!(bob_expected_vote, Value::Bool(true));
 
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, next_reward_cycle)
         .expect("No approved key found");
     assert_eq!(
         approved_key,
@@ -8708,7 +8685,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     alice.nonce += 1;
     // Now starting second round of vote txs
     // Fetch signer indices in reward cycle 7
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), 7);
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, 7);
     // Alice err vote
     let alice_vote_expected_err = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
@@ -8761,7 +8738,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     assert_eq!(alice_expected_vote_err, Value::UInt(14));
 
     // Get approved key & assert that it wasn't sent (None)
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, 7);
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, 7);
     assert_eq!(approved_key, None);
 }
 
@@ -10049,9 +10026,9 @@ fn test_scenario_five(use_nakamoto: bool) {
 
     let cycle_id = next_reward_cycle;
     // Create vote txs for each signer
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
-    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
-    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, cycle_id);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, cycle_id);
+    let carl_index = get_signer_index(&mut peer, &latest_block, &carl.address, cycle_id);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
@@ -10111,7 +10088,7 @@ fn test_scenario_five(use_nakamoto: bool) {
             panic!("Failed to find vote transaction ({txid}) in observed transactions")
         }
     }
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, next_reward_cycle)
         .expect("No approved key found");
     assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
 
@@ -10257,9 +10234,9 @@ fn test_scenario_five(use_nakamoto: bool) {
             .generate_aggregate_key(cycle_id as u64),
     );
     // create vote txs
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
-    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
-    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, cycle_id);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, cycle_id);
+    let carl_index = get_signer_index(&mut peer, &latest_block, &carl.address, cycle_id);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
@@ -10320,7 +10297,7 @@ fn test_scenario_five(use_nakamoto: bool) {
             panic!("Failed to find vote transaction ({txid}) in observed transactions")
         }
     }
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, next_reward_cycle)
         .expect("No approved key found");
     assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
 

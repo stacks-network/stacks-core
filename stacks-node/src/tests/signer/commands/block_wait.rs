@@ -275,17 +275,14 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
             .load(Ordering::SeqCst);
         let expected_height = miner_last_confirmed_height + 1;
 
-        info!("Waiting for block proposal at height {}", expected_height);
+        info!("Waiting for block proposal at height {expected_height}");
 
         let proposed_block = wait_for_block_proposal(30, expected_height, &miner_pk)
             .expect("Timed out waiting for block proposal");
 
         let block_hash = proposed_block.header.signer_signature_hash();
 
-        info!(
-            "Received block proposal at height {} with hash {}",
-            expected_height, block_hash
-        );
+        info!("Received block proposal at height {expected_height} with hash {block_hash}");
 
         // Handle different expectations after the proposal
         match &self.expectation {
@@ -297,7 +294,7 @@ impl Command<SignerTestState, SignerTestContext> for ChainExpectNakaBlockProposa
 
                 wait_for_block_global_rejection_with_reject_reason(
                     30,
-                    block_hash,
+                    &block_hash,
                     self.ctx.get_num_signers(),
                     reason.clone(),
                 )

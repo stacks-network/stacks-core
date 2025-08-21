@@ -98,7 +98,7 @@ impl PoxAddress {
     #[cfg(any(test, feature = "testing"))]
     pub fn hashmode(&self) -> Option<AddressHashMode> {
         match *self {
-            PoxAddress::Standard(_, hm) => hm.clone(),
+            PoxAddress::Standard(_, hm) => hm,
             _ => None,
         }
     }
@@ -117,7 +117,7 @@ impl PoxAddress {
     #[cfg(any(test, feature = "testing"))]
     pub fn hash160(&self) -> Hash160 {
         match self {
-            PoxAddress::Standard(addr, _) => *addr.bytes(),
+            PoxAddress::Standard(addr, _) => addr.bytes().clone(),
             _ => panic!("Called hash160 on a non-standard PoX address"),
         }
     }
@@ -311,7 +311,7 @@ impl PoxAddress {
                     }
                 };
                 let version = Value::buff_from_byte(*hm as u8);
-                let hashbytes = Value::buff_from(Vec::from(addr.bytes().0.clone()))
+                let hashbytes = Value::buff_from(Vec::from(addr.bytes().0))
                     .expect("FATAL: hash160 does not fit into a Clarity value");
 
                 let tuple_data = TupleData::from_data(vec![
@@ -324,7 +324,7 @@ impl PoxAddress {
             }
             PoxAddress::Addr20(ref _mainnet, ref addrtype, ref addrbytes) => {
                 let version = Value::buff_from_byte(*addrtype as u8);
-                let hashbytes = Value::buff_from(Vec::from(addrbytes.clone()))
+                let hashbytes = Value::buff_from(Vec::from(*addrbytes))
                     .expect("FATAL: could not create a 20-byte buffer");
 
                 let tuple_data = TupleData::from_data(vec![
@@ -337,7 +337,7 @@ impl PoxAddress {
             }
             PoxAddress::Addr32(ref _mainnet, ref addrtype, ref addrbytes) => {
                 let version = Value::buff_from_byte(*addrtype as u8);
-                let hashbytes = Value::buff_from(Vec::from(addrbytes.clone()))
+                let hashbytes = Value::buff_from(Vec::from(*addrbytes))
                     .expect("FATAL: could not create a 32-byte buffer");
 
                 let tuple_data = TupleData::from_data(vec![

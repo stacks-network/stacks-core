@@ -148,7 +148,7 @@ impl NetworkState {
         })?;
 
         let network_server = NetworkServerState {
-            addr: local_addr.clone(),
+            addr: local_addr,
             server_socket: server,
             server_event: mio::Token(next_server_event),
         };

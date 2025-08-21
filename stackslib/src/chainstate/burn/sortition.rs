@@ -437,7 +437,7 @@ impl BlockSnapshot {
         null_winner.block_header_hash = {
             // make the block header hash different, to render it different from the winner.
             // Just flip the block header bits.
-            let mut bhh_bytes = null_winner.block_header_hash.0.clone();
+            let mut bhh_bytes = null_winner.block_header_hash.0;
             for byte in bhh_bytes.iter_mut() {
                 *byte = !*byte;
             }

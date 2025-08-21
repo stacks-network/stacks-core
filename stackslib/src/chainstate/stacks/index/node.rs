@@ -372,7 +372,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     pub fn ptr(&self) -> TriePtr {
         // should always be true by construction
         assert!(!self.node_ptrs.is_empty());
-        self.node_ptrs.last().unwrap().clone()
+        *self.node_ptrs.last().unwrap()
     }
 
     /// last node visited.
@@ -509,7 +509,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         self.block_hashes.pop();
 
         self.nodes.push(node.clone());
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(hash.clone());
 
         self.last_error = None;
@@ -569,7 +569,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
             &block_hash
         );
 
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(block_hash);
 
         self.last_error = None;
@@ -1051,21 +1051,21 @@ impl TrieNode for TrieNode48 {
         for i in 0..48 {
             if self.ptrs[i].is_empty() {
                 self.indexes[c as usize] = i as i8;
-                self.ptrs[i] = ptr.clone();
+                self.ptrs[i] = *ptr;
                 return true;
             }
         }
-        return false;
+        false
     }
 
     #[allow(clippy::indexing_slicing)]
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let i = self.indexes[ptr.chr() as usize];
         if i >= 0 {
-            self.ptrs[i as usize] = ptr.clone();
-            return true;
+            self.ptrs[i as usize] = *ptr;
+            true
         } else {
-            return false;
+            false
         }
     }
 
@@ -1121,18 +1121,18 @@ impl TrieNode for TrieNode256 {
             return true;
         }
         let c = ptr.chr() as usize;
-        self.ptrs[c] = ptr.clone();
-        return true;
+        self.ptrs[c] = *ptr;
+        true
     }
 
     #[allow(clippy::indexing_slicing)]
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let c = ptr.chr() as usize;
         if !self.ptrs[c].is_empty() && self.ptrs[c].chr() == ptr.chr() {
-            self.ptrs[c] = ptr.clone();
-            return true;
+            self.ptrs[c] = *ptr;
+            true
         } else {
-            return false;
+            false
         }
     }
 

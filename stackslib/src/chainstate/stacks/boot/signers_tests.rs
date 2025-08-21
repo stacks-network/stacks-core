@@ -490,14 +490,14 @@ pub fn readonly_call_with_sortdb(
 
 pub fn get_signer_index(
     peer: &mut TestPeer<'_>,
-    latest_block_id: StacksBlockId,
-    signer_address: StacksAddress,
+    latest_block_id: &StacksBlockId,
+    signer_address: &StacksAddress,
     cycle_index: u128,
 ) -> u128 {
     let cycle_mod = cycle_index % 2;
     let signers = readonly_call(
         peer,
-        &latest_block_id,
+        latest_block_id,
         "signers".into(),
         "stackerdb-get-signer-slots-page".into(),
         vec![Value::UInt(cycle_mod)],

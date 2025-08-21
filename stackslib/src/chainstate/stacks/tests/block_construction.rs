@@ -124,7 +124,7 @@ fn test_build_anchored_blocks_empty() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -247,7 +247,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -380,7 +380,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     // no time to mine anything, so all blocks should be empty
                     BlockBuilderSettings {
@@ -543,7 +543,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -768,7 +768,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -1025,7 +1025,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -1323,7 +1323,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::limited(),
                     None,
@@ -1451,7 +1451,7 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0; 20]),
+                &Hash160([0; 20]),
                 &coinbase_tx,
                 BlockBuilderSettings::max_value(),
                 None,
@@ -1542,7 +1542,7 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
                 &parent_tip,
                 vrf_proof,
                 tip.total_burn,
-                Hash160([0; 20]),
+                &Hash160([0; 20]),
             )
             .unwrap();
 
@@ -1690,7 +1690,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
-                        Hash160([tenure_id as u8; 20]),
+                        &Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         BlockBuilderSettings::limited(),
                         None,
@@ -1794,7 +1794,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -1998,7 +1998,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -2155,7 +2155,7 @@ fn test_build_anchored_blocks_invalid() {
             let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
             let mut anchored_block = StacksBlockBuilder::build_anchored_block(
-                chainstate, &sortdb.index_handle_at_tip(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, &burnchain,
+                chainstate, &sortdb.index_handle_at_tip(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, &Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, &burnchain,
             ).unwrap();
 
             if tenure_id == bad_block_tenure {
@@ -2429,7 +2429,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -2677,7 +2677,7 @@ fn test_build_microblock_stream_forks() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -3005,8 +3005,8 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
                 if tenure_id == 1 {
                     // prep for tenure 2 and 3
-                    microblock_tail_1 = Some(fork_1.as_ref().unwrap().last().clone().unwrap().header.clone());
-                    microblock_tail_2 = Some(fork_2.as_ref().unwrap().last().clone().unwrap().header.clone());
+                    microblock_tail_1 = Some(fork_1.as_ref().unwrap().last().unwrap().header.clone());
+                    microblock_tail_2 = Some(fork_2.as_ref().unwrap().last().unwrap().header.clone());
                 }
 
                 let nonce =
@@ -3102,7 +3102,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     &parent_tip,
                     parent_tip.anchored_header.as_stacks_epoch2().unwrap().total_work.burn + 1000,
                     vrf_proof,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -3679,7 +3679,7 @@ fn test_contract_call_across_clarity_versions() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                 )
                 .unwrap();
 
@@ -3922,9 +3922,9 @@ fn test_is_tx_problematic() {
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &burnchain,
                         &parent_tip,
-                        vrf_proof.clone(),
+                        vrf_proof,
                         tip.total_burn,
-                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                        &Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
                     )
                     .unwrap();
 
@@ -4099,9 +4099,9 @@ fn test_is_tx_problematic() {
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &burnchain,
                         &parent_tip,
-                        vrf_proof.clone(),
+                        vrf_proof,
                         tip.total_burn,
-                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                        &Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
                     )
                     .unwrap();
 
@@ -4149,9 +4149,9 @@ fn test_is_tx_problematic() {
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &burnchain,
                         &parent_tip,
-                        vrf_proof.clone(),
+                        vrf_proof,
                         tip.total_burn,
-                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                        &Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
                     )
                     .unwrap();
 
@@ -4201,9 +4201,9 @@ fn test_is_tx_problematic() {
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &burnchain,
                         &parent_tip,
-                        vrf_proof.clone(),
+                        vrf_proof,
                         tip.total_burn,
-                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                        &Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
                     )
                     .unwrap();
 
@@ -4246,7 +4246,7 @@ fn test_is_tx_problematic() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::limited(),
                     None,
@@ -4488,7 +4488,7 @@ fn mempool_incorporate_pox_unlocks() {
                      &parent_tip,
                      tip.total_burn,
                      vrf_proof,
-                     Hash160([tenure_id as u8; 20]),
+                     &Hash160([tenure_id as u8; 20]),
                      &coinbase_tx,
                      BlockBuilderSettings::limited(),
                      None,
@@ -4622,7 +4622,7 @@ fn test_fee_order_mismatch_nonce_order() {
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0; 20]),
+                &Hash160([0; 20]),
                 &coinbase_tx,
                 BlockBuilderSettings::max_value(),
                 None,
@@ -4783,7 +4783,7 @@ fn paramaterized_mempool_walk_test(
                 &b_1.0,
                 &b_1.1,
                 true,
-                txid,
+                &txid,
                 tx_bytes,
                 tx_fee,
                 height,
@@ -5010,7 +5010,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
             &b_1.0,
             &b_1.1,
             true,
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -5232,7 +5232,7 @@ fn run_mempool_walk_strategy_nonce_order_test<F>(
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0; 20]),
+                &Hash160([0; 20]),
                 &coinbase_tx,
                 settings,
                 None,

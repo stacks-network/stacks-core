@@ -426,15 +426,6 @@ macro_rules! impl_array_newtype {
             }
         }
 
-        impl Clone for $thing {
-            #[inline]
-            fn clone(&self) -> $thing {
-                *self
-            }
-        }
-
-        impl Copy for $thing {}
-
         impl ::std::hash::Hash for $thing {
             #[inline]
             fn hash<H>(&self, state: &mut H)

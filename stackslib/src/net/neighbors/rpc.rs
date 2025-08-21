@@ -197,7 +197,7 @@ impl NeighborRPC {
             .ok_or(NetError::PeerNotConnected)?;
         let data_url = convo.data_url.clone();
         let data_addr = if let Some(ip) = convo.data_ip {
-            ip.clone()
+            ip
         } else if convo.waiting_for_dns() {
             debug!(
                 "{}: have not resolved {} data URL {} yet: waiting for DNS",

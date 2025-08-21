@@ -241,7 +241,7 @@ impl HttpPeer {
         };
 
         let mut new_convo = ConversationHttp::new(
-            client_addr.clone(),
+            client_addr,
             outbound_url.clone(),
             peer_host,
             &self.connection_opts,

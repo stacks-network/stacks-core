@@ -31,7 +31,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let vm_key_epoch = TrieHash::from_key("vm-epoch::epoch-version");
     let vm_key_trip =
@@ -43,7 +43,7 @@ fn test_try_parse_request() {
     for key in valid_keys {
         let request = StacksHttpRequest::new_getclaritymarf(
             addr.into(),
-            key,
+            key.clone(),
             TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
             true,
         );

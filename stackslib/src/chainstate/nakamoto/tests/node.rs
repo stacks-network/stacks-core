@@ -167,7 +167,7 @@ impl TestBurnchainBlock {
         vrf_seed: VRFSeed,
         parent_is_shadow_block: bool,
     ) -> LeaderBlockCommitOp {
-        let tenure_id_as_block_hash = BlockHeaderHash(last_tenure_id.0.clone());
+        let tenure_id_as_block_hash = BlockHeaderHash(last_tenure_id.0);
         self.inner_add_block_commit(
             ic,
             miner,
@@ -485,7 +485,7 @@ impl TestStacksNode {
                 // parent sortition must be the last sortition _with a winner_.
                 // This is not guaranteed with shadow blocks, so we have to search back if
                 // necessary.
-                let mut cursor = first_parent.header.consensus_hash;
+                let mut cursor = first_parent.header.consensus_hash.clone();
                 let parent_sortition = loop {
                     let parent_sortition =
                         SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &cursor)
@@ -585,13 +585,13 @@ impl TestStacksNode {
         // the canonical tip unless overridden
         let (previous_tenure_end, previous_tenure_consensus_hash, previous_tenure_blocks) =
             if let Some(nakamoto_parent_tenure) = parent_nakamoto_tenure.as_ref() {
-                let start_block = nakamoto_parent_tenure.first().clone().unwrap();
-                let end_block = nakamoto_parent_tenure.last().clone().unwrap();
+                let start_block = nakamoto_parent_tenure.first().unwrap();
+                let end_block = nakamoto_parent_tenure.last().unwrap();
                 let tenure_len =
                     end_block.header.chain_length + 1 - start_block.header.chain_length;
                 (
                     end_block.block_id(),
-                    end_block.header.consensus_hash,
+                    end_block.header.consensus_hash.clone(),
                     tenure_len as u32,
                 )
             } else {
@@ -622,7 +622,7 @@ impl TestStacksNode {
                         &parent_block_snapshot.consensus_hash, 1, &last_tenure_id
                     );
                     (
-                        last_tenure_id,
+                        last_tenure_id.clone(),
                         parent_block_snapshot.consensus_hash.clone(),
                         1,
                     )
@@ -1132,7 +1132,7 @@ impl TestPeer<'_> {
                 )
             } else {
                 // must be a genesis block (testing only!)
-                StacksBlockId(BOOT_BLOCK_HASH.0.clone())
+                StacksBlockId(BOOT_BLOCK_HASH.0)
             };
             (last_tenure_id, parent_opt, None)
         }
@@ -1172,7 +1172,7 @@ impl TestPeer<'_> {
             if let Some(parent_tenure) = parent_tenure_opt.as_ref() {
                 let tenure_start_block = parent_tenure.first().unwrap();
                 Some((
-                    tenure_start_block.header.consensus_hash,
+                    tenure_start_block.header.consensus_hash.clone(),
                     tenure_start_block.block_id(),
                 ))
             } else if let Some(parent_block) = parent_block_opt.as_ref() {
@@ -1184,7 +1184,7 @@ impl TestPeer<'_> {
                     .unwrap()
                     .unwrap();
                 Some((
-                    parent_header_info.consensus_hash,
+                    parent_header_info.consensus_hash.clone(),
                     parent_header_info.index_block_hash(),
                 ))
             } else {
@@ -1265,7 +1265,7 @@ impl TestPeer<'_> {
         );
 
         // patch up block-commit -- these blocks all mine off of genesis
-        if last_tenure_id == StacksBlockId(BOOT_BLOCK_HASH.0.clone()) {
+        if last_tenure_id == StacksBlockId(BOOT_BLOCK_HASH.0) {
             block_commit_op.parent_block_ptr = 0;
             block_commit_op.parent_vtxindex = 0;
         }
@@ -2480,8 +2480,8 @@ impl TestPeer<'_> {
         let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
             &mut stacks_node.chainstate,
             &sortdb,
-            naka_tip_id,
-            tenure_id_consensus_hash,
+            &naka_tip_id,
+            &tenure_id_consensus_hash,
             vec![],
         )
         .unwrap();

@@ -146,7 +146,7 @@ fn trie_cursor_try_attach_leaf() {
                 assert!(ptr_opt.is_some());
 
                 let ptr = ptr_opt.unwrap();
-                ptrs.push(ptr.clone());
+                ptrs.push(ptr);
 
                 let update_res = Trie::update_root_hash(&mut f, &c);
                 assert!(update_res.is_ok());

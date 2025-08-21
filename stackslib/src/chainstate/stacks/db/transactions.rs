@@ -1027,7 +1027,7 @@ impl StacksChainState {
                         addr,
                         u128::from(*amount),
                         &BuffData {
-                            data: Vec::from(memo.0.clone()),
+                            data: Vec::from(memo.0),
                         },
                     )
                     .map_err(Error::ClarityError)?;

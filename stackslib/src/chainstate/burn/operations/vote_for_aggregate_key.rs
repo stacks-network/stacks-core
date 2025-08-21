@@ -106,22 +106,22 @@ impl VoteForAggregateKeyOp {
 
     pub fn get_sender_pubkey(tx: &BurnchainTransaction) -> Result<Secp256k1PublicKey, op_error> {
         match tx {
-            BurnchainTransaction::Bitcoin(ref btc) => match btc.inputs.get(0) {
+            BurnchainTransaction::Bitcoin(ref btc) => match btc.inputs.first() {
                 Some(BitcoinTxInput::Raw(input)) => {
                     let script_sig = Builder::from(input.scriptSig.clone()).into_script();
                     let structured_input = BitcoinTxInputStructured::from_bitcoin_p2pkh_script_sig(
                         &parse_script(&script_sig),
-                        input.tx_ref,
+                        input.tx_ref.clone(),
                     )
                     .ok_or(op_error::InvalidInput)?;
                     structured_input
                         .keys
-                        .get(0)
+                        .first()
                         .cloned()
                         .ok_or(op_error::InvalidInput)
                 }
                 Some(BitcoinTxInput::Structured(input)) => {
-                    input.keys.get(0).cloned().ok_or(op_error::InvalidInput)
+                    input.keys.first().cloned().ok_or(op_error::InvalidInput)
                 }
                 _ => Err(op_error::InvalidInput),
             },

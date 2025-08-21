@@ -405,7 +405,7 @@ impl InvGenerator {
                 break;
             }
             let cur_sortition_info = self.get_sortition_info(sortdb, &cur_consensus_hash)?;
-            let parent_sortition_consensus_hash = cur_sortition_info.parent_consensus_hash;
+            let parent_sortition_consensus_hash = cur_sortition_info.parent_consensus_hash.clone();
 
             trace!("Get sortition and tenure info for height {cur_height}. cur_consensus_hash = {cur_consensus_hash}, cur_tenure_info = {cur_tenure_opt:?}, parent_sortition_consensus_hash = {parent_sortition_consensus_hash}");
 

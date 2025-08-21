@@ -43,12 +43,14 @@ pub mod sortition;
 pub const CONSENSUS_HASH_LIFETIME: u32 = 24;
 
 // operations hash -- the sha256 hash of a sequence of transaction IDs
+#[derive(Clone)]
 pub struct OpsHash(pub [u8; 32]);
 impl_array_newtype!(OpsHash, u8, 32);
 impl_array_hexstring_fmt!(OpsHash);
 impl_byte_array_newtype!(OpsHash, u8, 32);
 
 // rolling hash of PoW outputs to mix with the VRF seed on sortition
+#[derive(Clone)]
 pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);
@@ -140,7 +142,7 @@ impl SortitionHash {
 
     /// Choose two indices (without replacement) from the range [0, max).
     pub fn choose_two(&self, max: u32) -> Vec<u32> {
-        let mut rng = ChaCha20Rng::from_seed(self.0.clone());
+        let mut rng = ChaCha20Rng::from_seed(self.0);
         if max < 2 {
             return (0..max).collect();
         }

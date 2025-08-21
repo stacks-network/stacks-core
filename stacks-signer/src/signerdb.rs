@@ -2200,7 +2200,10 @@ pub mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         db.add_block_signature(&block_id, &address1, &sig1).unwrap();
-        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![sig1.clone()]
+        );
 
         db.add_block_signature(&block_id, &address2, &sig2).unwrap();
         assert_eq!(
@@ -2222,7 +2225,10 @@ pub mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         assert!(db.add_block_signature(&block_id, &address, &sig1).unwrap());
-        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![sig1.clone()]
+        );
 
         assert!(!db.add_block_signature(&block_id, &address, &sig2).unwrap());
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
@@ -2347,7 +2353,10 @@ pub mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         assert!(db.add_block_signature(&block_id, &address, &sig1).unwrap());
-        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![sig1.clone()]
+        );
         assert!(db
             .get_block_rejection_signer_addrs(&block_id)
             .unwrap()
@@ -2502,25 +2511,25 @@ pub mod tests {
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
         let consensus_hash_3 = ConsensusHash([0x03; 20]);
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x01; 65]);
             b.block.header.chain_length = 1;
             b.burn_height = 1;
         });
         let (mut block_info_2, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x02; 65]);
             b.block.header.chain_length = 2;
             b.burn_height = 2;
         });
         let (mut block_info_3, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 3;
         });
         let (mut block_info_4, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.consensus_hash = consensus_hash_2.clone();
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 4;
@@ -2592,7 +2601,7 @@ pub mod tests {
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x01; 65]);
             b.block.header.chain_length = 1;
             b.burn_height = 1;
@@ -2603,7 +2612,7 @@ pub mod tests {
         block_info_1.proposed_time = get_epoch_time_secs() + 500;
 
         let (mut block_info_2, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x02; 65]);
             b.block.header.chain_length = 2;
             b.burn_height = 2;
@@ -2613,7 +2622,7 @@ pub mod tests {
         block_info_2.proposed_time = block_info_1.proposed_time + 5;
 
         let (mut block_info_3, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 2;
@@ -2635,7 +2644,7 @@ pub mod tests {
         block_info_4.proposed_time = block_info_1.proposed_time + 15;
 
         let (mut block_info_5, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.consensus_hash = consensus_hash_2.clone();
             b.block.header.miner_signature = MessageSignature([0x05; 65]);
             b.block.header.chain_length = 4;
             b.burn_height = 3;
@@ -2670,22 +2679,22 @@ pub mod tests {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let block_infos = generate_tenure_blocks();
-        let consensus_hash_1 = block_infos[0].block.header.consensus_hash;
-        let consensus_hash_2 = block_infos.last().unwrap().block.header.consensus_hash;
+        let consensus_hash_1 = &block_infos[0].block.header.consensus_hash;
+        let consensus_hash_2 = &block_infos.last().unwrap().block.header.consensus_hash;
         let consensus_hash_3 = ConsensusHash([0x03; 20]);
 
         db.insert_block(&block_infos[0]).unwrap();
         db.insert_block(&block_infos[1]).unwrap();
 
         // Verify tenure consensus_hash_1
-        let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_1).unwrap();
+        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_1).unwrap();
         assert_eq!(start_time, block_infos[0].proposed_time);
         assert_eq!(processing_time, 3000);
 
         db.insert_block(&block_infos[2]).unwrap();
         db.insert_block(&block_infos[3]).unwrap();
 
-        let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_1).unwrap();
+        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_1).unwrap();
         assert_eq!(start_time, block_infos[2].proposed_time);
         assert_eq!(processing_time, 5000);
 
@@ -2693,7 +2702,7 @@ pub mod tests {
         db.insert_block(&block_infos[5]).unwrap();
 
         // Verify tenure consensus_hash_2
-        let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_2).unwrap();
+        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_2).unwrap();
         assert_eq!(start_time, block_infos[4].proposed_time);
         assert_eq!(processing_time, 20000);
 
@@ -2822,7 +2831,7 @@ pub mod tests {
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (mut block_info, _) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
         });
 
         assert!(matches!(
@@ -2891,7 +2900,7 @@ pub mod tests {
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (mut block_info, _) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.chain_length = 1;
         });
 
@@ -2904,7 +2913,7 @@ pub mod tests {
         assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
         assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
 
-        block_info.block.header.consensus_hash = consensus_hash_2;
+        block_info.block.header.consensus_hash = consensus_hash_2.clone();
         block_info.block.header.chain_length = 2;
         block_info.signed_over = false;
 
@@ -3244,7 +3253,7 @@ pub mod tests {
             0,
             3,
             StateMachineUpdateContent::V0 {
-                burn_block: burn_block_1,
+                burn_block: burn_block_1.clone(),
                 burn_block_height: 100,
                 current_miner: StateMachineUpdateMinerState::ActiveMiner {
                     current_miner_pkh: Hash160([0xab; 20]),
@@ -3262,7 +3271,7 @@ pub mod tests {
             0,
             4,
             StateMachineUpdateContent::V0 {
-                burn_block: burn_block_1,
+                burn_block: burn_block_1.clone(),
                 burn_block_height: 100,
                 current_miner: StateMachineUpdateMinerState::NoValidMiner,
             },
@@ -3274,7 +3283,7 @@ pub mod tests {
             0,
             2,
             StateMachineUpdateContent::V0 {
-                burn_block: burn_block_2,
+                burn_block: burn_block_2.clone(),
                 burn_block_height: 101,
                 current_miner: StateMachineUpdateMinerState::NoValidMiner,
             },
@@ -3341,21 +3350,21 @@ pub mod tests {
 
         // Create blocks with different burn heights and signed_self timestamps (seconds since epoch)
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x01; 65]);
             b.block.header.chain_length = 1;
             b.burn_height = 1;
         });
         block_info_1.mark_locally_accepted(false).unwrap();
         let (mut block_info_2, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x02; 65]);
             b.block.header.chain_length = 2;
             b.burn_height = 2;
         });
         block_info_2.mark_locally_accepted(false).unwrap();
         let (mut block_info_3, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.consensus_hash = consensus_hash_2.clone();
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 3;

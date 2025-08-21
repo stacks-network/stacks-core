@@ -764,7 +764,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         chainstate: &StacksChainState,
     ) -> Result<(), NetError> {
         loop {
-            match self.state {
+            match &self.state {
                 NakamotoUnconfirmedDownloadState::GetTenureInfo => {
                     // gotta send that request
                     break;
@@ -773,7 +773,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                     // if we have this, then load it up
                     let Some((tenure_start_block, _sz)) = chainstate
                         .nakamoto_blocks_db()
-                        .get_nakamoto_block(&start_block_id)?
+                        .get_nakamoto_block(start_block_id)?
                     else {
                         break;
                     };

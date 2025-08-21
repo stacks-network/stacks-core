@@ -166,10 +166,10 @@ impl BlockEventDispatcher for DummyEventDispatcher {
         _metadata: &StacksHeaderInfo,
         _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
-        _winner_txid: Txid,
+        _winner_txid: &Txid,
         _rewards: &[MinerReward],
         _rewards_info: Option<&MinerRewardInfo>,
-        _parent_burn_block_hash: BurnchainHeaderHash,
+        _parent_burn_block_hash: &BurnchainHeaderHash,
         _parent_burn_block_height: u32,
         _parent_burn_block_timestamp: u64,
         _anchor_block_cost: &ExecutionCost,
@@ -4241,7 +4241,7 @@ impl StacksChainState {
     // TODO: add tests from mutation testing results #4857
     #[cfg_attr(test, mutants::skip)]
     pub fn collect_pox_4_stacking_args(op: &StackStxOp) -> Result<Vec<Value>, String> {
-        let signer_key = match op.signer_key {
+        let signer_key = match &op.signer_key {
             Some(signer_key) => match Value::buff_from(signer_key.as_bytes().to_vec()) {
                 Ok(signer_key) => signer_key,
                 Err(_) => {
@@ -4487,10 +4487,10 @@ impl StacksChainState {
                     &boot_code_id(SIGNERS_VOTING_NAME, mainnet),
                     "vote-for-aggregate-public-key",
                     &[
-                        Value::UInt(signer_index.clone().into()),
+                        Value::UInt((*signer_index).into()),
                         Value::buff_from(aggregate_key.as_bytes().to_vec()).unwrap(),
-                        Value::UInt(round.clone().into()),
-                        Value::UInt(reward_cycle.clone().into()),
+                        Value::UInt((*round).into()),
+                        Value::UInt((*reward_cycle).into()),
                     ],
                     |_, _| None,
                     None,
@@ -5054,21 +5054,21 @@ impl StacksChainState {
         conn: &Connection, // connection to the sortition DB
         pox_constants: &PoxConstants,
         chain_tip: &StacksHeaderInfo,
-        burn_tip: BurnchainHeaderHash,
+        burn_tip: &BurnchainHeaderHash,
         burn_tip_height: u32,
-        parent_consensus_hash: ConsensusHash,
-        parent_header_hash: BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
         parent_microblocks: &[StacksMicroblock],
         mainnet: bool,
         miner_id_opt: Option<usize>,
     ) -> Result<SetupBlockResult<'a, 'b>, Error> {
-        let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
+        let parent_index_hash = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
         let parent_sortition_id = burn_dbconn
-            .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
+            .get_sortition_id_from_consensus_hash(parent_consensus_hash)
             .expect("Failed to get parent SortitionID from ConsensusHash");
 
         let parent_burn_height =
-            SortitionDB::get_block_snapshot_consensus(conn, &parent_consensus_hash)?
+            SortitionDB::get_block_snapshot_consensus(conn, parent_consensus_hash)?
                 .expect("Failed to get snapshot for parent's sortition")
                 .block_height;
         let microblock_ast_rules = SortitionDB::get_ast_rules(conn, parent_burn_height)?;
@@ -5092,7 +5092,7 @@ impl StacksChainState {
                 chainstate_tx,
                 &parent_index_hash,
                 conn,
-                &burn_tip,
+                burn_tip,
                 burn_tip_height.into(),
             )?;
 
@@ -5124,8 +5124,8 @@ impl StacksChainState {
             chainstate_tx,
             clarity_instance,
             burn_dbconn,
-            &parent_consensus_hash,
-            &parent_header_hash,
+            parent_consensus_hash,
+            parent_header_hash,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
         );
@@ -5226,7 +5226,7 @@ impl StacksChainState {
         // this must happen *before* any state transformations from burn ops, rewards unlocking, etc.
         // this ensures that the .signers updates will match the PoX anchor block calculation in Epoch 2.5
         let first_block_height = burn_dbconn.get_burn_start_height();
-        let signer_set_calc;
+        let mut signer_set_calc = None;
         if evaluated_epoch >= StacksEpochId::Epoch25 {
             signer_set_calc = NakamotoSigners::check_and_handle_prepare_phase_start(
                 &mut clarity_tx,
@@ -5236,8 +5236,6 @@ impl StacksChainState {
                 // this is the block height that the write occurs *during*
                 chain_tip.stacks_block_height + 1,
             )?;
-        } else {
-            signer_set_calc = None;
         }
 
         let auto_unlock_events = if evaluated_epoch >= StacksEpochId::Epoch21 {
@@ -5337,7 +5335,7 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         miner_payouts: Option<&(MinerReward, Vec<MinerReward>, MinerReward, MinerRewardInfo)>,
         block_height: u32,
-        mblock_pubkey_hash: Hash160,
+        mblock_pubkey_hash: &Hash160,
     ) -> Result<Vec<StacksTransactionEvent>, Error> {
         // add miner payments
         if let Some((ref miner_reward, ref user_rewards, ref parent_reward, _)) = miner_payouts {
@@ -5361,7 +5359,7 @@ impl StacksChainState {
         match StacksChainState::insert_microblock_pubkey_hash(
             clarity_tx,
             block_height,
-            &mblock_pubkey_hash,
+            mblock_pubkey_hash,
         ) {
             Ok(_) => {
                 debug!(
@@ -5540,10 +5538,10 @@ impl StacksChainState {
             burn_dbconn.tx(),
             pox_constants,
             parent_chain_tip,
-            parent_burn_hash,
+            &parent_burn_hash,
             chain_tip_burn_header_height,
-            parent_consensus_hash,
-            parent_block_hash,
+            &parent_consensus_hash,
+            &parent_block_hash,
             microblocks,
             mainnet,
             None,
@@ -5684,7 +5682,7 @@ impl StacksChainState {
                 &mut clarity_tx,
                 miner_payouts_opt.as_ref(),
                 u32::try_from(block.header.total_work.work).expect("FATAL: more than 2^32 blocks"),
-                block.header.microblock_pubkey_hash,
+                &block.header.microblock_pubkey_hash,
             ) {
                 Err(Error::InvalidStacksBlock(e)) => {
                     clarity_tx.rollback_block();
@@ -6395,10 +6393,10 @@ impl StacksChainState {
                 &epoch_receipt.header.clone(),
                 &epoch_receipt.tx_receipts,
                 &parent_id,
-                winning_block_txid,
+                &winning_block_txid,
                 &epoch_receipt.matured_rewards,
                 epoch_receipt.matured_rewards_info.as_ref(),
-                epoch_receipt.parent_burn_block_hash,
+                &epoch_receipt.parent_burn_block_hash,
                 epoch_receipt.parent_burn_block_height,
                 epoch_receipt.parent_burn_block_timestamp,
                 &epoch_receipt.anchored_block_cost,
@@ -6679,7 +6677,7 @@ impl StacksChainState {
         // 1: must parse (done)
 
         // 2: it must be validly signed.
-        let epoch = clarity_connection.get_epoch().clone();
+        let epoch = clarity_connection.get_epoch();
 
         StacksChainState::process_transaction_precheck(chainstate_config, tx, epoch)
             .map_err(MemPoolRejection::FailedToValidate)?;
@@ -10256,7 +10254,7 @@ pub mod test {
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
@@ -10294,8 +10292,7 @@ pub mod test {
                             let mut signer = StacksTransactionSigner::new(&tx_stx_transfer);
                             signer.sign_origin(&privk).unwrap();
 
-                            let signed_tx = signer.get_tx().unwrap();
-                            signed_tx
+                            signer.get_tx().unwrap()
                         };
 
                         mblock_txs.push(tx);
@@ -10508,7 +10505,7 @@ pub mod test {
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
-                        Hash160([tenure_id as u8; 20]),
+                        &Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
@@ -11064,7 +11061,7 @@ pub mod test {
                             &parent_tip,
                             tip.total_burn,
                             vrf_proof,
-                            Hash160([tenure_id as u8; 20]),
+                            &Hash160([tenure_id as u8; 20]),
                             &coinbase_tx,
                             BlockBuilderSettings::max_value(),
                             None,
@@ -11093,7 +11090,7 @@ pub mod test {
                         tenure_id,
                     )],
                     vec![make_delegate_op(
-                        &del_addr,
+                        del_addr,
                         &recipient_addr,
                         tip.block_height + 1,
                         tenure_id,
@@ -11110,7 +11107,7 @@ pub mod test {
                         tenure_id,
                     )],
                     vec![make_delegate_op(
-                        &del_addr,
+                        del_addr,
                         &recipient_addr,
                         tip.block_height + 1,
                         tenure_id,
@@ -11133,7 +11130,7 @@ pub mod test {
                             tenure_id - 1,
                         ),
                         make_delegate_op(
-                            &del_addr,
+                            del_addr,
                             &recipient_addr,
                             tip.block_height + 1,
                             tenure_id,
@@ -11150,7 +11147,7 @@ pub mod test {
 
             // add one delegate-stx burn op per block
             let mut del_stx_burn_ops = vec![BlockstackOperationType::DelegateStx(
-                make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                make_delegate_op(del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
             )];
             burn_ops.append(&mut del_stx_burn_ops);
 
@@ -11384,7 +11381,7 @@ pub mod test {
                             &parent_tip,
                             tip.total_burn,
                             vrf_proof,
-                            Hash160([tenure_id as u8; 20]),
+                            &Hash160([tenure_id as u8; 20]),
                             &coinbase_tx,
                             BlockBuilderSettings::max_value(),
                             None,
@@ -11412,7 +11409,7 @@ pub mod test {
                         tenure_id,
                     )],
                     vec![make_delegate_op(
-                        &del_addr,
+                        del_addr,
                         &recipient_addr,
                         tip.block_height + 1,
                         tenure_id,
@@ -11432,7 +11429,7 @@ pub mod test {
                             tenure_id - 1,
                         ),
                         make_delegate_op(
-                            &del_addr,
+                            del_addr,
                             &recipient_addr,
                             tip.block_height + 1,
                             tenure_id,
@@ -11465,7 +11462,7 @@ pub mod test {
                             tenure_id - 1,
                         ),
                         make_delegate_op(
-                            &del_addr,
+                            del_addr,
                             &recipient_addr,
                             tip.block_height + 1,
                             tenure_id,
@@ -11510,7 +11507,7 @@ pub mod test {
                             tenure_id - 1,
                         ),
                         make_delegate_op(
-                            &del_addr,
+                            del_addr,
                             &recipient_addr,
                             tip.block_height + 1,
                             tenure_id,
@@ -11567,7 +11564,7 @@ pub mod test {
                             tenure_id - 1,
                         ),
                         make_delegate_op(
-                            &del_addr,
+                            del_addr,
                             &recipient_addr,
                             tip.block_height + 1,
                             tenure_id,
@@ -11636,7 +11633,7 @@ pub mod test {
                             tenure_id - 1,
                         ),
                         make_delegate_op(
-                            &del_addr,
+                            del_addr,
                             &recipient_addr,
                             tip.block_height + 1,
                             tenure_id,
@@ -11717,7 +11714,7 @@ pub mod test {
                             tenure_id - 1,
                         ),
                         make_delegate_op(
-                            &del_addr,
+                            del_addr,
                             &recipient_addr,
                             tip.block_height + 1,
                             tenure_id,
@@ -11798,7 +11795,7 @@ pub mod test {
                             tenure_id - 1,
                         ),
                         make_delegate_op(
-                            &del_addr,
+                            del_addr,
                             &recipient_addr,
                             tip.block_height + 1,
                             tenure_id,
@@ -11814,7 +11811,7 @@ pub mod test {
                         tenure_id,
                     )],
                     vec![make_delegate_op(
-                        &del_addr,
+                        del_addr,
                         &recipient_addr,
                         tip.block_height + 1,
                         tenure_id,
@@ -11830,7 +11827,7 @@ pub mod test {
 
             // add one delegate-stx burn op per block
             let mut del_stx_burn_ops = vec![BlockstackOperationType::DelegateStx(
-                make_delegate_op(&del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
+                make_delegate_op(del_addr, &recipient_addr, tip.block_height + 1, tenure_id),
             )];
             burn_ops.append(&mut del_stx_burn_ops);
 

@@ -72,14 +72,14 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     /// Obtain a possibly-cached node
     pub fn load_node(&self, block_id: u32, trieptr: &TriePtr) -> Option<TrieNodeType> {
         self.node_cache
-            .get(&TrieNodeAddr(block_id, trieptr.clone()))
+            .get(&TrieNodeAddr(block_id, *trieptr))
             .cloned()
     }
 
     /// Obtain a possibly-cached node hash
     pub fn load_node_hash(&self, block_id: u32, trieptr: &TriePtr) -> Option<TrieHash> {
         self.hash_cache
-            .get(&TrieNodeAddr(block_id, trieptr.clone()))
+            .get(&TrieNodeAddr(block_id, *trieptr))
             .cloned()
     }
 
@@ -91,7 +91,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
         node: TrieNodeType,
         hash: TrieHash,
     ) {
-        self.store_node(block_id, trieptr.clone(), node);
+        self.store_node(block_id, trieptr, node);
         self.store_node_hash(block_id, trieptr, hash)
     }
 

@@ -135,17 +135,17 @@ pub struct TestMinerFactory {
 
 impl TestMiner {
     pub fn new(
-        burnchain: &Burnchain,
+        burnchain: Burnchain,
         privks: Vec<StacksPrivateKey>,
         num_sigs: u16,
-        hash_mode: &AddressHashMode,
+        hash_mode: AddressHashMode,
         chain_id: u32,
     ) -> TestMiner {
         TestMiner {
-            burnchain: burnchain.clone(),
+            burnchain,
             privks,
             num_sigs,
-            hash_mode: hash_mode.clone(),
+            hash_mode,
             microblock_privks: vec![],
             vrf_keys: vec![],
             vrf_key_map: HashMap::new(),
@@ -330,7 +330,7 @@ impl TestMinerFactory {
 
     pub fn next_miner(
         &mut self,
-        burnchain: &Burnchain,
+        burnchain: Burnchain,
         num_keys: u16,
         num_sigs: u16,
         hash_mode: AddressHashMode,
@@ -340,8 +340,8 @@ impl TestMinerFactory {
             keys.push(self.next_private_key());
         }
 
-        test_debug!("New miner: {:?} {}:{:?}", &hash_mode, num_sigs, &keys);
-        let mut m = TestMiner::new(burnchain, keys, num_sigs, &hash_mode, self.chain_id);
+        test_debug!("New miner: {hash_mode:?} {num_sigs}:{keys:?}");
+        let mut m = TestMiner::new(burnchain, keys, num_sigs, hash_mode, self.chain_id);
         m.id = self.next_miner_id;
         self.next_miner_id += 1;
         m
@@ -424,7 +424,7 @@ impl TestBurnchainBlock {
             .map(StacksPublicKey::from_private)
             .collect();
         let apparent_sender =
-            BurnchainSigner::mock_parts(miner.hash_mode.clone(), miner.num_sigs as usize, pubks);
+            BurnchainSigner::mock_parts(miner.hash_mode, miner.num_sigs as usize, pubks);
 
         let last_snapshot = match fork_snapshot {
             Some(sn) => sn.clone(),
@@ -767,9 +767,9 @@ impl TestBurnchainFork {
 
             self.blocks.push(block);
             self.mined += 1;
-            self.tip_index_root = snapshot.index_root;
-            self.tip_header_hash = snapshot.burn_header_hash;
-            self.tip_sortition_id = snapshot.sortition_id;
+            self.tip_index_root = snapshot.index_root.clone();
+            self.tip_header_hash = snapshot.burn_header_hash.clone();
+            self.tip_sortition_id = snapshot.sortition_id.clone();
         }
 
         // give back the new chain tip
@@ -803,9 +803,9 @@ impl TestBurnchainFork {
 
             self.blocks.push(block);
             self.mined += 1;
-            self.tip_index_root = snapshot.index_root;
-            self.tip_header_hash = snapshot.burn_header_hash;
-            self.tip_sortition_id = snapshot.sortition_id;
+            self.tip_index_root = snapshot.index_root.clone();
+            self.tip_header_hash = snapshot.burn_header_hash.clone();
+            self.tip_sortition_id = snapshot.sortition_id.clone();
         }
 
         // give back the new chain tip
@@ -924,7 +924,7 @@ fn mine_10_stacks_blocks_1_fork() {
     let mut miners = vec![];
     for i in 0..10 {
         miners.push(miner_factory.next_miner(
-            &node.burnchain,
+            node.burnchain.clone(),
             1,
             1,
             AddressHashMode::SerializeP2PKH,
@@ -971,7 +971,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint() {
     let mut miners = vec![];
     for i in 0..10 {
         miners.push(miner_factory.next_miner(
-            &node.burnchain,
+            node.burnchain.clone(),
             1,
             1,
             AddressHashMode::SerializeP2PKH,
@@ -1086,7 +1086,7 @@ fn mine_10_stacks_blocks_2_forks_disjoint_same_blocks() {
     let mut miners = vec![];
     for i in 0..10 {
         miners.push(miner_factory.next_miner(
-            &node.burnchain,
+            node.burnchain.clone(),
             1,
             1,
             AddressHashMode::SerializeP2PKH,

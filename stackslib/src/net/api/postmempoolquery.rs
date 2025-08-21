@@ -280,7 +280,7 @@ impl RPCRequestHandler for RPCMempoolQueryRequestHandler {
             let max_txs = network.connection_opts.mempool_max_tx_query;
             debug!(
                 "Begin mempool query";
-                "page_id" => %page_id.map(|txid| format!("{}", &txid)).unwrap_or("(none".to_string()),
+                "page_id" => %page_id.as_ref().map(|txid| format!("{txid}")).unwrap_or("(none".to_string()),
                 "coinbase_height" => coinbase_height,
                 "max_txs" => max_txs
             );

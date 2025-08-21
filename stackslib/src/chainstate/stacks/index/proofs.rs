@@ -315,17 +315,17 @@ impl<T: MarfTrieId> StacksMessageCodec for TrieMerkleProofType<T> {
         })?;
 
         let codec = match type_byte {
-            TrieMerkleProofTypeIndicator::Node4 => {
-                TrieMerkleProofType::Node4(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 3]))
-            }
-            TrieMerkleProofTypeIndicator::Node16 => {
-                TrieMerkleProofType::Node16(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 15]))
-            }
-            TrieMerkleProofTypeIndicator::Node48 => {
-                TrieMerkleProofType::Node48(deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 47]))
-            }
+            TrieMerkleProofTypeIndicator::Node4 => TrieMerkleProofType::Node4(
+                deserialize_id_hash_node!(fd, std::array::from_fn(|_| TrieHash([0; 32]))),
+            ),
+            TrieMerkleProofTypeIndicator::Node16 => TrieMerkleProofType::Node16(
+                deserialize_id_hash_node!(fd, std::array::from_fn(|_| TrieHash([0; 32]))),
+            ),
+            TrieMerkleProofTypeIndicator::Node48 => TrieMerkleProofType::Node48(
+                deserialize_id_hash_node!(fd, std::array::from_fn(|_| TrieHash([0; 32]))),
+            ),
             TrieMerkleProofTypeIndicator::Node256 => TrieMerkleProofType::Node256(
-                deserialize_id_hash_node!(fd, [TrieHash([0; 32]); 255]),
+                deserialize_id_hash_node!(fd, std::array::from_fn(|_| TrieHash([0; 32]))),
             ),
             TrieMerkleProofTypeIndicator::Leaf => {
                 let id = read_next(fd)?;
@@ -418,11 +418,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let proof_node = match node {
             TrieNodeType::Leaf(ref data) => TrieMerkleProofType::Leaf((prev_chr, data.clone())),
             TrieNodeType::Node4(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 3];
+                let mut hash_slice: [TrieHash; 3] =
+                    std::array::from_fn(|_| TrieHash::from_data(&[]));
                 let copy_data = hashes
                     .get(..3)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
-                hash_slice.copy_from_slice(copy_data);
+                hash_slice.clone_from_slice(copy_data);
 
                 TrieMerkleProofType::Node4((
                     prev_chr,
@@ -431,11 +432,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node16(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 15];
+                let mut hash_slice: [TrieHash; 15] =
+                    std::array::from_fn(|_| TrieHash::from_data(&[]));
                 let copy_data = hashes
                     .get(..15)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
-                hash_slice.copy_from_slice(copy_data);
+                hash_slice.clone_from_slice(copy_data);
 
                 TrieMerkleProofType::Node16((
                     prev_chr,
@@ -444,11 +446,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node48(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 47];
+                let mut hash_slice: [TrieHash; 47] =
+                    std::array::from_fn(|_| TrieHash::from_data(&[]));
                 let copy_data = hashes
                     .get(..47)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
-                hash_slice.copy_from_slice(copy_data);
+                hash_slice.clone_from_slice(copy_data);
 
                 TrieMerkleProofType::Node48((
                     prev_chr,
@@ -457,11 +460,12 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                 ))
             }
             TrieNodeType::Node256(ref data) => {
-                let mut hash_slice = [TrieHash::from_data(&[]); 255];
+                let mut hash_slice: [TrieHash; 255] =
+                    std::array::from_fn(|_| TrieHash::from_data(&[]));
                 let copy_data = hashes
                     .get(..255)
                     .ok_or_else(|| Error::CorruptionError("Too few byte in trie node".into()))?;
-                hash_slice.copy_from_slice(copy_data);
+                hash_slice.clone_from_slice(copy_data);
 
                 TrieMerkleProofType::Node256(
                     // ancestor hashes to be filled in later
@@ -635,7 +639,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
                     )));
                 };
 
-                trimmed_ancestor_hashes.insert(0, root_hash);
+                trimmed_ancestor_hashes.insert(0, root_hash.clone());
                 idx += 1;
 
                 trace!(
@@ -847,7 +851,7 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         trace!("make_segment_proof: ptrs = {:?}", &ptrs);
 
         assert!(!ptrs.is_empty());
-        assert_eq!(*ptrs.get(0).unwrap(), storage.root_trieptr());
+        assert_eq!(*ptrs.first().unwrap(), storage.root_trieptr());
         for ptr in ptrs
             .get(1..)
             .ok_or_else(|| Error::CorruptionError("Empty pointers list".into()))?

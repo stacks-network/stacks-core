@@ -695,7 +695,7 @@ impl NakamotoBootPlan {
 
                     // extending last tenure
                     let tenure_change_extend = tenure_change.extend(
-                        next_consensus_hash,
+                        next_consensus_hash.clone(),
                         blocks.last().cloned().unwrap().header.block_id(),
                         blocks_since_last_tenure,
                     );

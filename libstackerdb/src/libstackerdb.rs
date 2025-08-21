@@ -213,7 +213,7 @@ impl StackerDBChunkData {
             slot_id: self.slot_id,
             slot_version: self.slot_version,
             data_hash: self.data_hash(),
-            signature: self.sig,
+            signature: self.sig.clone(),
         }
     }
 

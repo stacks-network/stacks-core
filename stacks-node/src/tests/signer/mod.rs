@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::TryRecvError;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
-use std::{env, thread};
+use std::{env, thread, u64};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;
@@ -1219,48 +1219,46 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         panic!("Timed out while waiting for confirmation of block with signer sighash = {block_signer_sighash}")
     }
 
-    fn wait_for_validate_ok_response(&self, timeout: Duration) -> BlockValidateOk {
+    fn wait_for_validate_ok_response(&self, timeout_secs: u64) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
-        let t_start = Instant::now();
-        loop {
+        let mut validate = None;
+        wait_for(timeout_secs, || {
             let responses = test_observer::get_proposal_responses();
             for response in responses {
                 let BlockValidateResponse::Ok(validation) = response else {
                     continue;
                 };
-                return validation;
+                validate = Some(validation);
+                return Ok(true);
             }
-            assert!(
-                t_start.elapsed() < timeout,
-                "Timed out while waiting for block proposal ok event"
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+            Ok(false)
+        })
+        .expect("Failed to find validate ok response");
+        validate.unwrap()
     }
 
     fn wait_for_validate_reject_response(
         &self,
-        timeout: Duration,
-        signer_signature_hash: Sha512Trunc256Sum,
+        timeout_secs: u64,
+        signer_signature_hash: &Sha512Trunc256Sum,
     ) -> BlockValidateReject {
         // Wait for the block to show up in the test observer
-        let t_start = Instant::now();
-        loop {
+        let mut reject = None;
+        wait_for(timeout_secs, || {
             let responses = test_observer::get_proposal_responses();
             for response in responses {
                 let BlockValidateResponse::Reject(rejection) = response else {
                     continue;
                 };
-                if rejection.signer_signature_hash == signer_signature_hash {
-                    return rejection;
+                if &rejection.signer_signature_hash == signer_signature_hash {
+                    reject = Some(rejection);
+                    return Ok(true);
                 }
             }
-            assert!(
-                t_start.elapsed() < timeout,
-                "Timed out while waiting for block proposal reject event"
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+            Ok(false)
+        })
+        .expect("Failed to find a block validate reject response");
+        reject.unwrap()
     }
 
     // Must be called AFTER booting the chainstate
@@ -1534,7 +1532,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         &self,
         stackerdb: &mut StackerDB<MessageSlotID>,
         reward_cycle: u64,
-        hash: Sha512Trunc256Sum,
+        hash: &Sha512Trunc256Sum,
     ) {
         let slot_ids: Vec<_> = self
             .get_signer_indices(reward_cycle)

@@ -198,7 +198,7 @@ impl Trie {
                 return Err(Error::CorruptionError("ptr is empty".to_string()));
             }
             let (node, node_hash) = storage.read_nodetype(ptr)?;
-            return Ok((node, node_hash, ptr.clone()));
+            Ok((node, node_hash, *ptr))
         } else {
             storage.bench_mut().marf_find_backptr_node_start();
             // ptr is a backptr -- find the block
@@ -651,7 +651,7 @@ impl Trie {
             &new_node4,
             &[
                 leaf_hash,
-                new_cur_node_hash,
+                new_cur_node_hash.clone(),
                 TrieHash::from_data(&[]),
                 TrieHash::from_data(&[]),
             ],
@@ -855,7 +855,7 @@ impl Trie {
     ) -> Result<TrieHash, Error> {
         let hashes = Trie::get_trie_root_ancestor_hashes_bytes(storage, children_root_hash)?;
         match hashes.as_slice() {
-            [single_hash] => Ok(*single_hash),
+            [single_hash] => Ok(single_hash.clone()),
             multiple_hashes => Ok(TrieHash::from_data_array(multiple_hashes)),
         }
     }
@@ -899,7 +899,7 @@ impl Trie {
                 Trie::get_trie_root_hash(storage, &my_hash)?
             } else {
                 trace!("Not updating root skiplist");
-                my_hash
+                my_hash.clone()
             };
 
             // for debug purposes

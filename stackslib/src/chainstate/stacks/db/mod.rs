@@ -1305,11 +1305,8 @@ impl StacksChainState {
                     None,
                 );
 
-                let boot_code_smart_contract = StacksTransaction::new(
-                    tx_version.clone(),
-                    boot_code_auth.clone(),
-                    smart_contract,
-                );
+                let boot_code_smart_contract =
+                    StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
 
                 let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::process_transaction_payload(
@@ -1603,7 +1600,7 @@ impl StacksChainState {
             });
 
             let allocations_tx = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),

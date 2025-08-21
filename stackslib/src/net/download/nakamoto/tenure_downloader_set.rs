@@ -46,9 +46,9 @@ impl From<&TenureStartEnd> for CompletedTenure {
 impl From<&mut NakamotoTenureDownloader> for CompletedTenure {
     fn from(ntd: &mut NakamotoTenureDownloader) -> Self {
         Self {
-            tenure_id: ntd.tenure_id_consensus_hash,
-            start_block: ntd.tenure_start_block_id,
-            end_block: ntd.tenure_end_block_id,
+            tenure_id: ntd.tenure_id_consensus_hash.clone(),
+            start_block: ntd.tenure_start_block_id.clone(),
+            end_block: ntd.tenure_end_block_id.clone(),
         }
     }
 }

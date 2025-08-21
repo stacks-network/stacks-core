@@ -294,7 +294,7 @@ impl MultisigSpendingCondition {
             net_error::VerifyingError("Failed to generate address from public keys".to_string())
         })?;
 
-        if *addr.bytes() != self.signer {
+        if addr.bytes() != &self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
@@ -483,7 +483,7 @@ impl OrderIndependentMultisigSpendingCondition {
             net_error::VerifyingError("Failed to generate address from public keys".to_string())
         })?;
 
-        if *addr.bytes() != self.signer {
+        if addr.bytes() != &self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
@@ -501,7 +501,7 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
         write_next(fd, &self.signer)?;
         write_next(fd, &self.nonce)?;
         write_next(fd, &self.tx_fee)?;
-        write_next(fd, &(self.key_encoding.clone() as u8))?;
+        write_next(fd, &(self.key_encoding as u8))?;
         write_next(fd, &self.signature)?;
         Ok(())
     }
@@ -563,10 +563,7 @@ impl SinglesigSpendingCondition {
         let ret = self.signature.clone();
         self.signature = MessageSignature::empty();
 
-        return Some(TransactionAuthField::Signature(
-            self.key_encoding.clone(),
-            ret,
-        ));
+        return Some(TransactionAuthField::Signature(self.key_encoding, ret));
     }
 
     pub fn address_mainnet(&self) -> StacksAddress {
@@ -615,7 +612,7 @@ impl SinglesigSpendingCondition {
             net_error::VerifyingError("Failed to generate address from public key".to_string())
         })?;
 
-        if *addr.bytes() != self.signer {
+        if addr.bytes() != &self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),

@@ -36,7 +36,7 @@ use crate::deps_common::bitcoin::network::serialize::{
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
 
 /// A reference to a transaction output
-#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
 pub struct OutPoint {
     /// The referenced transaction's txid
     pub txid: Sha256dHash,
@@ -161,7 +161,7 @@ impl Transaction {
                 .map(|txin| TxIn {
                     script_sig: Script::new(),
                     witness: vec![],
-                    ..*txin
+                    ..txin.clone()
                 })
                 .collect(),
             output: self.output.clone(),
@@ -228,7 +228,7 @@ impl Transaction {
         // Add all inputs necessary..
         if anyone_can_pay {
             tx.input = vec![TxIn {
-                previous_output: self.input[input_index].previous_output,
+                previous_output: self.input[input_index].previous_output.clone(),
                 script_sig: script_pubkey.clone(),
                 sequence: self.input[input_index].sequence,
                 witness: vec![],
@@ -237,7 +237,7 @@ impl Transaction {
             tx.input = Vec::with_capacity(self.input.len());
             for (n, input) in self.input.iter().enumerate() {
                 tx.input.push(TxIn {
-                    previous_output: input.previous_output,
+                    previous_output: input.previous_output.clone(),
                     script_sig: if n == input_index {
                         script_pubkey.clone()
                     } else {

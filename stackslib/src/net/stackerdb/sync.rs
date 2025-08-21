@@ -374,7 +374,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                         (
                             StackerDBGetChunkData {
                                 contract_id: self.smart_contract_id.clone(),
-                                rc_consensus_hash,
+                                rc_consensus_hash: rc_consensus_hash.clone(),
                                 slot_id: i as u32,
                                 slot_version: *remote_version,
                             },
@@ -390,7 +390,7 @@ impl<NC: NeighborComms> StackerDBSync<NC> {
                     available.push(naddr.clone());
                     *request = StackerDBGetChunkData {
                         contract_id: self.smart_contract_id.clone(),
-                        rc_consensus_hash,
+                        rc_consensus_hash: rc_consensus_hash.clone(),
                         slot_id: i as u32,
                         slot_version: *remote_version,
                     };

@@ -65,8 +65,12 @@ where
     let full_test_name = format!("{}-1_fork_1_miner_1_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -243,10 +247,18 @@ where
     let full_test_name = format!("{}-1_fork_2_miners_1_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner_1 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-    let mut miner_2 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner_1 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
+    let mut miner_2 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -694,10 +706,18 @@ where
     let full_test_name = format!("{}-2_forks_2_miners_1_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner_1 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-    let mut miner_2 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner_1 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
+    let mut miner_2 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -1307,10 +1327,18 @@ where
     let full_test_name = format!("{}-1_fork_2_miners_2_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner_1 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-    let mut miner_2 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner_1 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
+    let mut miner_2 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -1865,10 +1893,18 @@ where
     let full_test_name = format!("{}-2_forks_2_miner_2_burnchains", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner_1 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-    let mut miner_2 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner_1 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
+    let mut miner_2 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -2841,9 +2877,9 @@ pub fn mine_invalid_token_transfers_block(
         miner,
         burnchain_height,
         Some(1),
-        &recipient,
+        recipient.clone(),
         11111,
-        &TokenTransferMemo([1u8; 34]),
+        TokenTransferMemo([1u8; 34]),
     );
     builder.force_mine_tx(clarity_tx, &tx1).unwrap();
 
@@ -2853,9 +2889,9 @@ pub fn mine_invalid_token_transfers_block(
         miner,
         burnchain_height,
         Some(2),
-        &recipient,
+        recipient.clone(),
         22222,
-        &TokenTransferMemo([2u8; 34]),
+        TokenTransferMemo([2u8; 34]),
     );
     builder.force_mine_tx(clarity_tx, &tx2).unwrap();
 
@@ -2865,9 +2901,9 @@ pub fn mine_invalid_token_transfers_block(
         miner,
         burnchain_height,
         Some(1),
-        &recipient,
+        recipient.clone(),
         33333,
-        &TokenTransferMemo([3u8; 34]),
+        TokenTransferMemo([3u8; 34]),
     );
     builder.force_mine_tx(clarity_tx, &tx3).unwrap();
 
@@ -2875,9 +2911,9 @@ pub fn mine_invalid_token_transfers_block(
         miner,
         burnchain_height,
         Some(2),
-        &recipient,
+        recipient,
         44444,
-        &TokenTransferMemo([4u8; 34]),
+        TokenTransferMemo([4u8; 34]),
     );
     builder.force_mine_tx(clarity_tx, &tx4).unwrap();
 

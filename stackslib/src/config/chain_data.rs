@@ -82,7 +82,7 @@ impl MinerStats {
                 {
                     commits_at_sortition.push(missed);
                 } else {
-                    missed_commits_map.insert(missed.intended_sortition, vec![missed]);
+                    missed_commits_map.insert(missed.intended_sortition.clone(), vec![missed]);
                 }
             }
 
@@ -450,7 +450,7 @@ impl MinerStats {
                     memo: vec![],
                     commit_outs: expected_pox_addrs.to_vec(),
                     burn_fee: last_commit.burn_fee,
-                    input: (last_commit.txid, expected_input_index),
+                    input: (last_commit.txid.clone(), expected_input_index),
                     apparent_sender: last_commit.apparent_sender.clone(),
                     txid: Txid(DEADBEEF),
                     vtxindex: 1,

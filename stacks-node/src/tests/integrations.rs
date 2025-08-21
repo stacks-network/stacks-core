@@ -209,7 +209,7 @@ fn integration_test_get_info() {
             let principal_sk = StacksPrivateKey::from_hex(SK_2).unwrap();
             let spender_sk = StacksPrivateKey::from_hex(SK_3).unwrap();
             let header_hash = chain_tip.block.block_hash();
-            let consensus_hash = chain_tip.metadata.consensus_hash;
+            let consensus_hash = &chain_tip.metadata.consensus_hash;
 
             if round == 1 {
                 // block-height = 2
@@ -227,7 +227,7 @@ fn integration_test_get_info() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
@@ -247,7 +247,7 @@ fn integration_test_get_info() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
@@ -267,7 +267,7 @@ fn integration_test_get_info() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
@@ -279,7 +279,7 @@ fn integration_test_get_info() {
                 // variable because this is a function pointer type, and thus can't access anything
                 // outside its scope :(
                 let tmppath = "/tmp/integration_test_get_info-old-tip";
-                let old_tip = StacksBlockId::new(&consensus_hash, &header_hash);
+                let old_tip = StacksBlockId::new(consensus_hash, &header_hash);
                 use std::fs;
                 use std::io::Write;
                 if fs::metadata(tmppath).is_ok() {
@@ -303,7 +303,7 @@ fn integration_test_get_info() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
@@ -328,7 +328,7 @@ fn integration_test_get_info() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         tx,
                         &ExecutionCost::max_value(),
@@ -351,7 +351,7 @@ fn integration_test_get_info() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         tx_xfer,
                         &ExecutionCost::max_value(),
@@ -381,7 +381,7 @@ fn integration_test_get_info() {
                 // Block #1 should have 5 txs
                 assert_eq!(chain_tip.block.txs.len(), 5);
 
-                let parent = chain_tip.block.header.parent_block;
+                let parent = &chain_tip.block.header.parent_block;
                 let bhh = &chain_tip.metadata.index_block_hash();
                 eprintln!("Current Block: {bhh}       Parent Block: {parent}");
                 let parent_val = Value::buff_from(parent.as_bytes().to_vec()).unwrap();
@@ -437,10 +437,10 @@ fn integration_test_get_info() {
 
                 // test-6 and test-7 return the block at height 1's VRF-seed,
                 //   which in this integration test, should be blocks[0]
-                let last_tip = blocks[0];
+                let last_tip = &blocks[0];
                 eprintln!("Last block info: stacks: {}, burn: {}", last_tip.1, last_tip.0);
                 let last_block = StacksChainState::load_block(&chain_state.blocks_path, &last_tip.0, &last_tip.1).unwrap().unwrap();
-                assert_eq!(parent, last_block.header.block_hash());
+                assert_eq!(parent, &last_block.header.block_hash());
 
                 let last_vrf_seed = VRFSeed::from_proof(&last_block.header.proof).as_bytes().to_vec();
                 let last_burn_header = headers[0].burn_header_hash.as_bytes().to_vec();
@@ -1119,7 +1119,7 @@ fn contract_stx_transfer() {
             let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
             let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
             let header_hash = chain_tip.block.block_hash();
-            let consensus_hash = chain_tip.metadata.consensus_hash;
+            let consensus_hash = &chain_tip.metadata.consensus_hash;
 
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
                 "{}.faucet",
@@ -1142,7 +1142,7 @@ fn contract_stx_transfer() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
@@ -1164,7 +1164,7 @@ fn contract_stx_transfer() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
@@ -1240,7 +1240,7 @@ fn contract_stx_transfer() {
                         .submit(
                             &mut chainstate_copy,
                             &sortdb,
-                            &consensus_hash,
+                            consensus_hash,
                             &header_hash,
                             &xfer_to_contract,
                             None,
@@ -1265,7 +1265,7 @@ fn contract_stx_transfer() {
                     .submit(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         &xfer_to_contract,
                         None,
@@ -1295,7 +1295,7 @@ fn contract_stx_transfer() {
                     assert_eq!(chain_tip.block.txs.len(), 2);
 
                     let cur_tip = (
-                        chain_tip.metadata.consensus_hash,
+                        &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
                     // check that 1000 stx _was_ transfered to the contract principal
@@ -1303,7 +1303,7 @@ fn contract_stx_transfer() {
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(
@@ -1324,7 +1324,7 @@ fn contract_stx_transfer() {
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(&addr_3)
@@ -1350,7 +1350,7 @@ fn contract_stx_transfer() {
 
                     // check that 1 stx was transfered to SK_2 via the contract-call
                     let cur_tip = (
-                        chain_tip.metadata.consensus_hash,
+                        &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
 
@@ -1360,7 +1360,7 @@ fn contract_stx_transfer() {
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(&addr_2)
@@ -1377,7 +1377,7 @@ fn contract_stx_transfer() {
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(
@@ -1401,7 +1401,7 @@ fn contract_stx_transfer() {
                     );
 
                     let cur_tip = (
-                        chain_tip.metadata.consensus_hash,
+                        &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
 
@@ -1410,7 +1410,7 @@ fn contract_stx_transfer() {
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(
@@ -1431,7 +1431,7 @@ fn contract_stx_transfer() {
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(&addr_3)
@@ -1473,7 +1473,7 @@ fn mine_transactions_out_of_order() {
 
             let sk = StacksPrivateKey::from_hex(SK_3).unwrap();
             let header_hash = chain_tip.block.block_hash();
-            let consensus_hash = chain_tip.metadata.consensus_hash;
+            let consensus_hash = &chain_tip.metadata.consensus_hash;
 
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
                 "{}.faucet",
@@ -1496,7 +1496,7 @@ fn mine_transactions_out_of_order() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
@@ -1512,7 +1512,7 @@ fn mine_transactions_out_of_order() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),
@@ -1533,7 +1533,7 @@ fn mine_transactions_out_of_order() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
@@ -1554,7 +1554,7 @@ fn mine_transactions_out_of_order() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         xfer_to_contract,
                         &ExecutionCost::max_value(),
@@ -1591,14 +1591,14 @@ fn mine_transactions_out_of_order() {
 
                     // check that 1000 stx _was_ transfered to the contract principal
                     let curr_tip = (
-                        chain_tip.metadata.consensus_hash,
+                        &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
                     assert_eq!(
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&curr_tip.0, &curr_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(curr_tip.0, &curr_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(
@@ -1686,7 +1686,7 @@ fn mine_contract_twice() {
 
             if round == 2 {
                 let cur_tip = (
-                    chain_tip.metadata.consensus_hash,
+                    &chain_tip.metadata.consensus_hash,
                     chain_tip.metadata.anchored_header.block_hash(),
                 );
                 // check that the contract published!
@@ -1694,7 +1694,7 @@ fn mine_contract_twice() {
                     &chain_state
                         .with_read_only_clarity_tx(
                             burn_dbconn,
-                            &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                            &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                             |conn| {
                                 conn.with_clarity_db_readonly(|db| {
                                     db.get_contract_src(&contract_identifier).unwrap()
@@ -1880,7 +1880,7 @@ fn bad_contract_tx_rollback() {
                     assert_eq!(chain_tip.block.txs.len(), 2);
 
                     let cur_tip = (
-                        chain_tip.metadata.consensus_hash,
+                        &chain_tip.metadata.consensus_hash,
                         chain_tip.metadata.anchored_header.block_hash(),
                     );
                     // check that 1000 stx _was_ transfered to the contract principal
@@ -1888,7 +1888,7 @@ fn bad_contract_tx_rollback() {
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(
@@ -1909,7 +1909,7 @@ fn bad_contract_tx_rollback() {
                         chain_state
                             .with_read_only_clarity_tx(
                                 burn_dbconn,
-                                &StacksBlockHeader::make_index_block_hash(&cur_tip.0, &cur_tip.1),
+                                &StacksBlockHeader::make_index_block_hash(cur_tip.0, &cur_tip.1),
                                 |conn| {
                                     conn.with_clarity_db_readonly(|db| {
                                         db.get_account_stx_balance(&addr_3)
@@ -2214,7 +2214,7 @@ fn mempool_errors() {
             let sortdb = tenure.open_fake_sortdb();
 
             let header_hash = chain_tip.block.block_hash();
-            let consensus_hash = chain_tip.metadata.consensus_hash;
+            let consensus_hash = &chain_tip.metadata.consensus_hash;
 
             if round == 1 {
                 // block-height = 2
@@ -2232,7 +2232,7 @@ fn mempool_errors() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx,
                         &ExecutionCost::max_value(),

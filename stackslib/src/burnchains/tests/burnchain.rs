@@ -270,8 +270,8 @@ fn test_process_block_ops() {
         pox_valid: true,
         block_height: 121,
         burn_header_hash: block_121_hash.clone(),
-        sortition_id: SortitionId(block_121_hash.0.clone()),
-        parent_sortition_id: SortitionId(block_121_hash.0.clone()),
+        sortition_id: SortitionId(block_121_hash.0),
+        parent_sortition_id: SortitionId(block_121_hash.0),
         burn_header_timestamp: 121,
         parent_burn_header_hash: first_burn_hash.clone(),
         ops_hash: block_opshash_121.clone(),
@@ -317,7 +317,7 @@ fn test_process_block_ops() {
         pox_valid: true,
         block_height: 122,
         burn_header_hash: block_122_hash.clone(),
-        sortition_id: SortitionId(block_122_hash.0.clone()),
+        sortition_id: SortitionId(block_122_hash.0),
         parent_sortition_id: block_121_snapshot.sortition_id.clone(),
         burn_header_timestamp: 122,
         parent_burn_header_hash: block_121_hash.clone(),
@@ -369,7 +369,7 @@ fn test_process_block_ops() {
         pox_valid: true,
         block_height: 123,
         burn_header_hash: block_123_hash.clone(),
-        sortition_id: SortitionId(block_123_hash.0.clone()),
+        sortition_id: SortitionId(block_123_hash.0),
         parent_sortition_id: block_122_snapshot.sortition_id.clone(),
         burn_header_timestamp: 123,
         parent_burn_header_hash: block_122_hash.clone(),
@@ -526,7 +526,7 @@ fn test_process_block_ops() {
 
     for scenario_idx in 0..block_ops_124_possibilities.len() {
         let mut block_ops_124 = block_ops_124_possibilities[scenario_idx].clone();
-        let mut block_124_hash_bytes = block_124_hash_initial.as_bytes().clone();
+        let mut block_124_hash_bytes = *block_124_hash_initial.as_bytes();
         block_124_hash_bytes[0] = (scenario_idx + 1) as u8;
         let block_124_hash = BurnchainHeaderHash(block_124_hash_bytes);
 
@@ -565,7 +565,7 @@ fn test_process_block_ops() {
             pox_valid: true,
             block_height: 124,
             burn_header_hash: block_124_hash.clone(),
-            sortition_id: SortitionId(block_124_hash.0.clone()),
+            sortition_id: SortitionId(block_124_hash.0),
             parent_sortition_id: block_123_snapshot.sortition_id.clone(),
             burn_header_timestamp: 124,
             parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
@@ -680,7 +680,7 @@ fn test_burn_snapshot_sequence() {
         consensus_hash_lifetime: 24,
         stable_confirmations: 7,
         first_block_timestamp: 0,
-        first_block_hash: first_burn_hash,
+        first_block_hash: first_burn_hash.clone(),
         first_block_height,
         initial_reward_start_block: first_block_height,
     };

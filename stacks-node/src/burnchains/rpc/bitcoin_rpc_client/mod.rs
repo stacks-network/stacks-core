@@ -414,8 +414,7 @@ impl BitcoinRpcClient {
 
         let rpc_timeout = Duration::from_secs(u64::from(timeout));
 
-        let global_ep =
-            RpcTransport::new(rpc_global_path, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
+        let global_ep = RpcTransport::new(rpc_global_path, rpc_auth.clone(), Some(rpc_timeout))?;
         let wallet_ep = RpcTransport::new(rpc_wallet_path, rpc_auth, Some(rpc_timeout))?;
 
         Ok(Self {

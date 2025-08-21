@@ -570,7 +570,7 @@ mod tests {
 
         assert_eq!(result.len(), 2, "Should be two miners");
 
-        result.sort_by_key(|sample| sample.candidate.txid);
+        result.sort_by_key(|sample| sample.candidate.txid.clone());
 
         // block-commits are currently malformed -- the post-sunset commits spend the wrong UTXO.
         assert_eq!(result[0].burns, 1);
@@ -604,7 +604,7 @@ mod tests {
 
         assert_eq!(result.len(), 2, "Should be two miners");
 
-        result.sort_by_key(|sample| sample.candidate.txid);
+        result.sort_by_key(|sample| sample.candidate.txid.clone());
 
         assert_eq!(result[0].burns, 4);
         assert_eq!(result[1].burns, 3);
@@ -665,7 +665,7 @@ mod tests {
 
         assert_eq!(result.len(), 2, "Should be two miners");
 
-        result.sort_by_key(|sample| sample.candidate.txid);
+        result.sort_by_key(|sample| sample.candidate.txid.clone());
 
         assert_eq!(result[0].burns, 4);
         assert_eq!(result[1].burns, 3);
@@ -719,7 +719,7 @@ mod tests {
 
         assert_eq!(result.len(), 2, "Should be two miners");
 
-        result.sort_by_key(|sample| sample.candidate.txid);
+        result.sort_by_key(|sample| sample.candidate.txid.clone());
 
         assert_eq!(result[0].burns, 3);
         assert_eq!(result[1].burns, 1);
@@ -776,7 +776,7 @@ mod tests {
 
         assert_eq!(result.len(), 2, "Should be two miners");
 
-        result.sort_by_key(|sample| sample.candidate.txid);
+        result.sort_by_key(|sample| sample.candidate.txid.clone());
 
         assert_eq!(result[0].burns, 4);
         assert_eq!(result[1].burns, 3);

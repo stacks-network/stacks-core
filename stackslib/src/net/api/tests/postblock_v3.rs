@@ -30,7 +30,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let miner_sk = StacksPrivateKey::from_seed(&[0, 1, 2, 3, 4, 5, 6, 7, 8]);
     let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &miner_sk);
@@ -89,7 +89,7 @@ fn parse_request() {
     let mut bad_block = block.clone();
     bad_block.txs.clear();
 
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
     let request = StacksHttpRequest::new_post_block_v3(addr.into(), &bad_block);
     let bytes = request.try_serialize().unwrap();
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();

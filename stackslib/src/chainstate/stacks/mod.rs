@@ -382,7 +382,7 @@ impl Txid {
     /// Create a Txid from the tx hash bytes used in bitcoin.
     /// This just reverses the inner bytes of the input.
     pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
-        let mut txid_bytes = tx_hash.0.clone();
+        let mut txid_bytes = tx_hash.0;
         txid_bytes.reverse();
         Self(txid_bytes)
     }
@@ -488,9 +488,7 @@ impl TransactionAuthField {
 
     pub fn as_signature(&self) -> Option<(TransactionPublicKeyEncoding, MessageSignature)> {
         match *self {
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                Some((key_fmt.clone(), sig.clone()))
-            }
+            TransactionAuthField::Signature(ref key_fmt, ref sig) => Some((*key_fmt, sig.clone())),
             _ => None,
         }
     }
@@ -502,11 +500,7 @@ impl TransactionAuthField {
             TransactionAuthField::Signature(ref key_fmt, ref sig) => {
                 let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
                     .map_err(|e| net_error::VerifyingError(e.to_string()))?;
-                pubk.set_compressed(if *key_fmt == TransactionPublicKeyEncoding::Compressed {
-                    true
-                } else {
-                    false
-                });
+                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
                 Ok(pubk)
             }
         }
@@ -687,6 +681,7 @@ pub struct TransactionSmartContract {
 }
 
 /// A coinbase commits to 32 bytes of control-plane information
+#[derive(Clone)]
 pub struct CoinbasePayload(pub [u8; 32]);
 impl_byte_array_message_codec!(CoinbasePayload, 32);
 impl_array_newtype!(CoinbasePayload, u8, 32);
@@ -694,6 +689,7 @@ impl_array_hexstring_fmt!(CoinbasePayload);
 impl_byte_array_newtype!(CoinbasePayload, u8, 32);
 impl_byte_array_serde!(CoinbasePayload);
 
+#[derive(Clone)]
 pub struct TokenTransferMemo(pub [u8; 34]); // same length as it is in stacks v1
 impl_byte_array_message_codec!(TokenTransferMemo, 34);
 impl_array_newtype!(TokenTransferMemo, u8, 34);
@@ -1513,11 +1509,11 @@ pub mod test {
                     let auth = tx_auth.clone();
 
                     let tx = StacksTransaction {
-                        version: (*version).clone(),
+                        version: *version,
                         chain_id,
                         auth,
-                        anchor_mode: (*anchor_mode).clone(),
-                        post_condition_mode: (*post_condition_mode).clone(),
+                        anchor_mode: *anchor_mode,
+                        post_condition_mode: *post_condition_mode,
                         post_conditions: tx_post_condition.clone(),
                         payload: tx_payload.clone(),
                     };

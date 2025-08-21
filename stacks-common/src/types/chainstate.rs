@@ -33,7 +33,7 @@ pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
 impl_array_hexstring_fmt!(TrieHash);
@@ -103,12 +103,13 @@ impl TrieHash {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BurnchainHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BurnchainHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BurnchainHeaderHash);
 impl_byte_array_newtype!(BurnchainHeaderHash, u8, 32);
 
+#[derive(Clone)]
 pub struct BlockHeaderHash(pub [u8; 32]);
 impl_array_newtype!(BlockHeaderHash, u8, 32);
 impl_array_hexstring_fmt!(BlockHeaderHash);
@@ -132,11 +133,13 @@ impl slog::Value for BlockHeaderHash {
 ///  valid burnchain operations (and any dependent
 ///  variables, e.g., the sortition winner, the
 ///  consensus hash, the next VRF key)
+#[derive(Clone)]
 pub struct SortitionId(pub [u8; 32]);
 impl_array_newtype!(SortitionId, u8, 32);
 impl_array_hexstring_fmt!(SortitionId);
 impl_byte_array_newtype!(SortitionId, u8, 32);
 
+#[derive(Clone)]
 pub struct VRFSeed(pub [u8; 32]);
 impl_array_newtype!(VRFSeed, u8, 32);
 impl_array_hexstring_fmt!(VRFSeed);
@@ -363,6 +366,7 @@ pub struct StacksWorkScore {
     pub work: u64, // in Stacks, "work" == the length of the fork
 }
 
+#[derive(Clone)]
 pub struct StacksBlockId(pub [u8; 32]);
 impl_array_newtype!(StacksBlockId, u8, 32);
 impl_array_hexstring_fmt!(StacksBlockId);
@@ -379,6 +383,7 @@ impl From<StacksBlockId> for TenureBlockId {
     }
 }
 
+#[derive(Clone)]
 pub struct ConsensusHash(pub [u8; 20]);
 impl_array_newtype!(ConsensusHash, u8, 20);
 impl_array_hexstring_fmt!(ConsensusHash);

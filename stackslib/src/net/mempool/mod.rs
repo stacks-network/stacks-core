@@ -174,8 +174,7 @@ impl MempoolSync {
             }
             // already resolved?
             if let Some(sockaddr) = convo.data_ip.as_ref() {
-                mempool_sync_data_url_and_sockaddr =
-                    Some((convo.data_url.clone(), sockaddr.clone()));
+                mempool_sync_data_url_and_sockaddr = Some((convo.data_url.clone(), *sockaddr));
                 break;
             }
             // can we resolve the data URL?
@@ -338,7 +337,7 @@ impl MempoolSync {
                 .payload_stacks(&sync_data),
         )?;
 
-        let event_id = network.connect_or_send_http_request(url.clone(), addr.clone(), request)?;
+        let event_id = network.connect_or_send_http_request(url.clone(), *addr, request)?;
         return Ok((false, Some(event_id)));
     }
 
@@ -518,7 +517,7 @@ impl MempoolSync {
                             // success! advance
                             debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &network.get_local_peer(), url, page_id, event_id);
                             self.mempool_state =
-                                MempoolSyncState::RecvResponse(url.clone(), addr.clone(), event_id);
+                                MempoolSyncState::RecvResponse(url.clone(), *addr, event_id);
                         }
                         Ok((false, None)) => {
                             // try again later
@@ -553,7 +552,7 @@ impl MempoolSync {
                                     // get the next page
                                     self.mempool_state = MempoolSyncState::SendQuery(
                                         url.clone(),
-                                        addr.clone(),
+                                        *addr,
                                         next_page_id,
                                     );
                                     false

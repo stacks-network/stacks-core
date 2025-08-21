@@ -1723,8 +1723,7 @@ mod test {
 
             if *epoch_id < activation_epoch_id {
                 assert!(!StacksBlock::validate_transactions_static_epoch(
-                    txs,
-                    epoch_id.clone(),
+                    txs, *epoch_id,
                 ));
             } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
             {

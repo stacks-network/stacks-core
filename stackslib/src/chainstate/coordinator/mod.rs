@@ -155,10 +155,10 @@ pub trait BlockEventDispatcher {
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent: &StacksBlockId,
-        winner_txid: Txid,
+        winner_txid: &Txid,
         matured_rewards: &[MinerReward],
         matured_rewards_info: Option<&MinerRewardInfo>,
-        parent_burn_block_hash: BurnchainHeaderHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
@@ -2671,7 +2671,7 @@ impl<
                                 "Will un-orphan Stacks block {}/{} if it is orphaned",
                                 &sortition.consensus_hash, &sortition.winning_stacks_block_hash
                             );
-                            unorphan_blocks.push((sortition.burn_header_hash, 0));
+                            unorphan_blocks.push((sortition.burn_header_hash.clone(), 0));
                         }
                     }
                     sortition
@@ -2694,7 +2694,7 @@ impl<
                                         &header,
                                         paid_rewards,
                                         reward_set_info,
-                                        &consensus_hash,
+                                        consensus_hash,
                                     );
                                 }
                             },
@@ -2709,7 +2709,7 @@ impl<
             };
 
             // don't process this burnchain block again in this recursive call.
-            already_processed_burn_blocks.insert(next_snapshot.burn_header_hash);
+            already_processed_burn_blocks.insert(next_snapshot.burn_header_hash.clone());
 
             let mut compatible_stacks_blocks = vec![];
             {
@@ -2772,7 +2772,7 @@ impl<
                 chainstate_db_tx.commit().map_err(DBError::SqliteError)?;
             }
 
-            let sortition_id = next_snapshot.sortition_id;
+            let sortition_id = next_snapshot.sortition_id.clone();
 
             self.notifier.notify_sortition_processed();
             if revalidated_stacks_block {
@@ -3487,7 +3487,7 @@ pub fn check_chainstate_db_versions(
             .epoch_id;
 
         // save for later
-        cur_epoch_opt = Some(cur_epoch.clone());
+        cur_epoch_opt = Some(cur_epoch);
         let db_version = SortitionDB::get_db_version_from_path(sortdb_path)?
             .expect("FATAL: could not load sortition DB version");
 

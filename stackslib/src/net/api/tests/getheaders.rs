@@ -36,7 +36,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_getheaders(
         addr.into(),
@@ -286,7 +286,7 @@ fn test_stream_getheaders() {
         blocks.iter().rev().map(|blk| blk.header.clone()).collect();
 
     let block_expected_index_hashes: Vec<StacksBlockId> =
-        blocks_index_hashes.iter().rev().copied().collect();
+        blocks_index_hashes.iter().rev().cloned().collect();
 
     let block_fork_expected_headers: Vec<StacksBlockHeader> = blocks_fork
         .iter()
@@ -295,7 +295,7 @@ fn test_stream_getheaders() {
         .collect();
 
     let block_fork_expected_index_hashes: Vec<StacksBlockId> =
-        blocks_fork_index_hashes.iter().rev().copied().collect();
+        blocks_fork_index_hashes.iter().rev().cloned().collect();
 
     // get them all -- ask for more than there is
     let mut stream =
