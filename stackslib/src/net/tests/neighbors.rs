@@ -20,7 +20,7 @@ use std::sync::Arc;
 use std::thread;
 
 use clarity::vm::costs::ExecutionCost;
-use stacks_common::util::sleep_ms;
+use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
@@ -1584,7 +1584,8 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
         // handshake with remote peer
         let mut comms = PeerNetworkComms::new();
         let mut connected = false;
-        while !connected {
+        let now = get_epoch_time_secs();
+        while !connected && get_epoch_time_secs() < now + 60 {
             if !comms.is_neighbor_connecting(&mut peer_client.network, &peer_addr)
                 || !comms.has_neighbor_session(&mut peer_client.network, &peer_addr)
             {
@@ -1606,6 +1607,7 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
                 }
             }
         }
+        assert!(connected, "Failed to connect -- timed out");
 
         // carry out two separate RPCs with the neighbor
         let mut rpc_comms_1 = NeighborRPC::new();
@@ -1632,7 +1634,10 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
         let mut rpc_comms_1_reply = None;
         let mut rpc_comms_2_reply = None;
 
-        while rpc_comms_1_reply.is_none() || rpc_comms_2_reply.is_none() {
+        let now = get_epoch_time_secs();
+        while get_epoch_time_secs() < now + 60
+            && (rpc_comms_1_reply.is_none() || rpc_comms_2_reply.is_none())
+        {
             let _ = peer_client.step();
             for (_, reply) in rpc_comms_1.collect_replies(&mut peer_client.network) {
                 if rpc_comms_1_reply.is_none() {
@@ -1645,6 +1650,10 @@ fn test_issue_concurrent_requests_in_different_state_machines() {
                 }
             }
         }
+        assert!(
+            rpc_comms_1_reply.is_some() && rpc_comms_2_reply.is_some(),
+            "timed out waiting for RPC replies"
+        );
 
         debug!("comms 1 reply: {:?}", &rpc_comms_1_reply);
         debug!("comms 2 reply: {:?}", &rpc_comms_2_reply);

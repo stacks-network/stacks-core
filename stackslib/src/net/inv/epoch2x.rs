@@ -2600,8 +2600,7 @@ impl PeerNetwork {
                 Ok(func(network, nstats))
             } else {
                 Err(net_error::PeerNotConnected(format!(
-                    "No inventory stats for neighbor {}",
-                    &nk
+                    "No inventory stats for neighbor {nk}",
                 )))
             }
         }) {

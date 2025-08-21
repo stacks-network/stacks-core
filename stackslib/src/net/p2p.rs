@@ -1162,10 +1162,9 @@ impl PeerNetwork {
             self.saturate_p2p_socket(event_id, &mut rh)?;
             return Ok(rh);
         }
-        info!("No ongoing conversation for event {}", event_id);
+        info!("No ongoing conversation for event {event_id}");
         return Err(net_error::PeerNotConnected(format!(
-            "No ongoing conversation for event {}",
-            event_id
+            "No ongoing conversation for event {event_id}",
         )));
     }
 
@@ -1944,8 +1943,7 @@ impl PeerNetwork {
                         if outbound == convo.is_outbound() {
                             let nk = self.get_event_neighbor_key(event_id).ok_or(
                                 net_error::PeerNotConnected(format!(
-                                    "No neighbor for event {}",
-                                    event_id
+                                    "No neighbor for event {event_id}",
                                 )),
                             )?;
                             return Err(net_error::AlreadyConnected(event_id, nk));
@@ -2206,10 +2204,9 @@ impl PeerNetwork {
         match self.events.get(peer_key) {
             None => {
                 // not connected
-                debug!("Could not sign for peer {:?}: not connected", peer_key);
+                debug!("Could not sign for peer {peer_key}: not connected");
                 Err(net_error::PeerNotConnected(format!(
-                    "Could not sign for neighbor {:?}: not connected",
-                    peer_key
+                    "Could not sign for neighbor {peer_key}: not connected",
                 )))
             }
             Some(event_id) => self.sign_for_p2p(*event_id, message_payload),
@@ -2229,10 +2226,9 @@ impl PeerNetwork {
                 message_payload,
             );
         }
-        debug!("Could not sign for peer {}: not connected", event_id);
+        debug!("Could not sign for peer {event_id}: not connected");
         Err(net_error::PeerNotConnected(format!(
-            "Could not sign for peer on event {}: not connected",
-            event_id
+            "Could not sign for peer on event {event_id}: not connected",
         )))
     }
 
@@ -2253,10 +2249,9 @@ impl PeerNetwork {
                 message_payload,
             );
         }
-        debug!("Could not sign for peer {}: not connected", event_id);
+        debug!("Could not sign for peer {event_id}: not connected");
         Err(net_error::PeerNotConnected(format!(
-            "Could not sign reply for peer on event {}: not connected",
-            event_id
+            "Could not sign reply for peer on event {event_id}: not connected",
         )))
     }
 
@@ -2349,8 +2344,7 @@ impl PeerNetwork {
                 (None, None) => {
                     debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
                     return Err(net_error::PeerNotConnected(format!(
-                        "Rogue socket event {}",
-                        event_id
+                        "Rogue socket event {event_id}",
                     )));
                 }
             };
@@ -2850,23 +2844,20 @@ impl PeerNetwork {
                             match PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle) {
                                 Ok(x) => x,
                                 Err(e) => {
-                                    info!("Broken connection on event {}: {:?}", event_id, &e);
+                                    info!("Broken connection on event {event_id}: {e:?}");
                                     return Err(net_error::PeerNotConnected(format!(
-                                        "Failed to saturate p2p socket on event {}: {:?}",
-                                        event_id, &e
+                                        "Failed to saturate p2p socket on event {event_id}: {e:?}",
                                     )));
                                 }
                             };
 
                         debug!(
-                            "Flushed relay handle to {:?} ({:?}): sent={}, flushed={}",
-                            client_sock, convo, num_sent, flushed
+                            "Flushed relay handle to {client_sock:?} ({convo:?}): sent={num_sent}, flushed={flushed}",
                         );
                         return Ok((num_sent, flushed));
                     }
                     return Err(net_error::PeerNotConnected(format!(
-                        "No relay handles for event {}",
-                        event_id
+                        "No relay handles for event {event_id}",
                     )));
                 });
 

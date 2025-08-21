@@ -137,10 +137,9 @@ pub trait NeighborComms {
                     DropReason::DeadConnection(format!("Not connected: {e}")),
                     DropSource::NeighborCommsHandshake,
                 );
-                net_error::PeerNotConnected(format!(
-                    "Failed to send neighbor message to {:?}: {:?}",
-                    &nk, &e
-                ))
+                net_error::PeerNotConnected(
+                    format!("Failed to send neighbor message to {nk}: {e}",),
+                )
             })
     }
 
@@ -166,8 +165,7 @@ pub trait NeighborComms {
                 debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", network.get_local_peer(), event_id, &nk);
                 self.remove_connecting_error(network, &nk);
                 return Err(net_error::PeerNotConnected(format!(
-                    "Failed to connect to {:?} (event {} no longer connecting; assumed timed out)",
-                    &nk, event_id
+                    "Failed to connect to {nk} (event {event_id} no longer connecting; assumed timed out)",
                 )));
             }
 
@@ -190,7 +188,7 @@ pub trait NeighborComms {
                         &nk,
                         &e
                     );
-                    net_error::PeerNotConnected(format!("Failed to connect to {:?}: {:?}", &nk, &e))
+                    net_error::PeerNotConnected(format!("Failed to connect to {nk}: {e}"))
                 })?;
 
                 // remember this in the walk result
@@ -278,8 +276,7 @@ pub trait NeighborComms {
                     event_id
                 );
                 return Err(net_error::PeerNotConnected(format!(
-                    "Already connected to {:?} as {:?} on event {}",
-                    &nk, &handshake_nk, &event_id
+                    "Already connected to {nk} as {handshake_nk} on event {event_id}",
                 )));
             }
             Err(e) => {
