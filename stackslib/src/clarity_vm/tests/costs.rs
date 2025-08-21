@@ -120,7 +120,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         PrincipalOf => "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110)",
         AsContract => "(as-contract 1)",
         GetBlockInfo => "(get-block-info? time u1)",
-        GetBurnBlockInfo => "(get-block-info? time u1)", // TODO: use get-burn-block-info here once API is settled enough to change the mocked burn state DB in this file
+        GetBurnBlockInfo => "(get-burn-block-info? header-hash u1)",
         ConsOkay => "(ok 1)",
         ConsError => "(err 1)",
         ConsSome => "(some 1)",
@@ -161,9 +161,9 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         ToConsensusBuff => "(to-consensus-buff? u1)",
         FromConsensusBuff => "(from-consensus-buff? bool 0x03)",
         ReplaceAt => "(replace-at? list-bar u0 5)",
-        GetStacksBlockInfo => "(get-block-info? time u1)",
-        GetTenureInfo => "(get-block-info? time u1)",
-        CodeBodyOf => "(code-body-of? 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.foo)",
+        GetStacksBlockInfo => "(get-stacks-block-info? time u1)",
+        GetTenureInfo => "(get-tenure-info? time u1)",
+        ContractHash => "(contract-hash? .contract-other)",
     }
 }
 
@@ -215,9 +215,27 @@ where
         tip = next_block.clone();
     }
 
+    if epoch >= StacksEpochId::Epoch30 {
+        let next_block = StacksBlockId([3; 32]);
+        let mut clarity_conn =
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        clarity_conn.initialize_epoch_3_0().unwrap();
+        clarity_conn.commit_block();
+        tip = next_block.clone();
+    }
+
+    if epoch >= StacksEpochId::Epoch33 {
+        let next_block = StacksBlockId([4; 32]);
+        let mut clarity_conn =
+            clarity_instance.begin_block(&tip, &next_block, &TEST_HEADER_DB, &TEST_BURN_STATE_DB);
+        clarity_conn.initialize_epoch_3_3().unwrap();
+        clarity_conn.commit_block();
+        tip = next_block.clone();
+    }
+
     let mut marf_kv = clarity_instance.destroy();
 
-    let mut store = marf_kv.begin(&tip, &StacksBlockId([3; 32]));
+    let mut store = marf_kv.begin(&tip, &StacksBlockId([5; 32]));
 
     to_do(OwnedEnvironment::new_max_limit(
         store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB),
@@ -1068,9 +1086,16 @@ fn epoch_21_test_all(use_mainnet: bool) {
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: Include Clarity2 functions for Epoch21.
-            let test = get_simple_test(f);
-            let cost = test_program_cost(test, ClarityVersion::Clarity2, &mut owned_env, ix + 1);
-            assert!(cost.exceeds(&baseline));
+            if f.get_min_version() <= ClarityVersion::Clarity2
+                && f.get_max_version()
+                    .map(|max| max < ClarityVersion::Clarity2)
+                    .unwrap_or(true)
+            {
+                let test = get_simple_test(f);
+                let cost =
+                    test_program_cost(test, ClarityVersion::Clarity2, &mut owned_env, ix + 1);
+                assert!(cost.exceeds(&baseline));
+            }
         }
     })
 }
@@ -1083,6 +1108,74 @@ fn epoch_21_test_all_mainnet() {
 #[test]
 fn epoch_21_test_all_testnet() {
     epoch_21_test_all(false)
+}
+
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 3.0 (includes Clarity 3)
+fn epoch_30_test_all(use_mainnet: bool) {
+    with_owned_env(StacksEpochId::Epoch30, use_mainnet, |mut owned_env| {
+        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity3, &mut owned_env);
+
+        let baseline = test_program_cost("1", ClarityVersion::Clarity3, &mut owned_env, 0);
+
+        for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
+            // Note: Include Clarity3 functions for Epoch30.
+            if f.get_min_version() <= ClarityVersion::Clarity3
+                && f.get_max_version()
+                    .map(|max| max >= ClarityVersion::Clarity3)
+                    .unwrap_or(true)
+            {
+                let test = get_simple_test(f);
+                let cost =
+                    test_program_cost(test, ClarityVersion::Clarity3, &mut owned_env, ix + 1);
+                assert!(cost.exceeds(&baseline));
+            }
+        }
+    })
+}
+
+#[test]
+fn epoch_30_test_all_mainnet() {
+    epoch_30_test_all(true)
+}
+
+#[test]
+fn epoch_30_test_all_testnet() {
+    epoch_30_test_all(false)
+}
+
+// test each individual cost function can be correctly invoked as
+//  Clarity code executes in Epoch 3.3 (includes Clarity 4)
+fn epoch_33_test_all(use_mainnet: bool) {
+    with_owned_env(StacksEpochId::Epoch33, use_mainnet, |mut owned_env| {
+        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity4, &mut owned_env);
+
+        let baseline = test_program_cost("1", ClarityVersion::Clarity4, &mut owned_env, 0);
+
+        for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
+            // Note: Include Clarity4 functions for Epoch33.
+            if f.get_min_version() <= ClarityVersion::Clarity4
+                && f.get_max_version()
+                    .map(|max| max >= ClarityVersion::Clarity4)
+                    .unwrap_or(true)
+            {
+                let test = get_simple_test(f);
+                let cost =
+                    test_program_cost(test, ClarityVersion::Clarity4, &mut owned_env, ix + 1);
+                assert!(cost.exceeds(&baseline));
+            }
+        }
+    })
+}
+
+#[test]
+fn epoch_33_test_all_mainnet() {
+    epoch_33_test_all(true)
+}
+
+#[test]
+fn epoch_33_test_all_testnet() {
+    epoch_33_test_all(false)
 }
 
 fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: ClarityVersion) {

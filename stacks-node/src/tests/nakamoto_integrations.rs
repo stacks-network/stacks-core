@@ -14058,7 +14058,6 @@ fn test_epoch_3_3_activation() {
     let Counters {
         blocks_processed,
         naka_submitted_commits: commits_submitted,
-        naka_mined_tenures,
         ..
     } = run_loop.counters();
     let counters = run_loop.counters();
