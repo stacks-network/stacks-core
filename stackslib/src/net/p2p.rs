@@ -1163,7 +1163,10 @@ impl PeerNetwork {
             return Ok(rh);
         }
         info!("No ongoing conversation for event {}", event_id);
-        return Err(net_error::PeerNotConnected);
+        return Err(net_error::PeerNotConnected(format!(
+            "No ongoing conversation for event {}",
+            event_id
+        )));
     }
 
     /// Send a message to a peer.
@@ -1939,9 +1942,12 @@ impl PeerNetwork {
                     if let Some(convo) = self.peers.get(&event_id) {
                         // only care if we're trying to connect in the same direction
                         if outbound == convo.is_outbound() {
-                            let nk = self
-                                .get_event_neighbor_key(event_id)
-                                .ok_or(net_error::PeerNotConnected)?;
+                            let nk = self.get_event_neighbor_key(event_id).ok_or(
+                                net_error::PeerNotConnected(format!(
+                                    "No neighbor for event {}",
+                                    event_id
+                                )),
+                            )?;
                             return Err(net_error::AlreadyConnected(event_id, nk));
                         }
                     }
@@ -2201,7 +2207,10 @@ impl PeerNetwork {
             None => {
                 // not connected
                 debug!("Could not sign for peer {:?}: not connected", peer_key);
-                Err(net_error::PeerNotConnected)
+                Err(net_error::PeerNotConnected(format!(
+                    "Could not sign for neighbor {:?}: not connected",
+                    peer_key
+                )))
             }
             Some(event_id) => self.sign_for_p2p(*event_id, message_payload),
         }
@@ -2221,7 +2230,10 @@ impl PeerNetwork {
             );
         }
         debug!("Could not sign for peer {}: not connected", event_id);
-        Err(net_error::PeerNotConnected)
+        Err(net_error::PeerNotConnected(format!(
+            "Could not sign for peer on event {}: not connected",
+            event_id
+        )))
     }
 
     /// Sign a p2p message to be sent on a particular ongoing conversation,
@@ -2242,7 +2254,10 @@ impl PeerNetwork {
             );
         }
         debug!("Could not sign for peer {}: not connected", event_id);
-        Err(net_error::PeerNotConnected)
+        Err(net_error::PeerNotConnected(format!(
+            "Could not sign reply for peer on event {}: not connected",
+            event_id
+        )))
     }
 
     /// Process new inbound TCP connections we just accepted.
@@ -2317,19 +2332,26 @@ impl PeerNetwork {
                 (Some(convo), None) => {
                     debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
                     self.peers.insert(event_id, convo);
-                    return Err(net_error::PeerNotConnected);
+                    return Err(net_error::PeerNotConnected(format!(
+                        "Rogue socket event {}",
+                        event_id
+                    )));
                 }
                 (None, Some(sock)) => {
                     warn!(
                         "{:?}: Rogue event {} for socket {:?}",
                         &self.local_peer, event_id, &sock
                     );
+                    let errmsg = format!("Rogue event {} for socket {:?}", event_id, &sock);
                     self.sockets.insert(event_id, sock);
-                    return Err(net_error::PeerNotConnected);
+                    return Err(net_error::PeerNotConnected(errmsg));
                 }
                 (None, None) => {
                     debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
-                    return Err(net_error::PeerNotConnected);
+                    return Err(net_error::PeerNotConnected(format!(
+                        "Rogue socket event {}",
+                        event_id
+                    )));
                 }
             };
 
@@ -2360,7 +2382,7 @@ impl PeerNetwork {
                     net_error::PermanentlyDrained => {
                         // socket got closed, but we might still have pending unsolicited messages
                         debug!(
-                            "{:?}: Remote peer disconnected event {} (socket {:?})",
+                            "{:?}: Remote peer disconnected event {} (socket {:?}): PermanentlyDrained",
                             &network.get_local_peer(),
                             event_id,
                             &client_sock
@@ -2829,7 +2851,10 @@ impl PeerNetwork {
                                 Ok(x) => x,
                                 Err(e) => {
                                     info!("Broken connection on event {}: {:?}", event_id, &e);
-                                    return Err(net_error::PeerNotConnected);
+                                    return Err(net_error::PeerNotConnected(format!(
+                                        "Failed to saturate p2p socket on event {}: {:?}",
+                                        event_id, &e
+                                    )));
                                 }
                             };
 
@@ -2839,7 +2864,10 @@ impl PeerNetwork {
                         );
                         return Ok((num_sent, flushed));
                     }
-                    return Err(net_error::PeerNotConnected);
+                    return Err(net_error::PeerNotConnected(format!(
+                        "No relay handles for event {}",
+                        event_id
+                    )));
                 });
 
                 let (num_sent, flushed) = match res {
@@ -3270,7 +3298,7 @@ impl PeerNetwork {
         let _ = PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             for dead_event in broken_http_peers.into_iter() {
                 debug!(
-                    "{:?}: De-register dead/broken HTTP connection {}",
+                    "{:?}: De-register dead/broken HTTP connection {} from epoch2x block download",
                     &network.local_peer, dead_event
                 );
                 PeerNetwork::with_http(network, |_, http| {
@@ -3281,8 +3309,8 @@ impl PeerNetwork {
         });
 
         for broken_neighbor in broken_p2p_peers.into_iter() {
-            debug!(
-                "{:?}: De-register dead/broken neighbor {:?}",
+            info!(
+                "{:?}: De-register and ban dead/broken neighbor {:?} from epoch2x block download",
                 &self.local_peer, &broken_neighbor
             );
             self.deregister_and_ban_neighbor(
@@ -3720,8 +3748,8 @@ impl PeerNetwork {
                     },
                 ) {
                     Ok(x) => x,
-                    Err(net_error::PeerNotConnected) => {
-                        debug!("{:?}: AntiEntropy: not connected: {:?}", &self.local_peer, &nk);
+                    Err(net_error::PeerNotConnected(ref msg)) => {
+                        debug!("{:?}: AntiEntropy: not connected: {:?} (reason: {})", &self.local_peer, &nk, msg);
                         continue;
                     }
                     Err(e) => {
