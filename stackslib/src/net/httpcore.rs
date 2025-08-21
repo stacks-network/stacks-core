@@ -1753,7 +1753,10 @@ impl PeerNetwork {
                             Ok(event_id)
                         } else {
                             debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
-                            Err(NetError::PeerNotConnected)
+                            Err(NetError::PeerNotConnected(format!(
+                                "HTTP failed to connect to {:?}, {:?}",
+                                &data_url, &addr
+                            )))
                         }
                     }
                     Err(e) => {
