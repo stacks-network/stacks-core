@@ -352,11 +352,6 @@ impl MarfedKV {
             ))
         })?;
 
-        test_debug!(
-            "Begin ephemeral WritableMarfStore {} --> {}",
-            base_tip,
-            ephemeral_next
-        );
         Ok(WritableMarfStore::Ephemeral(ephemeral_marf_store))
     }
 
@@ -588,7 +583,6 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     }
 
     fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
-        test_debug!("ReadOnly MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -613,11 +607,6 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
-                test_debug!(
-                    "ReadOnly MarfedKV get side-key for {:?}: {:?}",
-                    key,
-                    &side_key
-                );
                 SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
                     InterpreterError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
@@ -668,13 +657,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
     ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
-        let res = sqlite_get_contract_hash(self, contract)?;
-        test_debug!(
-            "ReadOnly MarfedKV: get contract hash of {}: {:?}",
-            contract,
-            &res
-        );
-        Ok(res)
+        sqlite_get_contract_hash(self, contract)
     }
 
     fn insert_metadata(
@@ -691,14 +674,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         contract: &QualifiedContractIdentifier,
         key: &str,
     ) -> InterpreterResult<Option<String>> {
-        let md = sqlite_get_metadata(self, contract, key)?;
-        test_debug!(
-            "ReadOnly MarfedKV: get metadata for {}: {} --> {:?}",
-            contract,
-            key,
-            &md
-        );
-        Ok(md)
+        sqlite_get_metadata(self, contract, key)
     }
 
     fn get_metadata_manual(
@@ -1074,13 +1050,10 @@ impl<'a> EphemeralMarfStore<'a> {
     /// The `base_tip` must be a valid tip in the given MARF.  New writes in the ephemeral MARF will
     /// descend from the block identified by `tip`.
     pub fn new(
-        read_only_marf: ReadOnlyMarfStore<'a>,
+        mut read_only_marf: ReadOnlyMarfStore<'a>,
         ephemeral_marf_tx: MarfTransaction<'a, StacksBlockId>,
     ) -> Result<Self, Error> {
-        let base_tip_height = read_only_marf
-            .marf
-            .get_block_height_of(&read_only_marf.chain_tip, &read_only_marf.chain_tip)?
-            .ok_or(Error::NotOpenedError)?;
+        let base_tip_height = read_only_marf.get_current_block_height();
         let ephemeral_tip = ephemeral_marf_tx
             .get_open_chain_tip()
             .ok_or(Error::NotFoundError)?
@@ -1323,7 +1296,6 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Returns Ok(None) if the key was not mapped to the given value at the opened chain tip.
     /// Returns Err(..) on all other failures.
     fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
-        test_debug!("Ephemeral MarfedKV get: {:?} tip={:?}", key, &self.open_tip);
         let value_res: InterpreterResult<Option<String>> = if let EphemeralTip::RAM(tip) =
             &self.open_tip
         {
@@ -1352,7 +1324,6 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 .map_err(|_| InterpreterError::Expect("ERROR: Unexpected Ephemeral MARF Failure on GET".into()))?
                 .map(|marf_value| {
                     let side_key = marf_value.to_hex();
-                    test_debug!("Ephemeral MarfedKV get side-key for {:?}: {:?}", key, &side_key);
                     SqliteConnection::get(self.ephemeral_marf.sqlite_conn(), &side_key)?.ok_or_else(|| {
                         InterpreterError::Expect(format!(
                             "ERROR: Ephemeral MARF contained value_hash not found in side storage: {}",
@@ -1371,11 +1342,6 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
             return Ok(Some(value));
         }
 
-        test_debug!(
-            "Ephemeral MarfedKV get: {:?} tip={:?} not mapped, falling back to read-only store",
-            key,
-            &self.open_tip
-        );
         // Due to the way we implemented `.set_block_hash()`, the read-only
         // MARF's tip will be set to `base_tip` if the open tip was ephemeral.
         // Otherwise, it'll be set to the tip that was last opeend.  Either way,
@@ -1632,7 +1598,8 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 .ephemeral_marf
                 .get_open_chain_tip_height()
                 .expect("Attempted to get the open chain tip from an unopened context.")
-                + self.base_tip_height;
+                + self.base_tip_height
+                + 1;
         }
 
         self.read_only_marf.get_open_chain_tip_height()
@@ -1644,7 +1611,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     fn get_current_block_height(&mut self) -> u32 {
         let height_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
             match self.ephemeral_marf.get_block_height_of(tip, tip) {
-                Ok(Some(x)) => Some(x + self.base_tip_height),
+                Ok(Some(x)) => Some(x + self.base_tip_height + 1),
                 Ok(None) => {
                     let first_tip = StacksBlockId::new(
                         &FIRST_BURNCHAIN_CONSENSUS_HASH,
@@ -1730,13 +1697,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
     ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
-        let res = sqlite_get_contract_hash(self, contract)?;
-        test_debug!(
-            "Ephemeral MarfedKV: get contract hash of {}: {:?}",
-            contract,
-            &res
-        );
-        Ok(res)
+        sqlite_get_contract_hash(self, contract)
     }
 
     /// Write contract metadata into the metadata table.
@@ -1767,14 +1728,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
         contract: &QualifiedContractIdentifier,
         key: &str,
     ) -> InterpreterResult<Option<String>> {
-        let md = sqlite_get_metadata(self, contract, key)?;
-        test_debug!(
-            "Ephemeral MarfedKV: get metadata for {}: {} --> {:?}",
-            contract,
-            key,
-            &md
-        );
-        Ok(md)
+        sqlite_get_metadata(self, contract, key)
     }
 
     /// Load up metadata at a specific block height from the metadata table (materialized view) in
