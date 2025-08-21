@@ -300,9 +300,12 @@ impl HttpPeer {
     fn disconnect_unresponsive(&mut self, network_state: &mut NetworkState) {
         let now = get_epoch_time_secs();
         let mut to_remove = vec![];
-        for (event_id, (socket, _, _, ts)) in self.connecting.iter() {
+        for (event_id, (socket, data_url_opt, _, ts)) in self.connecting.iter() {
             if ts + self.connection_opts.connect_timeout < now {
-                debug!("Disconnect connecting HTTP peer {:?}", &socket);
+                debug!(
+                    "Disconnect unresponsive connecting HTTP peer {:?} event {} to {:?}",
+                    &socket, event_id, &data_url_opt
+                );
                 to_remove.push(*event_id);
             }
         }
@@ -324,7 +327,10 @@ impl HttpPeer {
                 && last_response_time + self.connection_opts.idle_timeout < now
             {
                 // it's been too long
-                debug!("Removing idle HTTP conversation {:?}", convo);
+                debug!(
+                    "Removing idle HTTP conversation {:?} event {}",
+                    convo, event_id
+                );
                 to_remove.push(*event_id);
             }
         }
@@ -396,9 +402,14 @@ impl HttpPeer {
                 continue;
             }
 
-            if let Err(_e) =
+            let sock_fmt = format!("{:?}", &client_sock);
+            if let Err(e) =
                 self.register_http(network_state, node_state, event_id, client_sock, None, None)
             {
+                info!(
+                    "Failed to register inbound HTTP connection ({}, {:?}): {:?}",
+                    event_id, &sock_fmt, &e
+                );
                 // NOTE: register_http will deregister the socket for us
                 continue;
             }
@@ -433,7 +444,7 @@ impl HttpPeer {
                 net_error::InvalidMessage => {
                     // got sent bad data.  If this was an inbound conversation, send it a HTTP
                     // 400 and close the socket.
-                    debug!("Got a bad HTTP message on socket {:?}", &client_sock);
+                    info!("Got a bad HTTP message on socket {:?}", &client_sock);
                     match convo.reply_error(StacksHttpResponse::new_empty_error(
                         &HttpBadRequest::new(
                             "Received an HTTP message that the node could not decode".to_string(),
@@ -442,7 +453,7 @@ impl HttpPeer {
                         Ok(_) => {
                             // prime the socket
                             if let Err(e) = HttpPeer::saturate_http_socket(client_sock, convo) {
-                                debug!(
+                                info!(
                                     "Failed to flush HTTP 400 to socket {:?}: {:?}",
                                     &client_sock, &e
                                 );
@@ -450,7 +461,7 @@ impl HttpPeer {
                             }
                         }
                         Err(e) => {
-                            debug!(
+                            info!(
                                 "Failed to reply HTTP 400 to socket {:?}: {:?}",
                                 &client_sock, &e
                             );
@@ -459,7 +470,7 @@ impl HttpPeer {
                     }
                 }
                 _ => {
-                    debug!(
+                    info!(
                         "Failed to receive HTTP data on event {} (socket {:?}): {:?}",
                         event_id, &client_sock, &e
                     );
@@ -474,7 +485,7 @@ impl HttpPeer {
         let msgs = match convo.chat(node_state) {
             Ok(msgs) => msgs,
             Err(e) => {
-                debug!(
+                info!(
                     "Failed to converse HTTP on event {} (socket {:?}): {:?}",
                     event_id, &client_sock, &e
                 );
@@ -487,7 +498,7 @@ impl HttpPeer {
             // (continue) sending out data in this conversation, if the conversation is still
             // ongoing
             if let Err(e) = HttpPeer::saturate_http_socket(client_sock, convo) {
-                debug!(
+                info!(
                     "Failed to send HTTP data to event {} (socket {:?}): {:?}",
                     event_id, &client_sock, &e
                 );
@@ -517,7 +528,7 @@ impl HttpPeer {
 
                 debug!("HTTP event {} connected ({:?})", event_id, &data_url);
 
-                if let Err(_e) = self.register_http(
+                if let Err(e) = self.register_http(
                     network_state,
                     node_state,
                     *event_id,
@@ -525,14 +536,14 @@ impl HttpPeer {
                     data_url.clone(),
                     initial_request_opt,
                 ) {
-                    debug!(
-                        "Failed to register HTTP connection ({}, {:?})",
-                        event_id, data_url
+                    info!(
+                        "Failed to register connecting HTTP conversation to ({}, {:?}): {:?}",
+                        event_id, data_url, &e
                     );
                 }
             }
         }
-    }
+    }, 
 
     /// Process sockets that are ready, but specifically inbound or outbound only.
     /// Advance the state of all such conversations with remote peers.
@@ -548,7 +559,7 @@ impl HttpPeer {
         let mut msgs = vec![];
         for event_id in &poll_state.ready {
             let Some(client_sock) = self.sockets.get_mut(event_id) else {
-                debug!("Rogue socket event {}", event_id);
+                info!("Rogue HTTP socket event {}", event_id);
                 to_remove.push(*event_id);
                 continue;
             };
@@ -571,14 +582,17 @@ impl HttpPeer {
                             msgs.append(&mut new_msgs);
                         }
                         Err(e) => {
-                            debug!("Failed to process HTTP convo {:?}: {:?}", &convo, &e);
+                            info!("Failed to process HTTP convo {:?}: {:?}", &convo, &e);
                             to_remove.push(*event_id);
                             continue;
                         }
                     };
                 }
                 None => {
-                    warn!("Rogue event {} for socket {:?}", event_id, &client_sock);
+                    info!(
+                        "Rogue HTTP event {} for socket {:?}",
+                        event_id, &client_sock
+                    );
                     to_remove.push(*event_id);
                 }
             }
@@ -597,12 +611,18 @@ impl HttpPeer {
         // flush each outgoing conversation
         for (event_id, ref mut convo) in self.peers.iter_mut() {
             if let Err(e) = convo.try_flush() {
-                info!("Broken HTTP connection {:?}: {:?}", convo, &e);
+                info!(
+                    "Broken HTTP connection {:?} event {}: {:?}",
+                    convo, event_id, &e
+                );
                 close.push(*event_id);
             }
             if convo.is_drained() && !convo.is_keep_alive() {
                 // did some work, but nothing more to do and we're not keep-alive
-                debug!("Close drained HTTP connection {:?}", convo);
+                debug!(
+                    "Close drained non-keepalive HTTP connection {:?} event {}",
+                    convo, event_id
+                );
                 close.push(*event_id);
             }
         }
