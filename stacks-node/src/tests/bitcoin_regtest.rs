@@ -195,6 +195,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+    use crate::{BitcoinRegtestController, BurnchainController};
     mod utils {
         use std::net::TcpListener;
 
@@ -271,5 +272,36 @@ mod tests {
         bitcoind.kill_bitcoind().expect("should kill!");
         assert!(!bitcoind.is_running(), "should not be running after kill!");
         assert!(data_path.exists(), "data path should exists after kill!");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_bitcoind_restart_with_bootstrapped_chain_data() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let config = utils::create_config();
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("Failed starting bitcoind");
+
+        let btc_controller = BitcoinRegtestController::new(config, None);
+        btc_controller.bootstrap_chain(201);
+        info!("Chain bootstrapped...");
+
+        btcd_controller
+            .stop_bitcoind()
+            .expect("Failed to stop bitcoind");
+
+        btcd_controller
+            .start_bitcoind()
+            .expect("Failed to restart bitcoind");
+
+        btcd_controller
+            .stop_bitcoind()
+            .expect("Failed to re-stop bitcoind");
     }
 }
