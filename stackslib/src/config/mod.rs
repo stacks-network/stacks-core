@@ -126,7 +126,7 @@ const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
 /// Default number of milliseconds that the miner should sleep between mining
 /// attempts when the mempool is empty.
 const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
-/// Default number of seconds that aminer should wait before timing out an HTTP request to StackerDB.
+/// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
