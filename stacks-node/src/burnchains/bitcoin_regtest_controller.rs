@@ -80,7 +80,7 @@ use url::Url;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
+use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcClientError};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -726,13 +726,18 @@ impl BitcoinRegtestController {
         result_vec
     }
 
+    /// Retrieve all loaded wallets.
+    pub fn list_wallets(&self) -> Result<Vec<String>, BitcoinRpcClientError> {
+        self.rpc_client.list_wallets()
+    }
+
     /// Checks if the config-supplied wallet exists.
     /// If it does not exist, this function creates it.
-    pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
-        let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
-
-        if !wallets.contains(&self.config.burnchain.wallet_name) {
-            BitcoinRPCRequest::create_wallet(&self.config, &self.config.burnchain.wallet_name)?;
+    pub fn create_wallet_if_dne(&self) -> Result<(), BitcoinRpcClientError> {
+        let wallets = self.list_wallets()?;
+        let wallet = &self.config.burnchain.wallet_name;
+        if !wallets.contains(wallet) {
+            self.rpc_client.create_wallet(wallet, Some(true))?
         }
         Ok(())
     }
@@ -3258,14 +3263,14 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(0, wallets.len());
 
         btc_controller
             .create_wallet_if_dne()
             .expect("Wallet should now exists!");
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(1, wallets.len());
         assert_eq!("".to_owned(), wallets[0]);
     }
@@ -3287,7 +3292,7 @@ mod tests {
             .create_wallet_if_dne()
             .expect("Wallet should now exists!");
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(1, wallets.len());
         assert_eq!("mywallet".to_owned(), wallets[0]);
     }
