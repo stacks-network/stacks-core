@@ -3,8 +3,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::sync_channel;
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::thread::JoinHandle;
-use std::{cmp, thread};
 
 use libc;
 use stacks::burnchains::bitcoin::address::{BitcoinAddress, LegacyBitcoinAddressType};
@@ -27,7 +27,6 @@ use stacks_common::deps_common::ctrlc as termination;
 use stacks_common::deps_common::ctrlc::SignalId;
 use stacks_common::types::PublicKey;
 use stacks_common::util::hash::Hash160;
-use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stx_genesis::GenesisData;
 
 use super::RunLoopCallbacks;
@@ -64,12 +63,6 @@ pub struct RunLoopCounter(pub Arc<AtomicU64>);
 #[cfg(not(test))]
 #[derive(Clone)]
 pub struct RunLoopCounter();
-
-#[cfg(test)]
-const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 30;
-
-#[cfg(not(test))]
-const UNCONDITIONAL_CHAIN_LIVENESS_CHECK: u64 = 300;
 
 impl Default for RunLoopCounter {
     #[cfg(test)]
@@ -781,153 +774,6 @@ impl RunLoop {
         )
     }
 
-    /// Wake up and drive stacks block processing if there's been a PoX reorg.
-    /// Be careful not to saturate calls to announce new stacks blocks, because that will disable
-    /// mining (which would prevent a miner attempting to fix a hidden PoX anchor block from making
-    /// progress).
-    fn drive_pox_reorg_stacks_block_processing(
-        globals: &Globals,
-        config: &Config,
-        last_stacks_pox_reorg_recover_time: &mut u128,
-    ) {
-        let miner_config = config.get_miner_config();
-        let delay = cmp::max(
-            config.node.chain_liveness_poll_time_secs,
-            cmp::max(
-                miner_config.first_attempt_time_ms,
-                miner_config.subsequent_attempt_time_ms,
-            ) / 1000,
-        );
-
-        if *last_stacks_pox_reorg_recover_time + (delay as u128) >= get_epoch_time_secs().into() {
-            // too soon
-            return;
-        }
-
-        // announce a new stacks block to force the chains coordinator
-        //  to wake up anyways. this isn't free, so we have to make sure
-        //  the chain-liveness thread doesn't wake up too often
-        globals.coord().announce_new_stacks_block();
-
-        *last_stacks_pox_reorg_recover_time = get_epoch_time_secs().into();
-    }
-
-    /// Wake up and drive sortition processing if there's been a PoX reorg.
-    /// Be careful not to saturate calls to announce new burn blocks, because that will disable
-    /// mining (which would prevent a miner attempting to fix a hidden PoX anchor block from making
-    /// progress).
-    ///
-    /// only call if no in ibd
-    fn drive_pox_reorg_burn_block_processing(
-        globals: &Globals,
-        config: &Config,
-        burnchain: &Burnchain,
-        sortdb: &SortitionDB,
-        last_burn_pox_reorg_recover_time: &mut u128,
-        last_announce_time: &mut u128,
-    ) {
-        let miner_config = config.get_miner_config();
-        let delay = cmp::max(
-            config.node.chain_liveness_poll_time_secs,
-            cmp::max(
-                miner_config.first_attempt_time_ms,
-                miner_config.subsequent_attempt_time_ms,
-            ) / 1000,
-        );
-
-        if *last_burn_pox_reorg_recover_time + (delay as u128) >= get_epoch_time_secs().into() {
-            // too soon
-            return;
-        }
-
-        // compare sortition and heaviest AMs
-        let burnchain_db = burnchain
-            .open_burnchain_db(false)
-            .expect("FATAL: failed to open burnchain DB");
-
-        let highest_sn = SortitionDB::get_highest_known_burn_chain_tip(sortdb.conn())
-            .expect("FATAL: could not read sortition DB");
-
-        let canonical_burnchain_tip = burnchain_db
-            .get_canonical_chain_tip()
-            .expect("FATAL: could not read burnchain DB");
-
-        if canonical_burnchain_tip.block_height > highest_sn.block_height {
-            // still processing sortitions
-            test_debug!(
-                "Drive burn block processing: still processing sortitions ({} > {})",
-                canonical_burnchain_tip.block_height,
-                highest_sn.block_height
-            );
-            return;
-        }
-
-        *last_burn_pox_reorg_recover_time = get_epoch_time_secs().into();
-
-        // unconditionally bump every 5 minutes, just in case.
-        // this can get the node un-stuck if we're short on sortition processing but are unable to
-        // sync with the remote node because it keeps NACK'ing us, leading to a runloop stall.
-        if *last_announce_time + (UNCONDITIONAL_CHAIN_LIVENESS_CHECK as u128)
-            < get_epoch_time_secs().into()
-        {
-            debug!("Drive burnchain processing: unconditional bump");
-            globals.coord().announce_new_burn_block();
-            globals.coord().announce_new_stacks_block();
-            *last_announce_time = get_epoch_time_secs().into();
-        }
-    }
-
-    /// In a separate thread, periodically drive coordinator liveness by checking to see if there's
-    /// a pending reorg and if so, waking up the coordinator to go and process new blocks
-    fn drive_chain_liveness(
-        globals: Globals,
-        config: Config,
-        burnchain: Burnchain,
-        sortdb: SortitionDB,
-    ) {
-        let mut last_burn_pox_reorg_recover_time = 0;
-        let mut last_stacks_pox_reorg_recover_time = 0;
-        let mut last_burn_announce_time = 0;
-
-        debug!("Chain-liveness thread start!");
-
-        while globals.keep_running() {
-            debug!("Chain-liveness checkup");
-            Self::drive_pox_reorg_burn_block_processing(
-                &globals,
-                &config,
-                &burnchain,
-                &sortdb,
-                &mut last_burn_pox_reorg_recover_time,
-                &mut last_burn_announce_time,
-            );
-            Self::drive_pox_reorg_stacks_block_processing(
-                &globals,
-                &config,
-                &mut last_stacks_pox_reorg_recover_time,
-            );
-
-            sleep_ms(3000);
-        }
-
-        debug!("Chain-liveness thread exit!");
-    }
-
-    /// Spawn a thread to drive chain liveness
-    fn spawn_chain_liveness_thread(&self, globals: Globals) -> JoinHandle<()> {
-        let config = self.config.clone();
-        let burnchain = self.get_burnchain();
-        let sortdb = burnchain
-            .open_sortition_db(true)
-            .expect("FATAL: could not open sortition DB");
-
-        thread::Builder::new()
-            .name(format!("chain-liveness-{}", config.node.rpc_bind))
-            .stack_size(BLOCK_PROCESSOR_STACK_SIZE)
-            .spawn(move || Self::drive_chain_liveness(globals, config, burnchain, sortdb))
-            .expect("FATAL: failed to spawn chain liveness thread")
-    }
-
     /// Starts the node runloop.
     ///
     /// This function will block by looping infinitely.
@@ -1025,7 +871,6 @@ impl RunLoop {
         // Boot up the p2p network and relayer, and figure out how many sortitions we have so far
         // (it could be non-zero if the node is resuming from chainstate)
         let mut node = StacksNode::spawn(self, globals.clone(), relay_recv);
-        let liveness_thread = self.spawn_chain_liveness_thread(globals.clone());
 
         // Wait for all pending sortitions to process
         let burnchain_db = burnchain_config
@@ -1061,7 +906,6 @@ impl RunLoop {
                 globals.coord().stop_chains_coordinator();
                 coordinator_thread_handle.join().unwrap();
                 let peer_network = node.join();
-                liveness_thread.join().unwrap();
 
                 // Data that will be passed to Nakamoto run loop
                 // Only gets transfered on clean shutdown of neon run loop
@@ -1185,7 +1029,6 @@ impl RunLoop {
                                 globals.coord().stop_chains_coordinator();
                                 coordinator_thread_handle.join().unwrap();
                                 let peer_network = node.join();
-                                liveness_thread.join().unwrap();
 
                                 // Data that will be passed to Nakamoto run loop
                                 // Only gets transfered on clean shutdown of neon run loop
@@ -1258,7 +1101,6 @@ impl RunLoop {
                             globals.coord().stop_chains_coordinator();
                             coordinator_thread_handle.join().unwrap();
                             let peer_network = node.join();
-                            liveness_thread.join().unwrap();
 
                             // Data that will be passed to Nakamoto run loop
                             // Only gets transfered on clean shutdown of neon run loop
