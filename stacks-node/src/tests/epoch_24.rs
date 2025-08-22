@@ -37,8 +37,8 @@ use stacks_common::util::hash::{bytes_to_hex, hex_bytes, Hash160};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::stacks_common::codec::StacksMessageCodec;
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_pox_info, neon_integration_test_conf, next_block_and_wait,
     submit_tx, test_observer, wait_for_runloop,
@@ -175,7 +175,7 @@ fn fix_to_pox_contract() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -803,7 +803,7 @@ fn verify_auto_unlock_behavior() {
         .unwrap()
         + 1;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

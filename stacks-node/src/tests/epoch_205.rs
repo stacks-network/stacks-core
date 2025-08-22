@@ -24,7 +24,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, VRFSeed};
 use stacks_common::util::hash::hex_bytes;
 
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::{run_until_burnchain_height, select_transactions_where};
 use crate::{neon, BitcoinRegtestController, BurnchainController, Keychain};
@@ -116,7 +116,7 @@ fn test_exact_block_costs() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -346,7 +346,7 @@ fn test_dynamic_db_method_costs() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -506,7 +506,7 @@ fn transition_empty_blocks() {
 
     let keychain = Keychain::default(conf.node.seed.clone());
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -774,7 +774,7 @@ fn test_cost_limit_switch_version205() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

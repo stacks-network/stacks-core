@@ -130,6 +130,8 @@ pub struct Signer {
     pub validate_with_replay_tx: bool,
     /// Scope of Tx Replay in terms of Burn block boundaries
     pub tx_replay_scope: ReplayScopeOpt,
+    /// The number of blocks after the past tip to reset the replay set
+    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     /// The last time we capitulated our miner viewpoint
@@ -310,6 +312,7 @@ impl SignerTrait<SignerMessage> for Signer {
             global_state_evaluator,
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
             tx_replay_scope: None,
+            reset_replay_set_after_fork_blocks: signer_config.reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
             last_capitulate_miner_view: SystemTime::now(),
             #[cfg(any(test, feature = "testing"))]
