@@ -55,7 +55,7 @@ const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
 /// machine view point and capitulating to other signers tenure view
 const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
 /// Default HTTP timeout (in seconds) for read/write operations with StackerDB.
-pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 60;
+pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
