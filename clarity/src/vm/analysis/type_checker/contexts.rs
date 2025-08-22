@@ -104,7 +104,7 @@ impl TypingContext<'_> {
         }
     }
 
-    pub fn extend(&self) -> CheckResult<TypingContext> {
+    pub fn extend(&self) -> CheckResult<TypingContext<'_>> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             Err(CheckError::new(CheckErrors::MaxContextDepthReached))
         } else {

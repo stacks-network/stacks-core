@@ -334,7 +334,7 @@ macro_rules! impl_byte_array_from_column {
         }
 
         impl rusqlite::types::ToSql for $thing {
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
                 let hex_str = self.to_hex();
                 Ok(hex_str.into())
             }

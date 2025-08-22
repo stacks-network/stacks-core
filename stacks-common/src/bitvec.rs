@@ -171,7 +171,7 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
         Ok(bitvec)
     }
 
-    pub fn iter(&self) -> BitVecIter<MAX_SIZE> {
+    pub fn iter(&self) -> BitVecIter<'_, MAX_SIZE> {
         let byte = self.data.first();
         BitVecIter {
             index: 0,

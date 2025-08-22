@@ -901,7 +901,7 @@ pub fn test_mempool_storage_nakamoto() {
     let (mut test_signers, test_stackers) = TestStacker::common_signing_set();
     let mut peer = boot_nakamoto(
         function_name!(),
-        vec![(addr.into(), 100_000_000)],
+        vec![(addr.clone().into(), 100_000_000)],
         &mut test_signers,
         &test_stackers,
         None,

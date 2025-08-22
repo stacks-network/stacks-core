@@ -615,7 +615,7 @@ impl EventObserver {
     fn make_new_block_txs_payload(
         receipt: &StacksTransactionReceipt,
         tx_index: u32,
-    ) -> TransactionEventPayload {
+    ) -> TransactionEventPayload<'_> {
         let tx = &receipt.transaction;
 
         let status = match (receipt.post_condition_aborted, &receipt.result) {

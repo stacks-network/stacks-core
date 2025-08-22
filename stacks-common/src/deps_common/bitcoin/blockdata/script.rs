@@ -385,7 +385,7 @@ impl Script {
     /// opcodes, datapushes and errors. At most one error will be returned and then the
     /// iterator will end. To instead iterate over the script as sequence of bytes, treat
     /// it as a slice using `script[..]` or convert it to a vector using `into_bytes()`.
-    pub fn iter(&self, enforce_minimal: bool) -> Instructions {
+    pub fn iter(&self, enforce_minimal: bool) -> Instructions<'_> {
         Instructions {
             data: &self.0[..],
             enforce_minimal,

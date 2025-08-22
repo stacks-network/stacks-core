@@ -54,7 +54,7 @@ impl SignerMonitor {
     pub fn new(args: MonitorSignersArgs) -> Self {
         url::Url::parse(&format!("http://{}", args.host)).expect("Failed to parse node host");
         let stacks_client = StacksClient::try_from_host(
-            StacksPrivateKey::random(), // We don't need a private key to read
+            &StacksPrivateKey::random(), // We don't need a private key to read
             args.host.clone(),
             "FOO".to_string(), // We don't care about authorized paths. Just accessing public info
         )
@@ -95,7 +95,7 @@ impl SignerMonitor {
             let stacks_address = StacksAddress::p2pkh(self.stacks_client.mainnet, &public_key);
             self.cycle_state
                 .signers_keys
-                .insert(stacks_address, public_key);
+                .insert(stacks_address.clone(), public_key);
             self.cycle_state
                 .signers_weights
                 .insert(stacks_address, entry.weight);
@@ -103,13 +103,13 @@ impl SignerMonitor {
         for (signer_address, slot_id) in self.cycle_state.signers_slots.iter() {
             self.cycle_state
                 .signers_addresses
-                .insert(*slot_id, *signer_address);
+                .insert(*slot_id, signer_address.clone());
         }
 
         for (signer_address, slot_id) in self.cycle_state.signers_slots.iter() {
             self.cycle_state
                 .signers_addresses
-                .insert(*slot_id, *signer_address);
+                .insert(*slot_id, signer_address.clone());
             self.cycle_state.slot_ids.push(slot_id.0);
         }
         Ok(true)
@@ -272,11 +272,12 @@ impl SignerMonitor {
                 new_messages.into_iter().zip(&self.cycle_state.slot_ids)
             {
                 let signer_slot_id = SignerSlotID(*slot_id);
-                let signer_address = *self
+                let signer_address = self
                     .cycle_state
                     .signers_addresses
                     .get(&signer_slot_id)
-                    .expect("BUG: missing signer address for given slot id");
+                    .expect("BUG: missing signer address for given slot id")
+                    .clone();
                 let Some(signer_message) = signer_message_opt else {
                     missing_signers.push(signer_address);
                     continue;
@@ -308,7 +309,7 @@ impl SignerMonitor {
                         .signers_addresses
                         .get(slot_id)
                         .expect("BUG: missing signer address for given slot id");
-                    stale_signers.push(*address);
+                    stale_signers.push(address.clone());
                 }
             }
             if missing_signers.is_empty()

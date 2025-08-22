@@ -11,7 +11,9 @@ members = [
     "libsigner",
     "stacks-signer",
     "stacks-node",
-    "contrib/tools/config-docs-generator"]
+]
+
+exclude = ["contrib/tools/config-docs-generator"]
 
 # Dependencies we want to keep the same between workspace members
 [workspace.dependencies]

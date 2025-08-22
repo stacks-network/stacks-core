@@ -50,7 +50,7 @@ macro_rules! define_named_enum {
         }
     ) => {
         $(#[$enum_meta])*
-        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Copy, Clone)]
+        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Clone)]
         pub enum $Name {
             $(
                 $(#[$variant_meta])*
@@ -749,7 +749,7 @@ macro_rules! impl_byte_array_rusqlite_only {
         }
 
         impl rusqlite::types::ToSql for $thing {
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
                 let hex_str = self.to_hex();
                 Ok(hex_str.into())
             }

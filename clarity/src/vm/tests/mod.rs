@@ -171,7 +171,7 @@ pub fn tl_env_factory() -> TopLevelMemoryEnvironmentGenerator {
 
 pub struct MemoryEnvironmentGenerator(MemoryBackingStore);
 impl MemoryEnvironmentGenerator {
-    fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
+    fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_, '_> {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();
@@ -190,7 +190,7 @@ impl MemoryEnvironmentGenerator {
 
 pub struct TopLevelMemoryEnvironmentGenerator(MemoryBackingStore);
 impl TopLevelMemoryEnvironmentGenerator {
-    pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment {
+    pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_, '_> {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();

@@ -302,11 +302,11 @@ impl MemoryBackingStore {
         memory_marf
     }
 
-    pub fn as_clarity_db(&mut self) -> ClarityDatabase {
+    pub fn as_clarity_db(&mut self) -> ClarityDatabase<'_> {
         ClarityDatabase::new(self, &NULL_HEADER_DB, &NULL_BURN_STATE_DB)
     }
 
-    pub fn as_analysis_db(&mut self) -> AnalysisDatabase {
+    pub fn as_analysis_db(&mut self) -> AnalysisDatabase<'_> {
         AnalysisDatabase::new(self)
     }
 }
@@ -405,7 +405,7 @@ impl ClarityBackingStore for MemoryBackingStore {
 }
 
 impl ToSql for ExecutionCost {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         let val = serde_json::to_string(self)
             .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
         Ok(ToSqlOutput::from(val))

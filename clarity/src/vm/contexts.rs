@@ -1875,7 +1875,7 @@ impl<'a> LocalContext<'a> {
         self.depth
     }
 
-    pub fn function_context(&self) -> &LocalContext {
+    pub fn function_context(&self) -> &LocalContext<'_> {
         match self.function_context {
             Some(context) => context,
             None => self,

@@ -36,14 +36,14 @@ impl FromSql for Sha256dHash {
 }
 
 impl ToSql for Sha256dHash {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput> {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         let hex_str = self.be_hex_string();
         Ok(hex_str.into())
     }
 }
 
-impl rusqlite::types::ToSql for StacksAddress {
-    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput> {
+impl ToSql for StacksAddress {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         let addr_str = self.to_string();
         Ok(addr_str.into())
     }
