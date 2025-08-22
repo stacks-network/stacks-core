@@ -2161,7 +2161,7 @@ impl BitcoinRegtestController {
     ///
     /// * `true` if the transaction is confirmed (has at least one confirmation).
     /// * `false` if the transaction is unconfirmed or could not be found.
-    fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
+    pub fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
         match self.rpc_client.get_transaction(txid) {
             Ok(info) => info.confirmations > 0,
             _ => false,
