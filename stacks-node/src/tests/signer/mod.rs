@@ -71,9 +71,9 @@ use super::nakamoto_integrations::{
 use super::neon_integrations::{
     copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
 };
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_wait_for_commits, POX_4_DEFAULT_STACKER_BALANCE,
 };
@@ -1697,7 +1697,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     node_config_modifier(&mut naka_conf);
 
     info!("Make new BitcoinCoreController");
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

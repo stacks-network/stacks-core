@@ -24,7 +24,7 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use {reqwest, serde_json};
 
-use super::bitcoin_regtest::BitcoinCoreController;
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::BurnchainController;
 use crate::tests::neon_integrations::{
     neon_integration_test_conf, next_block_and_wait, submit_tx, test_observer, wait_for_runloop,
@@ -163,7 +163,7 @@ fn test_stackerdb_load_store() {
 
     test_observer::spawn();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -300,7 +300,7 @@ fn test_stackerdb_event_observer() {
 
     test_observer::spawn();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

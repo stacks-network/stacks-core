@@ -22,12 +22,12 @@ use stacks::burnchains::bitcoin::BitcoinNetworkType;
 use stacks::core::BITCOIN_REGTEST_FIRST_BLOCK_HASH;
 use stacks::types::chainstate::BurnchainHeaderHash;
 
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::rpc::bitcoin_rpc_client::test_utils::AddressType;
 use crate::burnchains::rpc::bitcoin_rpc_client::{
     BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
 use crate::burnchains::rpc::rpc_transport::RpcError;
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
 
 mod utils {
     use std::net::TcpListener;
@@ -64,12 +64,12 @@ mod utils {
         config
     }
 
-    pub fn create_client_no_auth_from_stx_config(config: Config) -> BitcoinRpcClient {
+    pub fn create_client_no_auth_from_stx_config(config: &Config) -> BitcoinRpcClient {
         BitcoinRpcClient::new(
-            config.burnchain.peer_host,
+            config.burnchain.peer_host.clone(),
             config.burnchain.rpc_port,
             RpcAuth::None,
-            config.burnchain.wallet_name,
+            config.burnchain.wallet_name.clone(),
             config.burnchain.timeout,
             "stacks".to_string(),
         )
@@ -86,12 +86,12 @@ fn test_rpc_call_fails_when_bitcond_with_auth_but_rpc_no_auth() {
 
     let config_with_auth = utils::create_stx_config();
 
-    let mut btcd_controller = BitcoinCoreController::new(config_with_auth.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config_with_auth);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
 
-    let client = utils::create_client_no_auth_from_stx_config(config_with_auth);
+    let client = utils::create_client_no_auth_from_stx_config(&config_with_auth);
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
 
@@ -112,12 +112,13 @@ fn test_rpc_call_fails_when_bitcond_no_auth_and_rpc_no_auth() {
     config_no_auth.burnchain.username = None;
     config_no_auth.burnchain.password = None;
 
-    let mut btcd_controller = BitcoinCoreController::new(config_no_auth.clone());
+    let client = utils::create_client_no_auth_from_stx_config(&config_no_auth);
+
+    let mut btcd_controller =
+        BitcoinCoreController::from_stx_config_and_client(&config_no_auth, client.clone());
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
-
-    let client = utils::create_client_no_auth_from_stx_config(config_no_auth);
 
     let err = client.get_blockchain_info().expect_err("Should fail!");
 
@@ -152,7 +153,7 @@ fn test_get_blockchain_info_ok() {
 
     let config = utils::create_stx_config();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -178,7 +179,7 @@ fn test_wallet_listing_and_creation_ok() {
 
     let config = utils::create_stx_config();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -215,7 +216,7 @@ fn test_wallet_creation_fails_if_already_exists() {
 
     let config = utils::create_stx_config();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -251,7 +252,7 @@ fn test_get_new_address_for_each_address_type() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -306,7 +307,7 @@ fn test_generate_to_address_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -333,7 +334,7 @@ fn test_list_unspent_empty_with_empty_wallet() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -357,7 +358,7 @@ fn test_list_unspent_with_defaults() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -389,7 +390,7 @@ fn test_list_unspent_one_address_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -442,7 +443,7 @@ fn test_list_unspent_two_addresses_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -505,7 +506,7 @@ fn test_generate_block_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -534,10 +535,10 @@ fn test_get_raw_transaction_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind_v2()
+        .start_bitcoind()
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
@@ -576,10 +577,10 @@ fn test_get_transaction_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind_v2()
+        .start_bitcoind()
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
@@ -614,9 +615,9 @@ fn test_get_descriptor_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
-        .start_bitcoind_v2()
+        .start_bitcoind()
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
@@ -644,9 +645,9 @@ fn test_import_descriptor_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
-        .start_bitcoind_v2()
+        .start_bitcoind()
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
@@ -679,7 +680,7 @@ fn test_stop_bitcoind_ok() {
 
     let config = utils::create_stx_config();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -699,7 +700,7 @@ fn test_invalidate_block_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -738,7 +739,7 @@ fn test_get_block_hash_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::new(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .start_bitcoind()
         .expect("bitcoind should be started!");
@@ -761,10 +762,10 @@ fn test_send_raw_transaction_rebroadcast_ok() {
     let mut config = utils::create_stx_config();
     config.burnchain.wallet_name = "my_wallet".to_string();
 
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(config.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
         .add_arg("-fallbackfee=0.0002")
-        .start_bitcoind_v2()
+        .start_bitcoind()
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");

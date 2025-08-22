@@ -19,10 +19,10 @@ use stacks_common::util::secp256k1::Secp256k1PublicKey;
 use stacks_common::util::sleep_ms;
 
 use super::neon_integrations::get_account;
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::neon_node::StacksNode;
 use crate::stacks_common::types::Address;
 use crate::stacks_common::util::hash::bytes_to_hex;
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::epoch_21::wait_pox_stragglers;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
@@ -153,7 +153,7 @@ fn disable_pox() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -677,7 +677,7 @@ fn pox_2_unlock_all() {
     );
     burnchain_config.pox_constants = pox_constants.clone();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -1375,7 +1375,7 @@ fn test_pox_reorg_one_flap() {
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&confs[0]);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
