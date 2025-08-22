@@ -131,9 +131,16 @@ jobs:
         with:
           toolchain: nightly
 
-      - name: Check fuzz targets
+      - name: Check fuzz targets (clarity)
         run: |
           cargo +nightly check \
             --manifest-path clarity/fuzz/Cargo.toml \
+            --bins \
+            --locked
+
+      - name: Check fuzz targets (stackslib)
+        run: |
+          cargo +nightly check \
+            --manifest-path stackslib/fuzz/Cargo.toml \
             --bins \
             --locked
