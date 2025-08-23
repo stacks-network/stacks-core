@@ -40,9 +40,13 @@ impl<'a> Arbitrary<'a> for Input<'a> {
     }
 }
 
-fuzz_target!(|i: Input| {
+fn harness(i: Input) {
     if let Ok(tx) = deserialize::<Transaction>(i.d) {
         let p = BitcoinBlockParser::new(BitcoinNetworkType::Mainnet, MagicBytes::default());
         let _ = p.parse_tx(&tx, i.h, i.e);
     }
+}
+
+fuzz_target!(|i: Input| {
+    harness(i);
 });
