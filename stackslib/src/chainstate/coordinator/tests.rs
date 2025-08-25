@@ -41,7 +41,6 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::affirmation::*;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::*;
 use crate::burnchains::*;
@@ -191,36 +190,10 @@ fn produce_burn_block_do_not_set_height<'a, I: Iterator<Item = &'a mut Burnchain
         .raw_store_burnchain_block(burnchain_conf, &indexer, header.clone(), ops.clone())
         .unwrap();
 
-    let this_reward_cycle = burnchain_conf
-        .block_height_to_reward_cycle(block_height)
-        .unwrap_or(0);
-
-    let prev_reward_cycle = burnchain_conf
-        .block_height_to_reward_cycle(block_height.saturating_sub(1))
-        .unwrap_or(0);
-
-    if this_reward_cycle != prev_reward_cycle {
-        // at reward cycle boundary
-        test_debug!(
-            "Update PoX affirmation maps for reward cycle {} ({}) block {} cycle-length {}",
-            prev_reward_cycle,
-            this_reward_cycle,
-            block_height,
-            burnchain_conf.pox_constants.reward_cycle_length
-        );
-        update_pox_affirmation_maps(burnchain_db, &indexer, prev_reward_cycle, burnchain_conf)
-            .unwrap();
-    }
-
     for other in others {
         other
             .raw_store_burnchain_block(burnchain_conf, &indexer, header.clone(), ops.clone())
             .unwrap();
-
-        if this_reward_cycle != prev_reward_cycle {
-            update_pox_affirmation_maps(other, &indexer, prev_reward_cycle, burnchain_conf)
-                .unwrap();
-        }
     }
 
     block_hash

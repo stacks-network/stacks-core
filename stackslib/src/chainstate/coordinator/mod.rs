@@ -1626,16 +1626,12 @@ impl<
             "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
         );
 
-        let burnchain_db_conn = self.burnchain_blocks_db.conn();
         let sortdb_handle = self
             .sortition_db
             .tx_handle_begin(&canonical_sortition_tip)?;
-        let mut processed_blocks = self.chain_state_db.process_blocks(
-            burnchain_db_conn,
-            sortdb_handle,
-            1,
-            self.dispatcher,
-        )?;
+        let mut processed_blocks =
+            self.chain_state_db
+                .process_blocks(sortdb_handle, 1, self.dispatcher)?;
 
         while let Some(block_result) = processed_blocks.pop() {
             if block_result.0.is_none() && block_result.1.is_none() {
@@ -1738,12 +1734,9 @@ impl<
                 .sortition_db
                 .tx_handle_begin(&canonical_sortition_tip)?;
             // Right before a block is set to processed, the event dispatcher will emit a new block event
-            processed_blocks = self.chain_state_db.process_blocks(
-                burnchain_db_conn,
-                sortdb_handle,
-                1,
-                self.dispatcher,
-            )?;
+            processed_blocks =
+                self.chain_state_db
+                    .process_blocks(sortdb_handle, 1, self.dispatcher)?;
         }
 
         Ok(None)

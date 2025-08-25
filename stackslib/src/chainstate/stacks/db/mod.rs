@@ -1717,7 +1717,6 @@ impl StacksChainState {
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::ZERO,
-                0,
             )?;
             tx.commit()?;
         }
@@ -2603,7 +2602,6 @@ impl StacksChainState {
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
         burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
-        affirmation_weight: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2659,7 +2657,6 @@ impl StacksChainState {
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
-            affirmation_weight,
         )?;
         StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         StacksChainState::store_burnchain_txids(

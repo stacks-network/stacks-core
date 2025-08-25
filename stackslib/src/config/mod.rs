@@ -1708,12 +1708,6 @@ pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 
 #[derive(Clone, Deserialize, Default, Debug)]
-pub struct AffirmationOverride {
-    pub reward_cycle: u64,
-    pub affirmation: String,
-}
-
-#[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,

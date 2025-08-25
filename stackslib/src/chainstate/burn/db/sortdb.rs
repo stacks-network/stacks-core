@@ -2438,10 +2438,11 @@ impl<'a> SortitionHandleConn<'a> {
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
-        match burnchain_db_conn {
-            Some(conn) => self.get_chosen_pox_anchor_v210(conn, prepare_end_bhh, pox_consts),
-            None => self.get_chosen_pox_anchor_v205(prepare_end_bhh, pox_consts),
-        }
+        // match burnchain_db_conn {
+        //     Some(conn) => self.get_chosen_pox_anchor_v210(conn, prepare_end_bhh, pox_consts),
+        //     None => self.get_chosen_pox_anchor_v205(prepare_end_bhh, pox_consts),
+        // }
+        self.get_chosen_pox_anchor_v205(prepare_end_bhh, pox_consts)
     }
 
     /// Use the epoch 2.1 method for choosing a PoX anchor block.
@@ -3772,28 +3773,6 @@ impl SortitionDB {
     }
 }
 
-impl SortitionDBTx<'_> {
-    pub fn find_sortition_tip_affirmation_map(
-        &mut self,
-        chain_tip: &SortitionId,
-    ) -> Result<AffirmationMap, db_error> {
-        let affirmation_map = match self.get_indexed(chain_tip, db_keys::pox_affirmation_map())? {
-            Some(am_str) => {
-                AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
-            }
-            None => AffirmationMap::empty(),
-        };
-
-        // remove the first entry -- it's always `n` based on the way we construct it, while the
-        // heaviest affirmation map just has nothing.
-        if let Some(skipped_first_entry) = affirmation_map.as_slice().get(1..) {
-            Ok(AffirmationMap::new(skipped_first_entry.to_vec()))
-        } else {
-            Ok(AffirmationMap::empty())
-        }
-    }
-}
-
 impl SortitionDBConn<'_> {
     pub fn as_handle<'b>(&'b self, chain_tip: &SortitionId) -> SortitionHandleConn<'b> {
         SortitionHandleConn::new(
@@ -4651,23 +4630,6 @@ impl SortitionDB {
         match conn.query_row(qry, NO_PARAMS, |row| row.get(0)).optional() {
             Ok(opt) => Ok(opt.expect("CORRUPTION: No canonical burnchain tip")),
             Err(e) => Err(db_error::from(e)),
-        }
-    }
-
-    /// Find the affirmation map represented by a given sortition ID.
-    pub fn find_sortition_tip_affirmation_map(
-        &self,
-        tip_id: &SortitionId,
-    ) -> Result<AffirmationMap, db_error> {
-        let ih = self.index_handle(tip_id);
-        let am = ih.get_sortition_affirmation_map()?;
-
-        // remove the first entry -- it's always `n` based on the way we construct it, while the
-        // heaviest affirmation map just has nothing.
-        if let Some(skipped_first_entry) = am.as_slice().get(1..) {
-            Ok(AffirmationMap::new(skipped_first_entry.to_vec()))
-        } else {
-            Ok(AffirmationMap::empty())
         }
     }
 
@@ -10736,15 +10698,7 @@ pub mod tests {
                 commit_set[0].clone()
             };
             let burn_header_hash = headers[i + 1].block_hash.clone();
-            let burn_block_height = headers[i + 1].block_height;
 
-            Burnchain::process_affirmation_maps(
-                &burnchain,
-                &mut burnchain_db,
-                &headers,
-                burn_block_height,
-            )
-            .unwrap();
             test_append_snapshot_with_winner(&mut db, burn_header_hash, &commit_ops, None, winner);
         }
 

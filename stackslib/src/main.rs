@@ -1569,12 +1569,7 @@ check if the associated microblocks can be downloaded
                 let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
                 let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
                 let receipts = new_chainstate
-                    .process_blocks(
-                        old_burnchaindb.conn(),
-                        sortition_tx,
-                        1,
-                        null_event_dispatcher,
-                    )
+                    .process_blocks(sortition_tx, 1, null_event_dispatcher)
                     .unwrap();
                 if receipts.is_empty() {
                     break;

@@ -3761,14 +3761,6 @@ pub mod test {
                     blockstack_ops,
                 )
                 .unwrap();
-
-            Burnchain::process_affirmation_maps(
-                burnchain,
-                &mut burnchain_db,
-                &indexer,
-                block_header.block_height,
-            )
-            .unwrap();
         }
 
         /// Generate and commit the next burnchain block with the given block operations.
