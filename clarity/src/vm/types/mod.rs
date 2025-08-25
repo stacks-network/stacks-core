@@ -71,7 +71,10 @@ pub use self::std_principals::StandardPrincipalData;
 mod std_principals {
     use std::fmt;
 
-    use stacks_common::address::c32;
+    use stacks_common::address::{
+        c32, C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+        C32_ADDRESS_VERSION_TESTNET_MULTISIG,
+    };
 
     use crate::vm::errors::InterpreterError;
 
@@ -117,6 +120,16 @@ mod std_principals {
         pub fn destruct(self) -> (u8, [u8; 20]) {
             let Self(version, bytes) = self;
             (version, bytes)
+        }
+
+        pub fn is_mainnet(self) -> bool {
+            self.0 == C32_ADDRESS_VERSION_MAINNET_MULTISIG
+                || self.0 == C32_ADDRESS_VERSION_MAINNET_SINGLESIG
+        }
+
+        pub fn is_multisig(self) -> bool {
+            self.0 == C32_ADDRESS_VERSION_MAINNET_MULTISIG
+                || self.0 == C32_ADDRESS_VERSION_TESTNET_MULTISIG
         }
     }
 
@@ -1879,5 +1892,51 @@ mod test {
             data: vec![1, 2, 3, 4, 5],
         }));
         let _ = buff.expect_buff(4).unwrap();
+    }
+
+    #[test]
+    fn principal_is_mainnet() {
+        let principal =
+            PrincipalData::parse_standard_principal("SPXACZ2NS34QHWCMAK1V2QJK0XB6WM6N5AB7RWYB")
+                .unwrap();
+        assert!(principal.is_mainnet());
+
+        let principal =
+            PrincipalData::parse_standard_principal("SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4")
+                .unwrap();
+        assert!(principal.is_mainnet());
+
+        let principal =
+            PrincipalData::parse_standard_principal("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM")
+                .unwrap();
+        assert!(!principal.is_mainnet());
+
+        let principal =
+            PrincipalData::parse_standard_principal("SNBPC7AHXCBAQSW6RKGEXVG119H2933ZYR63HD32")
+                .unwrap();
+        assert!(!principal.is_mainnet());
+    }
+
+    #[test]
+    fn principal_is_multisig() {
+        let principal =
+            PrincipalData::parse_standard_principal("SPXACZ2NS34QHWCMAK1V2QJK0XB6WM6N5AB7RWYB")
+                .unwrap();
+        assert!(!principal.is_multisig());
+
+        let principal =
+            PrincipalData::parse_standard_principal("SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4")
+                .unwrap();
+        assert!(principal.is_multisig());
+
+        let principal =
+            PrincipalData::parse_standard_principal("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM")
+                .unwrap();
+        assert!(!principal.is_multisig());
+
+        let principal =
+            PrincipalData::parse_standard_principal("SNBPC7AHXCBAQSW6RKGEXVG119H2933ZYR63HD32")
+                .unwrap();
+        assert!(principal.is_multisig());
     }
 }

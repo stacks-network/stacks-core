@@ -113,10 +113,11 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
+use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
-use super::bitcoin_regtest::BitcoinCoreController;
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
     fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
     TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
@@ -1584,7 +1585,7 @@ fn simple_neon_integration() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1809,7 +1810,7 @@ fn restarting_miner() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2034,7 +2035,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2281,7 +2282,7 @@ fn mine_multiple_per_tenure_integration() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2496,7 +2497,7 @@ fn multiple_miners() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2725,7 +2726,7 @@ fn correct_burn_outs() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3038,7 +3039,7 @@ fn block_proposal_api_endpoint() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3415,7 +3416,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3519,7 +3520,7 @@ fn vote_for_aggregate_key_burn_op() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3748,7 +3749,7 @@ fn follower_bootup_simple() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4069,7 +4070,7 @@ fn follower_bootup_across_multiple_cycles() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4296,7 +4297,7 @@ fn follower_bootup_custom_chain_id() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4644,7 +4645,7 @@ fn burn_ops_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -5231,7 +5232,7 @@ fn forked_tenure_is_ignored() {
     let miner_sk = naka_conf.miner.mining_key.clone().unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -5586,7 +5587,7 @@ fn check_block_heights() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6031,7 +6032,7 @@ fn nakamoto_attempt_time() {
     test_observer::spawn();
     test_observer::register(&mut naka_conf, &[EventKeyType::BlockProposal]);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6335,7 +6336,7 @@ fn clarity_burn_state() {
     test_observer::spawn();
     test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6606,7 +6607,7 @@ fn signer_chainstate() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6710,6 +6711,7 @@ fn signer_chainstate() {
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
+            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6820,6 +6822,7 @@ fn signer_chainstate() {
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
+            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6892,6 +6895,7 @@ fn signer_chainstate() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
+        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     sortitions_view
@@ -7141,7 +7145,7 @@ fn continue_tenure_extend() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7588,7 +7592,7 @@ fn check_block_times() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7980,7 +7984,7 @@ fn check_block_info() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -8613,7 +8617,7 @@ fn check_block_info_rewards() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -8958,7 +8962,7 @@ fn mock_mining() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9176,7 +9180,7 @@ fn utxo_check_on_startup_panic() {
     }
     last.start_height = 131;
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9252,7 +9256,7 @@ fn utxo_check_on_startup_recover() {
     }
     last.start_height = 131;
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9320,7 +9324,7 @@ fn v3_signer_api_endpoint() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9483,7 +9487,7 @@ fn v3_blockbyheight_api_endpoint() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9602,7 +9606,7 @@ fn nakamoto_lockup_events() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9780,7 +9784,7 @@ fn skip_mining_long_tx() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -10142,7 +10146,7 @@ fn sip029_coinbase_change() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -10363,7 +10367,7 @@ fn clarity_cost_spend_down() {
     test_observer::spawn();
     test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -10624,7 +10628,7 @@ fn consensus_hash_event_dispatcher() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11065,7 +11069,7 @@ fn mine_invalid_principal_from_consensus_buff() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11184,7 +11188,7 @@ fn reload_miner_config() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11330,7 +11334,7 @@ fn rbf_on_config_change() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11510,7 +11514,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         naka_conf.node.working_dir
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11851,7 +11855,7 @@ fn larger_mempool() {
         naka_conf.node.working_dir
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12125,7 +12129,7 @@ fn v3_transaction_api_endpoint() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::MinedBlocks]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12294,7 +12298,7 @@ fn handle_considered_txs_foreign_key_failure() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12436,7 +12440,7 @@ fn empty_mempool_sleep_ms() {
     // see the effect in the test.
     conf.miner.empty_mempool_sleep_time = Duration::from_secs(30);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12565,7 +12569,7 @@ fn miner_constructs_replay_block() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12830,7 +12834,7 @@ fn test_sip_031_activation() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -13160,7 +13164,7 @@ fn test_sip_031_last_phase() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -13484,7 +13488,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -13682,7 +13686,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
