@@ -10310,6 +10310,19 @@ pub mod test {
 
         let signed_call_foo_tx_clar2 = signer.get_tx().unwrap();
 
+        // Build callable argument typed to the trait <foo>
+        let foo_impl_qci = QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap();
+        let trait_id = TraitIdentifier::new(
+            StandardPrincipalData::from(addr.clone()),
+            ContractName::from("foo"),
+            ClarityName::from("foo"),
+        );
+        let callable_arg = Value::some(Value::CallableContract(CallableData {
+            contract_identifier: foo_impl_qci,
+            trait_identifier: Some(trait_id),
+        }))
+        .unwrap();
+
         let mut tx_test_call_foo = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
@@ -10317,10 +10330,7 @@ pub mod test {
                 addr.clone(),
                 "call-foo",
                 "call-do-it",
-                vec![Value::some(Value::Principal(PrincipalData::Contract(
-                    QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap(),
-                )))
-                .unwrap()],
+                vec![callable_arg],
             )
             .unwrap(),
         );
