@@ -107,6 +107,7 @@ jobs:
             --no-dev-deps \
             --include-features=wasm-deterministic,slog_json \
             --features=wasm-deterministic
+
       - name: Run cargo hack check
         run: ${{ matrix.command }}
 
@@ -123,6 +124,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1.13.0
         with:
           toolchain: nightly
+          cache: false
 
       - name: Check fuzz targets
         run: |
