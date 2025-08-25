@@ -102,17 +102,29 @@ pub fn get_bitcoin_stacks_epochs(network_id: BitcoinNetworkType) -> EpochList {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BitcoinIndexerConfig {
-    // config fields
+    /// Hostname or IP address of the Bitcoin node
     pub peer_host: String,
+    /// Port number of the Bitcoin node
     pub peer_port: u16,
+    /// Port number of the Bitcoin RPC interface
     pub rpc_port: u16,
+    /// Whether to use SSL for the RPC interface
     pub rpc_ssl: bool,
+    /// Username for the RPC interface
     pub username: Option<String>,
+    /// Password for the RPC interface
     pub password: Option<String>,
+    /// Timeout for high-level message operations
     pub timeout: u64,
+    /// Timeout for socket read/write operations
+    pub socket_timeout: u64,
+    /// Path to the SPV headers database
     pub spv_headers_path: String,
+    /// The first block to index
     pub first_block: u64,
+    /// Magic bytes for Stacks operations
     pub magic_bytes: MagicBytes,
+    /// The epochs for this network
     pub epochs: Option<EpochList>,
 }
 
@@ -144,7 +156,8 @@ impl BitcoinIndexerConfig {
             rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
-            timeout: 30,
+            timeout: 300,
+            socket_timeout: 30,
             spv_headers_path: "./headers.sqlite".to_string(),
             first_block,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
@@ -160,7 +173,8 @@ impl BitcoinIndexerConfig {
             rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
-            timeout: 30,
+            timeout: 300,
+            socket_timeout: 30,
             spv_headers_path,
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
@@ -177,7 +191,8 @@ impl BitcoinIndexerConfig {
             rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
-            timeout: 30,
+            timeout: 300,
+            socket_timeout: 30,
             spv_headers_path,
             first_block: 0,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
@@ -272,13 +287,13 @@ impl BitcoinIndexer {
                 })?;
 
                 // set timeout
-                s.set_read_timeout(Some(Duration::from_secs(self.runtime.timeout)))
+                s.set_read_timeout(Some(Duration::from_secs(self.config.socket_timeout)))
                     .map_err(|_e| {
                         test_debug!("Failed to set TCP read timeout: {_e:?}");
                         btc_error::ConnectionError
                     })?;
 
-                s.set_write_timeout(Some(Duration::from_secs(self.runtime.timeout)))
+                s.set_write_timeout(Some(Duration::from_secs(self.config.socket_timeout)))
                     .map_err(|_e| {
                         test_debug!("Failed to set TCP write timeout: {_e:?}");
                         btc_error::ConnectionError
@@ -1591,7 +1606,8 @@ mod test {
             rpc_ssl: false,
             username: Some("blockstack".to_string()),
             password: Some("blockstacksystem".to_string()),
-            timeout: 30,
+            timeout: 300,
+            socket_timeout: 30,
             spv_headers_path: db_path.to_string(),
             first_block: 0,
             magic_bytes: MagicBytes([105, 100]),
