@@ -1,3 +1,4 @@
+pub mod bitcoin;
 pub mod bitcoin_regtest_controller;
 pub mod mocknet_controller;
 pub mod rpc;
