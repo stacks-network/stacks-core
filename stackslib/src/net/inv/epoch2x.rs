@@ -1827,7 +1827,12 @@ impl PeerNetwork {
             .block_height_to_reward_cycle(stacks_tip_burn_block_height)
             .unwrap_or(0);
 
-        let rescan_rc = stacks_tip_rc.saturating_sub(self.connection_opts.inv_reward_cycles);
+        // Always want to do the last reward cycle AND the current reward cycle (we could be still looking for the current reward cycles anchor block which is mined in the prior reward cycle)
+        let prior_rc = stacks_tip_rc.saturating_sub(1);
+        let rescan_rc = std::cmp::min(
+            stacks_tip_rc.saturating_sub(self.connection_opts.inv_reward_cycles),
+            prior_rc,
+        );
 
         test_debug!("begin blocks inv scan at {rescan_rc}");
         rescan_rc

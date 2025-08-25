@@ -1254,7 +1254,7 @@ fn test_inv_sync_start_reward_cycle() {
     let block_scan_start = peer_1
         .network
         .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
-    assert_eq!(block_scan_start, 8);
+    assert_eq!(block_scan_start, 7);
 
     peer_1.network.connection_opts.inv_reward_cycles = 1;
 
