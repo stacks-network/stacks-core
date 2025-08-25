@@ -10311,7 +10311,8 @@ pub mod test {
         let signed_call_foo_tx_clar2 = signer.get_tx().unwrap();
 
         // Build callable argument typed to the trait <foo>
-        let foo_impl_qci = QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap();
+        let foo_impl_qci =
+            QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap();
         let trait_id = TraitIdentifier::new(
             StandardPrincipalData::from(addr.clone()),
             ContractName::from("foo"),
