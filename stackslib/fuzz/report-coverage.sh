@@ -6,11 +6,7 @@ set -euo pipefail
 
 target=$1
 show_text=0
-show_all=0
-for a in "$@"; do
-  [ "$a" = "text" ] && show_text=1
-  [ "$a" = "all" ] && show_all=1
-done
+[ "${2:-}" = "text" ] && show_text=1
 
 # Resolve paths. Script lives in the fuzz dir.
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -85,19 +81,6 @@ if command -v rustfilt >/dev/null 2>&1; then
   demangler=(-Xdemangler=rustfilt)
 fi
 
-# Fuzz target source file.
-fuzz_src=$fuzz_dir/fuzz_targets/$target.rs
-# Fallback: find it via Git if layout differs.
-if [ ! -f "$fuzz_src" ]; then
-  alt=$(git -C "$repo_root" ls-files '*/fuzz_targets/'"$target"'.rs' \
-    | head -n1 || true)
-  [ -n "${alt:-}" ] && fuzz_src=$repo_root/$alt
-fi
-
-# Output directory for HTML report.
-html_out=$fuzz_dir/coverage/$target/html
-mkdir -p "$html_out"
-
 # Optional text report if user asks.
 if [ "$show_text" -eq 1 ]; then
   printf '\n==== LLVM-COV Report (summary) ====\n'
@@ -105,24 +88,13 @@ if [ "$show_text" -eq 1 ]; then
     -ignore-filename-regex="$ignore_rgx" "${demangler[@]:-}"
 fi
 
-# HTML report for the fuzz target file.
-if [ "$show_all" -eq 1 ]; then
-  html_out=$fuzz_dir/coverage/$target/html-all
-  mkdir -p "$html_out"
-  printf '\nGenerating full repo coverage: %s\n' "$html_out"
-  "$llvm_cov" show "$bin" -instr-profile="$profdata" \
-    -format=html -output-dir="$html_out" -show-line-counts-or-regions \
-    -ignore-filename-regex="$ignore_rgx" "${demangler[@]:-}"
-  printf '\n%s/index.html\n' "$html_out"
-else
-  html_out=$fuzz_dir/coverage/$target/html
-  mkdir -p "$html_out"
-  printf '\nGenerating fuzz target coverage: %s\n' "$html_out"
-  "$llvm_cov" show "$bin" -instr-profile="$profdata" "$fuzz_src" \
-    -format=html -output-dir="$html_out" -show-line-counts-or-regions \
-    -ignore-filename-regex="$ignore_rgx" "${demangler[@]:-}"
-  printf '\n%s/index.html\n' "$html_out"
-fi
+# HTML report.
+html_out=$fuzz_dir/coverage/$target/html
+mkdir -p "$html_out"
+printf '\nGenerating fuzz target coverage: %s\n' "$html_out"
+"$llvm_cov" show "$bin" -instr-profile="$profdata" \
+  -format=html -output-dir="$html_out" -show-line-counts-or-regions \
+  -ignore-filename-regex="$ignore_rgx" "${demangler[@]:-}"
 
 # Final output location.
 printf '\n%s/index.html\n\n' "$html_out"
