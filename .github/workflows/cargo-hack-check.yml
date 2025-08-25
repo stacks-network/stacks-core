@@ -107,3 +107,26 @@ jobs:
             --no-dev-deps \
             --include-features=wasm-deterministic,slog_json \
             --features=wasm-deterministic
+      - name: Run cargo hack check
+        run: ${{ matrix.command }}
+
+  fuzz-targets:
+    name: Fuzz targets (nightly)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Rust nightly toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48 # v1.13.0
+        with:
+          toolchain: nightly
+
+      - name: Check fuzz targets
+        run: |
+          cargo +nightly check \
+            --manifest-path clarity/fuzz/Cargo.toml \
+            --bins \
+            --locked
