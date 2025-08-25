@@ -32,7 +32,6 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::affirmation::{AffirmationMap, AffirmationMapEntry};
 use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
@@ -910,10 +909,6 @@ impl db_keys {
 
     pub fn pox_last_selected_anchor_txid() -> &'static str {
         "sortition_db::last_selected_anchor_block_txid"
-    }
-
-    pub fn pox_affirmation_map() -> &'static str {
-        "sortition_db::affirmation_map"
     }
 
     pub fn pox_reward_cycle_unlocks(cycle: u64) -> String {
@@ -1817,18 +1812,6 @@ impl SortitionHandleTx<'_> {
         );
         Ok(anchor_block_txid)
     }
-
-    pub fn get_sortition_affirmation_map(&mut self) -> Result<AffirmationMap, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
-        let affirmation_map = match self.get_indexed(&chain_tip, db_keys::pox_affirmation_map())? {
-            Some(am_str) => {
-                AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
-            }
-            None => AffirmationMap::empty(),
-        };
-        Ok(affirmation_map)
-    }
-
     pub fn get_last_selected_anchor_block_hash(
         &mut self,
     ) -> Result<Option<BlockHeaderHash>, db_error> {
@@ -2044,17 +2027,6 @@ impl<'a> SortitionHandleConn<'a> {
             self.get_indexed(&self.context.chain_tip, db_keys::pox_last_anchor_txid())?,
         );
         Ok(anchor_block_txid)
-    }
-
-    pub fn get_sortition_affirmation_map(&self) -> Result<AffirmationMap, db_error> {
-        let chain_tip = self.context.chain_tip.clone();
-        let affirmation_map = match self.get_indexed(&chain_tip, db_keys::pox_affirmation_map())? {
-            Some(am_str) => {
-                AffirmationMap::decode(&am_str).expect("FATAL: corrupt affirmation map")
-            }
-            None => AffirmationMap::empty(),
-        };
-        Ok(affirmation_map)
     }
 
     pub fn get_last_selected_anchor_block_hash(&self) -> Result<Option<BlockHeaderHash>, db_error> {
@@ -6146,14 +6118,9 @@ impl SortitionHandleTx<'_> {
                     pox_id.extend_with_not_present_block();
                 }
 
-                let mut cur_affirmation_map = self.get_sortition_affirmation_map()?;
-                let mut selected_anchor_block = false;
-
                 // if we have selected an anchor block (known or unknown), write that info
                 if let Some((anchor_block, anchor_block_txid)) = reward_info.selected_anchor_block()
                 {
-                    selected_anchor_block = true;
-
                     keys.push(db_keys::pox_anchor_to_prepare_end(anchor_block));
                     values.push(parent_snapshot.sortition_id.to_hex());
 
@@ -6162,9 +6129,6 @@ impl SortitionHandleTx<'_> {
 
                     keys.push(db_keys::pox_last_anchor_txid().to_string());
                     values.push(anchor_block_txid.to_hex());
-
-                    keys.push(db_keys::pox_affirmation_map().to_string());
-                    values.push(cur_affirmation_map.encode());
 
                     keys.push(db_keys::pox_last_selected_anchor().to_string());
                     values.push(anchor_block.to_hex());
@@ -6182,9 +6146,6 @@ impl SortitionHandleTx<'_> {
 
                     keys.push(db_keys::pox_last_anchor_txid().to_string());
                     values.push("".to_string());
-
-                    cur_affirmation_map.push(AffirmationMapEntry::Nothing);
-
                     debug!(
                         "No anchor block at reward cycle starting at burn height {}",
                         snapshot.block_height
@@ -6245,16 +6206,10 @@ impl SortitionHandleTx<'_> {
                         keys.push(db_keys::pox_reward_cycle_unlocks(cycle_number));
                         values.push(reward_set.start_cycle_state.serialize());
                     }
-
-                    cur_affirmation_map.push(AffirmationMapEntry::PoxAnchorBlockPresent);
                 } else {
                     // no anchor block; we're burning
                     keys.push(db_keys::pox_reward_set_size().to_string());
                     values.push(db_keys::reward_set_size_to_string(0));
-
-                    if selected_anchor_block {
-                        cur_affirmation_map.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
-                    }
 
                     pox_payout_addrs = vec![];
                 }
@@ -6262,9 +6217,6 @@ impl SortitionHandleTx<'_> {
                 // in all cases, write the new PoX bit vector
                 keys.push(db_keys::pox_identifier().to_string());
                 values.push(pox_id.to_string());
-
-                keys.push(db_keys::pox_affirmation_map().to_string());
-                values.push(cur_affirmation_map.encode());
 
                 pox_payout_addrs
             } else {

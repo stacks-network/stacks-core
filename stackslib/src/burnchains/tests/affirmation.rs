@@ -392,7 +392,7 @@ pub fn make_reward_cycle_with_vote(
         };
 
         burnchain_db
-            .store_new_burnchain_block_ops_unchecked(burnchain, headers, &block_header, &ops)
+            .store_new_burnchain_block_ops_unchecked(&block_header, &ops)
             .unwrap();
 
         headers.push(block_header.clone());
