@@ -14050,7 +14050,7 @@ fn test_epoch_3_3_activation() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
