@@ -139,9 +139,11 @@ impl fmt::Display for Error {
             Error::Runtime(ref err, ref stack) => {
                 write!(f, "{err}")?;
                 if let Some(ref stack_trace) = stack {
-                    writeln!(f, "\n Stack Trace: ")?;
-                    for item in stack_trace.iter() {
-                        writeln!(f, "{item}")?;
+                    if !stack_trace.is_empty() {
+                        writeln!(f, "\n Stack Trace: ")?;
+                        for item in stack_trace.iter() {
+                            writeln!(f, "{item}")?;
+                        }
                     }
                 }
                 Ok(())
