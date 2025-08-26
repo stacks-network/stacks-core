@@ -57,7 +57,8 @@ use crate::net::atlas::{Attachment, AttachmentInstance};
 use crate::net::http::error::{HttpNotFound, HttpServerError};
 use crate::net::http::{Error as HttpErr, HttpRequestContents, HttpRequestPreamble};
 use crate::net::httpcore::{
-    HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest, StacksHttpResponse, TipRequest,
+    HttpRequestContentsExtensions as _, StacksHttp, StacksHttpRequest, StacksHttpResponse,
+    TipRequest,
 };
 use crate::net::p2p::{PeerNetwork, PendingMessages};
 use crate::util_lib::db::{DBConn, Error as db_error};
@@ -694,10 +695,8 @@ impl<'a> StacksNodeState<'a> {
         res
     }
 
-    pub fn canonical_stacks_tip_height(&mut self) -> u32 {
-        self.with_node_state(|network, _, _, _, _| {
-            network.burnchain_tip.canonical_stacks_tip_height as u32
-        })
+    pub fn canonical_stacks_tip_height(&mut self) -> u64 {
+        self.with_node_state(|network, _, _, _, _| network.stacks_tip.height)
     }
 
     pub fn set_relay_message(&mut self, msg: StacksMessageType) {

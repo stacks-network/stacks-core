@@ -405,14 +405,14 @@ impl BitcoinRpcClient {
         port: u16,
         auth: RpcAuth,
         wallet_name: String,
-        timeout: u32,
+        timeout: u64,
         client_id: String,
     ) -> BitcoinRpcClientResult<Self> {
         let rpc_global_path = format!("http://{host}:{port}");
         let rpc_wallet_path = format!("{rpc_global_path}/wallet/{wallet_name}");
         let rpc_auth = auth;
 
-        let rpc_timeout = Duration::from_secs(u64::from(timeout));
+        let rpc_timeout = Duration::from_secs(timeout);
 
         let global_ep =
             RpcTransport::new(rpc_global_path, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
