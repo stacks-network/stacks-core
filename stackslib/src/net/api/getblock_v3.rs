@@ -209,7 +209,6 @@ impl RPCRequestHandler for RPCNakamotoBlockRequestHandler {
             None,
             HttpContentType::Bytes,
         );
-
         Ok((
             resp_preamble,
             HttpResponseContents::from_stream(Box::new(stream)),
