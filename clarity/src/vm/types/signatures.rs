@@ -2683,4 +2683,15 @@ mod test {
             );
         }
     }
+
+    #[test]
+    fn test_type_signature_bound_string_ascii_type_returns_check_errors() {
+        let err = TypeSignature::bound_string_ascii_type(MAX_VALUE_SIZE + 1).unwrap_err();
+        assert_eq!(
+            CheckErrors::Expects(
+                "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".to_string()
+            ),
+            err.into()
+        );
+    }
 }

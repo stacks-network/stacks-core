@@ -1699,6 +1699,8 @@ pub fn byte_len_of_serialization(serialized: &str) -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::vm::errors::{Error, InterpreterError, RuntimeErrorType};
+
     #[test]
     fn test_constructors() {
         assert_eq!(
@@ -1921,5 +1923,139 @@ mod test {
             PrincipalData::parse_standard_principal("SNBPC7AHXCBAQSW6RKGEXVG119H2933ZYR63HD32")
                 .unwrap();
         assert!(principal.is_multisig());
+    }
+
+    #[test]
+    fn test_qualified_contract_identifier_local_returns_runtime_error() {
+        let err = QualifiedContractIdentifier::local("1nvalid-name")
+            .expect_err("Unexpected qualified contract identifier");
+        assert_eq!(
+            Error::from(RuntimeErrorType::BadNameValue(
+                "ContractName",
+                "1nvalid-name".into()
+            )),
+            err.into(),
+        );
+    }
+
+    #[rstest]
+    #[case::too_short("S162RK3CHJPCSSK6BM757FW", RuntimeErrorType::ParseError(
+        "Invalid principal literal: Expected 20 data bytes.".to_string(),
+    ))]
+    #[case::too_long("S1C5H66S35CSKK6CK1C9HP8SB6CWSK4RB2CDJK8HY4", RuntimeErrorType::ParseError(
+        "Invalid principal literal: Expected 20 data bytes.".to_string(),
+    ))]
+    #[case::invalid_c32("II2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", RuntimeErrorType::ParseError(
+        "Invalid principal literal: base58ck checksum 0x1074d4f7 does not match expected 0xae29c6e0".to_string(),
+    ))]
+    fn test_principal_data_parse_standard_principal_returns_runtime_error(
+        #[case] input: &str,
+        #[case] expected_err: RuntimeErrorType,
+    ) {
+        let err =
+            PrincipalData::parse_standard_principal(input).expect_err("Unexpected principal data");
+        assert_eq!(Error::from(expected_err), err.into());
+    }
+
+    #[rstest]
+    #[case::no_dot("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0Gcontract-name", RuntimeErrorType::ParseError(
+        "Invalid principal literal: expected a `.` in a qualified contract name"
+            .to_string(),
+    ))]
+    #[case::invalid_contract_name("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G.1nvalid-name", RuntimeErrorType::BadNameValue("ContractName", "1nvalid-name".into()))]
+
+    fn test_qualified_contract_identifier_parse_returns_interpreter_error(
+        #[case] input: &str,
+        #[case] expected_err: RuntimeErrorType,
+    ) {
+        let err = QualifiedContractIdentifier::parse(input)
+            .expect_err("Unexpected qualified contract identifier");
+        assert_eq!(Error::from(expected_err), err.into());
+    }
+
+    #[rstest]
+    #[case::no_dot("SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.nft-traitnft-trait", RuntimeErrorType::ParseError(
+        "Invalid principal literal: expected a `.` in a qualified contract name"
+            .to_string(),
+    ))]
+    #[case::invalid_contract_name("SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.1nvalid-contract.valid-trait", RuntimeErrorType::BadNameValue("ContractName", "1nvalid-contract".into()))]
+    #[case::invalid_trait_name("SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.valid-contract.1nvalid-trait", RuntimeErrorType::BadNameValue("ClarityName", "1nvalid-trait".into()))]
+    #[case::invalid_standard_principal("S162RK3CHJPCSSK6BM757FW.valid-contract.valid-trait", RuntimeErrorType::ParseError(
+        "Invalid principal literal: Expected 20 data bytes.".to_string(),
+    ))]
+    fn test_trait_identifier_parse_returns_runtime_error(
+        #[case] input: &str,
+        #[case] expected_err: RuntimeErrorType,
+    ) {
+        let expected_err = Error::from(expected_err);
+
+        let err = TraitIdentifier::parse(input).expect_err("Unexpected trait identifier");
+        assert_eq!(expected_err, err.into());
+
+        let err =
+            TraitIdentifier::parse_sugared_syntax(input).expect_err("Unexpected trait identifier");
+        assert_eq!(expected_err, err.into());
+    }
+
+    #[rstest]
+    #[case::bad_type_construction(
+        ".valid-contract.valid-trait",
+        RuntimeErrorType::BadTypeConstruction
+    )]
+    #[case::forwards_parse_errors("S162RK3CHJPCSSK6BM757FW.valid-contract.valid-trait", RuntimeErrorType::ParseError(
+        "Invalid principal literal: Expected 20 data bytes.".to_string(),
+    ))]
+    fn test_trait_identifier_parse_fully_qualified_returns_runtime_error(
+        #[case] input: &str,
+        #[case] expected_err: RuntimeErrorType,
+    ) {
+        let err =
+            TraitIdentifier::parse_fully_qualified(input).expect_err("Unexpected trait identifier");
+        assert_eq!(Error::from(expected_err), err.into());
+    }
+
+    #[test]
+    fn test_standard_principal_data_new_returns_interpreter_error() {
+        let result = StandardPrincipalData::new(32, [0; 20]);
+        let err = result.expect_err("Unexpected principal data");
+
+        assert_eq!(
+            Error::from(InterpreterError::Expect("Unexpected principal data".into())),
+            err.into(),
+        );
+    }
+
+    #[test]
+    pub fn test_sequence_data_element_at_returns_interpreter_error() {
+        let buff = SequenceData::String(CharType::ASCII(ASCIIData { data: vec![1] }));
+        let err = buff.element_at(0).unwrap_err();
+        assert_eq!(
+            Error::from(InterpreterError::Expect(
+                "BUG: failed to initialize single-byte ASCII buffer".into()
+            )),
+            err.into()
+        );
+    }
+
+    #[test]
+    pub fn test_ascii_data_to_value_returns_interpreter_error() {
+        let err = ASCIIData::to_value(&1).unwrap_err();
+        assert_eq!(
+            Error::from(InterpreterError::Expect(
+                "ERROR: Invalid ASCII string successfully constructed".into()
+            )),
+            err.into()
+        );
+    }
+
+    #[test]
+    pub fn test_utf8_data_to_value_returns_interpreter_error() {
+        let err = UTF8Data::to_value(&vec![0xED, 0xA0, 0x80]).unwrap_err();
+        assert_eq!(
+            Error::from(InterpreterError::Expect(
+                "ERROR: Invalid UTF8 string successfully constructed".into()
+            )),
+            err.into()
+        );
     }
 }
