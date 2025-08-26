@@ -68,6 +68,10 @@ pub static TEST_REPLAY_TRANSACTIONS: LazyLock<
     TestFlag<std::collections::VecDeque<StacksTransaction>>,
 > = LazyLock::new(TestFlag::default);
 
+#[cfg(any(test, feature = "testing"))]
+/// Whether to reject any transaction while we're in a replay set.
+pub static TEST_REJECT_REPLAY_TXS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
+
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
 //  type (in jsonschema terminology).
@@ -199,6 +203,24 @@ fn fault_injection_validation_delay() {
 
 #[cfg(not(any(test, feature = "testing")))]
 fn fault_injection_validation_delay() {}
+
+#[cfg(any(test, feature = "testing"))]
+fn fault_injection_reject_replay_txs() -> Result<(), BlockValidateRejectReason> {
+    let reject = TEST_REJECT_REPLAY_TXS.get();
+    if reject {
+        Err(BlockValidateRejectReason {
+            reason_code: ValidateRejectCode::InvalidTransactionReplay,
+            reason: "Rejected by test flag".into(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_injection_reject_replay_txs() -> Result<(), BlockValidateRejectReason> {
+    Ok(())
+}
 
 /// Represents a block proposed to the `v3/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -726,6 +748,7 @@ impl NakamotoBlockProposal {
                     // Allow this to happen, tenure extend checks happen elsewhere.
                     break;
                 }
+                fault_injection_reject_replay_txs()?;
                 let Some(replay_tx) = replay_txs.pop_front() else {
                     // During transaction replay, we expect that the block only
                     // contains transactions from the replay set. Thus, if we're here,
