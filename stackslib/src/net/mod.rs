@@ -3032,7 +3032,7 @@ pub mod test {
                             stx_balance: STXBalance::zero(),
                         };
 
-                        let boot_code_auth = boot_code_tx_auth(boot_code_addr);
+                        let boot_code_auth = boot_code_tx_auth(boot_code_addr.clone());
 
                         debug!(
                             "Instantiate test-specific boot code contract '{}.{}' ({} bytes)...",

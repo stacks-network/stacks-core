@@ -153,6 +153,16 @@ pub enum BitcoinNetworkType {
     Regtest,
 }
 
+impl BitcoinNetworkType {
+    /// Returns `true` if this network type is [`BitcoinNetworkType::Mainnet`].
+    pub fn is_mainnet(&self) -> bool {
+        match *self {
+            BitcoinNetworkType::Mainnet => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Eq, Serialize, Deserialize)]
 pub struct BitcoinTxOutput {
     pub address: BitcoinAddress,

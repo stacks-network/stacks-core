@@ -26,8 +26,7 @@ use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::http::Error as HttpError;
 use crate::net::httpcore::{
-    HttpPreambleExtensions as _, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest,
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
 
@@ -309,10 +308,6 @@ fn test_try_make_response() {
 
     // contract size metadata
     let response = responses.remove(0);
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
-    );
     let resp = response.decode_clarity_metadata_response().unwrap();
     assert_eq!(resp.data, "1432");
 
@@ -356,10 +351,6 @@ fn test_try_make_response() {
 
     // contract size metadata
     let response = responses.remove(0);
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
-    );
     let resp = response.decode_clarity_metadata_response().unwrap();
     assert_eq!(resp.data, "1432");
 

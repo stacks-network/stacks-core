@@ -47,6 +47,7 @@ use crate::chainstate::v2::{GlobalStateView, SortitionState};
 use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData};
 use crate::client::tests::MockServerClient;
 use crate::client::StacksClient;
+use crate::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use crate::signerdb::tests::tmp_db_path;
 use crate::signerdb::{BlockInfo, SignerDb};
 
@@ -94,10 +95,11 @@ fn setup_test_environment(
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
+        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
     };
 
     let stacks_client = StacksClient::new(
-        StacksPrivateKey::random(),
+        &StacksPrivateKey::random(),
         SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 10000).to_string(),
         "FOO".into(),
         false,
@@ -435,7 +437,7 @@ fn check_sortition_timeout() {
     std::thread::sleep(Duration::from_secs(3));
     let address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
     let mut address_weights = HashMap::new();
-    address_weights.insert(address, 10);
+    address_weights.insert(address.clone(), 10);
     let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     // We have not yet timed out
     assert!(!SortitionState::is_timed_out(

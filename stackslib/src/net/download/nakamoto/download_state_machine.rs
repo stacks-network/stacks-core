@@ -893,7 +893,7 @@ impl NakamotoDownloadStateMachine {
             if available_count == 0 {
                 continue;
             }
-            highest_available.push((*ch).clone());
+            highest_available.push(**ch);
             if highest_available.len() == 2 {
                 break;
             }

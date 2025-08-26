@@ -949,7 +949,7 @@ impl TrackerData {
             if cost_function_ref.contract_id == boot_costs_id {
                 m.insert(
                     f,
-                    ClarityCostFunctionEvaluator::Default(cost_function_ref, *f, v),
+                    ClarityCostFunctionEvaluator::Default(cost_function_ref, f.clone(), v),
                 );
             } else {
                 m.insert(f, ClarityCostFunctionEvaluator::Clarity(cost_function_ref));

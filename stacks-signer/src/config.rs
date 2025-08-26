@@ -51,6 +51,9 @@ const DEFAULT_TENURE_IDLE_TIMEOUT_BUFFER_SECS: u64 = 2;
 ///  cannot determine that our stacks-node has processed the parent
 ///  block
 const DEFAULT_PROPOSAL_WAIT_TIME_FOR_PARENT_SECS: u64 = 15;
+/// Default number of blocks after a fork to reset the replay set,
+/// as a failsafe mechanism
+pub const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
 /// Default time (in secs) to wait between updating our local state
 /// machine view point and capitulating to other signers tenure view
 const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
@@ -189,6 +192,9 @@ pub struct SignerConfig {
     pub proposal_wait_for_parent_time: Duration,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// How many blocks after a fork should we reset the replay set,
+    /// as a failsafe mechanism
+    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     #[cfg(any(test, feature = "testing"))]
@@ -247,6 +253,9 @@ pub struct GlobalConfig {
     pub dry_run: bool,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: bool,
+    /// How many blocks after a fork should we reset the replay set,
+    /// as a failsafe mechanism
+    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     #[cfg(any(test, feature = "testing"))]
@@ -303,6 +312,9 @@ struct RawConfigFile {
     pub dry_run: Option<bool>,
     /// Whether or not to validate blocks with replay transactions
     pub validate_with_replay_tx: Option<bool>,
+    /// How many blocks after a fork should we reset the replay set,
+    /// as a failsafe mechanism
+    pub reset_replay_set_after_fork_blocks: Option<u64>,
     /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout_secs: Option<u64>,
     #[cfg(any(test, feature = "testing"))]
@@ -433,6 +445,10 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
         // https://github.com/stacks-network/stacks-core/issues/6087
         let validate_with_replay_tx = raw_data.validate_with_replay_tx.unwrap_or(false);
 
+        let reset_replay_set_after_fork_blocks = raw_data
+            .reset_replay_set_after_fork_blocks
+            .unwrap_or(DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS);
+
         let capitulate_miner_view_timeout = Duration::from_secs(
             raw_data
                 .capitulate_miner_view_timeout_secs
@@ -466,6 +482,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time,
             validate_with_replay_tx,
+            reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout,
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version,
@@ -751,6 +768,7 @@ network = "mainnet"
 auth_password = "abcd"
 db_path = ":memory:"
 validate_with_replay_tx = true
+reset_replay_set_after_fork_blocks = 100
 capitulate_miner_view_timeout_secs = 1000
             "#
         );
@@ -758,6 +776,7 @@ capitulate_miner_view_timeout_secs = 1000
         assert_eq!(config.stacks_address.to_string(), expected_addr);
         assert_eq!(config.to_chain_id(), CHAIN_ID_MAINNET);
         assert!(config.validate_with_replay_tx);
+        assert_eq!(config.reset_replay_set_after_fork_blocks, 100);
         assert_eq!(
             config.capitulate_miner_view_timeout,
             Duration::from_secs(1000)
