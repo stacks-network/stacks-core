@@ -2164,7 +2164,10 @@ impl BitcoinRegtestController {
     pub fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
         match self.rpc_client.get_transaction(txid) {
             Ok(info) => info.confirmations > 0,
-            _ => false,
+            Err(e) => {
+                error!("Bitcoin RPC failure: checking tx confirmation {e:?}");
+                false
+            }
         }
     }
 }
