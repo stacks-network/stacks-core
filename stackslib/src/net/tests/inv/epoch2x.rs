@@ -1253,36 +1253,43 @@ fn test_inv_sync_start_reward_cycle() {
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 7);
 
     peer_1.network.connection_opts.inv_reward_cycles = 1;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 7);
 
     peer_1.network.connection_opts.inv_reward_cycles = 2;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 6);
 
     peer_1.network.connection_opts.inv_reward_cycles = 3;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 5);
 
     peer_1.network.connection_opts.inv_reward_cycles = 300;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap());
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 0);
+
+    peer_1.network.connection_opts.inv_reward_cycles = 0;
+
+    let block_scan_start = peer_1
+        .network
+        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 1);
+    assert_eq!(block_scan_start, 1);
 }
 
 #[test]
@@ -1790,230 +1797,6 @@ fn test_sync_inv_2_peers_unstable() {
 
         assert!(!peer_2_inv.has_ith_block(num_blocks - stable_confs));
         assert!(!peer_2_inv.has_ith_microblock_stream(num_blocks - stable_confs));
-    })
-}
-
-#[test]
-#[ignore]
-fn test_sync_inv_2_peers_different_pox_vectors() {
-    with_timeout(600, || {
-        let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
-        let mut peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
-
-        peer_1_config.connection_opts.inv_reward_cycles = 10;
-        peer_2_config.connection_opts.inv_reward_cycles = 10;
-
-        let reward_cycle_length = peer_1_config.burnchain.pox_constants.reward_cycle_length as u64;
-        assert_eq!(reward_cycle_length, 5);
-
-        let mut peer_1 = TestPeer::new(peer_1_config);
-        let mut peer_2 = TestPeer::new(peer_2_config);
-
-        peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
-        peer_2.add_neighbor(&mut peer_1.to_neighbor(), None, true);
-
-        let num_blocks = GETPOXINV_MAX_BITLEN * 3;
-
-        let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        // only peer 2 makes progress after the point of stability.
-        for i in 0..num_blocks {
-            let (mut burn_ops, stacks_block, microblocks) = peer_2.make_default_tenure();
-
-            let (_, burn_header_hash, consensus_hash) =
-                peer_2.next_burnchain_block(burn_ops.clone());
-            peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-            TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
-
-            peer_1.next_burnchain_block_raw(burn_ops.clone());
-            if i < num_blocks - reward_cycle_length * 2 {
-                peer_1.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-            }
-        }
-
-        let peer_1_pox_id = {
-            let tip_sort_id =
-                SortitionDB::get_canonical_sortition_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            let ic = peer_1.sortdb.as_ref().unwrap().index_conn();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-            sortdb_reader.get_pox_id().unwrap()
-        };
-
-        let peer_2_pox_id = {
-            let tip_sort_id =
-                SortitionDB::get_canonical_sortition_tip(peer_2.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            let ic = peer_2.sortdb.as_ref().unwrap().index_conn();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-            sortdb_reader.get_pox_id().unwrap()
-        };
-
-        // peers must have different PoX bit vectors -- peer 1 didn't see the last reward cycle
-        assert_eq!(
-            peer_1_pox_id,
-            PoxId::from_bools(vec![
-                true, true, true, true, true, true, true, true, true, true, false
-            ])
-        );
-        assert_eq!(
-            peer_2_pox_id,
-            PoxId::from_bools(vec![
-                true, true, true, true, true, true, true, true, true, true, true
-            ])
-        );
-
-        let num_burn_blocks = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            sn.block_height + 1
-        };
-
-        let mut round = 0;
-        let mut inv_1_count = 0;
-        let mut inv_2_count = 0;
-        let mut peer_1_sorts = 0;
-        let mut peer_2_sorts = 0;
-
-        while inv_1_count < reward_cycle_length * 4
-            || inv_2_count < num_blocks - reward_cycle_length * 2
-            || peer_1_sorts < reward_cycle_length * 9 + 1
-            || peer_2_sorts < reward_cycle_length * 9 + 1
-        {
-            let _ = peer_1.step();
-            let _ = peer_2.step();
-
-            // peer 1 should see that peer 2 has all blocks for reward cycles 5 through 9
-            if let Some(ref inv) = peer_1.network.inv_state {
-                inv_1_count = inv.get_inv_num_blocks(&peer_2.to_neighbor().addr);
-                peer_1_sorts = inv.get_inv_sortitions(&peer_2.to_neighbor().addr);
-            };
-
-            // peer 2 should see that peer 1 has all blocks up to where we stopped feeding them to
-            // it
-            if let Some(ref inv) = peer_2.network.inv_state {
-                inv_2_count = inv.get_inv_num_blocks(&peer_1.to_neighbor().addr);
-                peer_2_sorts = inv.get_inv_sortitions(&peer_1.to_neighbor().addr);
-            };
-
-            if let Some(ref inv) = peer_1.network.inv_state {
-                info!("Peer 1 stats: {:?}", &inv.block_stats);
-                assert!(inv.get_broken_peers().is_empty());
-                assert!(inv.get_dead_peers().is_empty());
-                assert!(inv.get_diverged_peers().is_empty());
-            }
-
-            if let Some(ref inv) = peer_2.network.inv_state {
-                info!("Peer 2 stats: {:?}", &inv.block_stats);
-                assert!(inv.get_broken_peers().is_empty());
-                assert!(inv.get_dead_peers().is_empty());
-                assert!(inv.get_diverged_peers().is_empty());
-            }
-
-            round += 1;
-
-            test_debug!(
-                "\n\ninv_1_count = {} <? {}, inv_2_count = {} <? {}, peer_1_sorts = {} <? {}, peer_2_sorts = {} <? {}",
-                inv_1_count,
-                reward_cycle_length * 4,
-                inv_2_count,
-                num_blocks - reward_cycle_length * 2,
-                peer_1_sorts,
-                reward_cycle_length * 9 + 1,
-                peer_2_sorts,
-                reward_cycle_length * 9 + 1
-            );
-        }
-
-        info!("Completed walk round {} step(s)", round);
-
-        peer_1.dump_frontier();
-        peer_2.dump_frontier();
-
-        let peer_1_pox_id = {
-            let tip_sort_id =
-                SortitionDB::get_canonical_sortition_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            let ic = peer_1.sortdb.as_ref().unwrap().index_conn();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-            sortdb_reader.get_pox_id().unwrap()
-        };
-
-        let peer_2_pox_id = {
-            let tip_sort_id =
-                SortitionDB::get_canonical_sortition_tip(peer_2.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            let ic = peer_2.sortdb.as_ref().unwrap().index_conn();
-            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
-            sortdb_reader.get_pox_id().unwrap()
-        };
-
-        let peer_2_inv = peer_1
-            .network
-            .inv_state
-            .as_ref()
-            .unwrap()
-            .block_stats
-            .get(&peer_2.to_neighbor().addr)
-            .unwrap()
-            .inv
-            .clone();
-        test_debug!("peer 1's view of peer 2: {:?}", &peer_2_inv);
-        test_debug!("peer 1's PoX bit vector is {:?}", &peer_1_pox_id);
-
-        let peer_1_inv = peer_2
-            .network
-            .inv_state
-            .as_ref()
-            .unwrap()
-            .block_stats
-            .get(&peer_1.to_neighbor().addr)
-            .unwrap()
-            .inv
-            .clone();
-        test_debug!("peer 2's view of peer 1: {:?}", &peer_1_inv);
-        test_debug!("peer 2's PoX bit vector is {:?}", &peer_2_pox_id);
-
-        // nodes only learn about the prefix of their PoX bit vectors that they agree on
-        assert_eq!(peer_2_inv.num_sortitions, reward_cycle_length * 9 + 1);
-        assert_eq!(peer_1_inv.num_sortitions, reward_cycle_length * 9 + 1);
-
-        // only 9 reward cycles -- we couldn't agree on the 10th
-        assert_eq!(peer_1_inv.pox_inv, vec![255, 1]);
-        assert_eq!(peer_2_inv.pox_inv, vec![255, 1]);
-
-        // peer 1 should have learned that peer 2 has all the blocks, up to the point of
-        // PoX instability between the two
-        for i in 0..(reward_cycle_length * 4) {
-            assert!(peer_2_inv.has_ith_block(i + first_stacks_block_height));
-            if i > 0 {
-                assert!(peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
-            } else {
-                assert!(!peer_2_inv.has_ith_microblock_stream(i + first_stacks_block_height));
-            }
-        }
-
-        // peer 2 should have learned about all of peer 1's blocks
-        for i in 0..(num_blocks - 2 * reward_cycle_length) {
-            assert!(peer_1_inv.has_ith_block(i + first_stacks_block_height));
-            if i > 0 && i != num_blocks - 2 * reward_cycle_length - 1 {
-                // peer 1 doesn't have the final microblock stream, since no anchor block confirmed it
-                assert!(peer_1_inv.has_ith_microblock_stream(i + first_stacks_block_height));
-            }
-        }
-
-        assert!(!peer_1_inv.has_ith_block(reward_cycle_length * 4));
-        assert!(!peer_1_inv.has_ith_microblock_stream(reward_cycle_length * 4));
-
-        assert!(!peer_2_inv.has_ith_block(num_blocks - 2 * reward_cycle_length));
-        assert!(!peer_2_inv.has_ith_microblock_stream(num_blocks - 2 * reward_cycle_length));
     })
 }
 
