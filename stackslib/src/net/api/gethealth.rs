@@ -104,16 +104,17 @@ impl RPCRequestHandler for RPCGetHealthRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let (max_stacks_height_of_neighbors, node_stacks_tip_height) =
+        let ((max_stacks_neighbor_address, max_stacks_height_of_neighbors), node_stacks_tip_height) =
             node.with_node_state(|network, _sortdb, _chainstate, _mempool, _rpc_args| {
-                (network.highest_stacks_neighbor, network.stacks_tip.height)
+                (
+                    network
+                        .highest_stacks_neighbor
+                        .map(|(addr, height)| (Some(addr.to_string()), height))
+                        .unwrap_or((None, 0)),
+                    network.stacks_tip.height,
+                )
             });
 
-        let (max_stacks_neighbor_address, max_stacks_height_of_neighbors) =
-            match max_stacks_height_of_neighbors {
-                Some((addr, height)) => (Some(addr.to_string()), height),
-                None => (None, 0),
-            };
         // There could be a edge case where our node is ahead of all peers.
         let difference_from_max_peer =
             max_stacks_height_of_neighbors.saturating_sub(node_stacks_tip_height);
