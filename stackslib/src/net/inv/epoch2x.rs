@@ -2346,7 +2346,7 @@ impl PeerNetwork {
                             inv_state.hint_learned_data = true;
                             inv_state.hint_learned_data_height = u64::MAX;
                         }
-                        Err(net_error::PeerNotConnected) | Err(net_error::SendError(..)) => {
+                        Err(net_error::PeerNotConnected(..)) | Err(net_error::SendError(..)) => {
                             stats.status = NodeStatus::Dead;
                         }
                         Err(e) => {
@@ -2599,7 +2599,9 @@ impl PeerNetwork {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
                 Ok(func(network, nstats))
             } else {
-                Err(net_error::PeerNotConnected)
+                Err(net_error::PeerNotConnected(format!(
+                    "No inventory stats for neighbor {nk}",
+                )))
             }
         }) {
             Ok(Ok(x)) => Ok(x),

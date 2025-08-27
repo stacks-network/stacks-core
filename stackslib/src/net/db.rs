@@ -96,10 +96,10 @@ pub struct LocalPeer {
 
 impl fmt::Display for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "local::{}", self.port)?;
+        write!(f, "local")?;
         match &self.public_ip_address {
-            None => Ok(()),
-            Some((addr, port)) => write!(f, "::pub={}", addr.to_socketaddr(*port)),
+            None => write!(f, "::UNKNOWN"),
+            Some((addr, port)) => write!(f, "::{}", addr.to_socketaddr(*port)),
         }
     }
 }
