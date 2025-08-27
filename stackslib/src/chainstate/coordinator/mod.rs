@@ -703,13 +703,11 @@ pub fn get_next_recipients<U: RewardSetProvider>(
     burnchain: &Burnchain,
     provider: &U,
 ) -> Result<Option<RewardSetInfo>, Error> {
-    let burnchain_db = BurnchainDB::open(&burnchain.get_burnchaindb_path(), false)?;
     let reward_cycle_info = get_reward_cycle_info(
         sortition_tip.block_height + 1,
         &sortition_tip.burn_header_hash,
         &sortition_tip.sortition_id,
         burnchain,
-        &burnchain_db,
         chain_state,
         sort_db,
         provider,
@@ -729,7 +727,6 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
     parent_bhh: &BurnchainHeaderHash,
     sortition_tip: &SortitionId,
     burnchain: &Burnchain,
-    burnchain_db: &BurnchainDB,
     chain_state: &mut StacksChainState,
     sort_db: &mut SortitionDB,
     provider: &U,
@@ -763,14 +760,7 @@ pub fn get_reward_cycle_info<U: RewardSetProvider>(
 
     let reward_cycle_info = {
         let ic = sort_db.index_handle(sortition_tip);
-        let burnchain_db_conn_opt = if epoch_at_height.epoch_id >= StacksEpochId::Epoch21 {
-            // use the new block-commit-based PoX anchor block selection rules
-            Some(burnchain_db.conn())
-        } else {
-            None
-        };
-
-        ic.get_chosen_pox_anchor(burnchain_db_conn_opt, parent_bhh, &burnchain.pox_constants)
+        ic.get_chosen_pox_anchor(parent_bhh, &burnchain.pox_constants)
     }?;
     let reward_cycle_info =
         if let Some((consensus_hash, stacks_block_hash, txid)) = reward_cycle_info {
@@ -1427,7 +1417,6 @@ impl<
             &burn_header.parent_block_hash,
             sortition_tip_id,
             &self.burnchain,
-            &self.burnchain_blocks_db,
             &mut self.chain_state_db,
             &mut self.sortition_db,
             &self.reward_set_provider,
@@ -1914,7 +1903,6 @@ impl SortitionDBMigrator {
             &ancestor_sn.burn_header_hash,
             &ancestor_sn.sortition_id,
             &self.burnchain,
-            &self.burnchain_db,
             &mut chainstate,
             sort_db,
             &OnChainRewardSetProvider::new(),

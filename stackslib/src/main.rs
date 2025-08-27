@@ -768,7 +768,7 @@ check if the associated microblocks can be downloaded
             let pox_consts = PoxConstants::mainnet_default();
 
             let result = sort_conn
-                .get_chosen_pox_anchor_check_position_v205(
+                .get_chosen_pox_anchor_check_position(
                     &eval_tip.burn_header_hash,
                     &pox_consts,
                     false,
@@ -1937,7 +1937,6 @@ fn analyze_sortition_mev(argv: Vec<String>) {
             &burn_block.header.parent_block_hash,
             &tip_sort_id,
             &burnchain,
-            &burnchaindb,
             &mut chainstate,
             &mut sortdb,
             &OnChainRewardSetProvider::new(),

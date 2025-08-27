@@ -32,7 +32,6 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
-use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::{
     Burnchain, BurnchainBlockHeader, BurnchainStateTransition, BurnchainStateTransitionOps,
     BurnchainView, Error as BurnchainError, PoxConstants, Txid,
@@ -2390,148 +2389,28 @@ impl<'a> SortitionHandleConn<'a> {
     /// Get the chosen PoX anchor block for a reward cycle, given the last block of its prepare
     /// phase.
     ///
-    /// In epochs 2.05 and earlier, this was the Stacks block that received F*w confirmations.
-    ///
-    /// In epoch 2.1 and later, this was the Stacks block whose block-commit received not only F*w
-    /// confirmations from subsequent block-commits in the prepare phase, but also the most BTC
-    /// burnt from all such candidates (and if there is still a tie, then the higher block-commit
-    /// is chosen).  In particular, the block-commit is not required to be the winning block-commit
-    /// or even a valid block-commit, unlike in 2.05.  However, this will be a winning block-commit
-    /// if at least 20% of the BTC was spent honestly.
-    ///
-    /// Here, instead of reasoning about which epoch we're in, the caller will instead supply an
-    /// optional handle to the burnchain database.  If it's `Some(..)`, then the epoch 2.1 rules
-    /// are used -- the PoX anchor block will be determined from block-commits.  If it's `None`,
-    /// then the epoch 2.05 rules are used -- the PoX anchor block will be determined from present
-    /// Stacks blocks.
-    pub fn get_chosen_pox_anchor(
-        &self,
-        burnchain_db_conn: Option<&DBConn>,
-        prepare_end_bhh: &BurnchainHeaderHash,
-        pox_consts: &PoxConstants,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
-        // match burnchain_db_conn {
-        //     Some(conn) => self.get_chosen_pox_anchor_v210(conn, prepare_end_bhh, pox_consts),
-        //     None => self.get_chosen_pox_anchor_v205(prepare_end_bhh, pox_consts),
-        // }
-        self.get_chosen_pox_anchor_v205(prepare_end_bhh, pox_consts)
-    }
-
-    /// Use the epoch 2.1 method for choosing a PoX anchor block.
-    /// The PoX anchor block corresponds to the block-commit that received F*w confirmations in its
-    /// prepare phase, and had the most BTC of all such candidates, and was the highest of all such
-    /// candidates.  This information is stored in the burnchain DB.
-    ///
-    /// Note that it does not matter if the anchor block-commit does not correspond to a valid
-    /// Stacks block, or even won sortition.  The result is the same for the honest network
-    /// participants: they mark the anchor block as absent in their affirmation maps, and this PoX
-    /// fork's quality is degraded as such.
-    pub fn get_chosen_pox_anchor_v210(
-        &self,
-        burnchain_db_conn: &DBConn,
-        prepare_end_bhh: &BurnchainHeaderHash,
-        pox_consts: &PoxConstants,
-    ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
-        let rc = match self.get_heights_for_prepare_phase_end_block(
-            prepare_end_bhh,
-            pox_consts,
-            true,
-        )? {
-            Some((_, block_height)) => {
-                let rc = pox_consts
-                    .block_height_to_reward_cycle(
-                        self.context.first_block_height,
-                        block_height.into(),
-                    )
-                    .ok_or(CoordinatorError::NotPrepareEndBlock)?;
-                rc
-            }
-            None => {
-                // there can't be an anchor block
-                return Ok(None);
-            }
-        };
-        let (anchor_block_op, anchor_block_metadata) = {
-            let mut res = None;
-            let metadatas = BurnchainDB::get_anchor_block_commit_metadatas(burnchain_db_conn, rc)?;
-
-            // find the one on this fork
-            for metadata in metadatas {
-                let sn = SortitionDB::get_ancestor_snapshot(
-                    self,
-                    metadata.block_height,
-                    &self.context.chain_tip,
-                )?
-                .expect("FATAL: accepted block-commit but no sortition at height");
-                if sn.burn_header_hash == metadata.burn_block_hash {
-                    // this is the metadata on this burnchain fork
-                    res = match BurnchainDB::get_anchor_block_commit(
-                        burnchain_db_conn,
-                        &sn.burn_header_hash,
-                        rc,
-                    )? {
-                        Some(x) => Some(x),
-                        None => {
-                            continue;
-                        }
-                    };
-                    if res.is_some() {
-                        break;
-                    }
-                }
-            }
-            if let Some(x) = res {
-                x
-            } else {
-                // no anchor block
-                test_debug!("No anchor block for reward cycle {}", rc);
-                return Ok(None);
-            }
-        };
-
-        // sanity check: we must have processed this burnchain block already
-        let anchor_sort_id = self.get_sortition_id_for_bhh(&anchor_block_metadata.burn_block_hash)?
-            .ok_or_else(|| {
-                warn!("Missing anchor block sortition"; "burn_header_hash" => %anchor_block_metadata.burn_block_hash, "sortition_tip" => %&self.context.chain_tip);
-                BurnchainError::MissingParentBlock
-            })?;
-
-        let anchor_sn = SortitionDB::get_block_snapshot(self, &anchor_sort_id)?
-            .ok_or(BurnchainError::MissingParentBlock)?;
-
-        // the sortition does not even need to have picked this anchor block; all that matters is
-        // that miners confirmed it.  If the winning block hash doesn't even correspond to a Stacks
-        // block, then the honest miners in the network will affirm that it's absent.
-        let ch = anchor_sn.consensus_hash;
-        Ok(Some((
-            ch,
-            anchor_block_op.block_header_hash,
-            anchor_block_op.txid,
-        )))
-    }
-
-    /// This is the method for calculating the PoX anchor block for a reward cycle in epoch 2.05 and earlier.
+    /// This is the method for calculating the PoX anchor block for a reward cycle.
     /// Return identifying information for a PoX anchor block for the reward cycle that
     ///   begins the block after `prepare_end_bhh`.
     /// If a PoX anchor block is chosen, this returns Some, if a PoX anchor block was not
     ///   selected, return `None`
     /// `prepare_end_bhh`: this is the burn block which is the last block in the prepare phase
     ///                 for the corresponding reward cycle
-    fn get_chosen_pox_anchor_v205(
+    pub fn get_chosen_pox_anchor(
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash, Txid)>, CoordinatorError> {
-        match self.get_chosen_pox_anchor_check_position_v205(prepare_end_bhh, pox_consts, true) {
+        match self.get_chosen_pox_anchor_check_position(prepare_end_bhh, pox_consts, true) {
             Ok(Ok((c_hash, bh_hash, txid, _))) => Ok(Some((c_hash, bh_hash, txid))),
             Ok(Err(_)) => Ok(None),
             Err(e) => Err(e),
         }
     }
 
-    /// This is the method for calculating the PoX anchor block for a reward cycle in epoch 2.05 and earlier.
+    /// This is the method for calculating the PoX anchor block for a reward cycle
     /// If no PoX anchor block is found, it returns Ok(Err(maximum confirmations of all candidates))
-    pub fn get_chosen_pox_anchor_check_position_v205(
+    pub fn get_chosen_pox_anchor_check_position(
         &self,
         prepare_end_bhh: &BurnchainHeaderHash,
         pox_consts: &PoxConstants,
@@ -6628,6 +6507,7 @@ pub mod tests {
     use stacks_common::util::vrf::*;
 
     use super::*;
+    use crate::burnchains::db::BurnchainDB;
     use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
     use crate::burnchains::*;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
@@ -10657,16 +10537,8 @@ pub mod tests {
         let tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
         {
             let ic = db.index_handle(&tip.sortition_id);
-            let anchor_2_05 = ic
-                .get_chosen_pox_anchor(None, &tip.burn_header_hash, &pox_consts)
-                .unwrap()
-                .unwrap();
-            let anchor_2_1 = ic
-                .get_chosen_pox_anchor(
-                    Some(burnchain_db.conn()),
-                    &tip.burn_header_hash,
-                    &pox_consts,
-                )
+            let anchor = ic
+                .get_chosen_pox_anchor(&tip.burn_header_hash, &pox_consts)
                 .unwrap()
                 .unwrap();
 
@@ -10676,19 +10548,11 @@ pub mod tests {
                 .unwrap()
                 .consensus_hash;
             assert_eq!(
-                anchor_2_05,
+                anchor,
                 (
                     expected_anchor_ch.clone(),
                     commits[6][0].as_ref().unwrap().block_header_hash.clone(),
                     commits[6][0].as_ref().unwrap().txid.clone(),
-                )
-            );
-            assert_eq!(
-                anchor_2_1,
-                (
-                    expected_anchor_ch,
-                    commits[6][1].as_ref().unwrap().block_header_hash.clone(),
-                    commits[6][1].as_ref().unwrap().txid.clone(),
                 )
             );
         }
