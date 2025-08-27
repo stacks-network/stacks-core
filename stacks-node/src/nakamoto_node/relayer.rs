@@ -1139,7 +1139,7 @@ impl RelayerThread {
             key_block_ptr: u32::try_from(key.block_height)
                 .expect("FATAL: burn block height exceeded u32"),
             key_vtxindex: u16::try_from(key.op_vtxindex).expect("FATAL: vtxindex exceeded u16"),
-            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            memo: vec![*STACKS_EPOCH_LATEST_MARKER],
             new_seed: VRFSeed::from_proof(&tip_vrf_proof),
             parent_block_ptr: u32::try_from(commit_parent_block_burn_height)
                 .expect("FATAL: burn block height exceeded u32"),

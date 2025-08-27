@@ -560,9 +560,11 @@ pub static STACKS_EPOCH_3_2_MARKER: u8 = 0x0e;
 /// *or greater*.
 pub static STACKS_EPOCH_3_3_MARKER: u8 = 0x0f;
 
-/// Latest Stacks epoch marker. Should always be the marker for the highest supported epoch.
-/// This must be updated when a new epoch is added (checked in test below).
-pub static STACKS_EPOCH_LATEST_MARKER: u8 = STACKS_EPOCH_3_3_MARKER;
+lazy_static! {
+    /// Latest Stacks epoch marker. Automatically uses the marker for the highest supported epoch.
+    pub static ref STACKS_EPOCH_LATEST_MARKER: u8 = marker_for_epoch(StacksEpochId::latest())
+        .expect("Latest epoch should always have a marker");
+}
 
 pub fn marker_for_epoch(epoch_id: StacksEpochId) -> Option<u8> {
     match epoch_id {
@@ -579,14 +581,6 @@ pub fn marker_for_epoch(epoch_id: StacksEpochId) -> Option<u8> {
         StacksEpochId::Epoch32 => Some(STACKS_EPOCH_3_2_MARKER),
         StacksEpochId::Epoch33 => Some(STACKS_EPOCH_3_3_MARKER),
     }
-}
-
-#[test]
-fn test_latest_epoch_marker() {
-    assert_eq!(
-        marker_for_epoch(StacksEpochId::latest()),
-        Some(STACKS_EPOCH_LATEST_MARKER)
-    );
 }
 
 #[test]
