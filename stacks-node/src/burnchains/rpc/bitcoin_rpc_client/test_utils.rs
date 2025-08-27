@@ -143,8 +143,7 @@ impl BitcoinRpcClient {
     /// Retrieves and deserializes a raw Bitcoin transaction by its ID.
     ///
     /// # Arguments
-    /// * `txid` - Transaction ID to fetch, which is intended to be created with [`Txid::from_bitcoin_hex`],
-    ///            or an analogous process.
+    /// * `txid` - The transaction ID (as [`Txid`]) to query (in big-endian order).
     ///
     /// # Returns
     /// A [`Transaction`] struct representing the decoded transaction.
@@ -152,12 +151,10 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
     pub fn get_raw_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<Transaction> {
-        let btc_txid = txid.to_bitcoin_hex();
-
         let raw_hex = self.global_ep.send::<String>(
             &self.client_id,
             "getrawtransaction",
-            vec![btc_txid.to_string().into()],
+            vec![txid.to_hex().into()],
         )?;
         Ok(deserialize_hex(&raw_hex)?)
     }
@@ -249,7 +246,7 @@ impl BitcoinRpcClient {
     /// * `amount` - Amount to send in BTC (not in satoshis).
     ///
     /// # Returns
-    /// A [`Txid`] struct representing the transaction ID (storing internally bytes in **little-endian** order)
+    /// A [`Txid`] as a transaction ID (in big-endian order)
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.1.0**.

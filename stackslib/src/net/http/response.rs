@@ -337,6 +337,11 @@ impl HttpResponsePreamble {
     pub fn is_chunked(&self) -> bool {
         self.content_length.is_none()
     }
+
+    /// Is this a successful response?
+    pub fn is_success(&self) -> bool {
+        self.status_code >= 100 && self.status_code < 400
+    }
 }
 
 /// Get an RFC 7231 date that represents the current time

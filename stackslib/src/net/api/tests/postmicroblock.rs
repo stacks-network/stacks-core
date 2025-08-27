@@ -23,7 +23,7 @@ use crate::chainstate::stacks::test::make_codec_test_microblock;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
 

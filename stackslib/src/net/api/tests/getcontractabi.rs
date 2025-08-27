@@ -25,8 +25,7 @@ use super::test_rpc;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest,
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
 
@@ -123,11 +122,6 @@ fn test_try_make_response() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
-    );
-
     let resp = response.decode_contract_abi_response().unwrap();
 
     // unconfirmed data
@@ -135,11 +129,6 @@ fn test_try_make_response() {
     debug!(
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
-    );
-
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
     );
 
     let resp = response.decode_contract_abi_response().unwrap();

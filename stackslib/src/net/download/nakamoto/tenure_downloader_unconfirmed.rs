@@ -142,7 +142,7 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// * tenure_tip.parent_tenure_start_block_id
     ///     This is the tenure start block for the highest complete tenure.  It should be equal to
     ///     the winning Stacks block hash of the snapshot for the ongoing tenure.
-    ///  
+    ///
     /// We may already have the tenure-start block for the unconfirmed tenure. If so, then don't go
     /// fetch it again; just get the new unconfirmed blocks.
     pub fn try_accept_tenure_info(
@@ -406,7 +406,7 @@ impl NakamotoUnconfirmedTenureDownloader {
 
         // block has to match the expected hash
         if tenure_start_block_id != &unconfirmed_tenure_start_block.header.block_id() {
-            warn!("Invalid tenure-start block"; 
+            warn!("Invalid tenure-start block";
                   "tenure_id_start_block" => %tenure_start_block_id,
                   "unconfirmed_tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
                   "unconfirmed_tenure_start_block ID" => %unconfirmed_tenure_start_block.header.block_id(),

@@ -40,7 +40,7 @@ use stacks_common::function_name;
 use crate::chainstate::{ProposalEvalConfig, SortitionData};
 use crate::client::tests::{build_get_tenure_tip_response, MockServerClient};
 use crate::client::StacksClient;
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS};
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
 use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
@@ -284,6 +284,7 @@ fn check_miner_inactivity_timeout() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
+        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
     };
 
     let block_sk = StacksPrivateKey::from_seed(&[0, 1]);

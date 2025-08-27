@@ -258,7 +258,6 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
             None,
             HttpContentType::Bytes,
         );
-
         Ok((
             resp_preamble,
             HttpResponseContents::from_stream(Box::new(stream)),

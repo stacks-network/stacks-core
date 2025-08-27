@@ -130,6 +130,8 @@ pub struct Signer {
     pub validate_with_replay_tx: bool,
     /// Scope of Tx Replay in terms of Burn block boundaries
     pub tx_replay_scope: ReplayScopeOpt,
+    /// The number of blocks after the past tip to reset the replay set
+    pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
     /// The last time we capitulated our miner viewpoint
@@ -310,6 +312,7 @@ impl SignerTrait<SignerMessage> for Signer {
             global_state_evaluator,
             validate_with_replay_tx: signer_config.validate_with_replay_tx,
             tx_replay_scope: None,
+            reset_replay_set_after_fork_blocks: signer_config.reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout: signer_config.capitulate_miner_view_timeout,
             last_capitulate_miner_view: SystemTime::now(),
             #[cfg(any(test, feature = "testing"))]
@@ -1369,13 +1372,13 @@ impl Signer {
         // Remove this block validation from the pending table
         let signer_sig_hash = block_validate_response.signer_signature_hash();
         self.signer_db
-            .remove_pending_block_validation(&signer_sig_hash)
+            .remove_pending_block_validation(signer_sig_hash)
             .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
 
         if let Some(response) = block_response {
             let block = self
                 .signer_db
-                .block_lookup(&signer_sig_hash)
+                .block_lookup(signer_sig_hash)
                 .unwrap_or_default()
                 .map(|info| info.block);
             self.impl_send_block_response(block.as_ref(), response);
