@@ -765,6 +765,12 @@ impl CostValues for Costs4 {
     }
 
     fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost> {
-        Ok(ExecutionCost::runtime(100))
+        Ok(ExecutionCost {
+            runtime: 100, // TODO: needs criterion benchmark
+            write_length: 0,
+            write_count: 0,
+            read_count: 1,
+            read_length: 32,
+        })
     }
 }

@@ -653,4 +653,10 @@
     (runtime u167))
 
 (define-read-only (cost_contract_hash (n uint))
-    (runtime u100))
+    {
+        runtime: u100, ;; TODO: needs criterion benchmark
+        write_length: u0,
+        write_count: u0,
+        read_count: u1,
+        read_length: u32
+    })
