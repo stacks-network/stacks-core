@@ -486,7 +486,11 @@ pub fn get_latest_block_proposal(
     let miner_ranges = stackerdb_conf.signer_ranges();
     let latest_miner = usize::from(miner_info.get_latest_winner_index());
     let miner_contract_id = boot_code_id(MINERS_NAME, false);
-    let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
+    let mut miners_stackerdb = StackerDBSession::new(
+        &conf.node.rpc_bind,
+        miner_contract_id,
+        Duration::from_secs(30),
+    );
 
     let mut proposed_blocks: Vec<_> = stackerdb_conf
         .signers
@@ -12660,14 +12664,16 @@ fn write_signer_update(
 ) {
     let signers_contract_id =
         MessageSlotID::StateMachineUpdate.stacker_db_contract(false, reward_cycle);
-    let mut session = StackerDBSession::new(&conf.node.rpc_bind, signers_contract_id);
+    let mut session = StackerDBSession::new(
+        &conf.node.rpc_bind,
+        signers_contract_id,
+        Duration::from_secs(30),
+    );
     let message = SignerMessageV0::StateMachineUpdate(update);
 
-    // Submit the block proposal to the signers slot
-    let mut accepted = false;
+    // Submit the update to the signers slot
     let mut version = 0;
-    let start = Instant::now();
-    while !accepted {
+    wait_for(timeout.as_secs(), || {
         let mut chunk =
             StackerDBChunkData::new(signer_slot_id, version, message.serialize_to_vec());
         chunk
@@ -12675,14 +12681,11 @@ fn write_signer_update(
             .expect("Failed to sign message chunk");
         debug!("Produced a signature: {:?}", chunk.sig);
         let result = session.put_chunk(&chunk).expect("Failed to put chunk");
-        accepted = result.accepted;
         version += 1;
         debug!("Test Put Chunk ACK: {result:?}");
-        assert!(
-            start.elapsed() < timeout,
-            "Timed out waiting for signer state update to be accepted"
-        );
-    }
+        Ok(result.accepted)
+    })
+    .expect("Failed to accept signer state update");
 }
 
 /// Test SIP-031 activation
