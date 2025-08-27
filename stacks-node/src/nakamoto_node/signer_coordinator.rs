@@ -480,7 +480,7 @@ impl SignerCoordinator {
                 > self.total_weight
             {
                 info!(
-                    "{}/{} signers vote to reject block",
+                    "{}/{} signer weight votes to reject block",
                     block_status.total_weight_rejected, self.total_weight;
                     "signer_signature_hash" => %block_signer_sighash,
                 );

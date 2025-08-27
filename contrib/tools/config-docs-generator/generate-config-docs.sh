@@ -55,7 +55,8 @@ main() {
     mkdir -p "$(dirname "$OUTPUT_FILE")"
     mkdir -p "$TEMP_DIR"
 
-    cd "$PROJECT_ROOT"
+    # Move to the script's directory to build `config-docs-generator`
+    cd "$SCRIPT_DIR"
 
     # Step 1: Build the documentation generation tools
     if [[ "$SKIP_BUILD" != "true" ]]; then
@@ -73,6 +74,9 @@ main() {
         TARGET_STRUCTS="$(jq -r 'keys | join(",")' "$SECTION_MAPPINGS_PATH")"
     fi
     log_info "Structs to be documented: $TARGET_STRUCTS"
+
+    # Move to the project's workspace root to run the extract-docs binary
+    cd "$PROJECT_ROOT"
 
     "$EXTRACT_DOCS_BIN" \
         --package stackslib \

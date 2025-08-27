@@ -155,7 +155,7 @@ pub struct GenerateVoteArgs {
     pub vote_info: VoteInfo,
 }
 
-#[derive(Parser, Debug, Clone, Copy)]
+#[derive(Parser, Debug, Clone)]
 /// Arguments for the VerifyVote command
 pub struct VerifyVoteArgs {
     /// The Stacks public key to verify against
@@ -169,7 +169,7 @@ pub struct VerifyVoteArgs {
     pub vote_info: VoteInfo,
 }
 
-#[derive(Parser, Debug, Clone, Copy)]
+#[derive(Parser, Debug, Clone)]
 /// Information about a SIP vote
 pub struct VoteInfo {
     /// The SIP number to vote on

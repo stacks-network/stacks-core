@@ -1513,10 +1513,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
 
     /// Get a copy of the public key
     pub fn get_public_key(&self) -> Option<Secp256k1PublicKey> {
-        match self.inbox.public_key {
-            Some(pubk) => Some(pubk.clone()),
-            None => None,
-        }
+        self.inbox.public_key.clone()
     }
 
     /// Get a copy of the public key

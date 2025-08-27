@@ -17,7 +17,7 @@ use crate::vm::errors::Error;
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
 use crate::vm::{
-    errors::{CheckErrors, ShortReturnType},
+    errors::{CheckErrors, ShortReturnType, SyntaxBindingError},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
 use crate::vm::{execute, ClarityName};
@@ -645,7 +645,7 @@ fn bad_define_maps() {
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
     let expected: Vec<Error> = vec![
-        CheckErrors::BadSyntaxExpectedListOfPairs.into(),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)).into(),
         CheckErrors::UnknownTypeName("contents".to_string()).into(),
         CheckErrors::ExpectedName.into(),
         CheckErrors::IncorrectArgumentCount(3, 4).into(),
@@ -670,8 +670,8 @@ fn bad_tuples() {
     ];
     let expected = vec![
         CheckErrors::NameAlreadyUsed("name".into()),
-        CheckErrors::BadSyntaxBinding,
-        CheckErrors::BadSyntaxBinding,
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(1)),
         CheckErrors::NoSuchTupleField(
             "value".into(),
             TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap(),

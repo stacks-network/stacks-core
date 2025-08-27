@@ -128,7 +128,7 @@ fn handle_generate_stacking_signature(
 ) -> MessageSignature {
     let config = GlobalConfig::try_from(&args.config).unwrap();
 
-    let private_key = config.stacks_private_key;
+    let private_key = config.stacks_private_key.clone();
     let public_key = StacksPublicKey::from_private(&private_key);
     let pk_hex = to_hex(&public_key.to_bytes_compressed());
 
@@ -413,7 +413,7 @@ pub mod tests {
         let public_key = StacksPublicKey::from_private(&private_key);
         let args = GenerateVoteArgs {
             config: config_file.into(),
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let message_signature = handle_generate_vote(args, false);
         assert!(
@@ -438,9 +438,9 @@ pub mod tests {
         };
 
         let args = VerifyVoteArgs {
-            public_key,
+            public_key: public_key.clone(),
             signature: vote_info.sign(&private_key).unwrap(),
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let valid = handle_verify_vote(args, false);
         assert!(valid, "Vote should be valid");
@@ -448,13 +448,13 @@ pub mod tests {
         let args = VerifyVoteArgs {
             public_key: invalid_public_key,
             signature: vote_info.sign(&private_key).unwrap(), // Invalid corresponding public key
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let valid = handle_verify_vote(args, false);
         assert!(!valid, "Vote should be invalid");
 
         let args = VerifyVoteArgs {
-            public_key,
+            public_key: public_key.clone(),
             signature: vote_info.sign(&private_key).unwrap(),
             vote_info: VoteInfo {
                 vote: Vote::Yes, // Invalid vote

@@ -387,7 +387,7 @@ pub fn make_contract_call(
     let function_name = ClarityName::from(function_name);
 
     let payload = TransactionContractCall {
-        address: *contract_addr,
+        address: contract_addr.clone(),
         contract_name,
         function_name,
         function_args: function_args.to_vec(),
@@ -414,7 +414,7 @@ pub fn make_contract_call_mblock_only(
     let function_name = ClarityName::from(function_name);
 
     let payload = TransactionContractCall {
-        address: *contract_addr,
+        address: contract_addr.clone(),
         contract_name,
         function_name,
         function_args: function_args.to_vec(),

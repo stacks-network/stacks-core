@@ -26,9 +26,7 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble,
 };
-use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
 use crate::net::{Error as NetError, NakamotoBlocksData, StacksMessageType, StacksNodeState};
 
@@ -203,8 +201,7 @@ impl RPCRequestHandler for RPCPostBlockRequestHandler {
             }));
         }
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&data_resp)?;
         Ok((preamble, body))
     }
