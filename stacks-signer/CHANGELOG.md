@@ -10,10 +10,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Added two-phase commit to signer block responses ensuring signers only issue a signature in a BlockResponse when a majority threshold number have pre-committed to sign a proposed Naka block
+- When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
 
 ### Changed
 
 - Database schema updated to version 17
+
 
 ## [3.2.0.0.1.0]
 
@@ -30,6 +32,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added `info` logs to the signer to provide more visibility into the block approval/rejection status
 - Introduced `capitulate_miner_view_timeout_secs`: the duration (in seconds) for the signer to wait between updating the local state machine viewpoint and capitulating to other signers' miner views.
 - Added codepath to enable signers to evaluate block proposals and miner activity against global signer state for improved consistency and correctness. Currently feature gated behind the `SUPPORTED_SIGNER_PROTOCOL_VERSION`
+- When a transaction replay set has been active for a configurable number of burn blocks (which defaults to `2`), and the replay set still hasn't been cleared, the replay set is automatically cleared. This is provided as a "failsafe" to ensure chain liveness as transaction replay is rolled out.
 
 ### Changed
 

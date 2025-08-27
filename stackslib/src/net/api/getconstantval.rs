@@ -28,8 +28,8 @@ use crate::net::http::{
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
-    StacksHttpRequest, StacksHttpResponse,
+    request, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest,
+    StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
@@ -168,8 +168,7 @@ impl RPCRequestHandler for RPCGetConstantValRequestHandler {
             }
         };
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&data_resp)?;
         Ok((preamble, body))
     }
