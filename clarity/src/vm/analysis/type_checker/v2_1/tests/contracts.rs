@@ -3547,22 +3547,10 @@ fn clarity_trait_experiments_cross_epochs(
 /// Pass various types to `contract-hash?`
 #[apply(test_clarity_versions)]
 fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-    let sources = [
-        "(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)",
-        "(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)",
-        "(contract-hash? 123)",
-        "(contract-hash? u123)",
-        "(contract-hash? true)",
-        "(contract-hash? 0x1234)",
-        "(contract-hash? \"60 percent of the time, it works every time\")",
-        "(contract-hash? u\"I am serious, and don't call me Shirley.\")",
-        "(contract-hash? (list 1 2 3))",
-        "(contract-hash? { a: 1, b: u2 })",
-        "(contract-hash? (some u789))",
-        "(contract-hash? (ok true))",
-    ];
-    let results = if version >= ClarityVersion::Clarity4 {
-        [
+    let test_cases = [
+        (
+            "(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)",
+            "valid contract principal",
             Ok(Some(
                 TypeSignature::new_response(
                     TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -3572,6 +3560,10 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
                 )
                 .unwrap(),
             )),
+        ),
+        (
+            "(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)",
+            "standard principal",
             Ok(Some(
                 TypeSignature::new_response(
                     TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -3581,42 +3573,74 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
                 )
                 .unwrap(),
             )),
+        ),
+        (
+            "(contract-hash? 123)",
+            "int type",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::IntType,
             )),
+        ),
+        (
+            "(contract-hash? u123)",
+            "uint type",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::UIntType,
             )),
+        ),
+        (
+            "(contract-hash? true)",
+            "bool type",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::BoolType,
             )),
+        ),
+        (
+            "(contract-hash? 0x1234)",
+            "buffer type",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::SequenceType(SequenceSubtype::BufferType(
                     BufferLength::try_from(2u32).unwrap(),
                 )),
             )),
+        ),
+        (
+            "(contract-hash? \"60 percent of the time, it works every time\")",
+            "ascii string",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
                     BufferLength::try_from(43u32).unwrap(),
                 ))),
             )),
+        ),
+        (
+            "(contract-hash? u\"I am serious, and don't call me Shirley.\")",
+            "utf8 string",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
                     StringUTF8Length::try_from(40u32).unwrap(),
                 ))),
             )),
+        ),
+        (
+            "(contract-hash? (list 1 2 3))",
+            "list type",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::SequenceType(SequenceSubtype::ListType(
                     ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
                 )),
             )),
+        ),
+        (
+            "(contract-hash? { a: 1, b: u2 })",
+            "tuple type",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::TupleType(
@@ -3628,36 +3652,36 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
                     .unwrap(),
                 ),
             )),
+        ),
+        (
+            "(contract-hash? (some u789))",
+            "optional type",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
             )),
+        ),
+        (
+            "(contract-hash? (ok true))",
+            "response type",
             Err(CheckErrors::TypeError(
                 TypeSignature::PrincipalType,
                 TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
                     .unwrap(),
             )),
-        ]
-    } else {
-        [
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-            Err(CheckErrors::UnknownFunction("contract-hash?".to_string())),
-        ]
-    };
+        ),
+    ];
 
-    for (source, expected) in sources.iter().zip(results.iter()) {
+    for (source, description, clarity4_expected) in test_cases.iter() {
         let result = mem_run_analysis(source, version, epoch);
         let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| e.err);
-        assert_eq!(actual, *expected);
+
+        let expected = if version >= ClarityVersion::Clarity4 {
+            clarity4_expected
+        } else {
+            &Err(CheckErrors::UnknownFunction("contract-hash?".to_string()))
+        };
+
+        assert_eq!(&actual, expected, "Failed for test case: {}", description);
     }
 }
