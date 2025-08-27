@@ -1934,7 +1934,7 @@ mod test {
                 "ContractName",
                 "1nvalid-name".into()
             )),
-            err.into(),
+            err,
         );
     }
 
@@ -1954,7 +1954,7 @@ mod test {
     ) {
         let err =
             PrincipalData::parse_standard_principal(input).expect_err("Unexpected principal data");
-        assert_eq!(Error::from(expected_err), err.into());
+        assert_eq!(Error::from(expected_err), err);
     }
 
     #[rstest]
@@ -1970,7 +1970,7 @@ mod test {
     ) {
         let err = QualifiedContractIdentifier::parse(input)
             .expect_err("Unexpected qualified contract identifier");
-        assert_eq!(Error::from(expected_err), err.into());
+        assert_eq!(Error::from(expected_err), err);
     }
 
     #[rstest]
@@ -1990,11 +1990,11 @@ mod test {
         let expected_err = Error::from(expected_err);
 
         let err = TraitIdentifier::parse(input).expect_err("Unexpected trait identifier");
-        assert_eq!(expected_err, err.into());
+        assert_eq!(expected_err, err);
 
         let err =
             TraitIdentifier::parse_sugared_syntax(input).expect_err("Unexpected trait identifier");
-        assert_eq!(expected_err, err.into());
+        assert_eq!(expected_err, err);
     }
 
     #[rstest]
@@ -2011,7 +2011,7 @@ mod test {
     ) {
         let err =
             TraitIdentifier::parse_fully_qualified(input).expect_err("Unexpected trait identifier");
-        assert_eq!(Error::from(expected_err), err.into());
+        assert_eq!(Error::from(expected_err), err);
     }
 
     /// The returned InterpreterError is consensus-critical.
@@ -2035,7 +2035,7 @@ mod test {
             Error::from(InterpreterError::Expect(
                 "BUG: failed to initialize single-byte ASCII buffer".into()
             )),
-            err.into()
+            err
         );
     }
 
@@ -2047,7 +2047,7 @@ mod test {
             Error::from(InterpreterError::Expect(
                 "ERROR: Invalid ASCII string successfully constructed".into()
             )),
-            err.into()
+            err
         );
     }
 
@@ -2059,7 +2059,7 @@ mod test {
             Error::from(InterpreterError::Expect(
                 "ERROR: Invalid UTF8 string successfully constructed".into()
             )),
-            err.into()
+            err
         );
     }
 
@@ -2076,7 +2076,7 @@ mod test {
         .unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::FailureConstructingTupleWithType),
-            err.into()
+            err
         );
     }
 
@@ -2088,7 +2088,7 @@ mod test {
         #[case] expected_err: InterpreterError,
     ) {
         let err = value.expect_ascii().unwrap_err();
-        assert_eq!(Error::from(expected_err), err.into());
+        assert_eq!(Error::from(expected_err), err);
     }
 
     /// The returned InterpreterError is consensus-critical.
@@ -2097,7 +2097,7 @@ mod test {
         let err = Value::none().expect_u128().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected u128".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2106,7 +2106,7 @@ mod test {
         let err = Value::none().expect_i128().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected i128".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2118,7 +2118,7 @@ mod test {
         #[case] expected_err: InterpreterError,
     ) {
         let err = value.expect_buff(1).unwrap_err();
-        assert_eq!(Error::from(expected_err), err.into());
+        assert_eq!(Error::from(expected_err), err);
     }
 
     #[test]
@@ -2126,7 +2126,7 @@ mod test {
         let err = Value::none().expect_tuple().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected tuple".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2135,7 +2135,7 @@ mod test {
         let err = Value::none().expect_list().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected list".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2144,7 +2144,7 @@ mod test {
         let err = Value::none().expect_buff_padded(10, 0).unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected buff".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2153,7 +2153,7 @@ mod test {
         let err = Value::none().expect_bool().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected bool".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2163,7 +2163,7 @@ mod test {
         let err = Value::okay_true().expect_optional().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected optional".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2173,7 +2173,7 @@ mod test {
         let err = Value::none().expect_principal().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected principal".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2183,7 +2183,7 @@ mod test {
         let err = Value::none().expect_callable().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected callable".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2192,7 +2192,7 @@ mod test {
         let err = Value::none().expect_result().unwrap_err();
         assert_eq!(
             Error::from(InterpreterError::Expect("Expected response".to_string())),
-            err.into()
+            err
         );
     }
 
@@ -2204,7 +2204,7 @@ mod test {
         #[case] expected_err: InterpreterError,
     ) {
         let err = value.expect_result_ok().unwrap_err();
-        assert_eq!(Error::from(expected_err), err.into());
+        assert_eq!(Error::from(expected_err), err);
     }
 
     #[rstest]
@@ -2215,7 +2215,7 @@ mod test {
         #[case] expected_err: InterpreterError,
     ) {
         let err = value.expect_result_err().unwrap_err();
-        assert_eq!(Error::from(expected_err), err.into());
+        assert_eq!(Error::from(expected_err), err);
     }
 
     /// The returned InterpreterError is consensus-critical.
@@ -2230,7 +2230,7 @@ mod test {
             Error::from(InterpreterError::Expect(
                 "Data length should be valid".into()
             )),
-            err.into()
+            err
         );
     }
 
@@ -2245,7 +2245,7 @@ mod test {
             Error::from(InterpreterError::Expect(
                 "Data length should be valid".into()
             )),
-            err.into()
+            err
         );
     }
 
@@ -2260,7 +2260,7 @@ mod test {
             Error::from(InterpreterError::Expect(
                 "Data length should be valid".into()
             )),
-            err.into()
+            err
         );
     }
 }

@@ -2691,7 +2691,7 @@ mod test {
             CheckErrors::Expects(
                 "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".to_string()
             ),
-            err.into()
+            err
         );
     }
 }
