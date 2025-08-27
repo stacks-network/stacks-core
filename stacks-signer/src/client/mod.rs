@@ -434,6 +434,7 @@ pub(crate) mod tests {
             reorg_attempts_activity_timeout: config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: config.proposal_wait_for_parent_time,
             validate_with_replay_tx: config.validate_with_replay_tx,
+            reset_replay_set_after_fork_blocks: config.reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout: config.capitulate_miner_view_timeout,
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,

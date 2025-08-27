@@ -27,7 +27,7 @@ use crate::net::http::{
     HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
-    request, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest,
+    request, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest,
     StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest, MAX_HEADERS};
@@ -203,7 +203,6 @@ impl RPCRequestHandler for RPCHeadersRequestHandler {
             None,
             HttpContentType::JSON,
         );
-
         Ok((
             resp_preamble,
             HttpResponseContents::from_stream(Box::new(stream)),
