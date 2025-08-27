@@ -29,7 +29,7 @@ The `report-coverage.sh` script generates HTML/text coverage reports for fuzz ta
 ### Basic Usage
 
 ```bash
-./report-coverage.sh <target_name>
+bash report-coverage.sh <target_name>
 ```
 
 ### Options
