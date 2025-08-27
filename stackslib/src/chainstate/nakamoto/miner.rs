@@ -720,7 +720,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-
             let (_fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx,
                 tx,
@@ -805,7 +804,6 @@ fn parse_process_transaction_error(
                     );
                     TransactionResult::skipped(tx, "Tx exceeds contract call block limit".into())
                 } else {
-                    debug!("HERE COST SO FAR : {cost_so_far_percentage}");
                     warn!(
                         "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
                         tx.txid(),
