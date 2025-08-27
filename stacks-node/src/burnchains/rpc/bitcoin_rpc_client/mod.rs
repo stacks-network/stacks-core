@@ -161,14 +161,13 @@ pub struct ListUnspentResponse {
     pub confirmations: u32,
 }
 
-/// Deserializes a JSON string (hex-encoded in big-endian order) into [`Txid`],
-/// storing bytes in little-endian order
+/// Deserializes a JSON string (hex-encoded in big-endian order) into [`Txid`].
 fn deserialize_string_to_txid<'de, D>(deserializer: D) -> Result<Txid, D::Error>
 where
     D: Deserializer<'de>,
 {
     let hex_str: String = Deserialize::deserialize(deserializer)?;
-    let txid = Txid::from_bitcoin_hex(&hex_str).map_err(serde::de::Error::custom)?;
+    let txid = Txid::from_hex(&hex_str).map_err(serde::de::Error::custom)?;
     Ok(txid)
 }
 
@@ -305,14 +304,14 @@ impl<'de> Deserialize<'de> for GenerateToAddressResponse {
 /// Response mainly used as deserialization wrapper for [`Txid`]
 struct TxidWrapperResponse(pub Txid);
 
-/// Deserializes a JSON string (hex-encoded, big-endian) into [`Txid`] and wrap it into [`TxidWrapperResponse`]
+/// Deserializes a JSON string (hex-encoded in big-endian order) into [`Txid`] and wrap it into [`TxidWrapperResponse`]
 impl<'de> Deserialize<'de> for TxidWrapperResponse {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let hex_str: String = Deserialize::deserialize(deserializer)?;
-        let txid = Txid::from_bitcoin_hex(&hex_str).map_err(serde::de::Error::custom)?;
+        let txid = Txid::from_hex(&hex_str).map_err(serde::de::Error::custom)?;
         Ok(TxidWrapperResponse(txid))
     }
 }
@@ -334,7 +333,7 @@ impl<'de> Deserialize<'de> for BurnchainHeaderHashWrapperResponse {
 }
 
 /// Client for interacting with a Bitcoin RPC service.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BitcoinRpcClient {
     /// The client ID to identify the source of the requests.
     client_id: String,
@@ -405,14 +404,14 @@ impl BitcoinRpcClient {
         port: u16,
         auth: RpcAuth,
         wallet_name: String,
-        timeout: u32,
+        timeout: u64,
         client_id: String,
     ) -> BitcoinRpcClientResult<Self> {
         let rpc_global_path = format!("http://{host}:{port}");
         let rpc_wallet_path = format!("{rpc_global_path}/wallet/{wallet_name}");
         let rpc_auth = auth;
 
-        let rpc_timeout = Duration::from_secs(u64::from(timeout));
+        let rpc_timeout = Duration::from_secs(timeout);
 
         let global_ep =
             RpcTransport::new(rpc_global_path, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
@@ -558,9 +557,7 @@ impl BitcoinRpcClient {
     /// hex-encoded transaction, and other metadata for a transaction tracked by the wallet.
     ///
     /// # Arguments
-    /// * `txid` - The transaction ID (as [`Txid`]) to query,
-    ///            which is intended to be created with [`Txid::from_bitcoin_hex`],
-    ///            or an analogous process.
+    /// * `txid` - The transaction ID (as [`Txid`]) to query (in big-endian order).
     ///
     /// # Returns
     /// A [`GetTransactionResponse`] containing detailed metadata for the specified transaction.
@@ -568,11 +565,11 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.10.0**.
     pub fn get_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<GetTransactionResponse> {
-        let btc_txid = txid.to_bitcoin_hex();
-
-        Ok(self
-            .wallet_ep
-            .send(&self.client_id, "gettransaction", vec![btc_txid.into()])?)
+        Ok(self.wallet_ep.send(
+            &self.client_id,
+            "gettransaction",
+            vec![txid.to_hex().into()],
+        )?)
     }
 
     /// Broadcasts a raw transaction to the Bitcoin network.
@@ -591,7 +588,7 @@ impl BitcoinRpcClient {
     ///     - If `None`, defaults to `0`, meaning burning is not allowed.
     ///
     /// # Returns
-    /// A [`Txid`] as a transaction ID (storing internally bytes in **little-endian** order)
+    /// A [`Txid`] as a transaction ID (in big-endian order)
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
