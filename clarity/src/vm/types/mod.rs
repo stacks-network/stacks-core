@@ -1091,23 +1091,6 @@ impl Value {
         ))))
     }
 
-    /// This function is used to convert a validated ASCII string into a
-    /// `Value::Sequence(SequenceData::String(CharType::ASCII))`. The input
-    /// string MUST be known to be valid ASCII. If this is not known, use
-    /// `string_ascii_from_bytes` instead.
-    pub fn string_ascii_from_validated_ascii_string(input_string: String) -> Result<Value> {
-        // Check the string length
-        // This is a validated ASCII string, so we can safely use the length
-        BufferLength::try_from(input_string.len())?;
-
-        // Construct the string
-        Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
-            ASCIIData {
-                data: input_string.into_bytes(),
-            },
-        ))))
-    }
-
     pub fn string_utf8_from_string_utf8_literal(tokenized_str: String) -> Result<Value> {
         let wrapped_codepoints_matcher = Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}")
             .map_err(|_| InterpreterError::Expect("Bad regex".into()))?;
