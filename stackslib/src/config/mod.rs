@@ -3107,7 +3107,7 @@ pub struct MinerConfig {
     /// @default: [`DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE`]
     /// @units: percent
     /// @notes:
-    ///   - Values: 1–100.
+    ///   - Values: 0–100.
     ///   - Setting to 100 effectively disables this behavior, allowing miners to
     ///     attempt non-boot contract calls until the block is full.
     ///   - This setting only affects **non-boot** contract calls; boot contract calls
@@ -4244,13 +4244,11 @@ impl MinerConfigFile {
         let contract_cost_limit_percentage = if let Some(percentage) =
             self.contract_cost_limit_percentage
         {
-            if percentage == 100 {
-                None
-            } else if percentage > 0 && percentage < 100 {
+            if percentage <= 100 {
                 Some(percentage)
             } else {
                 return Err(
-                    "miner.contract_cost_limit_percentage must be between 1 and 100".to_string(),
+                    "miner.contract_cost_limit_percentage must be between 0 and 100".to_string(),
                 );
             }
         } else {

@@ -91,7 +91,7 @@ pub struct NakamotoBlockBuilder {
     pub header: NakamotoBlockHeader,
     /// Optional soft limit for this block's budget usage
     soft_limit: Option<ExecutionCost>,
-    /// Percentage of a block;s budge that may be consumed by
+    /// Percentage of a block's budget that may be consumed by
     /// contract calls before reverting to stx transfers/boot contract calls only
     contract_limit_percentage: Option<u8>,
 }
