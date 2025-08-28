@@ -823,7 +823,7 @@ impl<'a> StacksNodeState<'a> {
                     .unwrap_or(0);
 
                 if new_height > current_height {
-                    network.highest_stacks_neighbor = Some((new_address.clone(), new_height));
+                    network.highest_stacks_neighbor = Some((*new_address, new_height));
                 }
             }
         });
