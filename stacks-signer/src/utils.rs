@@ -13,12 +13,18 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::time::Duration;
+
 use clarity::vm::types::QualifiedContractIdentifier;
 use libsigner::{SignerSession, StackerDBSession};
 
 /// Create a new stacker db session
-pub fn stackerdb_session(host: &str, contract: QualifiedContractIdentifier) -> StackerDBSession {
-    let mut session = StackerDBSession::new(host, contract.clone());
+pub fn stackerdb_session(
+    host: &str,
+    contract: QualifiedContractIdentifier,
+    stackerdb_timeout: Duration,
+) -> StackerDBSession {
+    let mut session = StackerDBSession::new(host, contract.clone(), stackerdb_timeout);
     session.connect(host.to_string(), contract).unwrap();
     session
 }

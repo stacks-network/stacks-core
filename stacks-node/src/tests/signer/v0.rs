@@ -473,8 +473,11 @@ impl SignerTest<SpawnedSigner> {
     /// Propose a block to the signers
     fn propose_block(&self, block: NakamotoBlock, timeout: Duration) {
         let miners_contract_id = boot_code_id(MINERS_NAME, false);
-        let mut session =
-            StackerDBSession::new(&self.running_nodes.conf.node.rpc_bind, miners_contract_id);
+        let mut session = StackerDBSession::new(
+            &self.running_nodes.conf.node.rpc_bind,
+            miners_contract_id,
+            self.running_nodes.conf.miner.stackerdb_timeout,
+        );
         let burn_height = self
             .running_nodes
             .btc_regtest_controller
@@ -17774,8 +17777,11 @@ fn miner_stackerdb_version_rollover() {
         max_chunk.slot_version
     );
 
-    let mut stackerdb =
-        StackerDBSession::new(&conf_2.node.rpc_bind, boot_code_id(MINERS_NAME, false));
+    let mut stackerdb = StackerDBSession::new(
+        &conf_2.node.rpc_bind,
+        boot_code_id(MINERS_NAME, false),
+        conf_2.miner.stackerdb_timeout,
+    );
 
     let proposals_before = miners.get_primary_proposals_submitted().get();
 
