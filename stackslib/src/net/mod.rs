@@ -38,7 +38,7 @@ use {rusqlite, url};
 
 use self::dns::*;
 use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::{Burnchain, Error as burnchain_error, Txid};
+use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -186,7 +186,7 @@ pub enum Error {
     /// server is not bound to a socket
     NotConnected,
     /// Remote peer is not connected
-    PeerNotConnected,
+    PeerNotConnected(String),
     /// Too many peers
     TooManyPeers,
     /// Peer already connected
@@ -336,7 +336,9 @@ impl fmt::Display for Error {
             Error::RegisterError => write!(f, "Failed to register socket with poller"),
             Error::SocketError => write!(f, "Socket error"),
             Error::NotConnected => write!(f, "Not connected to peer network"),
-            Error::PeerNotConnected => write!(f, "Remote peer is not connected to us"),
+            Error::PeerNotConnected(ref msg) => {
+                write!(f, "Remote peer is not connected to us: {}", msg)
+            }
             Error::TooManyPeers => write!(f, "Too many peer connections open"),
             Error::AlreadyConnected(ref _id, ref _nk) => write!(f, "Peer already connected"),
             Error::InProgress => write!(f, "Message already in progress"),
@@ -446,7 +448,7 @@ impl error::Error for Error {
             Error::RegisterError => None,
             Error::SocketError => None,
             Error::NotConnected => None,
-            Error::PeerNotConnected => None,
+            Error::PeerNotConnected(..) => None,
             Error::TooManyPeers => None,
             Error::AlreadyConnected(ref _id, ref _nk) => None,
             Error::InProgress => None,
@@ -805,6 +807,26 @@ impl<'a> StacksNodeState<'a> {
                 }
             }
         })
+    }
+
+    pub fn update_highest_stacks_neighbor(
+        &mut self,
+        new_address: &SocketAddr,
+        new_height: Option<u64>,
+    ) {
+        self.with_node_state(|network, _, _, _, _| {
+            if let Some(new_height) = new_height {
+                let current_height = network
+                    .highest_stacks_neighbor
+                    .as_ref()
+                    .map(|(_addr, height)| *height)
+                    .unwrap_or(0);
+
+                if new_height > current_height {
+                    network.highest_stacks_neighbor = Some((new_address.clone(), new_height));
+                }
+            }
+        });
     }
 }
 
@@ -2207,27 +2229,6 @@ pub trait Requestable: std::fmt::Display {
     fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest;
 }
 
-// TODO: DRY up from PoxSyncWatchdog
-pub fn infer_initial_burnchain_block_download(
-    burnchain: &Burnchain,
-    last_processed_height: u64,
-    burnchain_height: u64,
-) -> bool {
-    let ibd = last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
-    if ibd {
-        debug!(
-            "PoX watchdog: {} + {} < {}, so initial block download",
-            last_processed_height, burnchain.stable_confirmations, burnchain_height
-        );
-    } else {
-        debug!(
-            "PoX watchdog: {} + {} >= {}, so steady-state",
-            last_processed_height, burnchain.stable_confirmations, burnchain_height
-        );
-    }
-    ibd
-}
-
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
@@ -3322,6 +3323,28 @@ pub mod test {
             tx.commit().unwrap();
         }
 
+        // TODO: DRY up from PoxSyncWatchdog
+        pub fn infer_initial_burnchain_block_download(
+            burnchain: &Burnchain,
+            last_processed_height: u64,
+            burnchain_height: u64,
+        ) -> bool {
+            let ibd =
+                last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+            if ibd {
+                debug!(
+                    "PoX watchdog: {} + {} < {}, so initial block download",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+            } else {
+                debug!(
+                    "PoX watchdog: {} + {} >= {}, so steady-state",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+            }
+            ibd
+        }
+
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let sortdb = self.sortdb.take().unwrap();
             let stacks_node = self.stacks_node.take().unwrap();
@@ -3335,7 +3358,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = infer_initial_burnchain_block_download(
+            let ibd = TestPeer::infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
@@ -3466,7 +3489,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = infer_initial_burnchain_block_download(
+            let ibd = TestPeer::infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,

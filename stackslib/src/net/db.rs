@@ -96,10 +96,10 @@ pub struct LocalPeer {
 
 impl fmt::Display for LocalPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "local::{}", self.port)?;
+        write!(f, "local")?;
         match &self.public_ip_address {
-            None => Ok(()),
-            Some((addr, port)) => write!(f, "::pub={}", addr.to_socketaddr(*port)),
+            None => write!(f, "::UNKNOWN"),
+            Some((addr, port)) => write!(f, "::{}", addr.to_socketaddr(*port)),
         }
     }
 }
@@ -1771,42 +1771,6 @@ impl PeerDB {
             block_height,
             true,
         )
-    }
-
-    pub fn get_valid_initial_neighbors(
-        conn: &DBConn,
-        network_id: u32,
-        network_epoch: u8,
-        peer_version: u32,
-        burn_block_height: u64,
-    ) -> Result<Vec<Neighbor>, db_error> {
-        // UTC time
-        let now_secs = util::get_epoch_time_secs();
-        // Extract the epoch from the peer_version. The epoch is stored in the last byte.
-        let node_peer_version = peer_version & 0x000000ff;
-
-        // the peer_version check mirrors the check in `has_acceptable_epoch`:
-        //    (my_epoch <= peer_epoch) OR (curr_epoch <= peer_epoch)
-        let query = r#"
-            SELECT *
-            FROM frontier
-            WHERE initial = 1
-              AND (allowed < 0 OR ?1 < allowed)
-              AND network_id = ?2
-              AND denied < ?3
-              AND ?4 < expire_block_height
-              AND (?5 <= (peer_version & 0x000000ff) OR ?6 <= (peer_version & 0x000000ff))"#;
-
-        let args = params![
-            u64_to_sql(now_secs)?,
-            network_id,
-            u64_to_sql(now_secs)?,
-            u64_to_sql(burn_block_height)?,
-            node_peer_version,
-            network_epoch,
-        ];
-
-        Self::query_peers(conn, query, args)
     }
 
     /// Get a randomized set of peers for walking the peer graph.

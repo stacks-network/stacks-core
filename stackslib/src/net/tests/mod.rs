@@ -23,6 +23,7 @@ pub mod neighbors;
 pub mod relay;
 
 use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
@@ -63,10 +64,10 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
-use crate::net::test::{TestEventObserver, TestPeer, TestPeerConfig};
+use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
 use crate::net::{
     BlocksData, BlocksDatum, MicroblocksData, NakamotoBlocksData, NeighborKey, NetworkResult,
-    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType,
+    PingData, StackerDBPushChunkData, StacksMessage, StacksMessageType, StacksNodeState,
 };
 use crate::util_lib::boot::boot_code_id;
 use crate::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
@@ -1805,4 +1806,48 @@ fn test_network_result_update() {
     assert!(updated_uploaded.pushed_nakamoto_blocks.is_empty());
     assert_eq!(updated_uploaded.uploaded_nakamoto_blocks.len(), 1);
     assert_eq!(updated_uploaded.uploaded_nakamoto_blocks[0], nblk1);
+}
+
+#[rstest]
+#[case(None, None, false)]
+#[case(None, Some(10), true)]
+#[case(Some(10), None, false)]
+#[case(Some(10), Some(20), true)]
+#[case(Some(20), Some(10), false)]
+fn test_update_highest_stacks_height_of_neighbors(
+    #[case] old_height: Option<u64>,
+    #[case] new_height: Option<u64>,
+    #[case] is_update_accepted: bool,
+) {
+    let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+    let mut peer = TestPeer::new(peer_config);
+
+    let prev_highest_neighbor =
+        old_height.map(|h| (SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080), h));
+    peer.network.highest_stacks_neighbor = prev_highest_neighbor.clone();
+
+    let peer_sortdb = peer.sortdb.take().unwrap();
+    let mut peer_stacks_node = peer.stacks_node.take().unwrap();
+    let mut peer_mempool = peer.mempool.take().unwrap();
+    let rpc_args = RPCHandlerArgsType::make_default();
+    let mut node_state = StacksNodeState::new(
+        &mut peer.network,
+        &peer_sortdb,
+        &mut peer_stacks_node.chainstate,
+        &mut peer_mempool,
+        &rpc_args,
+        false,
+        false,
+    );
+
+    let new_peer_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8081);
+    node_state.update_highest_stacks_neighbor(&new_peer_addr, new_height);
+
+    let expected_highest_peer = if is_update_accepted {
+        Some((new_peer_addr, new_height.unwrap()))
+    } else {
+        prev_highest_neighbor
+    };
+
+    assert_eq!(peer.network.highest_stacks_neighbor, expected_highest_peer);
 }

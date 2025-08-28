@@ -55,6 +55,7 @@ use stacks::core::{
 };
 use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
+use stacks::net::api::gethealth::RPCGetHealthResponse;
 use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getpoxinfo::RPCPoxInfoData;
 use stacks::net::api::getsortition::SortitionInfo;
@@ -1008,6 +1009,18 @@ pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBl
     } else {
         None
     }
+}
+
+pub fn get_node_health(conf: &Config) -> RPCGetHealthResponse {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{http_origin}/v3/health");
+    client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCGetHealthResponse>()
+        .unwrap()
 }
 
 pub fn get_chain_info_result(conf: &Config) -> Result<RPCPeerInfoData, reqwest::Error> {
