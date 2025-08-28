@@ -38,4 +38,5 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@e1c1dae8e170ed20fd2e6aaf9979ca2d3905d636  # v12
         with:
           use-flakehub: false  # Remove error when trying to authenticate without credentials
+          use-gha-cache: false # Disable uploading cache to gha cache
       - run: nix flake check ./contrib/nix

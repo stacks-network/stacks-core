@@ -20,6 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::burn::ConsensusHashExtensions;
 use blockstack_lib::chainstate::stacks::{StacksTransaction, TransactionPayload};
+use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::postblock_proposal::NakamotoBlockProposal;
 use blockstack_lib::util_lib::db::Error as DBError;
 #[cfg(any(test, feature = "testing"))]
@@ -603,9 +604,11 @@ impl LocalStateMachine {
                 && next_burn_block_hash != expected_burn_block.consensus_hash;
             if node_behind_expected || node_on_equal_fork {
                 let err_msg = format!(
-                    "Node has not processed the next burn block yet. Expected height = {}, Expected consensus hash = {}",
+                    "Node has not processed the next burn block yet. Expected height = {}, Expected consensus hash = {}, Node height = {}, Node consensus hash = {}",
                     expected_burn_block.burn_block_height,
                     expected_burn_block.consensus_hash,
+                    next_burn_block_height,
+                    next_burn_block_hash,
                 );
                 *self = Self::Pending {
                     update: StateMachineUpdate::BurnBlock(expected_burn_block),
@@ -629,7 +632,7 @@ impl LocalStateMachine {
                 client,
                 &expected_burn_block,
                 &prior_state_machine,
-                replay_state,
+                &replay_state,
             )? {
                 match new_replay_state {
                     ReplayState::Unset => {
@@ -641,6 +644,17 @@ impl LocalStateMachine {
                         *tx_replay_scope = Some(new_scope);
                     }
                 }
+            } else if Self::handle_possible_replay_failsafe(
+                &replay_state,
+                &expected_burn_block,
+                proposal_config.reset_replay_set_after_fork_blocks,
+            ) {
+                info!(
+                    "Signer state: replay set is stalled after {} tenures. Clearing the replay set.",
+                    proposal_config.reset_replay_set_after_fork_blocks
+                );
+                tx_replay_set = ReplayTransactionSet::none();
+                *tx_replay_scope = None;
             }
         }
 
@@ -730,7 +744,10 @@ impl LocalStateMachine {
 
         let old_protocol_version = local_update.active_signer_protocol_version;
         // First check if we should update our active protocol version
-        eval.insert_update(*stacks_client.get_signer_address(), local_update.clone());
+        eval.insert_update(
+            stacks_client.get_signer_address().clone(),
+            local_update.clone(),
+        );
         let active_signer_protocol_version = eval
             .determine_latest_supported_signer_protocol_version()
             .unwrap_or(old_protocol_version);
@@ -863,7 +880,10 @@ impl LocalStateMachine {
         tenure_last_block_proposal_timeout: Duration,
     ) -> Option<StateMachineUpdateMinerState> {
         // First always make sure we consider our own viewpoint
-        eval.insert_update(*stacks_client.get_signer_address(), local_update.clone());
+        eval.insert_update(
+            stacks_client.get_signer_address().clone(),
+            local_update.clone(),
+        );
 
         // Determine the current burn block from the local update
         let (current_burn_block, current_burn_block_height) =
@@ -1031,11 +1051,24 @@ impl LocalStateMachine {
         client: &StacksClient,
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
-        replay_state: ReplayState,
+        replay_state: &ReplayState,
     ) -> Result<Option<ReplayState>, SignerChainstateError> {
         if expected_burn_block.burn_block_height > prior_state_machine.burn_block_height {
-            // no bitcoin fork, because we're advancing the burn block height
-            return Ok(None);
+            if Self::new_burn_block_fork_descendency_check(
+                db,
+                expected_burn_block,
+                prior_state_machine.burn_block_height,
+                prior_state_machine.burn_block,
+            ) {
+                info!("Detected bitcoin fork - prior tip is not parent of new tip.";
+                    "new_tip.burn_block_height" => expected_burn_block.burn_block_height,
+                    "new_tip.consensus_hash" => %expected_burn_block.consensus_hash,
+                    "prior_tip.burn_block_height" => prior_state_machine.burn_block_height,
+                    "prior_tip.consensus_hash" => %prior_state_machine.burn_block,
+                );
+            } else {
+                return Ok(None);
+            }
         }
         if expected_burn_block.consensus_hash == prior_state_machine.burn_block {
             // no bitcoin fork, because we're at the same burn block hash as before
@@ -1140,7 +1173,7 @@ impl LocalStateMachine {
         client: &StacksClient,
         expected_burn_block: &NewBurnBlock,
         prior_state_machine: &SignerStateMachine,
-        scope: ReplayScope,
+        scope: &ReplayScope,
     ) -> Result<Option<ReplayState>, SignerChainstateError> {
         info!("Tx Replay: detected bitcoin fork while in replay mode. Tryng to handle the fork";
             "expected_burn_block.height" => expected_burn_block.burn_block_height,
@@ -1235,6 +1268,10 @@ impl LocalStateMachine {
             return Ok(None);
         }
 
+        Ok(Some(Self::get_forked_txs_from_fork_info(&fork_info)))
+    }
+
+    fn get_forked_txs_from_fork_info(fork_info: &[TenureForkingInfo]) -> Vec<StacksTransaction> {
         // Collect transactions to be replayed across the forked blocks
         let mut forked_blocks = fork_info
             .iter()
@@ -1254,6 +1291,83 @@ impl LocalStateMachine {
                 ))
             .cloned()
             .collect::<Vec<_>>();
-        Ok(Some(forked_txs))
+        forked_txs
+    }
+
+    /// If it has been `reset_replay_set_after_fork_blocks` burn blocks since the origin of our replay set, and
+    /// we haven't produced any replay blocks since then, we should reset our replay set
+    ///
+    /// Returns a `bool` indicating whether the replay set should be reset.
+    fn handle_possible_replay_failsafe(
+        replay_state: &ReplayState,
+        new_burn_block: &NewBurnBlock,
+        reset_replay_set_after_fork_blocks: u64,
+    ) -> bool {
+        match replay_state {
+            ReplayState::Unset => {
+                // not in replay - skip
+                false
+            }
+            ReplayState::InProgress(_, replay_scope) => {
+                let failsafe_height =
+                    replay_scope.past_tip.burn_block_height + reset_replay_set_after_fork_blocks;
+                new_burn_block.burn_block_height > failsafe_height
+            }
+        }
+    }
+
+    /// Check if the new burn block is a fork, by checking if the new burn block
+    /// is a descendant of the prior burn block
+    fn new_burn_block_fork_descendency_check(
+        db: &SignerDb,
+        new_burn_block: &NewBurnBlock,
+        prior_burn_block_height: u64,
+        prior_burn_block_ch: ConsensusHash,
+    ) -> bool {
+        let max_height_delta = 10;
+        let height_delta = match new_burn_block
+            .burn_block_height
+            .checked_sub(prior_burn_block_height)
+        {
+            None | Some(0) => return false, // same height or older
+            Some(d) if d > max_height_delta => return false, // too far apart
+            Some(d) => d,
+        };
+
+        let mut parent_burn_block_info = match db
+            .get_burn_block_by_ch(&new_burn_block.consensus_hash)
+            .and_then(|burn_block_info| {
+                db.get_burn_block_by_hash(&burn_block_info.parent_burn_block_hash)
+            }) {
+            Ok(info) => info,
+            Err(e) => {
+                warn!(
+                    "Failed to get parent burn block info for {}",
+                    new_burn_block.consensus_hash;
+                    "error" => ?e,
+                );
+                return false;
+            }
+        };
+
+        for _ in 0..height_delta {
+            if parent_burn_block_info.block_height == prior_burn_block_height {
+                return parent_burn_block_info.consensus_hash != prior_burn_block_ch;
+            }
+
+            parent_burn_block_info =
+                match db.get_burn_block_by_hash(&parent_burn_block_info.parent_burn_block_hash) {
+                    Ok(bi) => bi,
+                    Err(e) => {
+                        warn!(
+                            "Failed to get parent burn block info for {}. Error: {e}",
+                            parent_burn_block_info.parent_burn_block_hash
+                        );
+                        return false;
+                    }
+                };
+        }
+
+        false
     }
 }

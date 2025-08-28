@@ -1374,7 +1374,7 @@ pub mod test {
         let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
         let mut tx_payloads = vec![
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([0u8; 34]),
             ),

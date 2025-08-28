@@ -86,7 +86,7 @@ pub struct CurrentAndLastSortition {
 impl From<&GlobalConfig> for StacksClient {
     fn from(config: &GlobalConfig) -> Self {
         Self {
-            stacks_address: config.stacks_address,
+            stacks_address: config.stacks_address.clone(),
             http_origin: format!("http://{}", config.node_host),
             tx_version: config.network.to_transaction_version(),
             chain_id: config.to_chain_id(),
@@ -100,13 +100,13 @@ impl From<&GlobalConfig> for StacksClient {
 impl StacksClient {
     /// Create a new signer StacksClient with the provided private key, stacks node host endpoint, version, and auth password
     pub fn new(
-        stacks_private_key: StacksPrivateKey,
+        stacks_private_key: &StacksPrivateKey,
         node_host: String,
         auth_password: String,
         mainnet: bool,
         chain_id: u32,
     ) -> Self {
-        let pubkey = StacksPublicKey::from_private(&stacks_private_key);
+        let pubkey = StacksPublicKey::from_private(stacks_private_key);
         let tx_version = if mainnet {
             TransactionVersion::Mainnet
         } else {
@@ -126,7 +126,7 @@ impl StacksClient {
 
     /// Create a new signer StacksClient and attempt to connect to the stacks node to determine the version
     pub fn try_from_host(
-        stacks_private_key: StacksPrivateKey,
+        stacks_private_key: &StacksPrivateKey,
         node_host: String,
         auth_password: String,
     ) -> Result<Self, ClientError> {
@@ -137,7 +137,7 @@ impl StacksClient {
             true,
             CHAIN_ID_MAINNET,
         );
-        let pubkey = StacksPublicKey::from_private(&stacks_private_key);
+        let pubkey = StacksPublicKey::from_private(stacks_private_key);
         let info = stacks_client.get_peer_info()?;
         if info.network_id == CHAIN_ID_MAINNET {
             stacks_client.mainnet = true;
