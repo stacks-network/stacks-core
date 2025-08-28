@@ -1203,6 +1203,7 @@ mod test {
 
     use clarity::types::StacksEpochId;
     use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::tests::test_clarity_versions;
     use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
     use rstest::rstest;
     use stacks_common::util::hash::*;
@@ -1215,14 +1216,6 @@ mod test {
     };
     use crate::core::EMPTY_MICROBLOCK_PARENT_HASH;
     use crate::net::codec::test::check_codec_and_corruption;
-
-    #[template]
-    #[rstest]
-    #[case::clarity1(ClarityVersion::Clarity1)]
-    #[case::clarity2(ClarityVersion::Clarity2)]
-    #[case::clarity3(ClarityVersion::Clarity3)]
-    #[case::clarity4(ClarityVersion::Clarity4)]
-    pub fn all_clarity_versions(#[case] version: ClarityVersion) {}
 
     impl StacksTransaction {
         /// Sign a sighash without appending the signature and public key
@@ -1979,8 +1972,11 @@ mod test {
         check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
     }
 
-    #[apply(all_clarity_versions)]
-    fn clarity_version_codec_is_consistent(#[case] version: ClarityVersion) {
+    #[apply(test_clarity_versions)]
+    fn clarity_version_codec_is_consistent(
+        #[case] version: ClarityVersion,
+        #[case] _epoch: StacksEpochId,
+    ) {
         use std::io::Cursor;
 
         let mut buf = vec![];
@@ -2075,8 +2071,11 @@ mod test {
         check_codec_and_corruption::<TransactionSmartContract>(&smart_contract, &expected_bytes);
     }
 
-    #[apply(all_clarity_versions)]
-    fn test_transaction_payload_versioned_contracts_codec(#[case] version: ClarityVersion) {
+    #[apply(test_clarity_versions)]
+    fn test_transaction_payload_versioned_contracts_codec(
+        #[case] version: ClarityVersion,
+        _epoch: StacksEpochId,
+    ) {
         let payload = TransactionPayload::SmartContract(sample_smart_contract(), Some(version));
         let expected_bytes = create_transaction_payload_bytes(
             TransactionPayloadID::VersionedSmartContract,
