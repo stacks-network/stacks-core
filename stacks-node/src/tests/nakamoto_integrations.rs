@@ -126,7 +126,7 @@ use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
     call_read_only, get_account, get_account_result, get_chain_info_opt, get_chain_info_result,
-    get_neighbors, get_pox_info, get_sortition_info, next_block_and_wait,
+    get_neighbors, get_node_health, get_pox_info, get_sortition_info, next_block_and_wait,
     run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer, wait_for_runloop,
 };
 use crate::tests::signer::SignerTest;
@@ -2426,10 +2426,11 @@ fn mine_multiple_per_tenure_integration() {
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
-/// This test makes three assertions:
+/// This test makes four assertions:
 ///  * 15 tenures are mined after 3.0 starts
 ///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
 ///  * Both nodes see the same chainstate at the end of the test
+///  * Both nodes have the same `PeerNetwork::highest_stacks_height_of_neighbors`
 fn multiple_miners() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2656,6 +2657,19 @@ fn multiple_miners() {
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
     info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height);
     assert_eq!(peer_1_height, peer_2_height);
+
+    // check that the `ConversationHttp::chat` was called and updated
+    // `PeerNetwork::highest_stacks_height_of_neighbors`
+    wait_for(20, || {
+        let health_node_1 = get_node_health(&naka_conf);
+        let health_node_2 = get_node_health(&conf_node_2);
+        info!("Peer health information"; "peer_1" => ?health_node_1, "peer_2" => ?health_node_2);
+        Ok(
+            health_node_1.max_stacks_height_of_neighbors == peer_2_height
+                && health_node_2.max_stacks_height_of_neighbors == peer_1_height,
+        )
+    })
+    .unwrap();
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert_eq!(
