@@ -37,7 +37,7 @@ bash report-coverage.sh <target_name>
 Use `text` to show a console summary:
 
 ```bash
-./report-coverage.sh <target_name> text
+bash report-coverage.sh <target_name> text
 ```
 
 ### Output
