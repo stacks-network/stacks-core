@@ -104,7 +104,6 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
 use crate::event_dispatcher::{
     EventObserver, MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT,
 };
@@ -143,20 +142,36 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             &self.running_nodes.btc_regtest_controller,
             Some(self.num_stacking_cycles),
         );
+
         info!("Waiting for signer set calculation.");
         // Make sure the signer set is calculated before continuing or signers may not
         // recognize that they are registered signers in the subsequent burn block event
         let reward_cycle = self.get_current_reward_cycle() + 1;
+        let mut last_probe = Instant::now();
         wait_for(120, || {
-            let Ok(Some(reward_set)) = self.stacks_client.get_reward_set_signers(reward_cycle)
-            else {
-                return Ok(false);
-            };
-
-            debug!("Signer set: {reward_set:?}");
-            Ok(true)
+            match self.stacks_client.get_reward_set_signers(reward_cycle).unwrap_or_default() {
+                Some(reward_set) => {
+                    debug!("Signer set: {reward_set:?}");
+                    Ok(true)
+                }
+                None => {
+                    // If we've been waiting ~30s since the last probe, maybe the last block failed
+                    // so we should try to mine another block
+                    if last_probe.elapsed() >= Duration::from_secs(30) {
+                        warn!(
+                            "Timed out waiting for reward set calculation. Mining another block to try again."
+                        );
+                        self.running_nodes
+                            .btc_regtest_controller
+                            .build_next_block(1);
+                        last_probe = Instant::now();
+                    }
+                    Ok(false)
+                }
+            }
         })
         .expect("Timed out waiting for reward set calculation");
+
         info!("Signer set calculated");
 
         // Manually consume one more block to ensure signers refresh their state
@@ -4016,8 +4031,7 @@ fn tx_replay_failsafe() {
 
     // Wait for the block commit re-broadcast to be confirmed
     wait_for(10, || {
-        let is_confirmed =
-            BitcoinRPCRequest::check_transaction_confirmed(&conf, &commit_txid.unwrap()).unwrap();
+        let is_confirmed = btc_controller.is_transaction_confirmed(&commit_txid.unwrap());
         Ok(is_confirmed)
     })
     .expect("Timed out waiting for transaction to be confirmed");
@@ -4301,8 +4315,7 @@ fn tx_replay_disagreement() {
 
     // Wait for the block commit re-broadcast to be confirmed
     wait_for(10, || {
-        let is_confirmed =
-            BitcoinRPCRequest::check_transaction_confirmed(&conf, &commit_txid.unwrap()).unwrap();
+        let is_confirmed = btc_controller.is_transaction_confirmed(&commit_txid.unwrap());
         Ok(is_confirmed)
     })
     .expect("Timed out waiting for transaction to be confirmed");

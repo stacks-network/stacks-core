@@ -11,7 +11,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
 
+### Changed
+
+- Clarity errors pertaining to syntax binding errors have been made more
+  expressive (#6337)
+
+
 ## [3.2.0.0.1]
+
 ### Added
 
 - Adds node-config-docsgen to automatically create config documentation (#6227)

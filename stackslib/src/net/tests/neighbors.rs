@@ -14,14 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread;
+
 use clarity::vm::costs::ExecutionCost;
-use stacks_common::util::sleep_ms;
+use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 
 use crate::core::{
     EpochList, StacksEpoch, StacksEpochId, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
     STACKS_EPOCH_MAX,
 };
 use crate::net::db::*;
+use crate::net::neighbors::rpc::NeighborRPC;
 use crate::net::neighbors::*;
 use crate::net::test::*;
 use crate::net::*;
@@ -1548,5 +1553,119 @@ fn test_step_walk_2_neighbors_different_networks() {
             .network
             .get_neighbor_stats(&peer_1.to_neighbor().addr);
         assert!(stats_2.is_none());
+    })
+}
+
+/// Verify that two state machines can use the same HTTP conversation without clobbering each
+/// other's requests.
+#[test]
+fn test_issue_concurrent_requests_in_different_state_machines() {
+    with_timeout(600, || {
+        let peer_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer = TestPeer::new(peer_config);
+
+        let peer_addr = NeighborAddress::from_neighbor(&peer.to_neighbor());
+        let peer_host = peer.to_peer_host();
+
+        let peer_client_config = TestPeerConfig::new(function_name!(), 0, 0);
+        let mut peer_client = TestPeer::new(peer_client_config);
+
+        let run = Arc::new(AtomicBool::new(true));
+        let run_thread = run.clone();
+
+        let t = thread::spawn(move || {
+            while run_thread.load(Ordering::SeqCst) {
+                let _ = peer.step();
+            }
+        });
+
+        // handshake with remote peer
+        let mut comms = PeerNetworkComms::new();
+        let mut connected = false;
+        let now = get_epoch_time_secs();
+        while !connected && get_epoch_time_secs() < now + 60 {
+            if !comms.is_neighbor_connecting(&mut peer_client.network, &peer_addr)
+                || !comms.has_neighbor_session(&mut peer_client.network, &peer_addr)
+            {
+                let _ = comms
+                    .neighbor_session_begin(&mut peer_client.network, &peer_addr)
+                    .unwrap();
+            }
+            let _ = peer_client.step();
+            for (_, reply) in comms.collect_replies(&mut peer_client.network) {
+                match reply.payload {
+                    StacksMessageType::HandshakeAccept(..)
+                    | StacksMessageType::StackerDBHandshakeAccept(..) => {
+                        connected = true;
+                        break;
+                    }
+                    _ => {
+                        panic!("Did not get handshake accept, but got {:?}", &reply);
+                    }
+                }
+            }
+        }
+        assert!(connected, "Failed to connect -- timed out");
+
+        // carry out two separate RPCs with the neighbor
+        let mut rpc_comms_1 = NeighborRPC::new();
+        let mut rpc_comms_2 = NeighborRPC::new();
+
+        rpc_comms_1
+            .send_request(
+                &mut peer_client.network,
+                peer_addr.clone(),
+                StacksHttpRequest::new_getinfo(peer_host.clone(), None),
+            )
+            .unwrap();
+        rpc_comms_2
+            .send_request(
+                &mut peer_client.network,
+                peer_addr.clone(),
+                StacksHttpRequest::new_getpoxinfo(
+                    peer_host.clone(),
+                    TipRequest::UseLatestAnchoredTip,
+                ),
+            )
+            .unwrap();
+
+        let mut rpc_comms_1_reply = None;
+        let mut rpc_comms_2_reply = None;
+
+        let now = get_epoch_time_secs();
+        while get_epoch_time_secs() < now + 60
+            && (rpc_comms_1_reply.is_none() || rpc_comms_2_reply.is_none())
+        {
+            let _ = peer_client.step();
+            for (_, reply) in rpc_comms_1.collect_replies(&mut peer_client.network) {
+                if rpc_comms_1_reply.is_none() {
+                    rpc_comms_1_reply = Some(reply);
+                }
+            }
+            for (_, reply) in rpc_comms_2.collect_replies(&mut peer_client.network) {
+                if rpc_comms_2_reply.is_none() {
+                    rpc_comms_2_reply = Some(reply);
+                }
+            }
+        }
+        assert!(
+            rpc_comms_1_reply.is_some() && rpc_comms_2_reply.is_some(),
+            "timed out waiting for RPC replies"
+        );
+
+        debug!("comms 1 reply: {:?}", &rpc_comms_1_reply);
+        debug!("comms 2 reply: {:?}", &rpc_comms_2_reply);
+
+        // comms 1 should have gotten back /v2/info
+        let _ = rpc_comms_1_reply.unwrap().decode_peer_info().unwrap();
+
+        // comms 2 should have gotten back /v2/pox
+        let _ = rpc_comms_2_reply
+            .unwrap()
+            .decode_rpc_get_pox_info()
+            .unwrap();
+
+        run.store(false, Ordering::SeqCst);
+        t.join().unwrap();
     })
 }

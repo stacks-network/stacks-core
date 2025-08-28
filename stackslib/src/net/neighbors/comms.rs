@@ -137,7 +137,9 @@ pub trait NeighborComms {
                     DropReason::DeadConnection(format!("Not connected: {e}")),
                     DropSource::NeighborCommsHandshake,
                 );
-                net_error::PeerNotConnected
+                net_error::PeerNotConnected(
+                    format!("Failed to send neighbor message to {nk}: {e}",),
+                )
             })
     }
 
@@ -162,7 +164,9 @@ pub trait NeighborComms {
             if !network.is_connecting(event_id) {
                 debug!("{:?}: Failed to connect to {:?} (event {} no longer connecting; assumed timed out)", network.get_local_peer(), event_id, &nk);
                 self.remove_connecting_error(network, &nk);
-                return Err(net_error::PeerNotConnected);
+                return Err(net_error::PeerNotConnected(format!(
+                    "Failed to connect to {nk} (event {event_id} no longer connecting; assumed timed out)",
+                )));
             }
 
             // still connecting
@@ -177,14 +181,14 @@ pub trait NeighborComms {
 
         match network.can_register_peer(&nk, true) {
             Ok(_) => {
-                let event_id = network.connect_peer(&nk).map_err(|_e| {
+                let event_id = network.connect_peer(&nk).map_err(|e| {
                     debug!(
                         "{:?}: Failed to connect to {:?}: {:?}",
                         network.get_local_peer(),
                         &nk,
-                        &_e
+                        &e
                     );
-                    net_error::PeerNotConnected
+                    net_error::PeerNotConnected(format!("Failed to connect to {nk}: {e}"))
                 })?;
 
                 // remember this in the walk result
@@ -271,7 +275,9 @@ pub trait NeighborComms {
                     "AlreadyConnected error on event {} has no conversation",
                     event_id
                 );
-                return Err(net_error::PeerNotConnected);
+                return Err(net_error::PeerNotConnected(format!(
+                    "Already connected to {nk} as {handshake_nk} on event {event_id}",
+                )));
             }
             Err(e) => {
                 test_debug!(
@@ -403,7 +409,10 @@ pub trait NeighborComms {
                     Err(e)
                 }
             },
-            None => Err(net_error::PeerNotConnected),
+            None => Err(net_error::PeerNotConnected(format!(
+                "Failed to receive message from {:?}: no handle",
+                req_nk.to_neighbor_key(network)
+            ))),
         }
     }
 
