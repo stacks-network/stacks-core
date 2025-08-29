@@ -505,7 +505,7 @@ pub trait ClarityMarfStore: ClarityBackingStore {
     }
 
     /// Instantiate an `AnalysisDatabase` out of this MARF store.
-    fn as_analysis_db(&mut self) -> AnalysisDatabase
+    fn as_analysis_db(&mut self) -> AnalysisDatabase<'_>
     where
         Self: Sized,
     {
