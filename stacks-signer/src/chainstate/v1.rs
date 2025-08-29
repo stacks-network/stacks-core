@@ -347,11 +347,14 @@ impl SortitionsView {
             let is_in_replay = replay_set.is_some();
             if !changed_burn_view && !enough_time_passed && !is_in_replay {
                 warn!(
-                    "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
+                    "Miner block proposal contains a tenure extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
+                    "is_in_replay" => is_in_replay,
+                    "changed_burn_view" => changed_burn_view,
+                    "enough_time_passed" => enough_time_passed,
                 );
                 return Err(RejectReason::InvalidTenureExtend);
             }

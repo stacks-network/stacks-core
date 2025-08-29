@@ -6521,8 +6521,6 @@ fn tx_replay_budget_exceeded_tenure_extend() {
     fault_injection_stall_miner();
     btc_controller.build_next_block(3);
 
-    let mut last_log = Instant::now();
-    last_log -= Duration::from_secs(5);
     signer_test.wait_for_replay_set_eq(30, vec![txid1, txid2.clone()]);
 
     fault_injection_unstall_miner();
