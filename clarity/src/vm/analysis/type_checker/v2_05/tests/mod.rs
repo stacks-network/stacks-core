@@ -16,7 +16,7 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::errors::{CheckErrors, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check;
 use crate::vm::analysis::type_checker::v2_05::TypeResult;
 use crate::vm::ast::build_ast;
@@ -28,7 +28,6 @@ use crate::vm::types::{
     FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, BUFF_32, BUFF_64,
 };
 use crate::vm::ClarityVersion;
-
 mod assets;
 mod contracts;
 
@@ -647,8 +646,8 @@ fn test_simple_lets() {
     ];
 
     let bad_expected = [
-        CheckErrors::BadSyntaxBinding,
-        CheckErrors::BadSyntaxBinding,
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
     ];
 
@@ -1237,7 +1236,7 @@ fn test_empty_tuple_should_fail() {
         )
         .unwrap_err()
         .err,
-        CheckErrors::BadSyntaxBinding
+        CheckErrors::EmptyTuplesNotAllowed
     );
 }
 
@@ -2467,7 +2466,7 @@ fn test_buff_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -2481,7 +2480,7 @@ fn test_string_ascii_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -2495,5 +2494,5 @@ fn test_string_utf8_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }

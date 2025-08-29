@@ -304,7 +304,6 @@ impl RPCRequestHandler for GetTenuresForkInfo {
             None,
             HttpContentType::JSON,
         );
-
         Ok((
             resp_preamble,
             HttpResponseContents::try_from_json(&tenures)?,

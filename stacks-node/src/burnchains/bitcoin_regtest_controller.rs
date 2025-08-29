@@ -80,6 +80,7 @@ use url::Url;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -101,6 +102,7 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
+    rpc_client: BitcoinRpcClient,
 }
 
 #[derive(Clone)]
@@ -170,6 +172,7 @@ pub fn make_bitcoin_indexer(
             username: burnchain_config.username,
             password: burnchain_config.password,
             timeout: burnchain_config.timeout,
+            socket_timeout: burnchain_config.socket_timeout,
             spv_headers_path: config.get_spv_headers_file_path(),
             first_block: burnchain_params.first_block_height,
             magic_bytes: burnchain_config.magic_bytes,
@@ -178,7 +181,7 @@ pub fn make_bitcoin_indexer(
     };
 
     let (_, network_type) = config.burnchain.get_bitcoin_network();
-    let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+    let indexer_runtime = BitcoinIndexerRuntime::new(network_type, indexer_config.timeout);
     BitcoinIndexer {
         config: indexer_config,
         runtime: indexer_runtime,
@@ -331,6 +334,7 @@ impl BitcoinRegtestController {
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
+                socket_timeout: burnchain_config.socket_timeout,
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
@@ -339,12 +343,15 @@ impl BitcoinRegtestController {
         };
 
         let (_, network_type) = config.burnchain.get_bitcoin_network();
-        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type, config.burnchain.timeout);
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config,
             runtime: indexer_runtime,
             should_keep_running: should_keep_running.clone(),
         };
+
+        let rpc_client = BitcoinRpcClient::from_stx_config(&config)
+            .expect("unable to instantiate the RPC client!");
 
         Self {
             use_coordinator: coordinator_channel,
@@ -356,6 +363,7 @@ impl BitcoinRegtestController {
             burnchain_config: burnchain,
             ongoing_block_commit: None,
             should_keep_running,
+            rpc_client,
         }
     }
 
@@ -376,6 +384,7 @@ impl BitcoinRegtestController {
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
+                socket_timeout: burnchain_config.socket_timeout,
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
@@ -384,12 +393,15 @@ impl BitcoinRegtestController {
         };
 
         let (_, network_type) = config.burnchain.get_bitcoin_network();
-        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type, config.burnchain.timeout);
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config,
             runtime: indexer_runtime,
             should_keep_running: None,
         };
+
+        let rpc_client = BitcoinRpcClient::from_stx_config(&config)
+            .expect("unable to instantiate the RPC client!");
 
         Self {
             use_coordinator: None,
@@ -401,6 +413,7 @@ impl BitcoinRegtestController {
             burnchain_config: None,
             ongoing_block_commit: None,
             should_keep_running: None,
+            rpc_client,
         }
     }
 
@@ -1517,11 +1530,7 @@ impl BitcoinRegtestController {
         for txid in ongoing_op.txids.iter() {
             // check if ongoing_op is in the burnchain_db *or* has been confirmed via the bitcoin RPC
             let mined_op = burnchain_db.find_burnchain_op(&self.indexer, txid);
-            let ongoing_tx_confirmed = mined_op.is_some()
-                || matches!(
-                    BitcoinRPCRequest::check_transaction_confirmed(&self.config, txid),
-                    Ok(true)
-                );
+            let ongoing_tx_confirmed = mined_op.is_some() || self.is_transaction_confirmed(txid);
 
             test_debug!("Ongoing Tx confirmed: {ongoing_tx_confirmed} - TXID: {txid}");
             if ongoing_tx_confirmed {
@@ -2144,6 +2153,26 @@ impl BitcoinRegtestController {
             }
         }
     }
+
+    /// Checks whether a transaction has been confirmed by the burnchain
+    ///
+    /// # Arguments
+    ///
+    /// * `txid` - The transaction ID to check (in big-endian order)
+    ///
+    /// # Returns
+    ///
+    /// * `true` if the transaction is confirmed (has at least one confirmation).
+    /// * `false` if the transaction is unconfirmed or could not be found.
+    pub fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
+        match self.rpc_client.get_transaction(txid) {
+            Ok(info) => info.confirmations > 0,
+            Err(e) => {
+                error!("Bitcoin RPC failure: checking tx confirmation {e:?}");
+                false
+            }
+        }
+    }
 }
 
 impl BurnchainController for BitcoinRegtestController {
@@ -2491,32 +2520,6 @@ impl BitcoinRPCRequest {
         let res = BitcoinRPCRequest::send(config, payload)?;
         debug!("Got raw transaction {txid}: {res:?}");
         Ok(res.get("result").unwrap().as_str().unwrap().to_string())
-    }
-
-    /// Was a given transaction ID confirmed by the burnchain?
-    pub fn check_transaction_confirmed(config: &Config, txid: &Txid) -> RPCResult<bool> {
-        let payload = BitcoinRPCRequest {
-            method: "gettransaction".to_string(),
-            params: vec![format!("{txid}").into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        let confirmations = res
-            .get("result")
-            .ok_or_else(|| RPCError::Parsing("No 'result' field in bitcoind RPC response".into()))?
-            .get("confirmations")
-            .ok_or_else(|| {
-                RPCError::Parsing("No 'confirmations' field in bitcoind RPC response".into())
-            })?
-            .as_i64()
-            .ok_or_else(|| {
-                RPCError::Parsing(
-                    "Expected 'confirmations' field to be numeric in bitcoind RPC response".into(),
-                )
-            })?;
-
-        Ok(confirmations >= 1)
     }
 
     pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {
@@ -3115,8 +3118,7 @@ mod tests {
         ];
 
         // test serialize_tx()
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
+        let config = utils::create_config();
 
         let mut btc_controller = BitcoinRegtestController::new(config, None);
         let mut utxo_set = UTXOSet {
@@ -3490,6 +3492,36 @@ mod tests {
         assert!(
             utxos.is_none(),
             "None because filtering exclude existent utxo set"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_tx_confirmed_from_utxo_ok() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+
+        btc_controller.bootstrap_chain(101);
+        let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+        assert_eq!(1, utxos.len(), "One UTXO should be confirmed!");
+
+        let txid = Txid::from_bitcoin_tx_hash(&utxos[0].txid);
+        assert!(
+            btc_controller.is_transaction_confirmed(&txid),
+            "UTXO tx should be confirmed!"
         );
     }
 

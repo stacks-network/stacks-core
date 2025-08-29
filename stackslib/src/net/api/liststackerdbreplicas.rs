@@ -26,9 +26,7 @@ use crate::net::http::{
     parse_json, Error, HttpRequest, HttpRequestContents, HttpRequestPreamble, HttpResponse,
     HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    request, HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, NeighborAddress, StacksNodeState};
 
 /// Largest number of replicas returned
@@ -155,8 +153,7 @@ impl RPCRequestHandler for RPCListStackerDBReplicasRequestHandler {
             naddrs.insert(0, local_peer.to_public_neighbor_addr());
         }
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&naddrs)?;
         Ok((preamble, body))
     }
