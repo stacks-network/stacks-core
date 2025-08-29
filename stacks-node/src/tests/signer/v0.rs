@@ -104,7 +104,6 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use super::SignerTest;
-use crate::burnchains::bitcoin_regtest_controller::BitcoinRPCRequest;
 use crate::event_dispatcher::{
     EventObserver, MinedNakamotoBlockEvent, TEST_SKIP_BLOCK_ANNOUNCEMENT,
 };
@@ -4032,8 +4031,7 @@ fn tx_replay_failsafe() {
 
     // Wait for the block commit re-broadcast to be confirmed
     wait_for(10, || {
-        let is_confirmed =
-            BitcoinRPCRequest::check_transaction_confirmed(&conf, &commit_txid.unwrap()).unwrap();
+        let is_confirmed = btc_controller.is_transaction_confirmed(&commit_txid.unwrap());
         Ok(is_confirmed)
     })
     .expect("Timed out waiting for transaction to be confirmed");
@@ -4317,8 +4315,7 @@ fn tx_replay_disagreement() {
 
     // Wait for the block commit re-broadcast to be confirmed
     wait_for(10, || {
-        let is_confirmed =
-            BitcoinRPCRequest::check_transaction_confirmed(&conf, &commit_txid.unwrap()).unwrap();
+        let is_confirmed = btc_controller.is_transaction_confirmed(&commit_txid.unwrap());
         Ok(is_confirmed)
     })
     .expect("Timed out waiting for transaction to be confirmed");

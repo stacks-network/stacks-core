@@ -1295,24 +1295,11 @@ paths:
         - `difference_from_max_peer`: The difference in Stacks height between this node and its most advanced peer.
         - `max_stacks_height_of_neighbors`: The maximum Stacks height observed among the node"s connected peers.
         - `node_stacks_tip_height`: The current Stacks tip height of this node.
+        - `max_stacks_neighbor_address`: The address of the most advanced peer. Null if no peer data is available.
       tags:
         - Info
       security: []
       operationId: getNodeHealth
-      parameters:
-        - in: query
-          name: neighbors
-          description: |
-            Specifies the set of peers to use for health checks.
-            - `initial` (default): Use only the initial bootstrap peers.
-            - `all`: Use all connected peers.
-          required: false
-          schema:
-            type: string
-            enum:
-              - initial
-              - all
-            default: initial
       responses:
         "200":
           description: Success
@@ -1323,11 +1310,8 @@ paths:
               example:
                 $ref: "./components/examples/node-health.example.json"
         "400":
-          description: Bad request, such as an invalid `neighbors` query parameter.
           $ref: "#/components/responses/BadRequest"
         "500":
-          description: |
-            Failed to query for health (e.g., no data or no valid peers to query from).
           $ref: "#/components/responses/InternalServerError"
 
   /v2/attachments/{hash}:
