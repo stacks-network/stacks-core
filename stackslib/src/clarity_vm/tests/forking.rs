@@ -29,7 +29,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::database::marf::MarfedKV;
+use crate::clarity_vm::database::marf::{ClarityMarfStore, ClarityMarfStoreTransaction, MarfedKV};
 
 const p1_str: &str = "'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR";
 

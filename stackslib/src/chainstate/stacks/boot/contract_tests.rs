@@ -31,7 +31,9 @@ use crate::chainstate::stacks::boot::{
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
 use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::clarity_vm::database::marf::{
+    ClarityMarfStore, ClarityMarfStoreTransaction, MarfedKV, WritableMarfStore,
+};
 use crate::core::{
     StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
     BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
@@ -141,10 +143,10 @@ impl ClarityTestSim {
         F: FnOnce(&mut ClarityBlockConnection) -> R,
     {
         let r = {
-            let mut store = self.marf.begin(
+            let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
                 &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
                 &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-            );
+            ));
 
             self.block_height += 1;
             if new_tenure {
@@ -193,10 +195,10 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        let mut store = self.marf.begin(
+        let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-        );
+        ));
 
         self.block_height += 1;
         if new_tenure {
@@ -240,8 +242,8 @@ impl ClarityTestSim {
         self.execute_next_block_with_tenure(true, f)
     }
 
-    fn check_and_bump_epoch(
-        store: &mut WritableMarfStore,
+    fn check_and_bump_epoch<'a>(
+        store: &mut Box<dyn WritableMarfStore + 'a>,
         headers_db: &TestSimHeadersDB,
         burn_db: &dyn BurnStateDB,
     ) -> StacksEpochId {
@@ -268,10 +270,10 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        let mut store = self.marf.begin(
+        let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(parent_height + 1, self.fork + 1)),
-        );
+        ));
 
         let r = {
             let headers_db = TestSimHeadersDB {

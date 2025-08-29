@@ -53,7 +53,9 @@ use crate::chainstate::stacks::{
     Error as ChainstateError, StacksMicroblockHeader, StacksTransaction, TransactionPayload,
     TransactionSmartContract, TransactionVersion,
 };
-use crate::clarity_vm::database::marf::{MarfedKV, ReadOnlyMarfStore, WritableMarfStore};
+use crate::clarity_vm::database::marf::{
+    ClarityMarfStore, ClarityMarfStoreTransaction, MarfedKV, ReadOnlyMarfStore, WritableMarfStore,
+};
 use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as DatabaseError;
@@ -101,7 +103,7 @@ pub struct ClarityInstance {
 /// issuring event dispatches, before the Clarity database commits.
 ///
 pub struct PreCommitClarityBlock<'a> {
-    datastore: WritableMarfStore<'a>,
+    datastore: Box<dyn WritableMarfStore + 'a>,
     commit_to: StacksBlockId,
 }
 
@@ -109,7 +111,7 @@ pub struct PreCommitClarityBlock<'a> {
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
 pub struct ClarityBlockConnection<'a, 'b> {
-    datastore: WritableMarfStore<'a>,
+    datastore: Box<dyn WritableMarfStore + 'a>,
     header_db: &'b dyn HeadersDB,
     burn_state_db: &'b dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
@@ -196,7 +198,7 @@ macro_rules! using {
 impl ClarityBlockConnection<'_, '_> {
     #[cfg(test)]
     pub fn new_test_conn<'a, 'b>(
-        datastore: WritableMarfStore<'a>,
+        datastore: Box<dyn WritableMarfStore + 'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
         epoch: StacksEpochId,
@@ -328,7 +330,7 @@ impl ClarityInstance {
         };
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -352,7 +354,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -378,7 +380,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
-            datastore: writable,
+            datastore: Box::new(writable),
             header_db,
             burn_state_db,
             cost_track,
@@ -477,7 +479,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
-            datastore: writable,
+            datastore: Box::new(writable),
             header_db,
             burn_state_db,
             cost_track,
@@ -559,7 +561,7 @@ impl ClarityInstance {
 
     pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) -> Result<(), Error> {
         let datastore = self.datastore.begin_unconfirmed(block);
-        datastore.rollback_unconfirmed()?;
+        datastore.drop_unconfirmed()?;
         Ok(())
     }
 
@@ -588,7 +590,7 @@ impl ClarityInstance {
         };
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -628,7 +630,7 @@ impl ClarityInstance {
         };
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -779,12 +781,12 @@ impl PreCommitClarityBlock<'_> {
     pub fn commit(self) {
         debug!("Committing Clarity block connection"; "index_block" => %self.commit_to);
         self.datastore
-            .commit_to(&self.commit_to)
+            .commit_to_processed_block(&self.commit_to)
             .expect("FATAL: failed to commit block");
     }
 }
 
-impl<'a> ClarityBlockConnection<'a, '_> {
+impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Rolls back all changes in the current block by
     /// (1) dropping all writes from the current MARF tip,
     /// (2) rolling back side-storage
@@ -792,7 +794,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback Clarity datastore");
-        self.datastore.rollback_block();
+        self.datastore.drop_current_trie();
     }
 
     /// Rolls back all unconfirmed state in the current block by
@@ -803,7 +805,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback unconfirmed Clarity datastore");
         self.datastore
-            .rollback_unconfirmed()
+            .drop_unconfirmed()
             .expect("FATAL: failed to rollback block");
     }
 
@@ -836,7 +838,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     pub fn commit_to_block(self, final_bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore
-            .commit_to(final_bhh)
+            .commit_to_processed_block(final_bhh)
             .expect("FATAL: failed to commit block");
 
         self.cost_track.unwrap()
@@ -850,7 +852,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     ///    a miner re-executes a constructed block.
     pub fn commit_mined_block(self, bhh: &StacksBlockId) -> Result<LimitedCostTracker, Error> {
         debug!("Commit mined Clarity datastore to {}", bhh);
-        self.datastore.commit_mined_block(bhh)?;
+        self.datastore.commit_to_mined_block(bhh)?;
 
         Ok(self.cost_track.unwrap())
     }
@@ -1798,10 +1800,10 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     }
 
     pub fn seal(&mut self) -> TrieHash {
-        self.datastore.seal()
+        self.datastore.seal_trie()
     }
 
-    pub fn destruct(self) -> WritableMarfStore<'a> {
+    pub fn destruct(self) -> Box<dyn WritableMarfStore + 'a> {
         self.datastore
     }
 

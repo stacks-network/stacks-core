@@ -32,8 +32,8 @@ use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MARF};
-use crate::chainstate::stacks::index::storage::{TrieFileStorage, TrieHashCalculationMode};
+use crate::chainstate::stacks::index::marf::MARFOpenOpts;
+use crate::chainstate::stacks::index::storage::TrieHashCalculationMode;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{
@@ -42,8 +42,8 @@ use crate::chainstate::stacks::{
     TransactionSmartContract, TransactionVersion,
 };
 use crate::clarity::vm::database::ClarityBackingStore;
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
-use crate::net::test::{TestEventObserver, TestPeer};
+use crate::clarity_vm::database::marf::{ClarityMarfStoreTransaction, MarfedKV};
+use crate::net::test::TestEventObserver;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peer_from_invs;
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};
 use crate::util_lib::strings::StacksString;
@@ -88,7 +88,7 @@ fn test_ephemeral_marf_store() {
         }
         let mut marf = marfed_kv.begin(blocks.last().as_ref().unwrap(), &target_block_id);
         marf.put_all_data(keys_and_values.clone()).unwrap();
-        marf.commit_to(&final_block_id).unwrap();
+        marf.commit_to_processed_block(&final_block_id).unwrap();
 
         blocks.push(final_block_id);
         block_data.push(keys_and_values);
@@ -242,7 +242,9 @@ fn test_ephemeral_marf_store() {
         }
 
         // "commit" the data
-        marf_ephemeral.commit_to(&final_block_id).unwrap();
+        marf_ephemeral
+            .commit_to_processed_block(&final_block_id)
+            .unwrap();
 
         // data is _not_ persisted
         let mut marf_ephemeral = marfed_kv
@@ -787,7 +789,7 @@ fn prop_ephemeral_tip_height_matches_current() {
                 format!("value-{}", blk)
             )];
             marf.put_all_data(keys_and_values).unwrap();
-            marf.commit_to(&final_block_id).unwrap();
+            marf.commit_to_processed_block(&final_block_id).unwrap();
             tip = final_block_id;
         }
 
