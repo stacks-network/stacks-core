@@ -111,9 +111,9 @@ fn any_invalid_clarity_name() -> impl Strategy<Value = String> {
 
     // Names starting with letters but containing invalid characters (violates first branch
     // character set restrictions).
-    let invalid_chars_in_letter_names = string_regex(&format!(
-        "[a-zA-Z][a-zA-Z0-9_!?+<>=/*-]*[@ #$%&.,;:|\\\"'\\[\\](){{}}][a-zA-Z0-9_!?+<>=/*-]*"
-    ))
+    let invalid_chars_in_letter_names = string_regex(
+        "[a-zA-Z][a-zA-Z0-9_!?+<>=/*-]*[@ #$%&.,;:|\\\"'\\[\\](){{}}][a-zA-Z0-9_!?+<>=/*-]*",
+    )
     .unwrap();
 
     // Multi-character strings starting with single operators (violates second branch which only
@@ -267,9 +267,9 @@ fn any_invalid_contract_name() -> impl Strategy<Value = String> {
     .unwrap();
 
     // Names starting with letters but containing invalid characters.
-    let invalid_chars_in_names = string_regex(&format!(
-        "[a-zA-Z][a-zA-Z0-9_-]*[!@#$%^&*()+=\\[\\]{{}}|\\\\:;\"'<>,.?/~`][a-zA-Z0-9_-]*"
-    ))
+    let invalid_chars_in_names = string_regex(
+        "[a-zA-Z][a-zA-Z0-9_-]*[!@#$%^&*()+=\\[\\]{{}}|\\\\:;\"'<>,.?/~`][a-zA-Z0-9_-]*",
+    )
     .unwrap();
 
     // Names that are too long.
@@ -327,8 +327,8 @@ fn prop_contract_name_roundtrip() {
 #[test]
 fn prop_contract_name_length_bounds() {
     proptest!(|(extra in 0usize..3)| {
-        let min = CONTRACT_MIN_NAME_LENGTH as usize;
-        let max = CONTRACT_MAX_NAME_LENGTH as usize;
+        let min = CONTRACT_MIN_NAME_LENGTH;
+        let max = CONTRACT_MAX_NAME_LENGTH;
         let hard = MAX_STRING_LEN as usize;
 
         // Too short must fail to parse.
