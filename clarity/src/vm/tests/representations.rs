@@ -206,3 +206,86 @@ fn prop_contract_name_valid_patterns() {
         prop_assert_eq!(contract_name.as_str(), name);
     });
 }
+
+#[cfg(test)]
+/// Generates a proptest strategy for invalid contract names.
+///
+/// This function creates a strategy that generates strings that should be rejected by
+/// `ContractName::try_from()` validation by systematically violating the validation rules.
+///
+/// The strategy generates names that violate the contract name validation:
+/// - Empty strings
+/// - Names starting with invalid characters (numbers, symbols)
+/// - Names containing invalid characters (symbols not allowed in contract names)
+/// - Names that are too short or too long
+/// - Names that violate length constraints
+fn any_invalid_contract_name() -> impl Strategy<Value = String> {
+    // Ensure the regex pattern matches the actual validator.
+    let expected_regex = format!(
+        r#"([a-zA-Z](([a-zA-Z0-9]|[-_])){{{},{}}})"#,
+        CONTRACT_MIN_NAME_LENGTH - 1,
+        MAX_STRING_LEN - 1
+    );
+    assert_eq!(
+        CONTRACT_NAME_REGEX_STRING.as_str(),
+        &expected_regex,
+        "CONTRACT_NAME_REGEX_STRING has changed"
+    );
+
+    let empty_string = Just("".to_string());
+
+    // Names starting with numbers (violates requirement of starting with letter).
+    let starts_with_number = string_regex(&format!(
+        "[0-9][a-zA-Z0-9_-]{{0,{}}}",
+        (MAX_STRING_LEN as usize).saturating_sub(1)
+    ))
+    .unwrap();
+
+    // Names starting with invalid symbols (violates starting letter requirement).
+    let starts_with_invalid_symbol = string_regex(&format!(
+        "[!@#$%^&*()+=\\[\\]{{}}|\\\\:;\"'<>,.?/~`][a-zA-Z0-9_-]{{0,{}}}",
+        (MAX_STRING_LEN as usize).saturating_sub(1)
+    ))
+    .unwrap();
+
+    // Names starting with letters but containing invalid characters.
+    let invalid_chars_in_names = string_regex(&format!(
+        "[a-zA-Z][a-zA-Z0-9_-]*[!@#$%^&*()+=\\[\\]{{}}|\\\\:;\"'<>,.?/~`][a-zA-Z0-9_-]*"
+    ))
+    .unwrap();
+
+    // Names that are too long.
+    let too_long = (MAX_STRING_LEN as usize + 1..=MAX_STRING_LEN as usize + 10)
+        .prop_map(|len| "a".repeat(len));
+
+    // Invalid variations of the __transient name (close but not exact).
+    let invalid_transient_variants = prop_oneof![
+        Just("_transient".to_string()),   // Single underscore.
+        Just("___transient".to_string()), // Triple underscore.
+        Just("__Transient".to_string()),  // Wrong case.
+        Just("__TRANSIENT".to_string()),  // All caps.
+        Just("__transient_".to_string()), // Extra underscore.
+        Just("__transient1".to_string()), // Extra character.
+    ];
+
+    prop_oneof![
+        empty_string,
+        starts_with_number,
+        starts_with_invalid_symbol,
+        invalid_chars_in_names,
+        too_long,
+        invalid_transient_variants,
+    ]
+}
+
+#[test]
+fn prop_contract_name_invalid_patterns() {
+    proptest!(|(name in any_invalid_contract_name())| {
+        let result = ContractName::try_from(name.clone());
+        prop_assert!(result.is_err(), "Expected invalid contract name '{}' to be rejected", name);
+        prop_assert!(matches!(
+            result.unwrap_err(),
+            RuntimeErrorType::BadNameValue(_, _)
+        ), "Expected BadNameValue error for invalid contract name '{}'", name);
+    });
+}
