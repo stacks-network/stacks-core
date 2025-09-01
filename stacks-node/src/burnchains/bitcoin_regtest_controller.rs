@@ -280,6 +280,11 @@ trait BitcoinRpcClientResultExt<T> {
     /// If the result is an `Err`, it logs the error with the given context
     /// using the [`error!`] macro and then panics.
     fn unwrap_or_log_panic(self, context: &str) -> T;
+    /// Ensure the result is `Ok`, ignoring its value.
+    ///
+    /// If the result is an `Err`, it logs the error with the given context
+    /// using the [`error!`] macro and then panics.
+    fn ok_or_log_panic(self, context: &str);
 }
 
 #[cfg(test)]
@@ -292,6 +297,10 @@ impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
                 panic!();
             }
         }
+    }
+
+    fn ok_or_log_panic(self, context: &str) {
+        _ = self.unwrap_or_log_panic(context);
     }
 }
 
@@ -1975,13 +1984,13 @@ impl BitcoinRegtestController {
 
         let result = self.rpc_client.generate_to_address(num_blocks, &address);
         /*
-            Temporary: not using `BitcoinRpcClientResultExt::unwrap_or_log_panic` (test code related),
+            Temporary: not using `BitcoinRpcClientResultExt::ok_or_log_panic` (test code related),
             because we need this logic available outside `#[cfg(test)]` due to Helium network.
 
             After the Helium cleanup (https://github.com/stacks-network/stacks-core/issues/6408),
             we can:
               - move `build_next_block` behind `#[cfg(test)]`
-              - simplify this match by using `unwrap_or_log_panic`.
+              - simplify this match by using `ok_or_log_panic`.
         */
         match result {
             Ok(_) => {}
@@ -2006,10 +2015,9 @@ impl BitcoinRegtestController {
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
 
-        _ = self
-            .rpc_client
+        self.rpc_client
             .generate_block(&address, &[])
-            .unwrap_or_log_panic("generating block")
+            .ok_or_log_panic("generating block")
     }
 
     /// Invalidate a block given its hash as a [`BurnchainHeaderHash`].
@@ -2018,7 +2026,7 @@ impl BitcoinRegtestController {
         info!("Invalidating block {block}");
         self.rpc_client
             .invalidate_block(block)
-            .unwrap_or_log_panic("invalidate block")
+            .ok_or_log_panic("invalidate block")
     }
 
     /// Retrieve the hash (as a [`BurnchainHeaderHash`]) of the block at the given height.
@@ -2112,10 +2120,9 @@ impl BitcoinRegtestController {
                 "Generate to address '{address}' for public key '{}'",
                 &pks[0].to_hex()
             );
-            _ = self
-                .rpc_client
+            self.rpc_client
                 .generate_to_address(num_blocks, &address)
-                .unwrap_or_log_panic("generating block");
+                .ok_or_log_panic("generating block");
             return;
         }
 
@@ -2131,10 +2138,9 @@ impl BitcoinRegtestController {
                     &pk.to_hex(),
                 );
             }
-            _ = self
-                .rpc_client
+            self.rpc_client
                 .generate_to_address(1, &address)
-                .unwrap_or_log_panic("generating block");
+                .ok_or_log_panic("generating block");
         }
     }
 
