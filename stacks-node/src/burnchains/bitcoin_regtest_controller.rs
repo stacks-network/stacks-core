@@ -2492,20 +2492,6 @@ impl BitcoinRPCRequest {
         request
     }
 
-    pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {
-        debug!("Generate {num_blocks} blocks to {address}");
-        let payload = BitcoinRPCRequest {
-            method: "generatetoaddress".to_string(),
-            params: vec![num_blocks.into(), address.clone().into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Generated {num_blocks} blocks to {address}: {res:?}");
-        Ok(())
-    }
-
     #[cfg(test)]
     pub fn generate_empty_to_address(config: &Config, address: String) -> RPCResult<()> {
         debug!("Generate empty block to {address}");
