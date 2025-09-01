@@ -29,6 +29,7 @@ use rusqlite::Error as SqliteError;
 use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
+use crate::representations::SymbolicExpression;
 use crate::types::{FunctionIdentifier, Value};
 
 pub type StackTrace = Vec<FunctionIdentifier>;
@@ -205,6 +206,12 @@ impl From<RuntimeErrorType> for Error {
 impl From<CheckErrors> for Error {
     fn from(err: CheckErrors) -> Self {
         Error::Unchecked(err)
+    }
+}
+
+impl From<(CheckErrors, &SymbolicExpression)> for Error {
+    fn from(err: (CheckErrors, &SymbolicExpression)) -> Self {
+        Error::Unchecked(err.0)
     }
 }
 

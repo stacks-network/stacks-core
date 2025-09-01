@@ -91,7 +91,7 @@ jobs:
           - arch: macos # excludes macos-armv7
             cpu: armv7
           - arch: macos # excludes macos-x64
-            cpu: x86_64
+            cpu: x86-64
     steps:
       - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
         uses: stacks-network/actions/stacks-core/release/create-source-binary@main

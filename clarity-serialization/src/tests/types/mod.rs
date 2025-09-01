@@ -200,3 +200,49 @@ fn expect_buff_too_small() {
     }));
     let _ = buff.expect_buff(4).unwrap();
 }
+
+#[test]
+fn principal_is_mainnet() {
+    let principal =
+        PrincipalData::parse_standard_principal("SPXACZ2NS34QHWCMAK1V2QJK0XB6WM6N5AB7RWYB")
+            .unwrap();
+    assert!(principal.is_mainnet());
+
+    let principal =
+        PrincipalData::parse_standard_principal("SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4")
+            .unwrap();
+    assert!(principal.is_mainnet());
+
+    let principal =
+        PrincipalData::parse_standard_principal("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM")
+            .unwrap();
+    assert!(!principal.is_mainnet());
+
+    let principal =
+        PrincipalData::parse_standard_principal("SNBPC7AHXCBAQSW6RKGEXVG119H2933ZYR63HD32")
+            .unwrap();
+    assert!(!principal.is_mainnet());
+}
+
+#[test]
+fn principal_is_multisig() {
+    let principal =
+        PrincipalData::parse_standard_principal("SPXACZ2NS34QHWCMAK1V2QJK0XB6WM6N5AB7RWYB")
+            .unwrap();
+    assert!(!principal.is_multisig());
+
+    let principal =
+        PrincipalData::parse_standard_principal("SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4")
+            .unwrap();
+    assert!(principal.is_multisig());
+
+    let principal =
+        PrincipalData::parse_standard_principal("ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM")
+            .unwrap();
+    assert!(!principal.is_multisig());
+
+    let principal =
+        PrincipalData::parse_standard_principal("SNBPC7AHXCBAQSW6RKGEXVG119H2933ZYR63HD32")
+            .unwrap();
+    assert!(principal.is_multisig());
+}

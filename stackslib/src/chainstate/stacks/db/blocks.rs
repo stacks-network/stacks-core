@@ -4292,8 +4292,8 @@ impl StacksChainState {
                         } = transfer_stx_op.clone();
                         let result = clarity_tx.connection().as_transaction(|tx| {
                             tx.run_stx_transfer(
-                                &sender.into(),
-                                &recipient.into(),
+                                &sender.clone().into(),
+                                &recipient.clone().into(),
                                 transfered_ustx,
                                 &BuffData { data: memo },
                             )
@@ -6858,7 +6858,7 @@ impl StacksChainState {
 
                 let contract_identifier =
                     QualifiedContractIdentifier::new(address.clone().into(), contract_name.clone());
-                let epoch = clarity_connection.get_epoch().clone();
+                let epoch = clarity_connection.get_epoch();
                 clarity_connection.with_analysis_db_readonly(|db| {
                     let function_type = db
                         .get_public_function_type(&contract_identifier, function_name, &epoch)
@@ -11005,7 +11005,7 @@ pub mod test {
 
         let mut last_block_id = StacksBlockId([0x00; 32]);
         for tenure_id in 0..num_blocks {
-            let del_addr = del_addrs[tenure_id];
+            let del_addr = &del_addrs[tenure_id];
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -11233,11 +11233,11 @@ pub mod test {
         );
 
         for i in 0..(num_blocks - 1) {
-            let del_addr = del_addrs[i];
+            let del_addr = &del_addrs[i];
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",
-                &format!("(get-delegation-info '{})", &del_addr),
+                &format!("(get-delegation-info '{del_addr})"),
             );
 
             let data = result
@@ -11328,7 +11328,7 @@ pub mod test {
 
         let mut last_block_id = StacksBlockId([0x00; 32]);
         for tenure_id in 0..num_blocks {
-            let del_addr = del_addrs[tenure_id];
+            let del_addr = &del_addrs[tenure_id];
             let tip =
                 SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
                     .unwrap();
@@ -11939,14 +11939,13 @@ pub mod test {
             if i == 5 {
                 continue;
             }
-            let del_addr = del_addrs[i];
+            let del_addr = &del_addrs[i];
             let result = eval_at_tip(
                 &mut peer,
                 "pox-2",
                 &format!(
                     "
-                (get-delegation-info '{})",
-                    &del_addr
+                (get-delegation-info '{del_addr})"
                 ),
             );
 

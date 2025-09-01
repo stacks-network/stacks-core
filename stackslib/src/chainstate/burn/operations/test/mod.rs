@@ -9,7 +9,8 @@ use stacks_common::util::hash::Hash160;
 
 use crate::burnchains::bitcoin::address::{BitcoinAddress, SegwitBitcoinAddress};
 use crate::burnchains::bitcoin::{
-    BitcoinInputType, BitcoinTransaction, BitcoinTxInputStructured, BitcoinTxOutput,
+    BitcoinInputType, BitcoinNetworkType, BitcoinTransaction, BitcoinTxInputStructured,
+    BitcoinTxOutput,
 };
 use crate::burnchains::{BurnchainBlockHeader, BurnchainSigner, BurnchainTransaction, Txid};
 use crate::chainstate::burn::operations::{
@@ -89,7 +90,10 @@ impl Output {
     pub(crate) fn as_bitcoin_tx_output(&self) -> BitcoinTxOutput {
         BitcoinTxOutput {
             units: self.amount,
-            address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(true, self.address)),
+            address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(
+                BitcoinNetworkType::Mainnet,
+                self.address,
+            )),
         }
     }
 }

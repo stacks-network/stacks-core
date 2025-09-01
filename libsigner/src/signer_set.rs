@@ -67,12 +67,12 @@ impl SignerEntries {
                 })?;
 
             let stacks_address = StacksAddress::p2pkh(is_mainnet, &signer_public_key);
-            signer_addr_to_id.insert(stacks_address, signer_id);
-            signer_id_to_pk.insert(signer_id, signer_public_key);
-            signer_pk_to_id.insert(signer_public_key, signer_id);
+            signer_addr_to_id.insert(stacks_address.clone(), signer_id);
+            signer_id_to_pk.insert(signer_id, signer_public_key.clone());
+            signer_pk_to_id.insert(signer_public_key.clone(), signer_id);
             signer_pks.push(signer_public_key);
-            signer_id_to_addr.insert(signer_id, stacks_address);
-            signer_addr_to_weight.insert(stacks_address, entry.weight);
+            signer_id_to_addr.insert(signer_id, stacks_address.clone());
+            signer_addr_to_weight.insert(stacks_address.clone(), entry.weight);
             signer_addresses.push(stacks_address);
         }
 
