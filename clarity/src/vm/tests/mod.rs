@@ -32,6 +32,7 @@ mod contracts;
 mod datamaps;
 mod defines;
 mod principals;
+mod representations;
 mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
