@@ -1972,7 +1972,7 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        
+
         let result = self.rpc_client.generate_to_address(num_blocks, &address);
         /*
             Temporary: not using `BitcoinRpcClientResultExt::unwrap_or_log_panic` (test code related),
@@ -1992,7 +1992,7 @@ impl BitcoinRegtestController {
         }
     }
 
-    /// Instruct a regtest Bitcoin node to build an empty block. 
+    /// Instruct a regtest Bitcoin node to build an empty block.
     #[cfg(test)]
     pub fn build_empty_block(&self) {
         info!("Generate empty block");
@@ -2005,8 +2005,10 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        
-        _ = self.rpc_client.generate_block(&address, &[])
+
+        _ = self
+            .rpc_client
+            .generate_block(&address, &[])
             .unwrap_or_log_panic("generating block")
     }
 
@@ -2110,14 +2112,10 @@ impl BitcoinRegtestController {
                 "Generate to address '{address}' for public key '{}'",
                 &pks[0].to_hex()
             );
-            if let Err(e) = BitcoinRPCRequest::generate_to_address(
-                &self.config,
-                num_blocks.try_into().unwrap(),
-                address.to_string(),
-            ) {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
+            _ = self
+                .rpc_client
+                .generate_to_address(num_blocks.try_into().unwrap(), &address)
+                .unwrap_or_log_panic("generating block");
             return;
         }
 
@@ -2132,12 +2130,10 @@ impl BitcoinRegtestController {
                     &pk.to_hex(),
                 );
             }
-            if let Err(e) =
-                BitcoinRPCRequest::generate_to_address(&self.config, 1, address.to_string())
-            {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
+            _ = self
+                .rpc_client
+                .generate_to_address(1, &address)
+                .unwrap_or_log_panic("generating block");
         }
     }
 
