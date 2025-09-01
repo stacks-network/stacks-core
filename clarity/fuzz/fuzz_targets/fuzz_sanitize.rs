@@ -72,7 +72,9 @@ impl arbitrary::Arbitrary<'_> for FuzzStandardPrincipal {
             return Err(arbitrary::Error::IncorrectFormat);
         }
         let data = Arbitrary::arbitrary(u)?;
-        Ok(FuzzStandardPrincipal(StandardPrincipalData(version, data)))
+        StandardPrincipalData::new(version, data)
+            .map(FuzzStandardPrincipal)
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
     }
 }
 
@@ -149,7 +151,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
                 ClarityValue::Sequence(SequenceData::List(ref ld)) => ld,
                 _ => return Ok(false),
             };
-            if my_list_type.get_max_len() < list_data.len() {
+            if my_list_type.get_max_len() < list_data.len().map_or(0, |n| n) {
                 return Ok(false);
             }
             let my_entry_type = my_list_type.get_list_item_type();
@@ -165,7 +167,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
                 ClarityValue::Sequence(SequenceData::Buffer(ref buff_data)) => buff_data,
                 _ => return Ok(false),
             };
-            if &buff_data.len() > my_max_len {
+            if buff_data.len().map_or(false, |n| &n > my_max_len) {
                 return Ok(false);
             }
             return Ok(true);
@@ -175,7 +177,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
                 ClarityValue::Sequence(SequenceData::String(CharType::ASCII(ref ascii_data))) => ascii_data,
                 _ => return Ok(false),
             };
-            if &ascii_data.len() > my_max_len {
+            if ascii_data.len().map_or(false, |n| &n > my_max_len) {
                 return Ok(false);
             }
             return Ok(true);
@@ -185,7 +187,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
                 ClarityValue::Sequence(SequenceData::String(CharType::UTF8(ref utf8_data))) => utf8_data,
                 _ => return Ok(false),
             };
-            if u32::from(utf8_data.len()) > u32::from(my_max_len) {
+            if utf8_data.len().map_or(false, |n| u32::from(n) > u32::from(my_max_len.clone())) {
                 return Ok(false);
             }
             return Ok(true);
@@ -244,30 +246,8 @@ fuzz_target!(|value: FuzzClarityValue| {
     fuzz_sanitize(value.0);
 });
 
-
-
-/// Same as fuzz_sanitize, but does not check any serialization routines
-fn fuzz_value_sanitize(input: ClarityValue) {
-    let computed_type = TypeSignature::type_of(&input);
-    let did_strict_admit = strict_admits(&computed_type, &input).unwrap();
-
-    let (sanitized_value, did_sanitize) = ClarityValue::sanitize_value(
-        &StacksEpochId::Epoch24,
-        &computed_type,
-        input.clone()
-    ).unwrap();
-
-    if did_strict_admit {
-        assert_eq!(sanitized_value, computed_type);
-        assert!(!did_sanitize);
-    } else {
-        assert!(did_sanitize);
-        assert!(strict_admits(&computed_type, &sanitized_value));
-    }
-}
-
 fn fuzz_sanitize(input: ClarityValue) {
-    let computed_type = TypeSignature::type_of(&input);
+    let computed_type = TypeSignature::type_of(&input).unwrap();
     let did_strict_admit = strict_admits(&computed_type, &input).unwrap();
 
     let (sanitized_value, did_sanitize) = ClarityValue::sanitize_value(
@@ -284,7 +264,7 @@ fn fuzz_sanitize(input: ClarityValue) {
         assert!(did_sanitize);
     }
 
-    let serialized = input.serialize_to_vec();
+    let serialized = input.serialize_to_vec().expect("serialize input");
     let deserialize_unsanitized = ClarityValue::deserialize_read(
         &mut serialized.as_slice(),
         Some(&computed_type),
@@ -317,7 +297,7 @@ fn fuzz_sanitize(input: ClarityValue) {
         Err(SerializationError::BadTypeError(CheckErrors::TypeSignatureTooDeep)) => {
             assert!(!did_strict_admit, "Unsanitized inputs may fail to deserialize, but they must have needed sanitization");
             // check that the sanitized value *is* readable
-            let serialized = sanitized_value.serialize_to_vec();
+            let serialized = sanitized_value.serialize_to_vec().expect("serialize sanitized");
             let deserialize_unsanitized = match ClarityValue::deserialize_read(
                 &mut serialized.as_slice(),
                 Some(&computed_type),

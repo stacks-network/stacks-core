@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use clarity::types::net::PeerHost;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use libstackerdb::SlotMetadata;
@@ -45,7 +46,9 @@ use crate::chainstate::stacks::{
 };
 use crate::core::MemPoolDB;
 use crate::net::db::PeerDB;
-use crate::net::httpcore::{StacksHttpRequest, StacksHttpResponse};
+use crate::net::httpcore::{
+    HttpPreambleExtensions as _, StacksHttpRequest, StacksHttpResponse, TipRequest,
+};
 use crate::net::relay::Relayer;
 use crate::net::rpc::ConversationHttp;
 use crate::net::test::{RPCHandlerArgsType, TestEventObserver, TestPeer, TestPeerConfig};
@@ -1288,6 +1291,12 @@ impl<'a> TestRPC<'a> {
             assert!(resp_opt.is_some());
 
             let resp = resp_opt.unwrap();
+
+            // Assert that the `X-Canonical-Stacks-Tip-Height` header is always set for successful responses
+            if resp.preamble().is_success() {
+                assert!(resp.preamble().get_canonical_stacks_tip_height().is_some());
+            }
+
             responses.push(resp);
         }
 
@@ -1414,4 +1423,36 @@ fn prefixed_hex_serialization() {
         assert_eq!(out, inp);
         assert_eq!(hex_str, format!("\"0x{}\"", to_hex(&inp.0)));
     }
+}
+
+/// Test that the `X-Canonical-Stacks-Tip-Height` header always matches the node's
+/// `network.stacks_tip.height` value.
+///
+/// This doesn't aim to test each possible endpoint, but rather to test that the
+/// header is set to the correct value for successful responses.
+#[rstest]
+#[case::getinfo(|addr| StacksHttpRequest::new_getinfo(addr, None))]
+#[case::getneighbors(StacksHttpRequest::new_getneighbors)]
+#[case::getpoxinfo(|addr| StacksHttpRequest::new_getpoxinfo(
+    addr,
+    TipRequest::UseLatestUnconfirmedTip,
+))]
+fn test_successfull_responses_have_correct_canonical_stacks_tip_height(
+    #[case] request_builder: impl Fn(PeerHost) -> StacksHttpRequest,
+) {
+    let addr: PeerHost = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333).into();
+    let test_observer = TestEventObserver::new();
+    let rpc_test = TestRPC::setup(function_name!());
+
+    let expected_height = rpc_test.peer_2.network.stacks_tip.height;
+    let request = request_builder(addr);
+    let mut responses = rpc_test.run(vec![request]);
+
+    let response = responses.remove(0);
+    let preamble = response.preamble();
+    assert!(preamble.is_success());
+    assert_eq!(
+        preamble.get_canonical_stacks_tip_height().unwrap(),
+        expected_height
+    );
 }

@@ -55,6 +55,7 @@ use stacks::core::{
 };
 use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
+use stacks::net::api::gethealth::RPCGetHealthResponse;
 use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getpoxinfo::RPCPoxInfoData;
 use stacks::net::api::getsortition::SortitionInfo;
@@ -84,8 +85,8 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
-use super::bitcoin_regtest::BitcoinCoreController;
 use super::{ADDR_4, SK_1, SK_2, SK_3};
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
@@ -1010,6 +1011,18 @@ pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBl
     }
 }
 
+pub fn get_node_health(conf: &Config) -> RPCGetHealthResponse {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{http_origin}/v3/health");
+    client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCGetHealthResponse>()
+        .unwrap()
+}
+
 pub fn get_chain_info_result(conf: &Config) -> Result<RPCPeerInfoData, reqwest::Error> {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
@@ -1136,7 +1149,7 @@ fn bitcoind_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1244,7 +1257,7 @@ fn confirm_unparsed_ongoing_ops() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1326,7 +1339,7 @@ fn most_recent_utxo_integration_test() {
 
     let (conf, _) = neon_integration_test_conf();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1580,7 +1593,7 @@ fn deep_contract() {
         amount: spender_bal,
     });
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1690,7 +1703,7 @@ fn liquid_ustx_integration() {
         amount: spender_bal,
     });
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1821,7 +1834,7 @@ fn lockup_integration() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1943,7 +1956,7 @@ fn stx_transfer_btc_integration_test() {
         amount: 100300,
     });
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2192,7 +2205,7 @@ fn stx_delegate_btc_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2471,7 +2484,7 @@ fn stack_stx_burn_op_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2868,7 +2881,7 @@ fn vote_for_aggregate_key_burn_op_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3116,7 +3129,7 @@ fn bitcoind_resubmission_test() {
         amount: 100300,
     });
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3234,7 +3247,7 @@ fn bitcoind_forking_test() {
 
     let (conf, miner_account) = neon_integration_test_conf();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3342,7 +3355,7 @@ fn download_err_in_btc_reorg() {
     conf.node.mine_microblocks = false;
     conf.burnchain.pox_reward_length = Some(1000);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3465,7 +3478,7 @@ fn should_fix_2771() {
 
     let (conf, _miner_account) = neon_integration_test_conf();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3574,7 +3587,7 @@ fn filter_low_fee_tx_integration_test() {
         })
         .collect();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3663,7 +3676,7 @@ fn filter_long_runtime_tx_integration_test() {
         })
         .collect();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3768,7 +3781,7 @@ fn miner_submit_twice() {
     //  included 1 or more transaction, but they could have made a second attempt with
     //  more transactions.
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3877,7 +3890,7 @@ fn size_check_integration_test() {
     conf.miner.first_attempt_time_ms = i64::MAX as u64;
     conf.miner.subsequent_attempt_time_ms = i64::MAX as u64;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4002,7 +4015,7 @@ fn block_replay_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4143,7 +4156,7 @@ fn cost_voting_integration() {
         amount: spender_bal,
     });
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4502,7 +4515,7 @@ fn mining_events_integration_test() {
         ],
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4791,7 +4804,7 @@ fn setup_block_limit_test(strategy: MemPoolWalkStrategy) -> (Vec<serde_json::Val
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -5074,7 +5087,7 @@ fn block_large_tx_integration_test() {
         &oversize_contract_src,
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -5196,7 +5209,7 @@ fn pox_integration_test() {
     conf.burnchain.max_rbf = 10_000_000;
     conf.node.wait_time_for_blocks = 1_000;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -5702,7 +5715,7 @@ fn atlas_integration_test() {
     conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
-    let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6246,7 +6259,7 @@ fn antientropy_integration_test() {
     conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
-    let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6489,7 +6502,7 @@ fn atlas_stress_integration_test() {
     // Start the attached observer
     test_observer::spawn();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf_bootstrap_node.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7200,7 +7213,7 @@ fn fuzzed_median_fee_rate_estimation_test(window_size: u64, expected_final_value
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7377,7 +7390,7 @@ fn use_latest_tip_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7608,7 +7621,7 @@ fn test_flash_block_skip_tenure() {
     conf.miner.microblock_attempt_time_ms = 5_000;
     conf.node.wait_time_for_microblocks = 0;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7671,7 +7684,7 @@ fn test_flash_block_skip_tenure() {
 #[ignore]
 fn test_chainwork_first_intervals() {
     let (conf, _) = neon_integration_test_conf();
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7698,7 +7711,7 @@ fn test_chainwork_first_intervals() {
 #[ignore]
 fn test_chainwork_partial_interval() {
     let (conf, _) = neon_integration_test_conf();
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7785,7 +7798,7 @@ fn test_problematic_txs_are_not_stored() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
 
     btcd_controller
         .start_bitcoind()
@@ -8029,7 +8042,7 @@ fn test_problematic_blocks_are_not_mined() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -8365,7 +8378,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -8679,7 +8692,7 @@ fn push_boot_receipts() {
 
     test_observer::spawn();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -8724,7 +8737,7 @@ fn run_with_custom_wallet() {
 
     test_observer::spawn();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9000,7 +9013,7 @@ fn test_competing_miners_build_on_same_chain(
         burnchain_configs.push(burnchain_config);
     }
 
-    let mut btcd_controller = BitcoinCoreController::new(confs[0].clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&confs[0]);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9177,7 +9190,7 @@ fn min_txs() {
         amount: spender_bal,
     });
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9281,7 +9294,7 @@ fn filter_txs_by_type() {
         amount: spender_bal,
     });
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9391,7 +9404,7 @@ fn filter_txs_by_origin() {
         amount: spender_bal,
     });
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9492,7 +9505,7 @@ fn bitcoin_reorg_flap() {
 
     let (conf, _miner_account) = neon_integration_test_conf();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9540,7 +9553,7 @@ fn bitcoin_reorg_flap() {
     copy_dir_all(&btcd_dir, new_conf.get_burnchain_path_str()).unwrap();
 
     // resume
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9561,7 +9574,7 @@ fn bitcoin_reorg_flap() {
     info!("\n\nBegin reorg flap from A to B\n\n");
 
     // carry out the flap to fork B -- new_conf's state was the same as before the reorg
-    let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&new_conf);
     let btc_regtest_controller = BitcoinRegtestController::new(new_conf, None);
 
     btcd_controller
@@ -9577,7 +9590,7 @@ fn bitcoin_reorg_flap() {
 
     info!("\n\nBegin reorg flap from B to A\n\n");
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     let btc_regtest_controller = BitcoinRegtestController::new(conf, None);
     btcd_controller
         .start_bitcoind()
@@ -9649,7 +9662,7 @@ fn bitcoin_reorg_flap_with_follower() {
     let (conf, _miner_account) = neon_integration_test_conf();
     let timeout = Some(Duration::from_secs(60));
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9751,7 +9764,7 @@ fn bitcoin_reorg_flap_with_follower() {
     copy_dir_all(&btcd_dir, new_conf.get_burnchain_path_str()).unwrap();
 
     // resume
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9772,7 +9785,7 @@ fn bitcoin_reorg_flap_with_follower() {
     info!("\n\nBegin reorg flap from A to B\n\n");
 
     // carry out the flap to fork B -- new_conf's state was the same as before the reorg
-    let mut btcd_controller = BitcoinCoreController::new(new_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&new_conf);
     let btc_regtest_controller = BitcoinRegtestController::new(new_conf, None);
 
     btcd_controller
@@ -9788,7 +9801,7 @@ fn bitcoin_reorg_flap_with_follower() {
 
     info!("\n\nBegin reorg flap from B to A\n\n");
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     let btc_regtest_controller = BitcoinRegtestController::new(conf, None);
     btcd_controller
         .start_bitcoind()
@@ -9829,7 +9842,7 @@ fn mock_miner_replay() {
 
     let (conf, _miner_account) = neon_integration_test_conf();
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9985,7 +9998,7 @@ fn listunspent_max_utxos() {
     conf.burnchain.max_rbf = 1000000;
     conf.burnchain.max_unspent_utxos = Some(10);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -10013,46 +10026,4 @@ fn listunspent_max_utxos() {
     let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
     let utxos = res.expect("Failed to get utxos");
     assert_eq!(utxos.num_utxos(), 10);
-}
-
-#[test]
-#[ignore]
-/// Test out stopping bitcoind and restarting it
-fn start_stop_bitcoind() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let (mut conf, _miner_account) = neon_integration_test_conf();
-    let prom_port = gen_random_port();
-    let localhost = "127.0.0.1";
-    let prom_bind = format!("{localhost}:{prom_port}");
-    conf.node.prometheus_bind = Some(prom_bind);
-
-    conf.burnchain.max_rbf = 1000000;
-
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
-
-    let btc_regtest_controller = BitcoinRegtestController::new(conf, None);
-
-    btc_regtest_controller.bootstrap_chain(201);
-
-    eprintln!("Chain bootstrapped...");
-
-    btcd_controller
-        .stop_bitcoind()
-        .expect("Failed to stop bitcoind");
-
-    thread::sleep(Duration::from_secs(5));
-
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed to start bitcoind");
-
-    btcd_controller
-        .stop_bitcoind()
-        .expect("Failed to stop bitcoind");
 }

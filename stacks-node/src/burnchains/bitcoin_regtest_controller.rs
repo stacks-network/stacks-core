@@ -66,8 +66,6 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-#[cfg(test)]
-use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -172,6 +170,7 @@ pub fn make_bitcoin_indexer(
             username: burnchain_config.username,
             password: burnchain_config.password,
             timeout: burnchain_config.timeout,
+            socket_timeout: burnchain_config.socket_timeout,
             spv_headers_path: config.get_spv_headers_file_path(),
             first_block: burnchain_params.first_block_height,
             magic_bytes: burnchain_config.magic_bytes,
@@ -180,7 +179,7 @@ pub fn make_bitcoin_indexer(
     };
 
     let (_, network_type) = config.burnchain.get_bitcoin_network();
-    let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+    let indexer_runtime = BitcoinIndexerRuntime::new(network_type, indexer_config.timeout);
     BitcoinIndexer {
         config: indexer_config,
         runtime: indexer_runtime,
@@ -287,6 +286,30 @@ impl LeaderBlockCommitFees {
     }
 }
 
+/// Extension methods for working with [`BitcoinRpcClient`] result
+/// that log failures and panic.
+#[cfg(test)]
+trait BitcoinRpcClientResultExt<T> {
+    /// Unwraps the result, returning the value if `Ok`.
+    ///
+    /// If the result is an `Err`, it logs the error with the given context
+    /// using the [`error!`] macro and then panics.
+    fn unwrap_or_log_panic(self, context: &str) -> T;
+}
+
+#[cfg(test)]
+impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
+    fn unwrap_or_log_panic(self, context: &str) -> T {
+        match self {
+            Ok(val) => val,
+            Err(e) => {
+                error!("Bitcoin RPC failure: {context} {e:?}");
+                panic!();
+            }
+        }
+    }
+}
+
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
         BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
@@ -333,6 +356,7 @@ impl BitcoinRegtestController {
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
+                socket_timeout: burnchain_config.socket_timeout,
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
@@ -341,7 +365,7 @@ impl BitcoinRegtestController {
         };
 
         let (_, network_type) = config.burnchain.get_bitcoin_network();
-        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type, config.burnchain.timeout);
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config,
             runtime: indexer_runtime,
@@ -382,6 +406,7 @@ impl BitcoinRegtestController {
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
+                socket_timeout: burnchain_config.socket_timeout,
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
@@ -390,7 +415,7 @@ impl BitcoinRegtestController {
         };
 
         let (_, network_type) = config.burnchain.get_bitcoin_network();
-        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type, config.burnchain.timeout);
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config,
             runtime: indexer_runtime,
@@ -2008,38 +2033,21 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Invalidate a block given its hash as a [`BurnchainHeaderHash`].
     #[cfg(test)]
     pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
         info!("Invalidating block {block}");
-        let request = BitcoinRPCRequest {
-            method: "invalidateblock".into(),
-            params: vec![json!(&block.to_string())],
-            id: "stacks-forker".into(),
-            jsonrpc: "2.0".into(),
-        };
-        if let Err(e) = BitcoinRPCRequest::send(&self.config, request) {
-            error!("Bitcoin RPC failure: error invalidating block {e:?}");
-            panic!();
-        }
+        self.rpc_client
+            .invalidate_block(block)
+            .unwrap_or_log_panic("invalidate block")
     }
 
+    /// Retrieve the hash (as a [`BurnchainHeaderHash`]) of the block at the given height.
     #[cfg(test)]
     pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
-        let request = BitcoinRPCRequest {
-            method: "getblockhash".into(),
-            params: vec![json!(height)],
-            id: "stacks-forker".into(),
-            jsonrpc: "2.0".into(),
-        };
-        match BitcoinRPCRequest::send(&self.config, request) {
-            Ok(v) => {
-                BurnchainHeaderHash::from_hex(v.get("result").unwrap().as_str().unwrap()).unwrap()
-            }
-            Err(e) => {
-                error!("Bitcoin RPC failure: error invalidating block {e:?}");
-                panic!();
-            }
-        }
+        self.rpc_client
+            .get_block_hash(height)
+            .unwrap_or_log_panic("retrieve block")
     }
 
     #[cfg(test)]
@@ -2094,11 +2102,12 @@ impl BitcoinRegtestController {
         transaction.map(SerializedTx::new)
     }
 
+    /// Retrieves a raw [`Transaction`] by its [`Txid`]
     #[cfg(test)]
     pub fn get_raw_transaction(&self, txid: &Txid) -> Transaction {
-        let txstr = BitcoinRPCRequest::get_raw_transaction(&self.config, txid).unwrap();
-        let tx: Transaction = btc_deserialize(&hex_bytes(&txstr).unwrap()).unwrap();
-        tx
+        self.rpc_client
+            .get_raw_transaction(txid)
+            .unwrap_or_log_panic("retrieve raw tx")
     }
 
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
@@ -2166,17 +2175,20 @@ impl BitcoinRegtestController {
     ///
     /// * `true` if the transaction is confirmed (has at least one confirmation).
     /// * `false` if the transaction is unconfirmed or could not be found.
-    fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
+    pub fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
         match self
             .rpc_client
             .get_transaction(self.get_config_wallet(), txid)
         {
             Ok(info) => info.confirmations > 0,
-            _ => false,
+            Err(e) => {
+                error!("Bitcoin RPC failure: checking tx confirmation {e:?}");
+                false
+            }
         }
     }
 
-    /// Returns the configured wallet name from the configuration.
+    /// Returns the configured wallet name from [`Config`].
     fn get_config_wallet(&self) -> &String {
         &self.config.burnchain.wallet_name
     }
@@ -2515,20 +2527,6 @@ impl BitcoinRPCRequest {
         request
     }
 
-    #[cfg(test)]
-    pub fn get_raw_transaction(config: &Config, txid: &Txid) -> RPCResult<String> {
-        debug!("Get raw transaction {txid}");
-        let payload = BitcoinRPCRequest {
-            method: "getrawtransaction".to_string(),
-            params: vec![format!("{txid}").into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Got raw transaction {txid}: {res:?}");
-        Ok(res.get("result").unwrap().as_str().unwrap().to_string())
-    }
-
     pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {
         debug!("Generate {num_blocks} blocks to {address}");
         let payload = BitcoinRPCRequest {
@@ -2752,17 +2750,6 @@ impl BitcoinRPCRequest {
         Ok(())
     }
 
-    pub fn stop_bitcoind(config: &Config) -> RPCResult<serde_json::Value> {
-        let payload = BitcoinRPCRequest {
-            method: "stop".to_string(),
-            params: vec![],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        BitcoinRPCRequest::send(config, payload)
-    }
-
     pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
@@ -2793,7 +2780,7 @@ mod tests {
     use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 
     use super::*;
-    use crate::tests::bitcoin_regtest::BitcoinCoreController;
+    use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
     use crate::Keychain;
 
     mod utils {
@@ -2804,7 +2791,7 @@ mod tests {
         use stacks::util::vrf::{VRFPrivateKey, VRFPublicKey};
 
         use super::*;
-        use crate::tests::bitcoin_regtest::BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
+        use crate::burnchains::bitcoin::core_controller::BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
         use crate::util::get_epoch_time_nanos;
 
         pub fn create_config() -> Config {
@@ -3213,7 +3200,7 @@ mod tests {
 
         let config = utils::create_config();
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3238,7 +3225,7 @@ mod tests {
         let mut config = utils::create_config();
         config.burnchain.wallet_name = String::from("mywallet");
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3266,7 +3253,7 @@ mod tests {
         let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3307,7 +3294,7 @@ mod tests {
         let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3331,7 +3318,7 @@ mod tests {
         let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3379,7 +3366,7 @@ mod tests {
         let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3410,7 +3397,7 @@ mod tests {
         let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3438,7 +3425,7 @@ mod tests {
         let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3474,7 +3461,7 @@ mod tests {
         let mut config = utils::create_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-        let mut btcd_controller = BitcoinCoreController::new(config.clone());
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
@@ -3510,7 +3497,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -3569,7 +3556,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -3618,7 +3605,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -3669,7 +3656,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -3752,7 +3739,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -3825,7 +3812,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -3870,7 +3857,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -3920,7 +3907,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -3970,7 +3957,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -4006,7 +3993,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -4046,7 +4033,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -4091,7 +4078,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -4138,7 +4125,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -4171,7 +4158,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");
@@ -4212,7 +4199,7 @@ mod tests {
             let mut config = utils::create_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
-            let mut btcd_controller = BitcoinCoreController::new(config.clone());
+            let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
             btcd_controller
                 .start_bitcoind()
                 .expect("bitcoind should be started!");

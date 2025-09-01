@@ -333,7 +333,7 @@ impl<'de> Deserialize<'de> for BurnchainHeaderHashWrapperResponse {
 }
 
 /// Client for interacting with a Bitcoin RPC service.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BitcoinRpcClient {
     /// The client ID to identify the source of the requests.
     client_id: String,
@@ -399,12 +399,13 @@ impl BitcoinRpcClient {
         host: String,
         port: u16,
         auth: RpcAuth,
-        timeout: u32,
+        timeout: u64,
         client_id: String,
     ) -> BitcoinRpcClientResult<Self> {
         let rpc_url = format!("http://{host}:{port}");
         let rpc_auth = auth;
-        let rpc_timeout = Duration::from_secs(u64::from(timeout));
+
+        let rpc_timeout = Duration::from_secs(timeout);
 
         let endpoint = RpcTransport::new(rpc_url, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
 

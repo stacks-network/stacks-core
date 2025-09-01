@@ -711,7 +711,7 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
                        &neighbor_from_handshake.addr,
                        &self.cur_neighbor.addr);
 
-            return Err(net_error::PeerNotConnected);
+            return Err(net_error::PeerNotConnected(format!("Got unsolicited (or bootstrapping) HandshakeAccept from outbound {:?} (expected {:?})", &neighbor_from_handshake.addr, &self.cur_neighbor.addr)));
         };
 
         debug!(
@@ -744,7 +744,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         if self.comms.count_inflight() == 0 {
             // can't proceed
             debug!("{:?}: No messages inflight", network.get_local_peer());
-            return Err(net_error::PeerNotConnected);
+            return Err(net_error::PeerNotConnected(format!(
+                "No Handshake messages inflight to {:?}; expected at least one",
+                &self.cur_neighbor
+            )));
         }
 
         let message = if let Some((_, message)) = self.comms.collect_replies(network).pop() {
@@ -761,12 +764,18 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
             }
             StacksMessageType::HandshakeReject => {
                 // told to bugger off
-                return Err(net_error::PeerNotConnected);
+                return Err(net_error::PeerNotConnected(format!(
+                    "Neighbor {:?} replied HandshakeReject",
+                    &self.cur_neighbor
+                )));
             }
-            StacksMessageType::Nack(_) => {
+            StacksMessageType::Nack(ref nack) => {
                 // something's wrong on our end (we're using a new key that they don't yet
                 // know about, or something)
-                return Err(net_error::PeerNotConnected);
+                return Err(net_error::PeerNotConnected(format!(
+                    "Neighbor {:?} replied a NACK {:?}",
+                    &self.cur_neighbor, nack
+                )));
             }
             _ => {
                 // invalid message
@@ -843,7 +852,10 @@ impl<DB: NeighborWalkDB, NC: NeighborComms> NeighborWalk<DB, NC> {
         if self.comms.count_inflight() == 0 {
             // can't proceed
             debug!("{:?}: No messages inflight", network.get_local_peer());
-            return Err(net_error::PeerNotConnected);
+            return Err(net_error::PeerNotConnected(format!(
+                "No GetNeighbors messages inflight to {:?}; expected at least one",
+                &self.cur_neighbor
+            )));
         }
 
         let message = if let Some((_, message)) = self.comms.collect_replies(network).pop() {
