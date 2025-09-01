@@ -1694,14 +1694,4 @@ pub mod test {
             txs: txs_mblock,
         }
     }
-
-    /*
-    #[test]
-    fn test_txid_from_to_bitcoin_hex_integration_ok() {
-        let btc_hex_input = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
-        let txid = Txid::from_bitcoin_hex(btc_hex_input).unwrap();
-        let btc_hex_output = txid.to_bitcoin_hex();
-        assert_eq!(btc_hex_input, btc_hex_output);
-    }
-     */
 }

@@ -25,9 +25,7 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    request, HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[derive(Clone)]
@@ -179,15 +177,13 @@ impl RPCRequestHandler for RPCGetStackerDBChunkRequestHandler {
             }
         };
 
-        let mut preamble = HttpResponsePreamble::from_http_request_preamble(
+        let preamble = HttpResponsePreamble::from_http_request_preamble(
             &preamble,
             200,
             "OK",
             None,
             HttpContentType::Bytes,
         );
-
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
         let body = HttpResponseContents::from_ram(chunk_resp);
         Ok((preamble, body))
     }
