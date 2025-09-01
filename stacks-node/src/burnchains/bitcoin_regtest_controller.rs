@@ -1972,9 +1972,17 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let result =
-            BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, address.to_string());
+        
+        let result = self.rpc_client.generate_to_address(num_blocks, &address);
+        /*
+            Temporary: not using `BitcoinRpcClientResultExt::unwrap_or_log_panic` (test code related),
+            because we need this logic available outside `#[cfg(test)]` due to Helium network.
 
+            After the Helium cleanup (https://github.com/stacks-network/stacks-core/issues/6408),
+            we can:
+              - move `build_next_block` behind `#[cfg(test)]`
+              - simplify this match by using `unwrap_or_log_panic`.
+        */
         match result {
             Ok(_) => {}
             Err(e) => {
