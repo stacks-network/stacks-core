@@ -2092,7 +2092,7 @@ impl BitcoinRegtestController {
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
     ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
     #[cfg(test)]
-    pub fn bootstrap_chain_to_pks(&self, num_blocks: usize, pks: &[Secp256k1PublicKey]) {
+    pub fn bootstrap_chain_to_pks(&self, num_blocks: u64, pks: &[Secp256k1PublicKey]) {
         info!("Creating wallet if it does not exist");
         if let Err(e) = self.create_wallet_if_dne() {
             error!("Error when creating wallet: {e:?}");
@@ -2114,12 +2114,13 @@ impl BitcoinRegtestController {
             );
             _ = self
                 .rpc_client
-                .generate_to_address(num_blocks.try_into().unwrap(), &address)
+                .generate_to_address(num_blocks, &address)
                 .unwrap_or_log_panic("generating block");
             return;
         }
 
         // otherwise, round robin generate blocks
+        let num_blocks = num_blocks as usize;
         for i in 0..num_blocks {
             let pk = &pks[i % pks.len()];
             let address = self.get_miner_address(StacksEpochId::Epoch21, pk);
@@ -2276,7 +2277,7 @@ impl BurnchainController for BitcoinRegtestController {
             local_mining_pubkey.set_compressed(true);
         }
 
-        self.bootstrap_chain_to_pks(num_blocks.try_into().unwrap(), &[local_mining_pubkey])
+        self.bootstrap_chain_to_pks(num_blocks, &[local_mining_pubkey])
     }
 }
 
