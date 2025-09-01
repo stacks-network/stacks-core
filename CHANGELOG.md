@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
+- New endpoint /v3/tenures/blocks/ allowing retrieving the list of stacks blocks from a burn block
 
 ### Changed
 
