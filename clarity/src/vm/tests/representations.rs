@@ -1,5 +1,7 @@
 #[cfg(test)]
 use proptest::{prelude::*, string::string_regex};
+#[cfg(test)]
+use stacks_common::codec::StacksMessageCodec;
 
 #[cfg(test)]
 use crate::vm::{
@@ -155,6 +157,22 @@ fn prop_clarity_name_invalid_patterns() {
             result.unwrap_err(),
             RuntimeErrorType::BadNameValue(_, _)
         ), "Expected BadNameValue error for invalid name '{}'", name);
+    });
+}
+
+#[test]
+fn prop_clarity_name_roundtrip() {
+    proptest!(|(s in any_valid_clarity_name())| {
+        let name = ClarityName::try_from(s.clone()).unwrap();
+        prop_assert_eq!(name.as_str(), s);
+
+        let mut buf = Vec::new();
+        name.consensus_serialize(&mut buf).unwrap();
+        prop_assert_eq!(buf.first().copied(), Some(name.len()));
+        prop_assert_eq!(&buf[1..], name.as_bytes());
+
+        let back = ClarityName::consensus_deserialize(&mut buf.as_slice()).unwrap();
+        prop_assert_eq!(back, name);
     });
 }
 
