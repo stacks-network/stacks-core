@@ -1992,8 +1992,8 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Instruct a regtest Bitcoin node to build an empty block. 
     #[cfg(test)]
-    /// Instruct a regtest Bitcoin node to build an empty block.
     pub fn build_empty_block(&self) {
         info!("Generate empty block");
         let public_key_bytes = match &self.config.burnchain.local_mining_public_key {
@@ -2005,16 +2005,9 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let result =
-            BitcoinRPCRequest::generate_empty_to_address(&self.config, address.to_string());
-
-        match result {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
-        }
+        
+        _ = self.rpc_client.generate_block(&address, &[])
+            .unwrap_or_log_panic("generating block")
     }
 
     /// Invalidate a block given its hash as a [`BurnchainHeaderHash`].
