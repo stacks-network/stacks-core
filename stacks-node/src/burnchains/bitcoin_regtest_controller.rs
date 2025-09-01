@@ -2492,21 +2492,6 @@ impl BitcoinRPCRequest {
         request
     }
 
-    #[cfg(test)]
-    pub fn generate_empty_to_address(config: &Config, address: String) -> RPCResult<()> {
-        debug!("Generate empty block to {address}");
-        let payload = BitcoinRPCRequest {
-            method: "generateblock".to_string(),
-            params: vec![address.clone().into(), serde_json::Value::Array(vec![])],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Generated empty block to {address}: {res:?}");
-        Ok(())
-    }
-
     pub fn list_unspent(
         config: &Config,
         addresses: Vec<String>,
