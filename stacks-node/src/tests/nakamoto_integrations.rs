@@ -117,8 +117,9 @@ use stacks_signer::v0::SpawnedSigner;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
-    TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
+    fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP,
+    TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -12620,7 +12621,7 @@ fn miner_constructs_replay_block() {
 
     // Pause mining to prevent any of the submitted txs getting mined.
     info!("Stalling mining...");
-    fault_injection_stall_miner();
+    fault_injection_try_stall_miner();
     let burn_height_before = get_chain_info(&naka_conf).burn_block_height;
     // Mine 1 bitcoin block to trigger a new block found transaction
     next_block_and(&mut btc_regtest_controller, 60, || {

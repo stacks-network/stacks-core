@@ -112,6 +112,15 @@ pub fn fault_injection_stall_miner() {
 }
 
 #[cfg(test)]
+/// Set the `TEST_MINE_STALL` flag to `Pending` and do not block.
+pub fn fault_injection_try_stall_miner() {
+    let mut stall_lock = TEST_MINE_STALL.0.lock().unwrap();
+    if stall_lock.as_ref().is_none() || stall_lock.as_ref() == Some(&TestMineStall::NotStalled) {
+        *stall_lock = Some(TestMineStall::Pending);
+    }
+}
+
+#[cfg(test)]
 /// Unstall the miner by setting the `TEST_MINE_STALL` flag to `NotStalled`.
 pub fn fault_injection_unstall_miner() {
     TEST_MINE_STALL.set(TestMineStall::NotStalled);
