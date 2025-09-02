@@ -3682,6 +3682,6 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             &Err(CheckErrors::UnknownFunction("contract-hash?".to_string()))
         };
 
-        assert_eq!(&actual, expected, "Failed for test case: {}", description);
+        assert_eq!(&actual, expected, "Failed for test case: {description}");
     }
 }
