@@ -1,9 +1,6 @@
-#[cfg(test)]
 use proptest::{prelude::*, string::string_regex};
-#[cfg(test)]
 use stacks_common::codec::StacksMessageCodec;
 
-#[cfg(test)]
 use crate::vm::{
     errors::RuntimeErrorType,
     representations::{
@@ -13,7 +10,6 @@ use crate::vm::{
     ClarityName, ContractName,
 };
 
-#[cfg(test)]
 /// Generates a proptest strategy for valid Clarity names.
 ///
 /// This function creates a branched strategy based on the `CLARITY_NAME_REGEX_STRING` pattern.
@@ -67,7 +63,6 @@ fn prop_clarity_name_valid_patterns() {
     });
 }
 
-#[cfg(test)]
 /// Generates a proptest strategy for invalid Clarity names.
 ///
 /// This function creates a strategy that generates strings that should be rejected
@@ -176,7 +171,6 @@ fn prop_clarity_name_roundtrip() {
     });
 }
 
-#[cfg(test)]
 /// Generates a proptest strategy for valid contract names.
 ///
 /// This function creates a strategy based on the `CONTRACT_NAME_REGEX_STRING` pattern
@@ -225,7 +219,6 @@ fn prop_contract_name_valid_patterns() {
     });
 }
 
-#[cfg(test)]
 /// Generates a proptest strategy for invalid contract names.
 ///
 /// This function creates a strategy that generates strings that should be rejected by
