@@ -66,8 +66,6 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-#[cfg(test)]
-use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -81,6 +79,8 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
+#[cfg(test)]
+use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClientError;
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -285,6 +285,30 @@ impl LeaderBlockCommitFees {
             self.spent_in_attempts += new_size;
         }
         self.final_size = new_size;
+    }
+}
+
+/// Extension methods for working with [`BitcoinRpcClient`] result
+/// that log failures and panic.
+#[cfg(test)]
+trait BitcoinRpcClientResultExt<T> {
+    /// Unwraps the result, returning the value if `Ok`.
+    ///
+    /// If the result is an `Err`, it logs the error with the given context
+    /// using the [`error!`] macro and then panics.
+    fn unwrap_or_log_panic(self, context: &str) -> T;
+}
+
+#[cfg(test)]
+impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
+    fn unwrap_or_log_panic(self, context: &str) -> T {
+        match self {
+            Ok(val) => val,
+            Err(e) => {
+                error!("Bitcoin RPC failure: {context} {e:?}");
+                panic!();
+            }
+        }
     }
 }
 
@@ -2006,38 +2030,21 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Invalidate a block given its hash as a [`BurnchainHeaderHash`].
     #[cfg(test)]
     pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
         info!("Invalidating block {block}");
-        let request = BitcoinRPCRequest {
-            method: "invalidateblock".into(),
-            params: vec![json!(&block.to_string())],
-            id: "stacks-forker".into(),
-            jsonrpc: "2.0".into(),
-        };
-        if let Err(e) = BitcoinRPCRequest::send(&self.config, request) {
-            error!("Bitcoin RPC failure: error invalidating block {e:?}");
-            panic!();
-        }
+        self.rpc_client
+            .invalidate_block(block)
+            .unwrap_or_log_panic("invalidate block")
     }
 
+    /// Retrieve the hash (as a [`BurnchainHeaderHash`]) of the block at the given height.
     #[cfg(test)]
     pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
-        let request = BitcoinRPCRequest {
-            method: "getblockhash".into(),
-            params: vec![json!(height)],
-            id: "stacks-forker".into(),
-            jsonrpc: "2.0".into(),
-        };
-        match BitcoinRPCRequest::send(&self.config, request) {
-            Ok(v) => {
-                BurnchainHeaderHash::from_hex(v.get("result").unwrap().as_str().unwrap()).unwrap()
-            }
-            Err(e) => {
-                error!("Bitcoin RPC failure: error invalidating block {e:?}");
-                panic!();
-            }
-        }
+        self.rpc_client
+            .get_block_hash(height)
+            .unwrap_or_log_panic("retrieve block")
     }
 
     #[cfg(test)]
@@ -2092,11 +2099,12 @@ impl BitcoinRegtestController {
         transaction.map(SerializedTx::new)
     }
 
+    /// Retrieves a raw [`Transaction`] by its [`Txid`]
     #[cfg(test)]
     pub fn get_raw_transaction(&self, txid: &Txid) -> Transaction {
-        let txstr = BitcoinRPCRequest::get_raw_transaction(&self.config, txid).unwrap();
-        let tx: Transaction = btc_deserialize(&hex_bytes(&txstr).unwrap()).unwrap();
-        tx
+        self.rpc_client
+            .get_raw_transaction(txid)
+            .unwrap_or_log_panic("retrieve raw tx")
     }
 
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
@@ -2506,20 +2514,6 @@ impl BitcoinRPCRequest {
             request.add_header("Authorization".into(), auth_token);
         }
         request
-    }
-
-    #[cfg(test)]
-    pub fn get_raw_transaction(config: &Config, txid: &Txid) -> RPCResult<String> {
-        debug!("Get raw transaction {txid}");
-        let payload = BitcoinRPCRequest {
-            method: "getrawtransaction".to_string(),
-            params: vec![format!("{txid}").into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Got raw transaction {txid}: {res:?}");
-        Ok(res.get("result").unwrap().as_str().unwrap().to_string())
     }
 
     pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {

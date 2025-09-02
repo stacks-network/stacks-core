@@ -900,12 +900,21 @@ impl RelayerThread {
                 .raise_initiative("process_sortition".to_string());
             return Ok(None);
         }
+
         // Reset the tenure extend time
         self.tenure_extend_time = None;
         let Some(mining_pk) = self.get_mining_key_pkh() else {
             debug!("No mining key, will not mine");
             return Ok(None);
         };
+
+        let epoch = SortitionDB::get_stacks_epoch(self.sortdb.conn(), sn.block_height)
+            .expect("FATAL: epoch not found for current snapshot")
+            .expect("FATAL: epoch not found for current snapshot");
+        if !epoch.epoch_id.uses_nakamoto_blocks() {
+            return Ok(None);
+        }
+
         let directive_opt = if sn.sortition {
             self.choose_directive_sortition_with_winner(sn, mining_pk, committed_index_hash)
         } else {
