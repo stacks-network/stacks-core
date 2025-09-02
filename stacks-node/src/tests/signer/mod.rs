@@ -1485,6 +1485,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             self.get_current_reward_cycle(),
             SignerSlotID(0), // We are just reading so again, don't care about index.
             SignerDb::new(":memory:").unwrap(),
+            Duration::from_secs(30),
         );
         let mut latest_msgs = StackerDB::get_messages(
             stackerdb
@@ -1549,6 +1550,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             reward_cycle,
             SignerSlotID(0), // We are just reading so again, don't care about index.
             SignerDb::new(":memory:").unwrap(), // also don't care about the signer db for version tracking
+            Duration::from_secs(30),
         )
     }
 
@@ -1593,6 +1595,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 .expect("Failed to get signer slot id")
                 .expect("Signer does not have a slot id"),
             SignerDb::new(":memory:").unwrap(),
+            Duration::from_secs(30),
         );
 
         let signature = private_key
