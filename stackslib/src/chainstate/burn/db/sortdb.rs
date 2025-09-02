@@ -22,17 +22,7 @@ use std::{cmp, fs};
 
 use clarity::util::lru_cache::LruCache;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::costs::ExecutionCost;
-use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::{PrincipalData, Value};
-use rand;
-use rand::RngCore;
-use rusqlite::types::ToSql;
-use rusqlite::{
-    params, Connection, Error as sqlite_error, OpenFlags, OptionalExtension, Row, Transaction,
-};
-use sha2::{Digest, Sha512_256};
-use stacks_common::address::AddressHashMode;
+use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
     TrieHash, VRFSeed,

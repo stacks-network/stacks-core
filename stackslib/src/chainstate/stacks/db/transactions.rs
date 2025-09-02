@@ -17,19 +17,16 @@
 use std::collections::{HashMap, HashSet};
 
 use clar2wasm::compile_contract;
-use clarity::vm::analysis::run_analysis;
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
-use clarity::vm::costs::{cost_functions, runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::database::{ClarityBackingStore, ClarityDatabase};
+use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::diagnostic::DiagnosableError;
 use clarity::vm::errors::{Error as InterpreterError, WasmError};
-use clarity::vm::representations::{ClarityName, ContractName};
-use clarity::vm::types::serialization::SerializationError as ClaritySerializationError;
+use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExt, StandardPrincipalData, TupleData,
