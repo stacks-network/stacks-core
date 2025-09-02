@@ -194,7 +194,7 @@ fn test_reconnect(network: &mut PeerNetwork) {
     for (_sc, stacker_db_sync) in stacker_db_syncs.iter_mut() {
         match stacker_db_sync.connect_begin(network) {
             Ok(x) => {}
-            Err(net_error::PeerNotConnected) => {}
+            Err(net_error::PeerNotConnected(..)) => {}
             Err(net_error::NoSuchNeighbor) => {}
             Err(e) => {
                 panic!("Failed to connect_begin: {:?}", &e);

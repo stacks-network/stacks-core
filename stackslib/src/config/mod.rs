@@ -1348,9 +1348,15 @@ pub struct BurnchainConfig {
     /// Timeout duration, in seconds, for RPC calls made to the bitcoin node.
     /// Configures the timeout on the underlying HTTP client.
     /// ---
-    /// @default: `60`
+    /// @default: `300`
     /// @units: seconds
-    pub timeout: u32,
+    pub timeout: u64,
+    /// Timeout duration, in seconds, for socket operations (read/write) with the bitcoin node.
+    /// Controls how long the node will wait for socket operations to complete before timing out.
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
+    pub socket_timeout: u64,
     /// The network "magic bytes" used to identify packets for the specific bitcoin
     /// network instance (e.g., mainnet, testnet, regtest). Must match the magic
     /// bytes of the connected bitcoin node.
@@ -1651,7 +1657,8 @@ impl BurnchainConfig {
             rpc_ssl: false,
             username: None,
             password: None,
-            timeout: 60,
+            timeout: 300,
+            socket_timeout: 30,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             local_mining_public_key: None,
             process_exit_at_block_height: None,
@@ -1752,7 +1759,9 @@ pub struct BurnchainConfigFile {
     pub username: Option<String>,
     pub password: Option<String>,
     /// Timeout, in seconds, for communication with bitcoind
-    pub timeout: Option<u32>,
+    pub timeout: Option<u64>,
+    /// Socket timeout, in seconds, for socket operations with bitcoind
+    pub socket_timeout: Option<u64>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
@@ -1940,6 +1949,9 @@ impl BurnchainConfigFile {
             username: self.username,
             password: self.password,
             timeout: self.timeout.unwrap_or(default_burnchain_config.timeout),
+            socket_timeout: self
+                .socket_timeout
+                .unwrap_or(default_burnchain_config.socket_timeout),
             magic_bytes: self
                 .magic_bytes
                 .map(|magic_ascii| {

@@ -28,9 +28,7 @@ use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    request, HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{request, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::{Error as NetError, StackerDBPushChunkData, StacksMessageType, StacksNodeState};
 
 #[derive(Clone)]
@@ -290,8 +288,7 @@ impl RPCRequestHandler for RPCPostStackerDBChunkRequestHandler {
             node.set_relay_message(StacksMessageType::StackerDBPushChunk(push_chunk_data));
         }
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&ack_resp)?;
         Ok((preamble, body))
     }

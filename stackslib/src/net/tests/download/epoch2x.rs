@@ -235,7 +235,7 @@ pub fn run_get_blocks_and_microblocks<T, F, P, C, D>(
     mut peer_func: P,
     mut check_breakage: C,
     mut done_func: D,
-) -> Vec<TestPeer>
+) -> Vec<TestPeer<'_>>
 where
     T: FnOnce(&mut Vec<TestPeerConfig>),
     F: FnOnce(

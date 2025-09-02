@@ -106,18 +106,18 @@ impl From<&str> for TipRequest {
 /// Extension to HttpRequestPreamble to give it awareness of Stacks-specific fields
 pub trait HttpPreambleExtensions {
     /// Set the node's canonical Stacks chain tip
-    fn set_canonical_stacks_tip_height(&mut self, height: Option<u32>);
+    fn set_canonical_stacks_tip_height(&mut self, height: Option<u64>);
     /// Set the node's request ID
     fn set_request_id(&mut self, req_id: u32);
     /// Get the canonical stacks chain tip
-    fn get_canonical_stacks_tip_height(&self) -> Option<u32>;
+    fn get_canonical_stacks_tip_height(&self) -> Option<u64>;
     /// Get the request ID
     fn get_request_id(&self) -> Option<u32>;
 }
 
 impl HttpPreambleExtensions for HttpRequestPreamble {
     /// Set the canonical Stacks chain tip height
-    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u32>) {
+    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u64>) {
         if let Some(height) = height_opt {
             self.add_header(
                 "X-Canonical-Stacks-Tip-Height".into(),
@@ -134,9 +134,9 @@ impl HttpPreambleExtensions for HttpRequestPreamble {
     }
 
     /// Get the canonical Stacks chain tip
-    fn get_canonical_stacks_tip_height(&self) -> Option<u32> {
+    fn get_canonical_stacks_tip_height(&self) -> Option<u64> {
         self.get_header("X-Canonical-Stacks-Tip-Height".to_string())
-            .and_then(|hdr| hdr.parse::<u32>().ok())
+            .and_then(|hdr| hdr.parse::<u64>().ok())
     }
 
     /// Get the request ID
@@ -148,7 +148,7 @@ impl HttpPreambleExtensions for HttpRequestPreamble {
 
 impl HttpPreambleExtensions for HttpResponsePreamble {
     /// Set the canonical Stacks chain tip height
-    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u32>) {
+    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u64>) {
         if let Some(height) = height_opt {
             self.add_header(
                 "X-Canonical-Stacks-Tip-Height".into(),
@@ -165,9 +165,9 @@ impl HttpPreambleExtensions for HttpResponsePreamble {
     }
 
     /// Get the canonical Stacks chain tip
-    fn get_canonical_stacks_tip_height(&self) -> Option<u32> {
+    fn get_canonical_stacks_tip_height(&self) -> Option<u64> {
         self.get_header("X-Canonical-Stacks-Tip-Height".to_string())
-            .and_then(|hdr| hdr.parse::<u32>().ok())
+            .and_then(|hdr| hdr.parse::<u64>().ok())
     }
 
     /// Get the request ID
@@ -1752,8 +1752,10 @@ impl PeerNetwork {
                             HttpPeer::saturate_http_socket(socket, convo)?;
                             Ok(event_id)
                         } else {
-                            debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
-                            Err(NetError::PeerNotConnected)
+                            debug!("HTTP failed to connect to {data_url}, {addr:?}");
+                            Err(NetError::PeerNotConnected(format!(
+                                "HTTP failed to connect to {data_url}, {addr:?}",
+                            )))
                         }
                     }
                     Err(e) => {

@@ -857,7 +857,7 @@ fn replay_validation_test_transaction_mineable_mismatch_series_2() {
             36,
             300,
             CHAIN_ID_TESTNET,
-            &recipient_addr.into(),
+            &recipient_addr.clone().into(),
             1000000,
         );
 

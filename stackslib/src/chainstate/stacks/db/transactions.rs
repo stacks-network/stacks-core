@@ -5115,7 +5115,7 @@ pub mod test {
 
         let asset_id_1 = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_1.contract_address),
+                StandardPrincipalData::from(asset_info_1.contract_address.clone()),
                 asset_info_1.contract_name.clone(),
             ),
             asset_name: asset_info_1.asset_name.clone(),
@@ -5123,7 +5123,7 @@ pub mod test {
 
         let asset_id_2 = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_2.contract_address),
+                StandardPrincipalData::from(asset_info_2.contract_address.clone()),
                 asset_info_2.contract_name.clone(),
             ),
             asset_name: asset_info_2.asset_name.clone(),
@@ -5131,7 +5131,7 @@ pub mod test {
 
         let _asset_id_3 = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_3.contract_address),
+                StandardPrincipalData::from(asset_info_3.contract_address.clone()),
                 asset_info_3.contract_name.clone(),
             ),
             asset_name: asset_info_3.asset_name.clone(),
@@ -6947,7 +6947,7 @@ pub mod test {
 
         let asset_id = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info.contract_address),
+                StandardPrincipalData::from(asset_info.contract_address.clone()),
                 asset_info.contract_name.clone(),
             ),
             asset_name: asset_info.asset_name.clone(),
@@ -8359,7 +8359,7 @@ pub mod test {
             // there must be a poison record for this microblock, from the reporter, for the microblock
             // sequence.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
-            assert_eq!(report_opt.unwrap(), (reporter_addr, 123));
+            assert_eq!(report_opt.unwrap(), (reporter_addr.clone(), 123));
 
             // result must encode poison information
             let result_data = receipt.result.expect_tuple().unwrap();
@@ -8599,7 +8599,7 @@ pub mod test {
             // there must be a poison record for this microblock, from the reporter, for the microblock
             // sequence.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
-            assert_eq!(report_opt.unwrap(), (reporter_addr_1, 123));
+            assert_eq!(report_opt.unwrap(), (reporter_addr_1.clone(), 123));
 
             // process the second one!
             let (fee, receipt) = StacksChainState::process_transaction(
@@ -8615,7 +8615,7 @@ pub mod test {
             // sequence.  Moreover, since the fork was earlier in the stream, the second reporter gets
             // it.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
-            assert_eq!(report_opt.unwrap(), (reporter_addr_2, 122));
+            assert_eq!(report_opt.unwrap(), (reporter_addr_2.clone(), 122));
 
             // result must encode poison information
             let result_data = receipt.result.expect_tuple().unwrap();
@@ -9829,7 +9829,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
@@ -9846,7 +9846,7 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
         conn.commit_block();
@@ -9940,7 +9940,7 @@ pub mod test {
         } else {
             panic!("Did not get epoch is not activated error");
         }
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
@@ -9957,7 +9957,7 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
         conn.commit_block();
@@ -10016,7 +10016,7 @@ pub mod test {
         assert_eq!(fee, 1);
 
         // nonce keeps advancing despite error
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 4);
 
         // no state change materialized
@@ -10040,7 +10040,7 @@ pub mod test {
         assert_eq!(fee, 1);
 
         // nonce keeps advancing despite error
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 5);
 
         // no state change materialized
@@ -10102,7 +10102,7 @@ pub mod test {
         assert_eq!(fee, 1);
 
         // nonce keeps advancing
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 4);
 
         // state change materialized

@@ -1588,12 +1588,12 @@ impl<T: MarfTrieId> MARF<T> {
 
     /// Access internal storage
     #[cfg(test)]
-    pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<T> {
+    pub fn borrow_storage_backend(&mut self) -> TrieStorageConnection<'_, T> {
         self.storage.connection()
     }
 
     #[cfg(test)]
-    pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<T> {
+    pub fn borrow_storage_transaction(&mut self) -> TrieStorageTransaction<'_, T> {
         self.storage.transaction().unwrap()
     }
 

@@ -26,9 +26,7 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble, HttpServerError,
 };
-use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttpRequest, StacksHttpResponse};
 use crate::net::relay::Relayer;
 use crate::net::{Attachment, Error as NetError, StacksMessageType, StacksNodeState};
 
@@ -269,8 +267,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
             node.set_relay_message(StacksMessageType::Transaction(tx));
         }
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&txid)?;
         Ok((preamble, body))
     }

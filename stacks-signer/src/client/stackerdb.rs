@@ -75,7 +75,7 @@ impl<M: MessageSlotID + 'static> From<&SignerConfig> for StackerDB<M> {
 
         Self::new(
             &config.node_host,
-            config.stacks_private_key,
+            config.stacks_private_key.clone(),
             config.mainnet,
             config.reward_cycle,
             signer_db,
