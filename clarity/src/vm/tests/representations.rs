@@ -1,14 +1,13 @@
-use proptest::{prelude::*, string::string_regex};
+use proptest::prelude::*;
+use proptest::string::string_regex;
 use stacks_common::codec::StacksMessageCodec;
 
-use crate::vm::{
-    errors::RuntimeErrorType,
-    representations::{
-        CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
-        CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN,
-    },
-    ClarityName, ContractName,
+use crate::vm::errors::RuntimeErrorType;
+use crate::vm::representations::{
+    CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
+    CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN,
 };
+use crate::vm::{ClarityName, ContractName};
 
 /// Generates a proptest strategy for valid Clarity names.
 ///
