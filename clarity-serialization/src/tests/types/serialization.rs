@@ -14,11 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
-use crate::errors::CheckErrors;
+use crate::Error;
+use crate::errors::{CheckErrors, InterpreterError};
 use crate::types::serialization::SerializationError;
 use crate::types::{
-    MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
+    ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
 fn test_deser_ser(v: Value) {
@@ -413,4 +414,34 @@ fn test_principals() {
 
     test_bad_expectation(contract_p2, TypeSignature::BoolType);
     test_bad_expectation(standard_p, TypeSignature::BoolType);
+}
+
+/// The returned InterpreterError is consensus-critical.
+#[test]
+fn test_serialize_to_vec_returns_interpreter_error_consensus_critical() {
+    let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+        data: vec![0; MAX_VALUE_SIZE as usize + 1],
+    })));
+    let err = value.serialize_to_vec().unwrap_err();
+    assert_eq!(
+        Error::from(InterpreterError::Expect(
+            "IOError filling byte buffer.".into()
+        )),
+        err.into()
+    );
+}
+
+/// The returned InterpreterError is consensus-critical.
+#[test]
+fn test_serialize_to_hex_returns_interpreter_error_consensus_critical() {
+    let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+        data: vec![0; MAX_VALUE_SIZE as usize + 1],
+    })));
+    let err = value.serialize_to_hex().unwrap_err();
+    assert_eq!(
+        Error::from(InterpreterError::Expect(
+            "IOError filling byte buffer.".into()
+        )),
+        err.into()
+    );
 }

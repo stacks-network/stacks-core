@@ -18,7 +18,8 @@ use crate::errors::CheckErrors;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier, TupleTypeSignature,
+    MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier,
+    TupleTypeSignature,
 };
 
 #[test]
@@ -524,4 +525,15 @@ fn test_least_supertype() {
             CheckErrors::TypeError(..)
         );
     }
+}
+
+#[test]
+fn test_type_signature_bound_string_ascii_type_returns_check_errors() {
+    let err = TypeSignature::bound_string_ascii_type(MAX_VALUE_SIZE + 1).unwrap_err();
+    assert_eq!(
+        CheckErrors::Expects(
+            "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".to_string()
+        ),
+        err
+    );
 }
