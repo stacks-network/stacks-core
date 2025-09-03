@@ -760,7 +760,7 @@ impl BitcoinRegtestController {
     /// If it does not exist, this function creates it.
     pub fn create_wallet_if_dne(&self) -> Result<(), BitcoinRpcClientError> {
         let wallets = self.list_wallets()?;
-        let wallet = self.get_config_wallet();
+        let wallet = self.get_wallet_name();
         if !wallets.contains(wallet) {
             self.rpc_client.create_wallet(wallet, Some(true))?
         }
@@ -2178,7 +2178,7 @@ impl BitcoinRegtestController {
     pub fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
         match self
             .rpc_client
-            .get_transaction(self.get_config_wallet(), txid)
+            .get_transaction(self.get_wallet_name(), txid)
         {
             Ok(info) => info.confirmations > 0,
             Err(e) => {
@@ -2189,7 +2189,7 @@ impl BitcoinRegtestController {
     }
 
     /// Returns the configured wallet name from [`Config`].
-    fn get_config_wallet(&self) -> &String {
+    fn get_wallet_name(&self) -> &String {
         &self.config.burnchain.wallet_name
     }
 }
