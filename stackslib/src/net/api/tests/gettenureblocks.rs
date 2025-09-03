@@ -48,7 +48,7 @@ fn test_try_parse_request() {
         .unwrap();
     assert_eq!(handler.consensus_hash, Some(ConsensusHash([0x01; 20])));
 
-    // parsed request consumes headers that would not be in a constructed reqeuest
+    // parsed request consumes headers that would not be in a constructed request
     parsed_request.clear_headers();
     let (preamble, contents) = parsed_request.destruct();
 

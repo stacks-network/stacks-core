@@ -119,7 +119,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
                     ) {
                         Ok(Some(header)) => header,
                         Ok(None) => {
-                            let msg = format!("No blocks in tenure {}", &consensus_hash);
+                            let msg = format!("No blocks in tenure {consensus_hash}");
                             debug!("{}", &msg);
                             return Err(StacksHttpResponse::new_error(
                                 &preamble,
@@ -128,10 +128,9 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
                         }
                         Err(e) => {
                             let msg = format!(
-                                "Failed to query tenure blocks by consensus '{}': {:?}",
-                                consensus_hash, &e
+                                "Failed to query tenure blocks by consensus '{consensus_hash}': {e:?}"
                             );
-                            error!("{}", &msg);
+                            error!("{msg}");
                             return Err(StacksHttpResponse::new_error(
                                 &preamble,
                                 &HttpServerError::new(msg),
@@ -147,8 +146,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
                     Ok(blocks) => blocks,
                     Err(e) => {
                         let msg = format!(
-                            "Failed to query tenure blocks by consensus '{}': {:?}",
-                            consensus_hash, &e
+                            "Failed to query tenure blocks by consensus '{consensus_hash}': {e:?}"
                         );
                         error!("{}", &msg);
                         return Err(StacksHttpResponse::new_error(
