@@ -1057,6 +1057,31 @@ paths:
                 type: string
                 format: binary
 
+  /v3/tenures/blocks/{consensus_hash}:
+    get:
+      summary: Get the list of Stacks blocks in a tenure
+      tags:
+        - Blocks
+      security: []
+      operationId: getTenureBlocks
+      description: |
+        Get the list of blocks in a tenure. The blocks will be
+        shown in order from highest to lowest.
+      parameters:
+        - name: consensus_hash
+          in: path
+          description: The consensus hash of the tenure to query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of Stacks block ids
+          content:
+            application/json:
+              schema:
+                type: string
+
   /v3/sortitions:
     get:
       summary: Get latest sortition information
