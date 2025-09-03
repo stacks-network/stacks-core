@@ -178,8 +178,8 @@ impl RpcTransport {
     /// * `id` - A unique identifier for correlating responses.
     /// * `relative_path` - An optional relative path to append to the transport base path for this request.
     ///                     If `None`, the base path is used. Leading `/` in the path is handled automatically.
-    /// * `params` - A list of parameters to pass to the method.
     /// * `method` - The name of the JSON-RPC method to invoke.
+    /// * `params` - A list of parameters to pass to the method.
     ///
     /// # Returns
     ///
