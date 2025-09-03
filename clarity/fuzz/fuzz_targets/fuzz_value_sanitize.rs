@@ -1,0 +1,277 @@
+// Copyright (C) 2025 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+// Copied from clarity/fuzz/fuzz_targets/fuzz_sanitize.rs.
+// Origin: stacks-core @ a9e282827dbff12ed7cc11eba895aca5fd73016f.
+
+#![no_main]
+
+use arbitrary::Arbitrary;
+use clarity::vm::analysis::CheckErrors;
+use clarity::vm::representations::ContractName;
+use clarity::vm::types::signatures::SequenceSubtype;
+use clarity::vm::types::{
+    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
+    StringSubtype, TupleData, TypeSignature,
+};
+use clarity::vm::{ClarityName, Value as ClarityValue};
+use libfuzzer_sys::{arbitrary, fuzz_target};
+use stacks_common::types::StacksEpochId;
+
+#[derive(Debug)]
+struct FuzzClarityValue(ClarityValue);
+
+#[derive(Debug)]
+struct FuzzStandardPrincipal(StandardPrincipalData);
+
+#[derive(Debug)]
+struct FuzzContractName(ContractName);
+
+#[derive(Debug)]
+struct FuzzClarityName(ClarityName);
+
+impl arbitrary::Arbitrary<'_> for FuzzContractName {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let input_string = String::arbitrary(u)?;
+        ContractName::try_from(input_string)
+            .map(FuzzContractName)
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
+impl arbitrary::Arbitrary<'_> for FuzzClarityName {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let input_string = String::arbitrary(u)?;
+        ClarityName::try_from(input_string)
+            .map(FuzzClarityName)
+            .map_err(|_| arbitrary::Error::IncorrectFormat)
+    }
+}
+
+impl arbitrary::Arbitrary<'_> for FuzzStandardPrincipal {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let version = u8::arbitrary(u)?;
+        if version >= 32 {
+            return Err(arbitrary::Error::IncorrectFormat);
+        }
+        let data: [u8; 20] = Arbitrary::arbitrary(u)?;
+        match StandardPrincipalData::new(version, data) {
+            Ok(principal) => Ok(FuzzStandardPrincipal(principal)),
+            Err(_) => Err(arbitrary::Error::IncorrectFormat),
+        }
+    }
+}
+
+impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
+        let clar_type = u8::arbitrary(u)?;
+        let clar_value = match clar_type {
+            0 => ClarityValue::Int(i128::arbitrary(u)?),
+            1 => ClarityValue::UInt(u128::arbitrary(u)?),
+            2 => ClarityValue::Bool(bool::arbitrary(u)?),
+            3 => ClarityValue::some(FuzzClarityValue::arbitrary(u)?.0)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            4 => ClarityValue::none(),
+            5 => ClarityValue::okay(FuzzClarityValue::arbitrary(u)?.0)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            6 => ClarityValue::error(FuzzClarityValue::arbitrary(u)?.0)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            7 => ClarityValue::Principal(PrincipalData::Standard(
+                FuzzStandardPrincipal::arbitrary(u)?.0,
+            )),
+            8 => {
+                ClarityValue::Principal(PrincipalData::Contract(QualifiedContractIdentifier::new(
+                    FuzzStandardPrincipal::arbitrary(u)?.0,
+                    FuzzContractName::arbitrary(u)?.0,
+                )))
+            }
+            // utf8
+            9 => ClarityValue::string_utf8_from_bytes(Arbitrary::arbitrary(u)?)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            // ascii
+            10 => ClarityValue::string_ascii_from_bytes(Arbitrary::arbitrary(u)?)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            // buff
+            11 => ClarityValue::buff_from(Arbitrary::arbitrary(u)?)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?,
+            // list
+            12 => {
+                let value_vec: Vec<FuzzClarityValue> = Arbitrary::arbitrary(u)?;
+                ClarityValue::cons_list_unsanitized(value_vec.into_iter().map(|x| x.0).collect())
+                    .map_err(|_| arbitrary::Error::IncorrectFormat)?
+            }
+            // tuple
+            13 => {
+                let tuple_data: Vec<(FuzzClarityName, FuzzClarityValue)> = Arbitrary::arbitrary(u)?;
+                TupleData::from_data(
+                    tuple_data
+                        .into_iter()
+                        .map(|(key, value)| (key.0, value.0))
+                        .collect(),
+                )
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?
+                .into()
+            }
+            _ => return Err(arbitrary::Error::IncorrectFormat),
+        };
+
+        Ok(FuzzClarityValue(clar_value))
+    }
+}
+
+pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, CheckErrors> {
+    match me {
+        TypeSignature::NoType => Err(CheckErrors::CouldNotDetermineType),
+        TypeSignature::IntType => match x {
+            ClarityValue::Int(_) => Ok(true),
+            _ => Ok(false),
+        },
+        TypeSignature::UIntType => match x {
+            ClarityValue::UInt(_) => Ok(true),
+            _ => Ok(false),
+        },
+        TypeSignature::BoolType => match x {
+            ClarityValue::Bool(_) => Ok(true),
+            _ => Ok(false),
+        },
+        TypeSignature::SequenceType(SequenceSubtype::ListType(ref my_list_type)) => {
+            let list_data = match x {
+                ClarityValue::Sequence(SequenceData::List(ref ld)) => ld,
+                _ => return Ok(false),
+            };
+            // Use map_or to safely extract the length or use 0 if error
+            if my_list_type.get_max_len() < list_data.len().map_or(0, |len| len) {
+                return Ok(false);
+            }
+            let my_entry_type = my_list_type.get_list_item_type();
+            for entry in list_data.data.iter() {
+                if !strict_admits(my_entry_type, entry)? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(ref my_max_len)) => {
+            let buff_data = match x {
+                ClarityValue::Sequence(SequenceData::Buffer(ref buff_data)) => buff_data,
+                _ => return Ok(false),
+            };
+            // Compare using map_or to handle the Result
+            if buff_data.len().map_or(false, |len| &len > my_max_len) {
+                return Ok(false);
+            }
+            return Ok(true);
+        }
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            ref my_max_len,
+        ))) => {
+            let ascii_data = match x {
+                ClarityValue::Sequence(SequenceData::String(CharType::ASCII(ref ascii_data))) => {
+                    ascii_data
+                }
+                _ => return Ok(false),
+            };
+            // Compare using map_or to handle the Result
+            if ascii_data.len().map_or(false, |len| &len > my_max_len) {
+                return Ok(false);
+            }
+            return Ok(true);
+        }
+        TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+            ref my_max_len,
+        ))) => {
+            let utf8_data = match x {
+                ClarityValue::Sequence(SequenceData::String(CharType::UTF8(ref utf8_data))) => {
+                    utf8_data
+                }
+                _ => return Ok(false),
+            };
+            // Compare using map_or to handle the Result and clone the max_len
+            if utf8_data
+                .len()
+                .map_or(false, |len| u32::from(len) > u32::from(my_max_len.clone()))
+            {
+                return Ok(false);
+            }
+            return Ok(true);
+        }
+        TypeSignature::PrincipalType => match x {
+            ClarityValue::Principal(_) => Ok(true),
+            _ => Ok(false),
+        },
+        TypeSignature::OptionalType(ref ot) => match x {
+            ClarityValue::Optional(inner_value) => match &inner_value.data {
+                Some(some_value) => strict_admits(ot, some_value),
+                None => Ok(true),
+            },
+            _ => Ok(false),
+        },
+        TypeSignature::ResponseType(ref rt) => {
+            let response_data = match x {
+                ClarityValue::Response(rd) => rd,
+                _ => return Ok(false),
+            };
+            let inner_type = if response_data.committed {
+                &rt.0
+            } else {
+                &rt.1
+            };
+            strict_admits(inner_type, &response_data.data)
+        }
+        TypeSignature::TupleType(ref tt) => {
+            let tuple_data = match x {
+                ClarityValue::Tuple(td) => td,
+                _ => return Ok(false),
+            };
+            if tt.len() != tuple_data.len() {
+                return Ok(false);
+            }
+            for (field, field_type) in tt.get_type_map().iter() {
+                let field_value = match tuple_data.get(&field) {
+                    Ok(x) => x,
+                    Err(_) => return Ok(false),
+                };
+                if !strict_admits(field_type, field_value)? {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+        TypeSignature::CallableType(_)
+        | TypeSignature::ListUnionType(_)
+        | TypeSignature::TraitReferenceType(_) => Err(CheckErrors::TraitReferenceNotAllowed),
+    }
+}
+
+fn fuzz_value_sanitize(input: ClarityValue) {
+    let computed_type = TypeSignature::type_of(&input).unwrap();
+    let did_strict_admit = strict_admits(&computed_type, &input).unwrap();
+
+    let (sanitized_value, did_sanitize) =
+        ClarityValue::sanitize_value(&StacksEpochId::Epoch24, &computed_type, input.clone())
+            .unwrap();
+
+    if did_strict_admit {
+        assert_eq!(sanitized_value, input);
+        assert!(!did_sanitize);
+    } else {
+        assert!(did_sanitize);
+        assert!(strict_admits(&computed_type, &sanitized_value).unwrap());
+    }
+}
+
+fuzz_target!(|value: FuzzClarityValue| {
+    fuzz_value_sanitize(value.0);
+});

@@ -186,7 +186,7 @@ impl StacksNode {
         let burnchain = runloop.get_burnchain();
         let atlas_config = config.atlas.clone();
         let mut keychain = Keychain::default(config.node.seed.clone());
-        if let Some(mining_key) = config.miner.mining_key {
+        if let Some(mining_key) = config.miner.mining_key.clone() {
             keychain.set_nakamoto_sk(mining_key);
         }
 

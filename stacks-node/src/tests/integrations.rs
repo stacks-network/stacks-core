@@ -923,7 +923,7 @@ fn integration_test_get_info() {
                 let path = format!("{http_origin}/v2/fees/transaction");
 
                 let tx_payload =
-                    TransactionPayload::TokenTransfer(contract_addr.into(), 10_000_000, TokenTransferMemo([0; 34]));
+                    TransactionPayload::TokenTransfer(contract_addr.clone().into(), 10_000_000, TokenTransferMemo([0; 34]));
 
                 let payload_data = tx_payload.serialize_to_vec();
                 let payload_hex = format!("0x{}", to_hex(&payload_data));
@@ -968,7 +968,7 @@ fn integration_test_get_info() {
                 assert_eq!(estimated_fees.count(), 3, "Fees should be length 3 array");
 
                 let tx_payload = TransactionPayload::from(TransactionContractCall {
-                    address: contract_addr,
+                    address: contract_addr.clone(),
                     contract_name: "get-info".into(),
                     function_name: "update-info".into(),
                     function_args: vec![],
@@ -1738,7 +1738,7 @@ fn bad_contract_tx_rollback() {
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
             let sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
-            let addr_2 = to_addr(&sk_2);
+            let addr_2: StacksAddress = to_addr(&sk_2);
 
             let contract_identifier = QualifiedContractIdentifier::parse(&format!(
                 "{}.faucet",
@@ -1779,7 +1779,7 @@ fn bad_contract_tx_rollback() {
                     1,
                     10,
                     CHAIN_ID_TESTNET,
-                    &addr_2.into(),
+                    &addr_2.clone().into(),
                     1000,
                 );
                 let (consensus_hash, block_hash) = (

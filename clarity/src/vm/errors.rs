@@ -25,11 +25,13 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use super::ast::errors::ParseErrors;
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
+    SyntaxBindingError, SyntaxBindingErrorType,
 };
 use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
 use crate::vm::types::Value;
+use crate::vm::SymbolicExpression;
 
 #[derive(Debug)]
 pub struct IncomparableError<T> {
@@ -283,6 +285,12 @@ impl From<RuntimeErrorType> for Error {
 impl From<CheckErrors> for Error {
     fn from(err: CheckErrors) -> Self {
         Error::Unchecked(err)
+    }
+}
+
+impl From<(CheckErrors, &SymbolicExpression)> for Error {
+    fn from(err: (CheckErrors, &SymbolicExpression)) -> Self {
+        Error::Unchecked(err.0)
     }
 }
 

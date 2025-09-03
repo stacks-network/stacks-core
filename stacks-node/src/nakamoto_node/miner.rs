@@ -466,7 +466,7 @@ impl BlockMinerThread {
         let mut last_block_rejected = false;
 
         let reward_set = self.load_signer_set()?;
-        let Some(miner_privkey) = self.config.miner.mining_key else {
+        let Some(miner_privkey) = self.config.miner.mining_key.clone() else {
             return Err(NakamotoNodeError::MinerConfigurationFailed(
                 "No mining key configured, cannot mine",
             ));

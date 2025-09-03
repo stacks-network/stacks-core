@@ -20,12 +20,13 @@ use rstest::rstest;
 use stacks_common::types::{chainstate::BlockHeaderHash, StacksEpochId};
 
 use crate::vm::contexts::Environment;
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 #[cfg(test)]
+#[allow(unused_imports)]
 use crate::vm::{
     ast::{errors::ParseErrors, ASTRules},
+    database::MemoryBackingStore,
     errors::{CheckErrors, Error, RuntimeErrorType},
     tests::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,

@@ -1318,7 +1318,9 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         );
 
         if total_sent == 0 && disconnected && !blocked {
-            return Err(net_error::PeerNotConnected);
+            return Err(net_error::PeerNotConnected(format!(
+                "Failed to send bytes: total_sent = {total_sent}, disconnected = {disconnected}, blocked = {blocked}"
+            )));
         }
         update_outbound_bandwidth(total_sent as i64);
         Ok(total_sent)
@@ -1513,10 +1515,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
 
     /// Get a copy of the public key
     pub fn get_public_key(&self) -> Option<Secp256k1PublicKey> {
-        match self.inbox.public_key {
-            Some(pubk) => Some(pubk.clone()),
-            None => None,
-        }
+        self.inbox.public_key.clone()
     }
 
     /// Get a copy of the public key

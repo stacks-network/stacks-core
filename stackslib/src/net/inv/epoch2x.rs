@@ -1134,54 +1134,6 @@ impl InvState {
         list
     }
 
-    /// Returns the highest Stacks tip height reported by the given neighbors.
-    ///
-    /// This function iterates through the provided neighbors, checks their block stats,
-    /// and determines the maximum block height. The status of the neighbor (Online or Diverged during IBD,
-    /// or Online when not in IBD) is considered.
-    ///
-    /// # Arguments
-    ///
-    /// * `neighbors` - Optional slice of `Neighbor` structs to check. If `None`, all neighbors are considered.
-    /// * `ibd` - A boolean indicating if the node is in Initial Block Download (IBD) mode.
-    ///
-    /// # Returns
-    ///
-    /// * `Some(u64)` if at least one neighbor has a tip height according to its status.
-    /// * `None` if no tip heights are found.
-    pub fn get_max_stacks_height_of_neighbors(
-        &self,
-        neighbors: Option<&[Neighbor]>,
-        ibd: bool,
-    ) -> Option<u64> {
-        let filter_and_extract = |stats: &NeighborBlockStats| -> Option<u64> {
-            let status_valid = if ibd {
-                stats.status == NodeStatus::Online || stats.status == NodeStatus::Diverged
-            } else {
-                stats.status == NodeStatus::Online
-            };
-
-            if status_valid {
-                Some(stats.inv.get_block_height())
-            } else {
-                None
-            }
-        };
-
-        match neighbors {
-            Some(n) => n
-                .iter()
-                .filter_map(|neighbor| self.block_stats.get(&neighbor.addr))
-                .filter_map(filter_and_extract)
-                .max(),
-            None => self
-                .block_stats
-                .values()
-                .filter_map(filter_and_extract)
-                .max(),
-        }
-    }
-
     /// Get the list of dead
     pub fn get_dead_peers(&self) -> Vec<NeighborKey> {
         let mut list = vec![];
@@ -2346,7 +2298,7 @@ impl PeerNetwork {
                             inv_state.hint_learned_data = true;
                             inv_state.hint_learned_data_height = u64::MAX;
                         }
-                        Err(net_error::PeerNotConnected) | Err(net_error::SendError(..)) => {
+                        Err(net_error::PeerNotConnected(..)) | Err(net_error::SendError(..)) => {
                             stats.status = NodeStatus::Dead;
                         }
                         Err(e) => {
@@ -2599,7 +2551,9 @@ impl PeerNetwork {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
                 Ok(func(network, nstats))
             } else {
-                Err(net_error::PeerNotConnected)
+                Err(net_error::PeerNotConnected(format!(
+                    "No inventory stats for neighbor {nk}",
+                )))
             }
         }) {
             Ok(Ok(x)) => Ok(x),
