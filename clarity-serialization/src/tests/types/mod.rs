@@ -125,9 +125,9 @@ fn simple_size_test() {
 #[test]
 fn simple_tuple_get_test() {
     let t = TupleData::from_data(vec![("abc".into(), Value::Int(0))]).unwrap();
-    assert!(matches!(t.get("abc"), Ok(&Value::Int(0))));
+    assert_eq!(t.get("abc"), Ok(&Value::Int(0)));
     // should error!
-    t.get("abcd").expect_err("should error");
+    t.get("abcd").unwrap_err();
 }
 
 #[test]

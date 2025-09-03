@@ -53,6 +53,7 @@ pub mod tests {
     use super::super::*;
     use super::SerializationError;
     use crate::vm::database::{ClarityDeserializable, ClaritySerializable, RollbackWrapper};
+    use crate::vm::errors::{Error, InterpreterError};
     use crate::vm::tests::test_clarity_versions;
     use crate::vm::ClarityVersion;
 
@@ -650,5 +651,35 @@ pub mod tests {
                 }
             }
         }
+    }
+
+    /// The returned InterpreterError is consensus-critical.
+    #[test]
+    fn test_serialize_to_vec_returns_interpreter_error_consensus_critical() {
+        let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+            data: vec![0; MAX_VALUE_SIZE as usize + 1],
+        })));
+        let err = value.serialize_to_vec().unwrap_err();
+        assert_eq!(
+            Error::from(InterpreterError::Expect(
+                "IOError filling byte buffer.".into()
+            )),
+            err.into()
+        );
+    }
+
+    /// The returned InterpreterError is consensus-critical.
+    #[test]
+    fn test_serialize_to_hex_returns_interpreter_error_consensus_critical() {
+        let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+            data: vec![0; MAX_VALUE_SIZE as usize + 1],
+        })));
+        let err = value.serialize_to_hex().unwrap_err();
+        assert_eq!(
+            Error::from(InterpreterError::Expect(
+                "IOError filling byte buffer.".into()
+            )),
+            err.into()
+        );
     }
 }
