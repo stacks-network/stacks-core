@@ -337,7 +337,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             return false;
         };
 
-        !std::fs::metadata(snapshot_path).is_ok()
+        std::fs::metadata(snapshot_path).is_err()
     }
 
     /// Setup a snapshot by copying the snapshot directory to the working directory.
