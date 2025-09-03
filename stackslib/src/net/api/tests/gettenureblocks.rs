@@ -62,13 +62,25 @@ fn test_try_make_response() {
     let test_observer = TestEventObserver::new();
     let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
-    let nakamoto_chain_tip = rpc_test.canonical_tip.clone();
-    let consensus_hash = rpc_test.consensus_hash.clone();
+    let nakamoto_consensus_hash = rpc_test.consensus_hash.clone();
 
     let mut requests = vec![];
 
     // query existing, non-empty Nakamoto tenure
-    let request = StacksHttpRequest::new_get_tenure_blocks(addr.clone().into(), &consensus_hash);
+    let request =
+        StacksHttpRequest::new_get_tenure_blocks(addr.clone().into(), &nakamoto_consensus_hash);
+    requests.push(request);
+
+    let genesis_consensus_hash = test_observer
+        .get_blocks()
+        .first()
+        .unwrap()
+        .metadata
+        .consensus_hash;
+
+    // query existing, non-empty Epoch2 tenure
+    let request =
+        StacksHttpRequest::new_get_tenure_blocks(addr.clone().into(), &genesis_consensus_hash);
     requests.push(request);
 
     // query non-existant tenure
@@ -86,10 +98,10 @@ fn test_try_make_response() {
     );
 
     let resp = response.decode_tenure_blocks().unwrap();
-    assert_eq!(resp.consensus_hash, consensus_hash);
+    assert_eq!(resp.consensus_hash, nakamoto_consensus_hash);
     let mut blocks_index = 0;
     for block in test_observer.get_blocks().iter().rev() {
-        if block.metadata.consensus_hash != consensus_hash {
+        if block.metadata.consensus_hash != nakamoto_consensus_hash {
             break;
         }
 
@@ -98,10 +110,49 @@ fn test_try_make_response() {
             block.metadata.index_block_hash()
         );
 
+        assert_eq!(
+            resp.stacks_blocks[blocks_index].parent_block_id.to_string(),
+            block.parent.to_hex()
+        );
+
+        assert_eq!(resp.stacks_blocks[blocks_index].header_type, "nakamoto");
+
         blocks_index += 1;
     }
 
     assert_eq!(blocks_index, resp.stacks_blocks.len());
+
+    // got Epoch2 (genesis)
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let resp = response.decode_tenure_blocks().unwrap();
+    assert_eq!(resp.consensus_hash, genesis_consensus_hash);
+    let mut blocks_index = resp.stacks_blocks.len() - 1;
+    for block in test_observer.get_blocks() {
+        if block.metadata.consensus_hash != genesis_consensus_hash {
+            break;
+        }
+
+        assert_eq!(
+            resp.stacks_blocks[blocks_index].block_id,
+            block.metadata.index_block_hash()
+        );
+
+        assert_eq!(
+            resp.stacks_blocks[blocks_index].parent_block_id.to_string(),
+            block.parent.to_hex()
+        );
+
+        assert_eq!(resp.stacks_blocks[blocks_index].header_type, "epoch2");
+
+        blocks_index -= 1;
+    }
+
+    assert_eq!(blocks_index, 0);
 
     // got a failure
     let response = responses.remove(0);
