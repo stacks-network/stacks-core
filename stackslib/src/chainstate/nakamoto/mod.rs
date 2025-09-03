@@ -2862,29 +2862,6 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
-    /// Get all the blocks for a specific consensus hash and burnview
-    /// highest block on top
-    pub fn get_block_headers_in_tenure_at_burnview(
-        db: &Connection,
-        tenure_id: &ConsensusHash,
-        burn_view: &ConsensusHash,
-    ) -> Result<Vec<StacksHeaderInfo>, ChainstateError> {
-        // see if we have a nakamoto block in this tenure
-        let qry = "
-        SELECT *
-        FROM nakamoto_block_headers
-        WHERE consensus_hash = ?1
-        AND burn_view = ?2
-        ORDER BY block_height DESC
-        ";
-        let args = params![tenure_id, burn_view];
-        let out = query_rows(db, qry, args)?;
-        if !out.is_empty() {
-            return Ok(out);
-        }
-        Err(ChainstateError::NoSuchBlockError)
-    }
-
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
     /// tenure.
     ///
