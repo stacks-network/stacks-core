@@ -17,12 +17,6 @@
   "is_fully_synced": false,
   "node_public_key": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef01",
   "node_public_key_hash": "1328af7c4f96eee8fdbb1e023e48ba11e255d1c8",
-  "affirmations": {
-    "heaviest": "",
-    "stacks_tip": "",
-    "sortition_tip": "",
-    "tentative_best": ""
-  },
   "last_pox_anchor": {
     "anchor_block_hash": "47c20352492e1647127d6f6275fa5abfe90157f6a64e6a175ff45ed0c1fb3f4e",
     "anchor_block_txid": "5b5d678c658525122fa73a8699b5810325ce9412bf0dc3762fb7518699be3d4d"

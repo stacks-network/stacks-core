@@ -15,7 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Clarity errors pertaining to syntax binding errors have been made more
   expressive (#6337)
-
+- Removed affirmation maps logic throughout, upgrading chainstate DB schema to 11 and burnchain DB schema to 3 (#6314)
 
 ## [3.2.0.0.1]
 

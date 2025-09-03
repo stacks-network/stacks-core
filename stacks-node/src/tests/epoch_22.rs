@@ -1626,7 +1626,6 @@ fn test_pox_reorg_one_flap() {
     eprintln!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
-    // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Final tip for miner {i}: {tip_info:?}");

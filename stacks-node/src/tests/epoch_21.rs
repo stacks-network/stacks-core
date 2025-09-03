@@ -2289,8 +2289,6 @@ fn test_pox_reorgs_three_flaps() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Tip for miner {i}: {tip_info:?}");
-
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnp").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
@@ -2405,8 +2403,6 @@ fn test_pox_reorgs_three_flaps() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Tip for miner {i}: {tip_info:?}");
-
-        // miner 0 may have won here, but its affirmation map isn't yet the heaviest.
     }
     info!("####################### end of cycle ##############################");
 
@@ -2432,8 +2428,6 @@ fn test_pox_reorgs_three_flaps() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Tip for miner {i}: {tip_info:?}");
-
-        // miner 0's affirmation map now becomes the heaviest.
     }
     info!("####################### end of cycle ##############################");
 
@@ -2461,7 +2455,6 @@ fn test_pox_reorgs_three_flaps() {
         let tip_info = get_chain_info(c);
         info!("Tip for miner {i}: {tip_info:?}");
 
-        // miner 0's affirmation map is now the heaviest, and there's no longer a tie.
         max_stacks_tip = std::cmp::max(tip_info.stacks_tip_height, max_stacks_tip);
     }
     info!("####################### end of cycle ##############################");
@@ -2483,7 +2476,6 @@ fn test_pox_reorgs_three_flaps() {
     eprintln!("Wait for all blocks to propagate; max tip is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
-    // nodes now agree on affirmation maps
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Final tip for miner {i}: {tip_info:?}");
@@ -2885,7 +2877,6 @@ fn test_pox_reorg_one_flap() {
     eprintln!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
-    // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Final tip for miner {i}: {tip_info:?}");
@@ -2894,7 +2885,6 @@ fn test_pox_reorg_one_flap() {
 
 /// PoX reorg tests where two miners take turn mining hidden anchor blocks.
 /// Both miners mine in the reward phase, and in doing so, confirm their hidden anchor blocks.
-/// The heaviest affirmation map grows as n+pppa+
 #[test]
 #[ignore]
 fn test_pox_reorg_flap_duel() {
@@ -3206,14 +3196,10 @@ fn test_pox_reorg_flap_duel() {
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Tip for miner {i}: {tip_info:?}");
-
-        //assert_eq!(tip_info.affirmations.heaviest, AffirmationMap::decode("nnnnnnnnnnnnnnnnnnnnp").unwrap());
     }
     info!("####################### end of cycle ##############################");
 
     // prevent Stacks at these heights from propagating.
-    // This means that both nodes affirm the absence of each others' anchor blocks, and the
-    // heaviest affirmation map will always look like n+pppa+
     env::set_var(
         "STACKS_HIDE_BLOCKS_AT_HEIGHT",
         "[226,227,228,229,230,236,237,238,239,240,246,247,248,249,250,256,257,258,259,260,266,267,268,269,270,276,277,278,279,280,286,287,288,289,290]"
@@ -3295,13 +3281,9 @@ fn test_pox_reorg_flap_duel() {
     env::set_var("STACKS_HIDE_BLOCKS_AT_HEIGHT", "[]");
 
     // wait for all blocks to propagate
-    // NOTE: the stacks affirmation maps will differ from the heaviest affirmation map, because the
-    // act of flapping back and forth so much will have caused these nodes to forget about some of
-    // their anchor blocks.  This is an artifact of the test.
     eprintln!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
-    // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Final tip for miner {i}: {tip_info:?}");
@@ -3698,13 +3680,9 @@ fn test_pox_reorg_flap_reward_cycles() {
     env::set_var("STACKS_HIDE_BLOCKS_AT_HEIGHT", "[]");
 
     // wait for all blocks to propagate
-    // NOTE: the stacks affirmation maps will differ from the heaviest affirmation map, because the
-    // act of flapping back and forth so much will have caused these nodes to forget about some of
-    // their anchor blocks.  This is an artifact of the test.
     eprintln!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
-    // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Final tip for miner {i}: {tip_info:?}");
@@ -4079,7 +4057,6 @@ fn test_pox_missing_five_anchor_blocks() {
     info!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}",);
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
-    // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Final tip for miner {i}: {tip_info:?}");
@@ -4503,7 +4480,6 @@ fn test_sortition_divergence_pre_21() {
     info!("Wait for all blocks to propagate; stacks tip height is {max_stacks_tip}");
     wait_pox_stragglers(&confs, max_stacks_tip, block_time_ms);
 
-    // nodes now agree on stacks affirmation map
     for (i, c) in confs.iter().enumerate() {
         let tip_info = get_chain_info(c);
         info!("Final tip for miner {i}: {tip_info:?}");

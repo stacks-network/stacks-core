@@ -6508,16 +6508,194 @@ pub mod tests {
 
     use super::*;
     use crate::burnchains::db::BurnchainDB;
-    use crate::burnchains::tests::affirmation::{make_reward_cycle, make_simple_key_register};
+    use crate::burnchains::tests::db::make_simple_block_commit;
     use crate::burnchains::*;
     use crate::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
     use crate::chainstate::burn::operations::{
         BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
     };
     use crate::chainstate::burn::ConsensusHash;
+    use crate::chainstate::coordinator::tests::{
+        next_block_hash, next_burn_header_hash, next_txid,
+    };
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{StacksEpochExtension, *};
     use crate::util_lib::db::Error as db_error;
+
+    pub fn make_simple_key_register(
+        burn_header_hash: &BurnchainHeaderHash,
+        block_height: u64,
+        vtxindex: u32,
+    ) -> LeaderKeyRegisterOp {
+        LeaderKeyRegisterOp {
+            consensus_hash: ConsensusHash::from_bytes(
+                &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
+            )
+            .unwrap(),
+            public_key: VRFPublicKey::from_bytes(
+                &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a")
+                    .unwrap(),
+            )
+            .unwrap(),
+            memo: vec![1, 2, 3, 4, 5],
+
+            txid: next_txid(),
+            vtxindex,
+            block_height,
+            burn_header_hash: burn_header_hash.clone(),
+        }
+    }
+
+    /// Create a mock reward cycle with an anchor block -- The method returns the data for all new mocked blocks
+    /// created -- it returns the list of new block headers, and for each new block, it returns the
+    /// list of block-commits created (if any).  In addition, the `headers` argument will be grown to
+    /// include the new block-headers (so that a succession of calls to this method will grow the given
+    /// headers argument).  The list of headers returned (first tuple item) is in 1-to-1 correspondence
+    /// with the list of lists of block-commits returned (second tuple item).  If the ith item in
+    /// parent_commits is None, then all the block-commits in the ith list of lists of block-commits
+    /// will be None.
+    ///
+    /// The caller can control how many block-commits get produced per block with the `parent_commits`
+    /// argument.  If parent_commits[i] is Some(..), then a sequence of block-commits will be produced
+    /// that descend from it.
+    ///
+    /// All block-commits produced reference the given miner key (given in the `key` argument).  All
+    /// block-commits created, as well as all block headers, will be stored to the given burnchain
+    /// database (in addition to being returned).
+    pub fn make_reward_cycle(
+        burnchain_db: &mut BurnchainDB,
+        burnchain: &Burnchain,
+        key: &LeaderKeyRegisterOp,
+        headers: &mut Vec<BurnchainBlockHeader>,
+        mut parent_commits: Vec<Option<LeaderBlockCommitOp>>,
+    ) -> (
+        Vec<BurnchainBlockHeader>,
+        Vec<Vec<Option<LeaderBlockCommitOp>>>,
+    ) {
+        let mut new_headers = vec![];
+        let mut new_commits = vec![];
+
+        let first_block_header = burnchain_db.get_first_header().unwrap();
+        let mut current_header = burnchain_db.get_canonical_chain_tip().unwrap();
+        let mut height = current_header.block_height + 1;
+        let mut parent_block_header: Option<BurnchainBlockHeader> =
+            Some(headers.last().unwrap().to_owned());
+
+        for i in 0..burnchain.pox_constants.reward_cycle_length {
+            let block_header = BurnchainBlockHeader {
+                block_height: height,
+                block_hash: next_burn_header_hash(),
+                parent_block_hash: parent_block_header
+                    .as_ref()
+                    .map(|blk| blk.block_hash.clone())
+                    .unwrap_or(first_block_header.block_hash.clone()),
+                num_txs: parent_commits.len() as u64,
+                timestamp: i as u64,
+            };
+
+            let ops = if current_header == first_block_header {
+                // first-ever block -- add only the leader key
+                let mut key_insert = key.clone();
+                key_insert.burn_header_hash = block_header.block_hash.clone();
+
+                test_debug!(
+                    "Insert key-register in {}: {},{},{} in block {}",
+                    &key_insert.burn_header_hash,
+                    &key_insert.txid,
+                    key_insert.block_height,
+                    key_insert.vtxindex,
+                    block_header.block_height
+                );
+
+                new_commits.push(vec![None; parent_commits.len()]);
+                vec![BlockstackOperationType::LeaderKeyRegister(
+                    key_insert.clone(),
+                )]
+            } else {
+                let mut commits = vec![];
+                for i in 0..parent_commits.len() {
+                    let mut block_commit = make_simple_block_commit(
+                        burnchain,
+                        parent_commits[i].as_ref(),
+                        &block_header,
+                        next_block_hash(),
+                    );
+                    block_commit.key_block_ptr = key.block_height as u32;
+                    block_commit.key_vtxindex = key.vtxindex as u16;
+                    block_commit.vtxindex += i as u32;
+                    block_commit.burn_parent_modulus = if height > 0 {
+                        ((height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8
+                    } else {
+                        BURN_BLOCK_MINED_AT_MODULUS as u8 - 1
+                    };
+
+                    assert_eq!(block_commit.burn_header_hash, block_header.block_hash);
+                    assert_eq!(block_commit.block_height, block_header.block_height);
+
+                    test_debug!(
+                        "Insert block-commit in {}: {},{},{}, builds on {},{}",
+                        &block_commit.burn_header_hash,
+                        &block_commit.txid,
+                        block_commit.block_height,
+                        block_commit.vtxindex,
+                        block_commit.parent_block_ptr,
+                        block_commit.parent_vtxindex
+                    );
+
+                    if let Some(parent_commit) = parent_commits[i].as_ref() {
+                        assert!(parent_commit.block_height != block_commit.block_height);
+                        assert!(
+                            parent_commit.block_height == u64::from(block_commit.parent_block_ptr)
+                        );
+                        assert!(parent_commit.vtxindex == u32::from(block_commit.parent_vtxindex));
+                    }
+
+                    parent_commits[i] = Some(block_commit.clone());
+                    commits.push(Some(block_commit.clone()));
+                }
+                new_commits.push(commits.clone());
+                commits
+                    .into_iter()
+                    .flatten()
+                    .map(BlockstackOperationType::LeaderBlockCommit)
+                    .collect()
+            };
+
+            burnchain_db
+                .store_new_burnchain_block_ops_unchecked(&block_header, &ops)
+                .unwrap();
+
+            headers.push(block_header.clone());
+            new_headers.push(block_header.clone());
+            parent_block_header = Some(block_header);
+
+            current_header = burnchain_db.get_canonical_chain_tip().unwrap();
+            height = current_header.block_height + 1;
+        }
+
+        (new_headers, new_commits)
+    }
+
+    /// Conveninece wrapper that produces a reward cycle with one sequence of block-commits.  Returns
+    /// the sequence of block headers in this reward cycle, and the list of block-commits created.  If
+    /// parent_commit is None, then the list of block-commits will contain all None's.
+    fn make_simple_reward_cycle(
+        burnchain_db: &mut BurnchainDB,
+        burnchain: &Burnchain,
+        key: &LeaderKeyRegisterOp,
+        headers: &mut Vec<BurnchainBlockHeader>,
+        parent_commit: Option<LeaderBlockCommitOp>,
+    ) -> (Vec<BurnchainBlockHeader>, Vec<Option<LeaderBlockCommitOp>>) {
+        let (new_headers, commits) =
+            make_reward_cycle(burnchain_db, burnchain, key, headers, vec![parent_commit]);
+        (
+            new_headers,
+            commits
+                .into_iter()
+                .map(|mut cmts| cmts.pop().unwrap())
+                .collect(),
+        )
+    }
 
     impl SortitionHandleTx<'_> {
         /// Update the canonical Stacks tip (testing only)
