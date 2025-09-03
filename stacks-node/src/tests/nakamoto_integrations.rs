@@ -117,8 +117,9 @@ use stacks_signer::v0::SpawnedSigner;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
-    TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
+    fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP,
+    TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -126,7 +127,7 @@ use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
     call_read_only, get_account, get_account_result, get_chain_info_opt, get_chain_info_result,
-    get_neighbors, get_pox_info, get_sortition_info, next_block_and_wait,
+    get_neighbors, get_node_health, get_pox_info, get_sortition_info, next_block_and_wait,
     run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer, wait_for_runloop,
 };
 use crate::tests::signer::SignerTest;
@@ -487,7 +488,11 @@ pub fn get_latest_block_proposal(
     let miner_ranges = stackerdb_conf.signer_ranges();
     let latest_miner = usize::from(miner_info.get_latest_winner_index());
     let miner_contract_id = boot_code_id(MINERS_NAME, false);
-    let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
+    let mut miners_stackerdb = StackerDBSession::new(
+        &conf.node.rpc_bind,
+        miner_contract_id,
+        Duration::from_secs(30),
+    );
 
     let mut proposed_blocks: Vec<_> = stackerdb_conf
         .signers
@@ -2426,10 +2431,11 @@ fn mine_multiple_per_tenure_integration() {
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
-/// This test makes three assertions:
+/// This test makes four assertions:
 ///  * 15 tenures are mined after 3.0 starts
 ///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
 ///  * Both nodes see the same chainstate at the end of the test
+///  * Both nodes have the same `PeerNetwork::highest_stacks_height_of_neighbors`
 fn multiple_miners() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2656,6 +2662,19 @@ fn multiple_miners() {
     let peer_2_height = get_chain_info(&conf_node_2).stacks_tip_height;
     info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height);
     assert_eq!(peer_1_height, peer_2_height);
+
+    // check that the `ConversationHttp::chat` was called and updated
+    // `PeerNetwork::highest_stacks_height_of_neighbors`
+    wait_for(20, || {
+        let health_node_1 = get_node_health(&naka_conf);
+        let health_node_2 = get_node_health(&conf_node_2);
+        info!("Peer health information"; "peer_1" => ?health_node_1, "peer_2" => ?health_node_2);
+        Ok(
+            health_node_1.max_stacks_height_of_neighbors == peer_2_height
+                && health_node_2.max_stacks_height_of_neighbors == peer_1_height,
+        )
+    })
+    .unwrap();
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert_eq!(
@@ -12603,7 +12622,7 @@ fn miner_constructs_replay_block() {
 
     // Pause mining to prevent any of the submitted txs getting mined.
     info!("Stalling mining...");
-    fault_injection_stall_miner();
+    fault_injection_try_stall_miner();
     let burn_height_before = get_chain_info(&naka_conf).burn_block_height;
     // Mine 1 bitcoin block to trigger a new block found transaction
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -12768,14 +12787,16 @@ fn write_signer_update(
 ) {
     let signers_contract_id =
         MessageSlotID::StateMachineUpdate.stacker_db_contract(false, reward_cycle);
-    let mut session = StackerDBSession::new(&conf.node.rpc_bind, signers_contract_id);
+    let mut session = StackerDBSession::new(
+        &conf.node.rpc_bind,
+        signers_contract_id,
+        Duration::from_secs(30),
+    );
     let message = SignerMessageV0::StateMachineUpdate(update);
 
-    // Submit the block proposal to the signers slot
-    let mut accepted = false;
+    // Submit the update to the signers slot
     let mut version = 0;
-    let start = Instant::now();
-    while !accepted {
+    wait_for(timeout.as_secs(), || {
         let mut chunk =
             StackerDBChunkData::new(signer_slot_id, version, message.serialize_to_vec());
         chunk
@@ -12783,14 +12804,11 @@ fn write_signer_update(
             .expect("Failed to sign message chunk");
         debug!("Produced a signature: {:?}", chunk.sig);
         let result = session.put_chunk(&chunk).expect("Failed to put chunk");
-        accepted = result.accepted;
         version += 1;
         debug!("Test Put Chunk ACK: {result:?}");
-        assert!(
-            start.elapsed() < timeout,
-            "Timed out waiting for signer state update to be accepted"
-        );
-    }
+        Ok(result.accepted)
+    })
+    .expect("Failed to accept signer state update");
 }
 
 /// Test SIP-031 activation

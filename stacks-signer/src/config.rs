@@ -57,6 +57,8 @@ pub const DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS: u64 = 2;
 /// Default time (in secs) to wait between updating our local state
 /// machine view point and capitulating to other signers tenure view
 const DEFAULT_CAPITULATE_MINER_VIEW_SECS: u64 = 20;
+/// Default HTTP timeout (in seconds) for read/write operations with StackerDB.
+pub const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 
 #[derive(thiserror::Error, Debug)]
 /// An error occurred parsing the provided configuration
@@ -197,6 +199,8 @@ pub struct SignerConfig {
     pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
+    /// The HTTP timeout for read/write operations with StackerDB.
+    pub stackerdb_timeout: Duration,
     #[cfg(any(test, feature = "testing"))]
     /// Only used for testing purposes to enable overriding the signer version
     pub supported_signer_protocol_version: u64,
@@ -258,6 +262,8 @@ pub struct GlobalConfig {
     pub reset_replay_set_after_fork_blocks: u64,
     /// Time to wait between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout: Duration,
+    /// The HTTP timeout for read/write operations with StackerDB.
+    pub stackerdb_timeout: Duration,
     #[cfg(any(test, feature = "testing"))]
     /// Only used for testing to enable specific signer protocol versions
     pub supported_signer_protocol_version: u64,
@@ -317,6 +323,8 @@ struct RawConfigFile {
     pub reset_replay_set_after_fork_blocks: Option<u64>,
     /// Time to wait (in secs) between updating our local state machine view point and capitulating to other signers miner view
     pub capitulate_miner_view_timeout_secs: Option<u64>,
+    /// Time to wait (in secs) before timing out an HTTP request with StackerDB.
+    pub stackerdb_timeout_secs: Option<u64>,
     #[cfg(any(test, feature = "testing"))]
     /// Only used for testing to enable specific signer protocol versions
     pub supported_signer_protocol_version: Option<u64>,
@@ -455,6 +463,11 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
                 .unwrap_or(DEFAULT_CAPITULATE_MINER_VIEW_SECS),
         );
 
+        let stackerdb_timeout = Duration::from_secs(
+            raw_data
+                .stackerdb_timeout_secs
+                .unwrap_or(DEFAULT_STACKERDB_TIMEOUT_SECS),
+        );
         #[cfg(any(test, feature = "testing"))]
         let supported_signer_protocol_version = raw_data
             .supported_signer_protocol_version
@@ -484,6 +497,7 @@ impl TryFrom<RawConfigFile> for GlobalConfig {
             validate_with_replay_tx,
             reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout,
+            stackerdb_timeout,
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version,
         })

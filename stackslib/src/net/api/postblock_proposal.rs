@@ -53,7 +53,7 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble,
 };
-use crate::net::httpcore::{HttpPreambleExtensions, RPCRequestHandler};
+use crate::net::httpcore::RPCRequestHandler;
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[cfg(any(test, feature = "testing"))]
@@ -1055,8 +1055,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
 
         match res {
             Ok(_) => {
-                let mut preamble = HttpResponsePreamble::accepted_json(&preamble);
-                preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+                let preamble = HttpResponsePreamble::accepted_json(&preamble);
                 let body = HttpResponseContents::try_from_json(&serde_json::json!({
                     "result": "Accepted",
                     "message": "Block proposal is processing, result will be returned via the event observer"
@@ -1064,8 +1063,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 Ok((preamble, body))
             }
             Err((code, err)) => {
-                let mut preamble = HttpResponsePreamble::error_json(code, http_reason(code));
-                preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+                let preamble = HttpResponsePreamble::error_json(code, http_reason(code));
                 let body = HttpResponseContents::try_from_json(&serde_json::json!({
                     "result": "Error",
                     "message": format!("Could not process block proposal request: {err}")

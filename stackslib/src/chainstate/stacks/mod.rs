@@ -17,8 +17,6 @@
 use std::hash::Hash;
 use std::{error, fmt, io};
 
-use clarity::util::hash::to_hex;
-use clarity::util::HexError;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::Error as clarity_interpreter_error;
@@ -385,27 +383,6 @@ impl Txid {
         let mut txid_bytes = tx_hash.0.clone();
         txid_bytes.reverse();
         Self(txid_bytes)
-    }
-
-    /// Creates a [`Txid`] from a Bitcoin transaction hash given as a hex string.
-    ///
-    /// # Argument
-    /// * `hex` - A 64-character, hex-encoded transaction ID (human-readable, **big-endian**)
-    ///
-    /// Internally `Txid` stores the hash bytes in little-endian
-    pub fn from_bitcoin_hex(hex: &str) -> Result<Txid, HexError> {
-        let hash = Sha256dHash::from_hex(hex)?;
-        Ok(Self(hash.to_bytes()))
-    }
-
-    /// Convert a [`Txid`] to a Bitcoin transaction hex string (human-readable, **big-endian**)
-    ///
-    /// Internally is intended that bytes are stored in **little-endian** order,
-    /// so bytes will be reversed to compute the final hex string in **big-endian** order.
-    pub fn to_bitcoin_hex(&self) -> String {
-        let mut bytes = self.to_bytes();
-        bytes.reverse();
-        to_hex(&bytes)
     }
 }
 
@@ -1716,43 +1693,5 @@ pub mod test {
             header,
             txs: txs_mblock,
         }
-    }
-
-    #[test]
-    fn test_txid_from_bitcoin_hex_ok() {
-        let btc_hex = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
-        let mut expected_bytes = hex_bytes(btc_hex).unwrap();
-        expected_bytes.reverse();
-
-        let txid = Txid::from_bitcoin_hex(btc_hex).expect("Should be ok!");
-        assert_eq!(expected_bytes, txid.as_bytes());
-    }
-
-    #[test]
-    fn test_txid_from_bitcoin_hex_failure() {
-        let short_hex = "short_hex";
-        let error = Txid::from_bitcoin_hex(short_hex).expect_err("Should fail due to length!");
-        assert!(matches!(error, HexError::BadLength(9)));
-
-        let bad_hex = "Z000000000000000000000000000000000000000000000000000000000000000";
-        let error = Txid::from_bitcoin_hex(bad_hex).expect_err("Should fail to invalid char!");
-        assert!(matches!(error, HexError::BadCharacter('Z')))
-    }
-
-    #[test]
-    fn test_txid_to_bitcoin_hex_ok() {
-        let btc_hex = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
-        let mut txid_hex = hex_bytes(btc_hex).unwrap();
-        txid_hex.reverse();
-        let txid = Txid::from_bytes(&txid_hex).unwrap();
-        assert_eq!(btc_hex, txid.to_bitcoin_hex());
-    }
-
-    #[test]
-    fn test_txid_from_to_bitcoin_hex_integration_ok() {
-        let btc_hex_input = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
-        let txid = Txid::from_bitcoin_hex(btc_hex_input).unwrap();
-        let btc_hex_output = txid.to_bitcoin_hex();
-        assert_eq!(btc_hex_input, btc_hex_output);
     }
 }

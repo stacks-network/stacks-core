@@ -128,6 +128,8 @@ const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
 /// Default number of milliseconds that the miner should sleep between mining
 /// attempts when the mempool is empty.
 const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
+/// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
+const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -1352,9 +1354,15 @@ pub struct BurnchainConfig {
     /// Timeout duration, in seconds, for RPC calls made to the bitcoin node.
     /// Configures the timeout on the underlying HTTP client.
     /// ---
-    /// @default: `60`
+    /// @default: `300`
     /// @units: seconds
-    pub timeout: u32,
+    pub timeout: u64,
+    /// Timeout duration, in seconds, for socket operations (read/write) with the bitcoin node.
+    /// Controls how long the node will wait for socket operations to complete before timing out.
+    /// ---
+    /// @default: `30`
+    /// @units: seconds
+    pub socket_timeout: u64,
     /// The network "magic bytes" used to identify packets for the specific bitcoin
     /// network instance (e.g., mainnet, testnet, regtest). Must match the magic
     /// bytes of the connected bitcoin node.
@@ -1655,7 +1663,8 @@ impl BurnchainConfig {
             rpc_ssl: false,
             username: None,
             password: None,
-            timeout: 60,
+            timeout: 300,
+            socket_timeout: 30,
             magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             local_mining_public_key: None,
             process_exit_at_block_height: None,
@@ -1756,7 +1765,9 @@ pub struct BurnchainConfigFile {
     pub username: Option<String>,
     pub password: Option<String>,
     /// Timeout, in seconds, for communication with bitcoind
-    pub timeout: Option<u32>,
+    pub timeout: Option<u64>,
+    /// Socket timeout, in seconds, for socket operations with bitcoind
+    pub socket_timeout: Option<u64>,
     pub magic_bytes: Option<String>,
     pub local_mining_public_key: Option<String>,
     pub process_exit_at_block_height: Option<u64>,
@@ -1944,6 +1955,9 @@ impl BurnchainConfigFile {
             username: self.username,
             password: self.password,
             timeout: self.timeout.unwrap_or(default_burnchain_config.timeout),
+            socket_timeout: self
+                .socket_timeout
+                .unwrap_or(default_burnchain_config.socket_timeout),
             magic_bytes: self
                 .magic_bytes
                 .map(|magic_ascii| {
@@ -3210,6 +3224,11 @@ pub struct MinerConfig {
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
     /// The miner will attempt to replay transactions that a threshold number of signers are expecting in the next block
     pub replay_transactions: bool,
+    /// Defines the socket timeout (in seconds) for stackerdb communcation.
+    /// ---
+    /// @default: [`DEFAULT_STACKERDB_TIMEOUT_SECS`]
+    /// @units: seconds.
+    pub stackerdb_timeout: Duration,
 }
 
 impl Default for MinerConfig {
@@ -3264,6 +3283,7 @@ impl Default for MinerConfig {
             },
             max_execution_time_secs: None,
             replay_transactions: false,
+            stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
         }
     }
 }
@@ -4207,6 +4227,7 @@ pub struct MinerConfigFile {
     pub max_execution_time_secs: Option<u64>,
     /// TODO: remove this config option once its no longer a testing feature
     pub replay_transactions: Option<bool>,
+    pub stackerdb_timeout_secs: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -4398,6 +4419,7 @@ impl MinerConfigFile {
 
             max_execution_time_secs: self.max_execution_time_secs,
             replay_transactions: self.replay_transactions.unwrap_or_default(),
+            stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
         })
     }
 }
