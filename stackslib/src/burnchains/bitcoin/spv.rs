@@ -1618,7 +1618,7 @@ mod test {
 
     #[test]
     fn test_spv_check_pow() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_pow -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
@@ -1633,7 +1633,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_bad_blocks_rejected() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_accepted -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }

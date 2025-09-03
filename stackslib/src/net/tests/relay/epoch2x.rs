@@ -2699,20 +2699,20 @@ fn test_static_problematic_tests() {
         ASTRules::Typical
     )
     .is_ok());
-    assert!(!Relayer::static_check_problematic_relayed_tx(
+    assert!(Relayer::static_check_problematic_relayed_tx(
         false,
         StacksEpochId::Epoch2_05,
         &tx_exceeds,
         ASTRules::PrecheckSize
     )
-    .is_ok());
-    assert!(!Relayer::static_check_problematic_relayed_tx(
+    .is_err());
+    assert!(Relayer::static_check_problematic_relayed_tx(
         false,
         StacksEpochId::Epoch2_05,
         &tx_high,
         ASTRules::PrecheckSize
     )
-    .is_ok());
+    .is_err());
 }
 
 #[test]

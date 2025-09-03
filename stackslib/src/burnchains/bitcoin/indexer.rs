@@ -1565,19 +1565,19 @@ mod test {
 
     #[test]
     fn test_indexer_sync_headers() {
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_HOST").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_HOST").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_HOST envar set"
             );
             return;
         }
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_PORT").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_PORT").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_PORT envar set"
             );
             return;
         }
-        if !env::var("BLOCKSTACK_SPV_BITCOIN_MODE").is_ok() {
+        if env::var("BLOCKSTACK_SPV_BITCOIN_MODE").is_err() {
             eprintln!(
                 "Skipping test_indexer_sync_headers -- no BLOCKSTACK_SPV_BITCOIN_MODE envar set"
             );
@@ -3106,7 +3106,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_reorg_ignored() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_ignored -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
@@ -3256,7 +3256,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_reorg_accepted() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_accepted -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
