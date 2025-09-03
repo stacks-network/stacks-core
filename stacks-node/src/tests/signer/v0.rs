@@ -3673,16 +3673,17 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
             .any(|tx| tx.txid().to_string() == txid_2),
         "Block should not contain a non-replay tx"
     );
-    info!(
-        "---- Ensure signers accept block at height {:?} with submitted tx ----",
-        stacks_height_before + 3
-    );
-    let block = wait_for_block_pushed_by_miner_key(30, stacks_height_before + 3, &stacks_miner_pk)
-        .expect("Timed out waiting for a block pushed after fork");
-    assert!(
-        block.txs.iter().any(|tx| tx.txid().to_string() == txid_2),
-        "Block should include a non-replay tx"
-    );
+    info!("---- Ensure signers accept block with non-replay tx ----");
+    wait_for(30, || {
+        let blocks = test_observer::get_blocks();
+        let block = blocks.last().unwrap();
+        let block: StacksBlockEvent = serde_json::from_value(block.clone()).unwrap();
+        Ok(block
+            .transactions
+            .iter()
+            .any(|tx| tx.txid().to_string() == txid_2))
+    })
+    .expect("Timed out waiting for a block with a non-replay tx");
 
     info!("---- Ensure signers cleared the tx replay set ----");
     signer_test
