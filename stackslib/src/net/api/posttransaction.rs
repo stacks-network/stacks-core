@@ -193,13 +193,13 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
 
             // check for defects which can be determined statically
             if Relayer::do_static_problematic_checks()
-                && !Relayer::static_check_problematic_relayed_tx(
+                && Relayer::static_check_problematic_relayed_tx(
                     chainstate.mainnet,
                     stacks_epoch.epoch_id,
                     &tx,
                     network.ast_rules,
                 )
-                .is_ok()
+                .is_err()
             {
                 // we statically check the tx for known problems, and it had some.  Reject.
                 debug!(
