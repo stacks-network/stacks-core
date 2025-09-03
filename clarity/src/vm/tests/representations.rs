@@ -24,6 +24,10 @@ use crate::vm::representations::{
 };
 use crate::vm::{ClarityName, ContractName};
 
+fn assert_regex_unchanged(actual: &str, expected: &str) {
+    assert_eq!(actual, expected, "Regex has changed");
+}
+
 /// Generates a proptest strategy for valid Clarity names.
 ///
 /// This function creates a branched strategy based on the `CLARITY_NAME_REGEX_STRING` pattern.
@@ -34,11 +38,9 @@ use crate::vm::{ClarityName, ContractName};
 /// - Comparison operators (`<`, `>`, `<=`, `>=`)
 fn any_valid_clarity_name() -> impl Strategy<Value = String> {
     // Ensure the regex branches match the actual validator.
-    let expected_regex = "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$";
-    assert_eq!(
+    assert_regex_unchanged(
         CLARITY_NAME_REGEX_STRING.as_str(),
-        expected_regex,
-        "CLARITY_NAME_REGEX_STRING has changed"
+        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$",
     );
 
     let letter_names = string_regex(&format!(
@@ -94,11 +96,9 @@ fn prop_clarity_name_valid_patterns() {
 /// 3. `^[<>]=?$` - Comparison operators
 fn any_invalid_clarity_name() -> impl Strategy<Value = String> {
     // Ensure the regex branches match the actual validator.
-    let expected_regex = "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$";
-    assert_eq!(
+    assert_regex_unchanged(
         CLARITY_NAME_REGEX_STRING.as_str(),
-        expected_regex,
-        "CLARITY_NAME_REGEX_STRING has changed"
+        "^[a-zA-Z]([a-zA-Z0-9]|[-_!?+<>=/*])*$|^[-+=/*]$|^[<>]=?$",
     );
 
     let empty_string = Just("".to_string());
@@ -200,11 +200,7 @@ fn any_valid_contract_name() -> impl Strategy<Value = String> {
         CONTRACT_MIN_NAME_LENGTH - 1,
         MAX_STRING_LEN - 1
     );
-    assert_eq!(
-        CONTRACT_NAME_REGEX_STRING.as_str(),
-        &expected_regex,
-        "CONTRACT_NAME_REGEX_STRING has changed"
-    );
+    assert_regex_unchanged(CONTRACT_NAME_REGEX_STRING.as_str(), &expected_regex);
 
     let regular_names = string_regex(&format!(
         "[a-zA-Z][a-zA-Z0-9_-]{{0,{}}}",
@@ -251,11 +247,7 @@ fn any_invalid_contract_name() -> impl Strategy<Value = String> {
         CONTRACT_MIN_NAME_LENGTH - 1,
         MAX_STRING_LEN - 1
     );
-    assert_eq!(
-        CONTRACT_NAME_REGEX_STRING.as_str(),
-        &expected_regex,
-        "CONTRACT_NAME_REGEX_STRING has changed"
-    );
+    assert_regex_unchanged(CONTRACT_NAME_REGEX_STRING.as_str(), &expected_regex);
 
     let empty_string = Just("".to_string());
 
