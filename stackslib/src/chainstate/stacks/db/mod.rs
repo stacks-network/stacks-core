@@ -283,16 +283,16 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 10,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 10,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch32 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch20 => (1..=11).contains(&version_u32),
+            StacksEpochId::Epoch2_05 => (2..=11).contains(&version_u32),
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => (3..=11).contains(&version_u32),
         }
     }
 }
