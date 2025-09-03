@@ -2126,8 +2126,8 @@ impl StacksEpochExtension for StacksEpoch {
             .iter()
             .max()
             .expect("FATAL: expect at least one epoch");
-        if max_epoch.epoch_id == StacksEpochId::Epoch32 {
-            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_3_1));
+        if max_epoch.epoch_id == StacksEpochId::Epoch33 {
+            assert!(PEER_NETWORK_EPOCH >= u32::from(PEER_VERSION_EPOCH_3_2));
         } else {
             assert!(
                 max_epoch.network_epoch as u32 <= PEER_NETWORK_EPOCH,
@@ -2135,9 +2135,11 @@ impl StacksEpochExtension for StacksEpoch {
             );
         }
 
-        assert!(
-            StacksEpochId::latest() >= max_epoch.epoch_id,
-            "StacksEpochId::latest() should be greater than or equal to any epoch defined in the node"
+        // Allow epochs up to one version ahead of latest() for development purposes
+        assert!(StacksEpochId::latest() >= max_epoch.epoch_id
+            || (StacksEpochId::latest() == StacksEpochId::Epoch32
+                && max_epoch.epoch_id == StacksEpochId::Epoch33),
+            "StacksEpochId::latest() should be greater than or equal to any epoch defined in the node (except for development epochs)"
         );
 
         let mut epoch_end_height = 0;
