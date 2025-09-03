@@ -1,5 +1,5 @@
 // Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2020-2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -131,28 +131,19 @@ fn test_try_make_response() {
 
     let resp = response.decode_tenure_blocks().unwrap();
     assert_eq!(resp.consensus_hash, genesis_consensus_hash);
-    let mut blocks_index = resp.stacks_blocks.len() - 1;
-    for block in test_observer.get_blocks() {
-        if block.metadata.consensus_hash != genesis_consensus_hash {
-            break;
-        }
 
-        assert_eq!(
-            resp.stacks_blocks[blocks_index].block_id,
-            block.metadata.index_block_hash()
-        );
+    let blocks = test_observer.get_blocks();
 
-        assert_eq!(
-            resp.stacks_blocks[blocks_index].parent_block_id.to_string(),
-            block.parent.to_hex()
-        );
+    let block = blocks.first().unwrap();
 
-        assert_eq!(resp.stacks_blocks[blocks_index].header_type, "epoch2");
+    assert_eq!(resp.stacks_blocks.len(), 1);
 
-        blocks_index -= 1;
-    }
+    assert_eq!(
+        resp.stacks_blocks[0].block_id,
+        block.metadata.index_block_hash()
+    );
 
-    assert_eq!(blocks_index, 0);
+    assert_eq!(resp.stacks_blocks[0].header_type, "epoch2");
 
     // got a failure
     let response = responses.remove(0);

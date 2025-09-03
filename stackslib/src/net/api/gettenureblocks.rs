@@ -16,7 +16,7 @@
 use clarity::types::chainstate::StacksBlockId;
 use regex::{Captures, Regex};
 use serde_json;
-use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash};
+use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::burn::db::DBConn;
@@ -57,7 +57,7 @@ pub struct RPCTenureBlock {
 pub struct RPCTenure {
     pub consensus_hash: ConsensusHash,
     pub burn_block_height: u64,
-    pub burn_block_hash: BurnchainHeaderHash,
+    pub burn_block_hash: String,
     pub stacks_blocks: Vec<RPCTenureBlock>,
 }
 
@@ -68,53 +68,73 @@ pub struct RPCTenureStream {
     pub consensus_hash: ConsensusHash,
     /// next block to process
     pub next_block_id: StacksBlockId,
-    /// the RPCTenure structure built by chunks
-    pub tenure: RPCTenure,
+    /// the first part of the json chunk to send (it is set to None after the chunk generation)
+    pub tenure_first_chunk: Option<Vec<u8>>,
+    /// do we need to send the last chunk?
+    pub last_chunk: bool,
+    /// do we need to send the last chunk?
+    pub first_block: bool,
 }
 
 impl RPCTenureStream {
     pub fn new(
         chainstate: &StacksChainState,
-        consensus_hash: ConsensusHash,
         block_id: StacksBlockId,
         tenure: RPCTenure,
     ) -> Result<Self, ChainError> {
         let headers_conn = chainstate.reopen_db()?;
+        let consensus_hash = tenure.consensus_hash;
+        let burn_block_height = tenure.burn_block_height;
+        let burn_block_hash = tenure.burn_block_hash;
+        let tenure_first_chunk = format!("{{\"consensus_hash\": \"{consensus_hash}\", \"burn_block_height\": {burn_block_height}, \"burn_block_hash\": \"{burn_block_hash}\", \"stacks_blocks\": [");
         Ok(RPCTenureStream {
             headers_conn,
             consensus_hash,
             next_block_id: block_id,
-            tenure,
+            tenure_first_chunk: Some(tenure_first_chunk.into_bytes()),
+            last_chunk: false,
+            first_block: true,
         })
     }
 
-    pub fn next_block(&mut self) -> Result<bool, ChainError> {
-        let block_header =
-            NakamotoChainState::get_block_header(&self.headers_conn, &self.next_block_id)?
-                .ok_or(ChainError::NoSuchBlockError)?;
+    pub fn next_block(&mut self) -> Result<Vec<u8>, String> {
+        let block_header_opt =
+            NakamotoChainState::get_block_header(&self.headers_conn, &self.next_block_id)
+                .map_err(|e| format!("Chain error: {e}"))?;
+
+        // stop if the block does not exist
+        let block_header = match block_header_opt {
+            Some(block_header) => block_header,
+            None => {
+                return Ok(vec![]);
+            }
+        };
 
         // stop sending if the block is in a different tenure
         if block_header.consensus_hash != self.consensus_hash {
-            return Ok(false);
+            return Ok(vec![]);
         }
 
         let parent_block_id = match &block_header.anchored_header {
             StacksBlockHeaderTypes::Nakamoto(nakamoto) => nakamoto.parent_block_id,
             StacksBlockHeaderTypes::Epoch2(epoch2) => {
-                StacksBlockId::new(&self.consensus_hash, &epoch2.block_hash())
+                StacksBlockId::new(&self.consensus_hash, &epoch2.parent_block)
             }
         };
 
-        self.tenure.stacks_blocks.push(RPCTenureBlock {
+        let block = RPCTenureBlock {
             block_id: block_header.index_block_hash(),
             header_type: block_header.header_type().into(),
             block_hash: block_header.anchored_header.block_hash(),
             parent_block_id,
             height: block_header.stacks_block_height,
-        });
+        };
 
         self.next_block_id = parent_block_id;
-        Ok(true)
+
+        let json = serde_json::to_string(&block)
+            .map_err(|e| format!("Failed to serialize block: {e:?}"))?;
+        Ok(json.into_bytes())
     }
 }
 
@@ -132,20 +152,37 @@ impl HttpChunkGenerator for RPCTenureStream {
     }
 
     fn generate_next_chunk(&mut self) -> Result<Vec<u8>, String> {
+        // last chunk?
+        if self.last_chunk {
+            return Ok(vec![]);
+        }
+
+        // send the first chunk
+        if let Some(first_chunk) = self.tenure_first_chunk.take() {
+            self.tenure_first_chunk = None;
+            return Ok(first_chunk);
+        }
+
         // load up next block
-        let send_more = self.next_block().map_err(|e| {
+        let mut send_more = self.next_block().map_err(|e| {
             let msg = format!("Failed to load next block in this tenure: {:?}", &e);
             warn!("{}", &msg);
             msg
         })?;
 
-        if !send_more {
-            let json = serde_json::to_string(&self.tenure)
-                .map_err(|e| format!("Failed to serialize tenure: {:?}", e))?;
-            return Ok(json.into_bytes());
+        // end of blocks?
+        if send_more.is_empty() {
+            self.last_chunk = true;
+            return Ok(format!("]}}").into_bytes());
         }
 
-        Ok(vec![])
+        if !self.first_block {
+            send_more.insert(0, b',');
+        }
+
+        self.first_block = false;
+
+        Ok(send_more)
     }
 }
 
@@ -233,16 +270,11 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
                 let tenure = RPCTenure {
                     consensus_hash: header_info.consensus_hash,
                     burn_block_height: header_info.burn_header_height.into(),
-                    burn_block_hash: header_info.burn_header_hash,
+                    burn_block_hash: header_info.burn_header_hash.to_hex(),
                     stacks_blocks: vec![],
                 };
 
-                match RPCTenureStream::new(
-                    chainstate,
-                    header_info.consensus_hash,
-                    header_info.index_block_hash(),
-                    tenure,
-                ) {
+                match RPCTenureStream::new(chainstate, header_info.index_block_hash(), tenure) {
                     Ok(stream) => Ok(stream),
                     Err(e) => {
                         let msg = format!("Failed to create tenure stream: {e:?}");
@@ -260,9 +292,9 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
             Err(e) => {
                 let msg = format!("Failed to create tenure stream: {e:?}");
                 error!("{msg}");
-                return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                    .try_into_contents()
-                    .map_err(NetError::from);
+                return e.into(); //StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
+                                 //.try_into_contents()
+                                 //.map_err(NetError::from);
             }
         };
 
