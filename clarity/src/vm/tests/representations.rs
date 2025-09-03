@@ -137,7 +137,7 @@ fn any_invalid_clarity_name() -> impl Strategy<Value = String> {
     // Invalid comparison operator extensions (violates third branch pattern).
     // Covers: <<, >>, <a, >1, <=x, >=z, <==, >==, etc.
     let invalid_comparison_ops = string_regex(&format!(
-        "[<>]=?[a-zA-Z0-9_!?+<>=/*-]{{1,{}}}",
+        "[<>](=[a-zA-Z0-9_!?+<>=/*-]|[a-zA-Z0-9_!?+<>/*-]){{1,{}}}",
         (MAX_STRING_LEN as usize).saturating_sub(1)
     ))
     .unwrap();
