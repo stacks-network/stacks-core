@@ -199,7 +199,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
                     header_info,
                 ),
                 Err(response) => {
-                    return response.try_into_contents().map_err(NetError::from);
+                    return response.try_into_contents();
                 }
             };
 
