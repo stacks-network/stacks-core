@@ -644,7 +644,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "10";
+pub const CHAINSTATE_VERSION: &str = "11";
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -852,6 +852,93 @@ const CHAINSTATE_SCHEMA_4: &[&str] = &[
     "#,
 ];
 
+pub static CHAINSTATE_SCHEMA_5: &[&str] = &[
+    // Schema change: drop the affirmation_weight column from pre_nakamoto block_headers and any indexes that reference it
+    // but leave everything else the same
+    r#"
+    -- Rename old block_headers table
+    ALTER TABLE block_headers RENAME TO block_headers_old;
+
+    -- Create new schema without affirmation_weight
+    CREATE TABLE block_headers(
+        version INTEGER NOT NULL,
+        total_burn TEXT NOT NULL,          -- converted to/from u64
+        total_work TEXT NOT NULL,          -- converted to/from u64
+        proof TEXT NOT NULL,
+        parent_block TEXT NOT NULL,        -- hash of parent Stacks block
+        parent_microblock TEXT NOT NULL,
+        parent_microblock_sequence INTEGER NOT NULL,
+        tx_merkle_root TEXT NOT NULL,
+        state_index_root TEXT NOT NULL,
+        microblock_pubkey_hash TEXT NOT NULL,
+        block_hash TEXT NOT NULL,          -- NOTE: not unique, as two burn chain forks can commit to the same Stacks block
+        index_block_hash TEXT UNIQUE NOT NULL, -- globally unique index hash
+        block_height INTEGER NOT NULL,
+        index_root TEXT NOT NULL,          -- root hash of internal MARF for chainstate/fork metadata
+        consensus_hash TEXT UNIQUE NOT NULL, -- guaranteed to be unique
+        burn_header_hash TEXT NOT NULL,    -- burn header hash corresponding to consensus hash
+        burn_header_height INT NOT NULL,   -- height of the burnchain block header
+        burn_header_timestamp INT NOT NULL,-- timestamp from burnchain block header
+        parent_block_id TEXT NOT NULL,     -- parent index_block_hash
+        cost TEXT NOT NULL,
+        block_size TEXT NOT NULL,          -- converted to/from u64
+        PRIMARY KEY(consensus_hash, block_hash)
+    );
+
+    -- Copy data from old table, ignoring affirmation_weight
+    INSERT INTO block_headers(
+        version,
+        total_burn,
+        total_work,
+        proof,
+        parent_block,
+        parent_microblock,
+        parent_microblock_sequence,
+        tx_merkle_root,
+        state_index_root,
+        microblock_pubkey_hash,
+        block_hash,
+        index_block_hash,
+        block_height,
+        index_root,
+        consensus_hash,
+        burn_header_hash,
+        burn_header_height,
+        burn_header_timestamp,
+        parent_block_id,
+        cost,
+        block_size
+    )
+    SELECT
+        version,
+        total_burn,
+        total_work,
+        proof,
+        parent_block,
+        parent_microblock,
+        parent_microblock_sequence,
+        tx_merkle_root,
+        state_index_root,
+        microblock_pubkey_hash,
+        block_hash,
+        index_block_hash,
+        block_height,
+        index_root,
+        consensus_hash,
+        burn_header_hash,
+        burn_header_height,
+        burn_header_timestamp,
+        parent_block_id,
+        cost,
+        block_size
+    FROM block_headers_old;
+
+    -- Drop old block_headers table
+    DROP TABLE block_headers_old;
+    "#,
+    r#"UPDATE db_config SET version = "11";"#,
+];
+
 const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
@@ -873,8 +960,6 @@ const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS height_stacks_blocks ON staging_blocks(height);",
     "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
-    "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
-    "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
     "CREATE INDEX IF NOT EXISTS processable_block ON staging_blocks(processed, orphaned, attachable);",
 ];
@@ -1117,6 +1202,14 @@ impl StacksChainState {
                         "Migrating chainstate schema from version 9 to 10: add index for nakamoto_block_headers"
                     );
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_6.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "10" => {
+                    info!(
+                        "Migrating chainstate schema from version 10 to 11: drop affirmation_weight from block_headers"
+                    );
+                    for cmd in CHAINSTATE_SCHEMA_5.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }

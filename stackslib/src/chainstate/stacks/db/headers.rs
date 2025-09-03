@@ -23,8 +23,7 @@ use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::{Error, *};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::db::{
-    query_row, query_row_columns, query_row_panic, u64_to_sql, DBConn, Error as db_error,
-    FromColumn, FromRow,
+    query_row, query_row_columns, query_row_panic, DBConn, Error as db_error, FromColumn, FromRow,
 };
 
 impl FromRow<StacksBlockHeader> for StacksBlockHeader {
@@ -152,8 +151,7 @@ impl StacksChainState {
             index_root,
             anchored_block_cost,
             block_size_str,
-            parent_id,
-            u64_to_sql(0)?, // TODO: remove this
+            parent_id
         ];
 
         tx.execute("INSERT INTO block_headers \
@@ -177,9 +175,8 @@ impl StacksChainState {
                     index_root,
                     cost,
                     block_size,
-                    parent_block_id,
-                    affirmation_weight) \
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)", args)
+                    parent_block_id) \
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)", args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
         Ok(())
