@@ -16,7 +16,7 @@
 use clarity::types::chainstate::StacksBlockId;
 use regex::{Captures, Regex};
 use serde_json;
-use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash};
+use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, ConsensusHash};
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::nakamoto::NakamotoChainState;
@@ -53,7 +53,7 @@ pub struct RPCTenureBlock {
 pub struct RPCTenure {
     pub consensus_hash: ConsensusHash,
     pub burn_block_height: u64,
-    pub burn_block_hash: String,
+    pub burn_block_hash: BurnchainHeaderHash,
     pub stacks_blocks: Vec<RPCTenureBlock>,
 }
 
@@ -206,7 +206,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
         let tenure = RPCTenure {
             consensus_hash: header_info.consensus_hash,
             burn_block_height: header_info.burn_header_height.into(),
-            burn_block_hash: header_info.burn_header_hash.to_hex(),
+            burn_block_hash: header_info.burn_header_hash,
             stacks_blocks: tenure_blocks,
         };
 
@@ -237,7 +237,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/tenures/blocks/{}", consensus_hash),
+            format!("/v3/tenures/blocks/{consensus_hash}"),
             HttpRequestContents::new(),
         )
         .expect("FATAL: failed to construct request from infallible data")
