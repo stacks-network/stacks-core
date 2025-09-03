@@ -755,6 +755,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                   "soft_limit_reached" => soft_limit_reached,
                   "cost_after" => %cost_after,
                   "cost_before" => %cost_before,
+                  "payload" => ?tx.payload
             );
 
             // save
