@@ -14202,6 +14202,16 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     })
     .expect("Failed to mine contract deploy txs");
 
+    info!("----- Mining BTC block to reset tenure limits -----");
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(blocks_after.len() > blocks_before.len() && mined_after.len() > mined_before.len())
+    })
+    .unwrap();
+
     // Pause mining so we can add all our transactions to the mempool at once.
     fault_injection_stall_miner();
     info!("----- Submitting contract call txs -----");
@@ -14509,6 +14519,16 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
         Ok(test_observer::get_mined_nakamoto_blocks().len() > mined_before.len())
     })
     .expect("Failed to mine contract deploy txs");
+
+    info!("----- Mining BTC block to reset tenure limits -----");
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(blocks_after.len() > blocks_before.len() && mined_after.len() > mined_before.len())
+    })
+    .unwrap();
 
     // Pause mining so we can add all our transactions to the mempool at once.
     fault_injection_stall_miner();
