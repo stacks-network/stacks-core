@@ -23,7 +23,6 @@ use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
 
-use crate::burnchains::affirmation::*;
 use crate::burnchains::{
     Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError, Txid,
 };
@@ -32,9 +31,25 @@ use crate::chainstate::burn::BlockSnapshot;
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::core::StacksEpochId;
 use crate::util_lib::db::{
-    opt_u64_to_sql, query_row, query_row_panic, query_rows, sqlite_open, tx_begin_immediate,
-    u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
+    opt_u64_to_sql, query_row, query_row_panic, query_rows, sqlite_open, table_exists,
+    tx_begin_immediate, u64_to_sql, DBConn, Error as DBError, FromColumn, FromRow,
 };
+
+struct Migration {
+    version: u32,
+    statements: &'static [&'static str],
+}
+
+static MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 2,
+        statements: SCHEMA_2,
+    },
+    Migration {
+        version: 3,
+        statements: SCHEMA_3,
+    },
+];
 
 pub struct BurnchainDB {
     pub(crate) conn: Connection,
@@ -74,26 +89,11 @@ pub struct BlockCommitMetadata {
     pub txid: Txid,
     pub block_height: u64,
     pub vtxindex: u32,
-    pub affirmation_id: u64,
     /// if Some(..), then this block-commit is the anchor block for a reward cycle, and the
     /// reward cycle is represented as the inner u64.
     pub anchor_block: Option<u64>,
     /// If Some(..), then this is the reward cycle which contains the anchor block that this block-commit descends from
     pub anchor_block_descendant: Option<u64>,
-}
-
-impl FromColumn<AffirmationMap> for AffirmationMap {
-    fn from_column(row: &Row, col_name: &str) -> Result<AffirmationMap, DBError> {
-        let txt: String = row.get_unwrap(col_name);
-        let am = AffirmationMap::decode(&txt).ok_or(DBError::ParseError)?;
-        Ok(am)
-    }
-}
-
-impl FromRow<AffirmationMap> for AffirmationMap {
-    fn from_row(row: &Row) -> Result<AffirmationMap, DBError> {
-        AffirmationMap::from_column(row, "affirmation_map")
-    }
 }
 
 impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
@@ -102,7 +102,6 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
         let txid = Txid::from_column(row, "txid")?;
         let block_height = u64::from_column(row, "block_height")?;
         let vtxindex: u32 = row.get_unwrap("vtxindex");
-        let affirmation_id = u64::from_column(row, "affirmation_id")?;
         let anchor_block_i64: Option<i64> = row.get_unwrap("anchor_block");
         let anchor_block = match anchor_block_i64 {
             Some(ab) => {
@@ -130,7 +129,6 @@ impl FromRow<BlockCommitMetadata> for BlockCommitMetadata {
             txid,
             block_height,
             vtxindex,
-            affirmation_id,
             anchor_block,
             anchor_block_descendant,
         })
@@ -206,11 +204,8 @@ impl FromRow<BlockstackOperationType> for BlockstackOperationType {
         Ok(deserialized)
     }
 }
-
-pub const BURNCHAIN_DB_VERSION: &str = "2";
-
-const BURNCHAIN_DB_SCHEMA: &str = r#"
-CREATE TABLE burnchain_db_block_headers (
+const BURNCHAIN_DB_SCHEMA_2: &str = r#"
+CREATE TABLE IF NOT EXISTS  burnchain_db_block_headers (
     -- height of the block (non-negative)
     block_height INTEGER NOT NULL,
     -- 32-byte hash of the block
@@ -225,7 +220,7 @@ CREATE TABLE burnchain_db_block_headers (
     PRIMARY KEY(block_hash)
 );
 
-CREATE TABLE burnchain_db_block_ops (
+CREATE TABLE IF NOT EXISTS  burnchain_db_block_ops (
     -- 32-byte hash of the block that contains this parsed operation
     block_hash TEXT NOT NULL,
     -- opaque serialized operation (e.g. a JSON string)
@@ -242,7 +237,7 @@ CREATE TABLE burnchain_db_block_ops (
     FOREIGN KEY(block_hash) REFERENCES burnchain_db_block_headers(block_hash)
 );
 
-CREATE TABLE affirmation_maps (
+CREATE TABLE IF NOT EXISTS affirmation_maps (
     -- unique ID of this affirmation map
     affirmation_id INTEGER PRIMARY KEY AUTOINCREMENT,
     -- the weight of this affirmation map.  "weight" is the number of affirmed anchor blocks
@@ -253,12 +248,12 @@ CREATE TABLE affirmation_maps (
 CREATE INDEX affirmation_maps_index ON affirmation_maps(affirmation_map);
 
 -- ensure anchor block uniqueness
-CREATE TABLE anchor_blocks (
+CREATE TABLE IF NOT EXISTS anchor_blocks (
     -- the nonnegative reward cycle number
     reward_cycle INTEGER PRIMARY KEY
 );
 
-CREATE TABLE block_commit_metadata (
+CREATE TABLE IF NOT EXISTS block_commit_metadata (
     -- 32-byte hash of the burnchain block that contains this block-cmmit
     burn_block_hash TEXT NOT NULL,
     -- 32-byte hash of the transaction that contains this block-commit
@@ -287,13 +282,13 @@ CREATE TABLE block_commit_metadata (
 -- override the canonical affirmation map at the operator's discression.
 -- set values in this table only in an emergency -- such as when a hidden anchor block was mined, and the operator
 -- wants to avoid a deep Stacks blockchain reorg that would arise if the hidden anchor block was later disclosed.
-CREATE TABLE overrides (
+CREATE TABLE IF NOT EXISTS overrides (
     reward_cycle INTEGER PRIMARY KEY NOT NULL,
     affirmation_map TEXT NOT NULL
 );
 
 -- database version
-CREATE TABLE db_config(version TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS db_config(version TEXT NOT NULL);
 
 -- empty affirmation map always exists, so foreign key relationships work
 INSERT INTO affirmation_maps(affirmation_id,weight,affirmation_map) VALUES (0,0,"");
@@ -309,6 +304,39 @@ const BURNCHAIN_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_anchor_block_burn_block_hash_txid ON block_commit_metadata(anchor_block,burn_block_hash,txid);",
     "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_burn_block_hash_txid ON block_commit_metadata(burn_block_hash,txid);",
     "CREATE INDEX IF NOT EXISTS index_block_commit_metadata_burn_block_hash_anchor_block ON block_commit_metadata(burn_block_hash,anchor_block);",
+];
+
+// Required to drop old affirmation maps from Burnchain DB schema V2 and migrate to V3
+const BURNCHAIN_DB_MIGRATION_V2_TO_V3: &str = r#"
+    CREATE TABLE IF NOT EXISTS block_commit_metadata_new (
+        burn_block_hash TEXT NOT NULL,
+        txid TEXT NOT NULL,
+        block_height INTEGER NOT NULL,
+        vtxindex INTEGER NOT NULL,
+        anchor_block INTEGER,
+        anchor_block_descendant INTEGER,
+        PRIMARY KEY(burn_block_hash, txid),
+        FOREIGN KEY(anchor_block) REFERENCES anchor_blocks(reward_cycle)
+    );
+
+    INSERT INTO block_commit_metadata_new (burn_block_hash, txid, block_height, vtxindex, anchor_block, anchor_block_descendant)
+    SELECT burn_block_hash, txid, block_height, vtxindex, anchor_block, anchor_block_descendant
+    FROM block_commit_metadata;
+
+    DROP TABLE block_commit_metadata;
+    ALTER TABLE block_commit_metadata_new RENAME TO block_commit_metadata;
+
+    DROP TABLE affirmation_maps;
+"#;
+
+static SCHEMA_2: &[&str] = &[
+    BURNCHAIN_DB_SCHEMA_2,
+    "INSERT INTO db_config (version) VALUES (2);",
+];
+
+static SCHEMA_3: &[&str] = &[
+    BURNCHAIN_DB_MIGRATION_V2_TO_V3,
+    "INSERT INTO db_config (version) VALUES (3);",
 ];
 
 impl BurnchainDBTransaction<'_> {
@@ -385,8 +413,8 @@ impl BurnchainDBTransaction<'_> {
 
     fn insert_block_commit_metadata(&self, bcm: BlockCommitMetadata) -> Result<(), BurnchainError> {
         let commit_metadata_sql = "INSERT OR REPLACE INTO block_commit_metadata
-                                   (burn_block_hash, txid, block_height, vtxindex, anchor_block, anchor_block_descendant, affirmation_id)
-                                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+                                   (burn_block_hash, txid, block_height, vtxindex, anchor_block, anchor_block_descendant)
+                                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
         let mut stmt = self.sql_tx.prepare(commit_metadata_sql)?;
         let args = params![
             bcm.burn_block_hash,
@@ -395,7 +423,6 @@ impl BurnchainDBTransaction<'_> {
             bcm.vtxindex,
             opt_u64_to_sql(bcm.anchor_block)?,
             opt_u64_to_sql(bcm.anchor_block_descendant)?,
-            u64_to_sql(bcm.affirmation_id)?,
         ];
         stmt.execute(args)?;
         Ok(())
@@ -431,7 +458,6 @@ impl BurnchainDBTransaction<'_> {
                     block_height: opdata.block_height,
                     vtxindex: opdata.vtxindex,
                     // NOTE: these fields are filled in by the subsequent call.
-                    affirmation_id: 0,
                     anchor_block: None,
                     anchor_block_descendant: None,
                 };
@@ -450,57 +476,51 @@ impl BurnchainDBTransaction<'_> {
         &self.sql_tx
     }
 
+    pub fn rollback(self) -> Result<(), BurnchainError> {
+        self.sql_tx.rollback().map_err(BurnchainError::from)
+    }
+
+    pub fn execute_batch(&self, statement: &str) -> Result<(), BurnchainError> {
+        self.sql_tx
+            .execute_batch(statement)
+            .map_err(BurnchainError::from)
+    }
+
     pub fn get_canonical_chain_tip(&self) -> Result<BurnchainBlockHeader, BurnchainError> {
         BurnchainDB::inner_get_canonical_chain_tip(&self.sql_tx)
-    }
-
-    // TODO: add tests from mutation testing results #4837
-    #[cfg_attr(test, mutants::skip)]
-    /// You'd only do this in network emergencies, where node operators are expected to declare an
-    /// anchor block missing (or present).  Ideally there'd be a smart contract somewhere for this.
-    pub fn set_override_affirmation_map(
-        &self,
-        reward_cycle: u64,
-        affirmation_map: AffirmationMap,
-    ) -> Result<(), DBError> {
-        assert_eq!((affirmation_map.len() as u64) + 1, reward_cycle);
-        let qry =
-            "INSERT OR REPLACE INTO overrides (reward_cycle, affirmation_map) VALUES (?1, ?2)";
-        let args = params![u64_to_sql(reward_cycle)?, affirmation_map.encode()];
-
-        let mut stmt = self.sql_tx.prepare(qry)?;
-        stmt.execute(args)?;
-        Ok(())
-    }
-
-    pub fn clear_override_affirmation_map(&self, reward_cycle: u64) -> Result<(), DBError> {
-        let qry = "DELETE FROM overrides WHERE reward_cycle = ?1";
-        let args = params![u64_to_sql(reward_cycle)?];
-
-        let mut stmt = self.sql_tx.prepare(qry)?;
-        stmt.execute(args)?;
-        Ok(())
     }
 }
 
 impl BurnchainDB {
-    fn add_indexes(&mut self) -> Result<(), BurnchainError> {
-        let exists: i64 = query_row(
-            self.conn(),
-            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
-            params![LAST_BURNCHAIN_DB_INDEX],
-        )?
-        .unwrap_or(0);
-        if exists == 0 {
-            let db_tx = self.tx_begin()?;
-            for index in BURNCHAIN_DB_INDEXES.iter() {
-                db_tx.sql_tx.execute_batch(index)?;
-            }
-            db_tx.commit()?;
+    /// The current schema version of the burnchain DB.
+    pub const SCHEMA_VERSION: u32 = 3;
+
+    /// Returns the schema version of the database
+    fn get_schema_version(conn: &Connection) -> Result<u32, BurnchainError> {
+        // If the db_config table doesn't exist, assume "version 1" as starting point
+        // (we don't have a schema 1, otherwise would start from 0)
+        if !table_exists(conn, "db_config")? {
+            return Ok(1);
         }
-        Ok(())
+
+        // Query all version values and get the max
+        let mut stmt = conn.prepare("SELECT version FROM db_config")?;
+        let max_version: u32 = stmt
+            .query_map([], |row| {
+                // Always read as String
+                row.get::<_, String>(0)
+            })?
+            .filter_map(Result::ok)
+            .filter_map(|v| v.parse::<u32>().ok())
+            .max()
+            .unwrap_or(1); // default to 1 if table exists but empty
+
+        Ok(max_version)
     }
 
+    /// Connect to a new `BurnchainDB` instance.
+    /// This will create a new SQLite database at the given path
+    /// or an in-memory database if the path is ":memory:"
     pub fn connect(
         path: &str,
         burnchain: &Burnchain,
@@ -520,7 +540,7 @@ impl BurnchainDB {
                             let ppath = Path::new(path);
                             let pparent_path = ppath
                                 .parent()
-                                .unwrap_or_else(|| panic!("BUG: no parent of '{}'", path));
+                                .unwrap_or_else(|| panic!("BUG: no parent of '{path}'"));
                             fs::create_dir_all(&pparent_path)
                                 .map_err(|e| BurnchainError::from(DBError::IOError(e)))?;
 
@@ -544,28 +564,104 @@ impl BurnchainDB {
         };
 
         let conn = sqlite_open(path, open_flags, true)?;
-        let mut db = BurnchainDB { conn };
+        debug!("Burnchain DB instantiated at {path}.");
+        let mut burnchain_db = Self { conn };
+        burnchain_db.create_or_migrate(burnchain, readwrite, create_flag)?;
 
-        if create_flag {
-            let db_tx = db.tx_begin()?;
-            db_tx.sql_tx.execute_batch(BURNCHAIN_DB_SCHEMA)?;
-            db_tx.sql_tx.execute(
-                "INSERT INTO db_config (version) VALUES (?1)",
-                params![&BURNCHAIN_DB_VERSION],
-            )?;
+        Ok(burnchain_db)
+    }
 
-            let first_block_header = BurnchainBlockHeader {
-                block_height: burnchain.first_block_height,
-                block_hash: burnchain.first_block_hash.clone(),
-                timestamp: burnchain.first_block_timestamp.into(),
-                num_txs: 0,
-                parent_block_hash: BurnchainHeaderHash::sentinel(),
-            };
+    fn add_indexes(&mut self) -> Result<(), BurnchainError> {
+        let exists: i64 = query_row(
+            self.conn(),
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            params![LAST_BURNCHAIN_DB_INDEX],
+        )?
+        .unwrap_or(0);
+        if exists == 0 {
+            let db_tx = self.tx_begin()?;
+            for index in BURNCHAIN_DB_INDEXES.iter() {
+                db_tx.execute_batch(index)?;
+            }
+            db_tx.commit()?;
+        }
+        Ok(())
+    }
 
+    /// Either instantiate a new database, or migrate an existing one
+    fn create_or_migrate(
+        &mut self,
+        burnchain: &Burnchain,
+        readwrite: bool,
+        create_flag: bool,
+    ) -> Result<(), BurnchainError> {
+        let db_tx = self.tx_begin()?;
+
+        let mut current_db_version = Self::get_schema_version(&db_tx.sql_tx)?;
+        debug!("Current Burnchain schema version: {}", current_db_version);
+
+        for migration in MIGRATIONS.iter() {
+            if current_db_version >= migration.version {
+                // don't need this migration, continue to see if we need later migrations
+                continue;
+            }
+            if current_db_version != migration.version - 1 {
+                // This implies a gap or out-of-order migration definition,
+                // or the database is at a version X, and the next migration is X+2 instead of X+1.
+                db_tx.rollback()?;
+                return Err(BurnchainError::from(DBError::Other(format!(
+                    "Migration step missing or out of order. Current DB version: {current_db_version}, trying to apply migration for version: {}",
+                    migration.version
+                ))));
+            }
             debug!(
-                "Instantiate burnchain DB at {}. First block header is {:?}",
-                path, &first_block_header
+                "Applying SignerDB migration for schema version {}",
+                migration.version
             );
+            for statement in migration.statements.iter() {
+                db_tx.execute_batch(statement)?;
+            }
+
+            // Verify that the migration script updated the version correctly
+            let new_version_check = Self::get_schema_version(&db_tx.conn())?;
+            if new_version_check != migration.version {
+                db_tx.rollback()?;
+                return Err(BurnchainError::from(DBError::Other(format!(
+                    "Migration to version {} failed to update DB version. Expected {}, got {new_version_check}.",
+                    migration.version, migration.version
+                ))));
+            }
+            current_db_version = new_version_check;
+            debug!("Successfully migrated to schema version {current_db_version}");
+        }
+
+        match current_db_version.cmp(&Self::SCHEMA_VERSION) {
+            std::cmp::Ordering::Less => {
+                db_tx.rollback()?;
+                return Err(DBError::Other(format!(
+                    "Database migration incomplete. Current version: {current_db_version}, SCHEMA_VERSION: {}",
+                    Self::SCHEMA_VERSION
+                )).into());
+            }
+            std::cmp::Ordering::Greater => {
+                db_tx.rollback()?;
+                return Err(DBError::Other(format!(
+                    "Database schema is newer than SCHEMA_VERSION. SCHEMA_VERSION = {}, Current version = {current_db_version}. Did you forget to update SCHEMA_VERSION?",
+                    Self::SCHEMA_VERSION
+                )).into());
+            }
+            std::cmp::Ordering::Equal => {}
+        }
+
+        let first_block_header = BurnchainBlockHeader {
+            block_height: burnchain.first_block_height,
+            block_hash: burnchain.first_block_hash.clone(),
+            timestamp: burnchain.first_block_timestamp.into(),
+            num_txs: 0,
+            parent_block_hash: BurnchainHeaderHash::sentinel(),
+        };
+        if create_flag {
+            debug!("First block header is {first_block_header:?}");
             db_tx.store_burnchain_db_entry(&first_block_header)?;
 
             let first_snapshot = BlockSnapshot::initial(
@@ -578,18 +674,19 @@ impl BurnchainDB {
                 txid: first_snapshot.winning_block_txid.clone(),
                 block_height: first_snapshot.block_height,
                 vtxindex: 0,
-                affirmation_id: 0,
                 anchor_block: None,
                 anchor_block_descendant: None,
             };
             db_tx.insert_block_commit_metadata(first_snapshot_commit_metadata)?;
-            db_tx.commit()?;
         }
 
+        db_tx.commit()?;
+
         if readwrite {
-            db.add_indexes()?;
+            self.add_indexes()?;
         }
-        Ok(db)
+
+        Ok(())
     }
 
     pub fn open(path: &str, readwrite: bool) -> Result<BurnchainDB, BurnchainError> {
@@ -769,54 +866,6 @@ impl BurnchainDB {
         ops
     }
 
-    pub fn get_affirmation_map(
-        conn: &DBConn,
-        affirmation_id: u64,
-    ) -> Result<Option<AffirmationMap>, DBError> {
-        let sql = "SELECT affirmation_map FROM affirmation_maps WHERE affirmation_id = ?1";
-        let args = params![&u64_to_sql(affirmation_id)?];
-        query_row(conn, sql, args)
-    }
-
-    pub fn get_affirmation_weight(
-        conn: &DBConn,
-        affirmation_id: u64,
-    ) -> Result<Option<u64>, DBError> {
-        let sql = "SELECT weight FROM affirmation_maps WHERE affirmation_id = ?1";
-        let args = params![&u64_to_sql(affirmation_id)?];
-        query_row(conn, sql, args)
-    }
-
-    pub fn get_affirmation_map_id(
-        conn: &DBConn,
-        affirmation_map: &AffirmationMap,
-    ) -> Result<Option<u64>, DBError> {
-        let sql = "SELECT affirmation_id FROM affirmation_maps WHERE affirmation_map = ?1";
-        let args = params![&affirmation_map.encode()];
-        query_row(conn, sql, args)
-    }
-
-    pub fn get_affirmation_map_id_at(
-        conn: &DBConn,
-        burn_header_hash: &BurnchainHeaderHash,
-        txid: &Txid,
-    ) -> Result<Option<u64>, DBError> {
-        let sql = "SELECT affirmation_id FROM block_commit_metadata WHERE burn_block_hash = ?1 AND txid = ?2";
-        let args = params![burn_header_hash, txid];
-        query_row(conn, sql, args)
-    }
-
-    pub fn get_block_commit_affirmation_id(
-        conn: &DBConn,
-        block_commit: &LeaderBlockCommitOp,
-    ) -> Result<Option<u64>, DBError> {
-        BurnchainDB::get_affirmation_map_id_at(
-            conn,
-            &block_commit.burn_header_hash,
-            &block_commit.txid,
-        )
-    }
-
     pub fn is_anchor_block(
         conn: &DBConn,
         burn_header_hash: &BurnchainHeaderHash,
@@ -985,7 +1034,7 @@ impl BurnchainDB {
             }
             Err(e) => {
                 debug!(
-                    "BurnchainDB Error {:?} finding PoX affirmation at {},{} in {:?}",
+                    "BurnchainDB Error {:?} finding PoX at {},{} in {:?}",
                     e, block_ptr, vtxindex, &header_hash
                 );
                 return Ok(None);
@@ -1029,189 +1078,5 @@ impl BurnchainDB {
                 )
             },
         )
-    }
-
-    /// Get the block-commit and block metadata for the anchor block with the heaviest affirmation
-    /// weight.
-    pub fn get_heaviest_anchor_block<B: BurnchainHeaderReader>(
-        conn: &DBConn,
-        indexer: &B,
-    ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
-        let sql = "SELECT block_commit_metadata.* \
-                   FROM affirmation_maps JOIN block_commit_metadata ON affirmation_maps.affirmation_id = block_commit_metadata.affirmation_id \
-                   WHERE block_commit_metadata.anchor_block IS NOT NULL \
-                   ORDER BY affirmation_maps.weight DESC, block_commit_metadata.anchor_block DESC";
-
-        let mut stmt = conn.prepare(sql)?;
-        let mut rows = stmt.query(NO_PARAMS)?;
-        while let Some(row) = rows.next()? {
-            let metadata = BlockCommitMetadata::from_row(row)?;
-
-            if let Some(block_header) = indexer.read_burnchain_header(metadata.block_height)? {
-                if block_header.block_hash != metadata.burn_block_hash {
-                    continue;
-                }
-
-                // this metadata is part of the indexer's burnchain fork
-                let commit =
-                    BurnchainDB::get_block_commit(conn, &metadata.burn_block_hash, &metadata.txid)?
-                        .expect("BUG: no block commit for existing metadata");
-                return Ok(Some((commit, metadata)));
-            }
-        }
-
-        return Ok(None);
-    }
-
-    /// Find the affirmation map of the anchor block whose affirmation map is the heaviest.
-    /// In the event of a tie, pick the one from the anchor block of the latest reward cycle.
-    pub fn get_heaviest_anchor_block_affirmation_map<B: BurnchainHeaderReader>(
-        conn: &DBConn,
-        burnchain: &Burnchain,
-        indexer: &B,
-    ) -> Result<AffirmationMap, DBError> {
-        match BurnchainDB::get_heaviest_anchor_block(conn, indexer)? {
-            Some((_, metadata)) => {
-                let last_reward_cycle = burnchain
-                    .block_height_to_reward_cycle(metadata.block_height)
-                    .unwrap_or(0)
-                    + 1;
-
-                // is there an override set for this reward cycle?
-                if let Some(am) =
-                    BurnchainDB::get_override_affirmation_map(conn, last_reward_cycle)?
-                {
-                    warn!(
-                        "Overriding heaviest affirmation map for reward cycle {} to {}",
-                        last_reward_cycle, &am
-                    );
-                    return Ok(am);
-                }
-
-                let am = BurnchainDB::get_affirmation_map(conn, metadata.affirmation_id)?
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "BUG: failed to load affirmation map {}",
-                            metadata.affirmation_id
-                        )
-                    });
-
-                if cfg!(test) {
-                    let _weight =
-                        BurnchainDB::get_affirmation_weight(conn, metadata.affirmation_id)?
-                            .unwrap_or_else(|| {
-                                panic!(
-                                    "BUG: have affirmation map {} but no weight",
-                                    &metadata.affirmation_id
-                                )
-                            });
-
-                    test_debug!(
-                        "Heaviest anchor block affirmation map is {:?} (ID {}, weight {})",
-                        &am,
-                        metadata.affirmation_id,
-                        _weight
-                    );
-                }
-                Ok(am)
-            }
-            None => {
-                test_debug!("No anchor block affirmations maps");
-                Ok(AffirmationMap::empty())
-            }
-        }
-    }
-
-    /// Load an overridden affirmation map.
-    /// You'd only do this in network emergencies, where node operators are expected to declare an
-    /// anchor block missing (or present).  Ideally there'd be a smart contract somewhere for this.
-    pub fn get_override_affirmation_map(
-        conn: &DBConn,
-        reward_cycle: u64,
-    ) -> Result<Option<AffirmationMap>, DBError> {
-        let am_opt: Option<AffirmationMap> = query_row_panic(
-            conn,
-            "SELECT affirmation_map FROM overrides WHERE reward_cycle = ?1",
-            params![u64_to_sql(reward_cycle)?],
-            || "BUG: more than one override affirmation map for the same reward cycle".to_string(),
-        )?;
-        if let Some(am) = &am_opt {
-            assert_eq!((am.len() + 1) as u64, reward_cycle);
-        }
-        Ok(am_opt)
-    }
-
-    /// Get the canonical affirmation map.  This is the heaviest anchor block affirmation map, but
-    /// accounting for any subsequent reward cycles whose anchor blocks either aren't on the
-    /// heaviest anchor block affirmation map, or which have no anchor blocks.
-    pub fn get_canonical_affirmation_map<F, B>(
-        conn: &DBConn,
-        burnchain: &Burnchain,
-        indexer: &B,
-        mut unconfirmed_oracle: F,
-    ) -> Result<AffirmationMap, DBError>
-    where
-        B: BurnchainHeaderReader,
-        F: FnMut(LeaderBlockCommitOp, BlockCommitMetadata) -> bool,
-    {
-        let canonical_tip =
-            BurnchainDB::inner_get_canonical_chain_tip(conn).map_err(|e| match e {
-                BurnchainError::DBError(dbe) => dbe,
-                _ => DBError::Other(format!("Burnchain error: {:?}", &e)),
-            })?;
-
-        let last_reward_cycle = burnchain
-            .block_height_to_reward_cycle(canonical_tip.block_height)
-            .unwrap_or(0)
-            + 1;
-
-        // is there an override set for this reward cycle?
-        if let Some(am) = BurnchainDB::get_override_affirmation_map(conn, last_reward_cycle)? {
-            warn!(
-                "Overriding heaviest affirmation map for reward cycle {} to {}",
-                last_reward_cycle, &am
-            );
-            return Ok(am);
-        }
-
-        let mut heaviest_am =
-            BurnchainDB::get_heaviest_anchor_block_affirmation_map(conn, burnchain, indexer)?;
-        let start_rc = (heaviest_am.len() as u64) + 1;
-
-        test_debug!(
-            "Add reward cycles {}-{} to heaviest anchor block affirmation map {}",
-            start_rc,
-            last_reward_cycle,
-            &heaviest_am
-        );
-        for rc in start_rc..last_reward_cycle {
-            if let Some(metadata) =
-                BurnchainDB::get_canonical_anchor_block_commit_metadata(conn, indexer, rc)?
-            {
-                let bhh = metadata.burn_block_hash.clone();
-                let txid = metadata.txid.clone();
-                let commit = BurnchainDB::get_block_commit(conn, &bhh, &txid)?
-                    .expect("FATAL: have block-commit metadata but not block-commit");
-                let present = unconfirmed_oracle(commit, metadata);
-                if present {
-                    debug!(
-                        "Assume present unaffirmed anchor block {} txid {} at reward cycle {}",
-                        &bhh, &txid, rc
-                    );
-                    heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockPresent);
-                } else {
-                    debug!(
-                        "Assume absent unaffirmed anchor block {} txid {} at reward cycle {}",
-                        &bhh, &txid, rc
-                    );
-                    heaviest_am.push(AffirmationMapEntry::PoxAnchorBlockAbsent);
-                }
-            } else {
-                debug!("Assume no anchor block at reward cycle {}", rc);
-                heaviest_am.push(AffirmationMapEntry::Nothing);
-            }
-        }
-
-        Ok(heaviest_am)
     }
 }
