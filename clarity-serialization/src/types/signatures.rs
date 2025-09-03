@@ -185,6 +185,14 @@ use self::TypeSignature::{
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
+/// Maximum string length returned from `to-ascii?`.
+/// 5 bytes reserved for embedding in response.
+const MAX_TO_ASCII_RESULT_LEN: u32 = MAX_VALUE_SIZE - 5;
+
+/// Maximum buffer length returned from `to-ascii?`.
+/// 2 bytes reserved for "0x" prefix and 2 characters per byte.
+pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
+
 lazy_static! {
     pub static ref BUFF_64: TypeSignature = {
         #[allow(clippy::expect_used)]
@@ -232,6 +240,22 @@ lazy_static! {
         #[allow(clippy::expect_used)]
         SequenceType(SequenceSubtype::BufferType(
             BufferLength::try_from(16u32).expect("BUG: Legal Clarity buffer length marked invalid"),
+        ))
+    };
+    /// Maximum-sized buffer allowed for `to-ascii?` call.
+    pub static ref TO_ASCII_MAX_BUFF: TypeSignature = {
+        #[allow(clippy::expect_used)]
+        SequenceType(SequenceSubtype::BufferType(
+            BufferLength::try_from(MAX_TO_ASCII_BUFFER_LEN)
+                .expect("BUG: Legal Clarity buffer length marked invalid"),
+        ))
+    };
+    /// Maximum-length string returned from `to-ascii?`
+    pub static ref TO_ASCII_RESPONSE_STRING: TypeSignature = {
+        #[allow(clippy::expect_used)]
+        SequenceType(SequenceSubtype::StringType(
+            StringSubtype::ASCII(BufferLength::try_from(MAX_TO_ASCII_RESULT_LEN)
+                .expect("BUG: Legal Clarity buffer length marked invalid")),
         ))
     };
 }

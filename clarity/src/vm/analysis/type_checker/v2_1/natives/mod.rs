@@ -27,7 +27,7 @@ use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
-    UTF8_40,
+    TO_ASCII_MAX_BUFF, TO_ASCII_RESPONSE_STRING, UTF8_40,
 };
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
@@ -1183,6 +1183,21 @@ impl TypedNativeFunction {
                 returns: TypeSignature::new_response(BUFF_32.clone(), TypeSignature::UIntType)
                     .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             }))),
+            ToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
+                vec![
+                    TypeSignature::IntType,
+                    TypeSignature::UIntType,
+                    TypeSignature::BoolType,
+                    TypeSignature::PrincipalType,
+                    TO_ASCII_MAX_BUFF.clone(),
+                    TypeSignature::max_string_utf8()?,
+                ],
+                TypeSignature::new_response(
+                    TO_ASCII_RESPONSE_STRING.clone(),
+                    TypeSignature::UIntType,
+                )
+                .expect("BUG: Legal Clarity response type marked invalid"),
+            ))),
         };
 
         Ok(out)
