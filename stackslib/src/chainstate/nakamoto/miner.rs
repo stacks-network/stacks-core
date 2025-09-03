@@ -754,8 +754,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                   "origin" => %tx.origin_address(),
                   "soft_limit_reached" => soft_limit_reached,
                   "cost_after" => %cost_after,
-                  "cost_before" => %cost_before,
-                  "payload" => ?tx.payload
+                  "cost_before" => %cost_before
             );
 
             // save
