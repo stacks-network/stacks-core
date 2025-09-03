@@ -10,14 +10,14 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
+- Creates epoch 3.3 and costs-4 in preparation for a hardfork to activate Clarity 4
+- Adds support for new Clarity 4 builtins (not activated until epoch 3.3):
+  - `contract-hash?`
 
 ## [3.2.0.0.1]
 ### Added
 
 - Adds node-config-docsgen to automatically create config documentation (#6227)
-- Creates epoch 3.3 and costs-4 in preparation for a hardfork to activate Clarity 4
-- Adds support for new Clarity 4 builtins (not activated until epoch 3.3):
-  - `contract-hash?`
 
 ### Fixed
 
