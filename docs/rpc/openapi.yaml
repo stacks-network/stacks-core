@@ -1074,6 +1074,7 @@ paths:
           required: true
           schema:
             type: string
+            pattern: "^[0-9a-f]{40}$"
       responses:
         "200":
           description: List of Stacks block ids
