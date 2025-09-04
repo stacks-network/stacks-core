@@ -25,11 +25,13 @@ use blockstack_lib::chainstate::stacks::{
     TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
     TransactionSpendingCondition, TransactionVersion,
 };
+use blockstack_lib::core::test_util::make_stacks_transfer_tx;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
-use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
+use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
 use clarity::util::vrf::VRFProof;
 use libsigner::v0::messages::RejectReason;
+use libsigner::v0::signer_state::ReplayTransactionSet;
 use libsigner::{BlockProposal, BlockProposalData};
 use stacks_common::bitvec::BitVec;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -143,13 +145,25 @@ fn check_proposal_units() {
     let (stacks_client, mut signer_db, _, mut view, block) =
         setup_test_environment(function_name!());
 
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 
     view.last_sortition = None;
 
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 }
 
 #[test]
@@ -159,13 +173,25 @@ fn check_proposal_miner_pkh_mismatch() {
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     let different_block_sk = StacksPrivateKey::from_seed(&[2, 3]);
     block.header.sign_miner(&different_block_sk).unwrap();
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 
     block.header.consensus_hash = view.last_sortition.as_ref().unwrap().data.consensus_hash;
     block.header.sign_miner(&different_block_sk).unwrap();
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 }
 
 fn reorg_timing_testing(
@@ -269,7 +295,15 @@ fn reorg_timing_testing(
         client,
         config,
     } = MockServerClient::new();
-    let h = std::thread::spawn(move || view.check_proposal(&client, &mut signer_db, &block, false));
+    let h = std::thread::spawn(move || {
+        view.check_proposal(
+            &client,
+            &mut signer_db,
+            &block,
+            false,
+            ReplayTransactionSet::none(),
+        )
+    });
     header_clone.chain_length -= 1;
     let response = crate::client::tests::build_get_tenure_tip_response(
         &StacksBlockHeaderTypes::Nakamoto(header_clone),
@@ -305,16 +339,34 @@ fn check_proposal_invalid_status() {
         setup_test_environment(function_name!());
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.sign_miner(&block_sk).unwrap();
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect("Proposal should validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect("Proposal should validate");
     view.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedAfterFirstBlock;
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 
     block.header.consensus_hash = view.last_sortition.as_ref().unwrap().data.consensus_hash;
     block.header.sign_miner(&block_sk).unwrap();
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 
     view.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
     block.header.consensus_hash = view.last_sortition.as_ref().unwrap().data.consensus_hash;
@@ -324,8 +376,14 @@ fn check_proposal_invalid_status() {
     // the stacks-node to do that (because the stacks-node actually knows whether or not their
     // parent blocks have been seen before, while the signer state checks are only reasoning about
     // stacks blocks seen by the signer, which may be a subset)
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect("Proposal should validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect("Proposal should validate");
 }
 
 fn make_tenure_change_payload() -> TenureChangePayload {
@@ -373,8 +431,14 @@ fn check_proposal_tenure_extend_invalid_conditions() {
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 
     let mut extend_payload = make_tenure_change_payload();
     extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
@@ -383,8 +447,14 @@ fn check_proposal_tenure_extend_invalid_conditions() {
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect("Proposal should validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect("Proposal should validate");
 }
 
 #[test]
@@ -414,19 +484,43 @@ fn check_block_proposal_timeout() {
         )
         .unwrap();
 
-    view.check_proposal(&stacks_client, &mut signer_db, &curr_sortition_block, false)
-        .expect("Proposal should validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &curr_sortition_block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect("Proposal should validate");
 
-    view.check_proposal(&stacks_client, &mut signer_db, &last_sortition_block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &last_sortition_block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 
     // Sleep a bit to time out the block proposal
     std::thread::sleep(Duration::from_secs(5));
-    view.check_proposal(&stacks_client, &mut signer_db, &curr_sortition_block, false)
-        .expect_err("Proposal should not validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &curr_sortition_block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect_err("Proposal should not validate");
 
-    view.check_proposal(&stacks_client, &mut signer_db, &last_sortition_block, false)
-        .expect("Proposal should validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &last_sortition_block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect("Proposal should validate");
 }
 
 #[test]
@@ -531,8 +625,14 @@ fn check_proposal_refresh() {
         setup_test_environment(function_name!());
     block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
     block.header.sign_miner(&block_sk).unwrap();
-    view.check_proposal(&stacks_client, &mut signer_db, &block, false)
-        .expect("Proposal should validate");
+    view.check_proposal(
+        &stacks_client,
+        &mut signer_db,
+        &block,
+        false,
+        ReplayTransactionSet::none(),
+    )
+    .expect("Proposal should validate");
 
     let MockServerClient {
         server,
@@ -574,11 +674,47 @@ fn check_proposal_refresh() {
     ];
 
     view.cur_sortition.data.consensus_hash = ConsensusHash([128; 20]);
-    let h = std::thread::spawn(move || view.check_proposal(&client, &mut signer_db, &block, true));
+    let h = std::thread::spawn(move || {
+        view.check_proposal(
+            &client,
+            &mut signer_db,
+            &block,
+            true,
+            ReplayTransactionSet::none(),
+        )
+    });
     crate::client::tests::write_response(
         server,
         format!("HTTP/1.1 200 Ok\n\n{}", serde_json::json!(expected_result)).as_bytes(),
     );
     let result = h.join().unwrap();
     result.expect("Proposal should validate");
+}
+
+#[test]
+fn check_proposal_with_extend_during_replay() {
+    let (stacks_client, mut signer_db, block_sk, mut view, mut block) =
+        setup_test_environment(function_name!());
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
+    let mut extend_payload = make_tenure_change_payload();
+    extend_payload.burn_view_consensus_hash = view.cur_sortition.data.consensus_hash;
+    extend_payload.tenure_consensus_hash = block.header.consensus_hash;
+    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash;
+    let tx = make_tenure_change_tx(extend_payload);
+    block.txs = vec![tx];
+    block.header.sign_miner(&block_sk).unwrap();
+    let block_pk = StacksPublicKey::from_private(&block_sk);
+
+    let replay_tx = make_stacks_transfer_tx(
+        &block_sk,
+        0,
+        0,
+        1,
+        &StacksAddress::p2pkh(true, &block_pk).into(),
+        1000000,
+    );
+    let replay_set = ReplayTransactionSet::new(vec![replay_tx]);
+    block.header.sign_miner(&block_sk).unwrap();
+    view.check_proposal(&stacks_client, &mut signer_db, &block, false, replay_set)
+        .expect("Proposal should validate");
 }
