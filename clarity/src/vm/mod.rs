@@ -283,7 +283,7 @@ pub fn apply(
         env.call_stack.insert(&identifier, track_recursion);
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
-                runtime_cost(*cost_function, env, evaluated_args.len())
+                runtime_cost(cost_function.clone(), env, evaluated_args.len())
                     .map_err(Error::from)
                     .and_then(|_| function.apply(evaluated_args, env))
             }
@@ -293,7 +293,7 @@ pub fn apply(
                 } else {
                     evaluated_args.len() as u64
                 };
-                runtime_cost(*cost_function, env, cost_input)
+                runtime_cost(cost_function.clone(), env, cost_input)
                     .map_err(Error::from)
                     .and_then(|_| function.apply(evaluated_args, env))
             }

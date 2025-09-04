@@ -20,6 +20,7 @@ use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+    SyntaxBindingErrorType,
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
@@ -141,7 +142,12 @@ fn handle_define_function(
 
     check_legal_define(function_name, env.contract_context)?;
 
-    let arguments = parse_name_type_pairs(*env.epoch(), arg_symbols, env)?;
+    let arguments = parse_name_type_pairs::<_, CheckErrors>(
+        *env.epoch(),
+        arg_symbols,
+        SyntaxBindingErrorType::Eval,
+        env,
+    )?;
 
     for (argument, _) in arguments.iter() {
         check_legal_define(argument, env.contract_context)?;

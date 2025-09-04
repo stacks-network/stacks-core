@@ -24,7 +24,7 @@ use stacks::core::test_util::make_contract_call;
 use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};
 use stacks_common::util::sleep_ms;
 
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::tests::neon_integrations::*;
 use crate::tests::*;
 use crate::{neon, BitcoinRegtestController, BurnchainController};
@@ -53,7 +53,7 @@ fn trait_invocation_behavior() {
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
 
     let impl_contract_id =
-        QualifiedContractIdentifier::new(contract_addr.into(), "impl-simple".into());
+        QualifiedContractIdentifier::new(contract_addr.clone().into(), "impl-simple".into());
 
     let mut spender_nonce = 0;
     let fee_amount = 10_000;
@@ -134,7 +134,7 @@ fn trait_invocation_behavior() {
     );
     burnchain_config.pox_constants = pox_constants;
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())

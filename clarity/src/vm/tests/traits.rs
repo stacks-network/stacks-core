@@ -18,11 +18,11 @@ use stacks_common::types::StacksEpochId;
 
 #[cfg(test)]
 use super::MemoryEnvironmentGenerator;
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 #[cfg(test)]
 use crate::vm::{
     ast::ASTRules,
+    database::MemoryBackingStore,
     errors::{CheckErrors, Error},
     tests::{env_factory, execute, symbols_from_values},
     types::{PrincipalData, QualifiedContractIdentifier, Value},

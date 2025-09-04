@@ -285,7 +285,7 @@ impl fmt::Display for PoxId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct StacksAddress {
     version: u8,
     bytes: Hash160,

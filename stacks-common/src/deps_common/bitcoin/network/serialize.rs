@@ -25,7 +25,8 @@ use std::{error, fmt, io};
 use crate::address;
 use crate::deps_common::bitcoin::network::encodable::{ConsensusDecodable, ConsensusEncodable};
 use crate::deps_common::bitcoin::util::hash::Sha256dHash;
-use crate::util::hash::to_hex as hex_encode;
+use crate::util::hash::{hex_bytes, to_hex as hex_encode};
+use crate::util::HexError;
 
 /// Serialization error
 #[derive(Debug)]
@@ -67,6 +68,8 @@ pub enum Error {
     UnrecognizedNetworkCommand(String),
     /// Unexpected hex digit
     UnexpectedHexDigit(char),
+    /// Invalid hex input
+    InvalidHex(HexError),
 }
 
 impl fmt::Display for Error {
@@ -106,6 +109,7 @@ impl fmt::Display for Error {
                 write!(f, "unrecognized network command: {nwcmd}")
             }
             Error::UnexpectedHexDigit(ref d) => write!(f, "unexpected hex digit: {d}"),
+            Error::InvalidHex(ref e) => fmt::Display::fmt(e, f),
         }
     }
 }
@@ -123,7 +127,8 @@ impl error::Error for Error {
             | Error::UnsupportedWitnessVersion(..)
             | Error::UnsupportedSegwitFlag(..)
             | Error::UnrecognizedNetworkCommand(..)
-            | Error::UnexpectedHexDigit(..) => None,
+            | Error::UnexpectedHexDigit(..)
+            | Error::InvalidHex(..) => None,
         }
     }
 }
@@ -139,6 +144,13 @@ impl From<address::Error> for Error {
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::Io(error)
+    }
+}
+
+#[doc(hidden)]
+impl From<HexError> for Error {
+    fn from(error: HexError) -> Self {
+        Error::InvalidHex(error)
     }
 }
 
@@ -191,6 +203,15 @@ where
             "data not consumed entirely when explicitly deserializing",
         ))
     }
+}
+
+/// Deserialize an object from a hex-encoded string
+pub fn deserialize_hex<T>(data: &str) -> Result<T, Error>
+where
+    for<'a> T: ConsensusDecodable<RawDecoder<Cursor<&'a [u8]>>>,
+{
+    let bytes = hex_bytes(data)?;
+    deserialize(&bytes)
 }
 
 /// An encoder for raw binary data
