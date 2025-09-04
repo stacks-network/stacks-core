@@ -329,12 +329,12 @@ const BURNCHAIN_DB_MIGRATION_V2_TO_V3: &str = r#"
     DROP TABLE affirmation_maps;
 "#;
 
-static SCHEMA_2: &[&str] = &[
+pub static SCHEMA_2: &[&str] = &[
     BURNCHAIN_DB_SCHEMA_2,
     "INSERT INTO db_config (version) VALUES (2);",
 ];
 
-static SCHEMA_3: &[&str] = &[
+pub static SCHEMA_3: &[&str] = &[
     BURNCHAIN_DB_MIGRATION_V2_TO_V3,
     "INSERT INTO db_config (version) VALUES (3);",
 ];
@@ -506,10 +506,7 @@ impl BurnchainDB {
         // Query all version values and get the max
         let mut stmt = conn.prepare("SELECT version FROM db_config")?;
         let max_version: u32 = stmt
-            .query_map([], |row| {
-                // Always read as String
-                row.get::<_, String>(0)
-            })?
+            .query_map([], |row| row.get::<_, String>(0))?
             .filter_map(Result::ok)
             .filter_map(|v| v.parse::<u32>().ok())
             .max()

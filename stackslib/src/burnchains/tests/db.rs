@@ -15,7 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
+use std::path::PathBuf;
 
+use rusqlite::{params, Connection};
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
@@ -1051,4 +1053,132 @@ fn test_classify_delegate_stx() {
     } else {
         panic!("EXPECTED to parse a delegate stx op");
     }
+}
+
+// Mock Burnchain for testing
+fn mock_burnchain() -> Burnchain {
+    let first_block_height = 100;
+    Burnchain {
+        pox_constants: PoxConstants::test_default(),
+        peer_version: 0x012345678,
+        network_id: 0x9abcdef0,
+        chain_name: "bitcoin".to_string(),
+        network_name: "testnet".to_string(),
+        working_dir: "/nope".to_string(),
+        consensus_hash_lifetime: 24,
+        stable_confirmations: 7,
+        first_block_height,
+        initial_reward_start_block: first_block_height,
+        first_block_timestamp: 0,
+        first_block_hash: BurnchainHeaderHash::zero(),
+    }
+}
+
+/// Create a temporary db path for testing purposes
+pub fn tmp_db_path() -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "burnchain-db-test-{}.sqlite",
+        rand::random::<u64>()
+    ))
+}
+
+#[test]
+fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
+    // Create an in-memory database
+    let tmp_path = tmp_db_path();
+    let conn = Connection::open(tmp_path.clone())?;
+
+    // Initialize database with schema version 2 using SCHEMA_2
+    for statement in SCHEMA_2.iter() {
+        conn.execute_batch(statement)?;
+    }
+
+    // Insert sample data to verify data integrity post-migration
+    let sample_block_hash = BurnchainHeaderHash([1u8; 32]);
+    let sample_parent_block_hash = BurnchainHeaderHash([0u8; 32]);
+    let sample_txid = "txid1".to_string();
+    conn.execute(
+            "INSERT INTO burnchain_db_block_headers (block_height, block_hash, parent_block_hash, num_txs, timestamp) VALUES (?, ?, ?, ?, ?)",
+            params![1, &sample_block_hash, &sample_parent_block_hash, 1, 1234567890],
+        )?;
+    conn.execute(
+        "INSERT INTO affirmation_maps (weight, affirmation_map) VALUES (?, ?)",
+        params![1, "test_map"],
+    )?;
+    conn.execute(
+            "INSERT INTO block_commit_metadata (burn_block_hash, txid, block_height, vtxindex, affirmation_id, anchor_block, anchor_block_descendant) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![&sample_block_hash, &sample_txid, 1, 0, 0, None::<i64>, None::<i64>],
+        )?;
+
+    // Create BurnchainDB using connect to trigger migration code
+    let burnchain = mock_burnchain();
+    let db = BurnchainDB::connect(tmp_path.to_str().unwrap(), &burnchain, true)?;
+
+    // Verify schema version is updated to 3
+    let mut stmt = conn.prepare("SELECT version FROM db_config")?;
+    let version: u32 = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(Result::ok)
+        .filter_map(|v| v.parse::<u32>().ok())
+        .max()
+        .expect("Expected db_config to have a version");
+    assert_eq!(version, 3, "Database version should be 3 after migration");
+
+    // Verify affirmation_maps table is dropped
+    assert!(
+        !table_exists(&db.conn, "affirmation_maps")?,
+        "affirmation_maps table should be dropped"
+    );
+
+    // Verify affirmation_id column is dropped from block_commit_metadata
+    let columns: Vec<String> = db
+        .conn
+        .prepare("PRAGMA table_info(block_commit_metadata)")?
+        .query_map([], |row| row.get(1))?
+        .collect::<Result<Vec<String>, _>>()?;
+    assert!(
+        !columns.contains(&"affirmation_id".to_string()),
+        "affirmation_id column should be dropped"
+    );
+
+    // Verify other tables and data remain intact
+    assert!(
+        table_exists(&db.conn, "burnchain_db_block_headers")?,
+        "burnchain_db_block_headers table should exist"
+    );
+    assert!(
+        table_exists(&db.conn, "block_commit_metadata")?,
+        "block_commit_metadata table should exist"
+    );
+    let header: Option<BurnchainBlockHeader> = query_row(
+        &db.conn,
+        "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ?",
+        params![&sample_block_hash],
+    )?;
+    assert!(
+        header.is_some(),
+        "Sample block header should remain after migration"
+    );
+    let metadata: Option<String> = query_row(
+        &db.conn,
+        "SELECT txid FROM block_commit_metadata WHERE burn_block_hash = ?",
+        params![&sample_block_hash],
+    )?;
+    assert_eq!(
+        metadata,
+        Some(sample_txid),
+        "Sample block_commit_metadata should remain after migration"
+    );
+
+    // Verify indexes are still present
+    let indexes: Vec<String> = db.conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'index_block_commit_metadata%'")?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+    assert!(
+        indexes.contains(&"index_block_commit_metadata_burn_block_hash_anchor_block".to_string()),
+        "Expected index should still exist"
+    );
+
+    Ok(())
 }
