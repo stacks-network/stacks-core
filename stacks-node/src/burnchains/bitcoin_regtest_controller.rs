@@ -79,7 +79,7 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use crate::burnchains::rpc::bitcoin_rpc_client::{
-    BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp
+    BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
 };
 
 /// The number of bitcoin blocks that can have
@@ -304,14 +304,18 @@ impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
     }
 }
 
+/// Represents errors that can occur when using [`BitcoinRegtestController`].
 #[derive(Debug, thiserror::Error)]
 pub enum BitcoinRegtestControllerError {
+    /// Error related to Bitcoin RPC failures.
     #[error("Bitcoin RPC error: {0}")]
     Rpc(#[from] BitcoinRpcClientError),
+    /// Error related to invalid or malformed [`Secp256k1PublicKey`].
     #[error("Invalid public key: {0}")]
     InvalidPublicKey(btc_error),
 }
 
+/// Alias for results returned from [`BitcoinRegtestController`] operations.
 pub type BitcoinRegtestControllerResult<T> = Result<T, BitcoinRegtestControllerError>;
 
 impl BitcoinRegtestController {
@@ -2187,6 +2191,12 @@ impl BitcoinRegtestController {
         &self.config.burnchain.wallet_name
     }
 
+    /// Imports a public key into configured wallet by registering its
+    /// corresponding addresses as descriptors.
+    ///
+    /// This computes both **legacy (P2PKH)** and, if the miner is configured
+    /// with `segwit` enabled, also **SegWit (P2WPKH)** addresses, then imports
+    /// the related descriptors into the wallet.
     pub fn import_public_key(
         &self,
         public_key: &Secp256k1PublicKey,
