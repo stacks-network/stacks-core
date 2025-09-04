@@ -1070,7 +1070,7 @@ paths:
       parameters:
         - name: consensus_hash
           in: path
-          description: The consensus hash of the tenure to query
+          description: The hex-encoded consensus hash of the tenure to query (40 hexadecimal characters, without 0x prefix)
           required: true
           schema:
             type: string
