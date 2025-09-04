@@ -219,7 +219,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
-    addr2str, burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
+    burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainControllerError};
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
@@ -5000,7 +5000,7 @@ impl StacksNode {
         let miner_addr = relayer_thread
             .bitcoin_controller
             .get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let miner_addr_str = addr2str(&miner_addr);
+        let miner_addr_str = miner_addr.to_string();
         let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
             warn!("Failed to set global burnchain signer: {e:?}");
             e

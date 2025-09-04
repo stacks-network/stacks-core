@@ -192,6 +192,7 @@ impl GlobalStateView {
             // in tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
+            // (3) if we are in replay, an extend is allowed
             let changed_burn_view = &tenure_extend.burn_view_consensus_hash != tenure_id;
             let extend_timestamp = signer_db.calculate_tenure_extend_timestamp(
                 self.config.tenure_idle_timeout,
@@ -200,13 +201,17 @@ impl GlobalStateView {
             );
             let epoch_time = get_epoch_time_secs();
             let enough_time_passed = epoch_time >= extend_timestamp;
-            if !changed_burn_view && !enough_time_passed {
+            let is_in_replay = self.signer_state.tx_replay_set.is_some();
+            if !changed_burn_view && !enough_time_passed && !is_in_replay {
                 warn!(
-                    "Miner block proposal contains a tenure extend, but the burnchain view has not changed and enough time has not passed to refresh the block limit. Considering proposal invalid.";
+                    "Miner block proposal contains a tenure extend, but the conditions for allowing a tenure extend are not met. Considering proposal invalid.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "signer_signature_hash" => %block.header.signer_signature_hash(),
                     "extend_timestamp" => extend_timestamp,
                     "epoch_time" => epoch_time,
+                    "is_in_replay" => is_in_replay,
+                    "changed_burn_view" => changed_burn_view,
+                    "enough_time_passed" => enough_time_passed,
                 );
                 return Err(RejectReason::InvalidTenureExtend);
             }
