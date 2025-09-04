@@ -72,11 +72,15 @@ pub struct RPCTenureStream {
     pub tenure_first_chunk: Option<Vec<u8>>,
     /// do we need to send the last chunk?
     pub last_chunk: bool,
-    /// do we need to send the last chunk?
+    /// is this the first block we are generating?
     pub first_block: bool,
 }
 
 impl RPCTenureStream {
+    /// Prepare for tenure streaming.
+    /// The tenure_first_chunk is created here and streamed at the first_next_block call
+    /// The HttpChunkGenerator trait implementation will take care of completing
+    /// the json stream (by clossing both the array and the object)
     pub fn new(
         chainstate: &StacksChainState,
         block_id: StacksBlockId,
@@ -97,6 +101,8 @@ impl RPCTenureStream {
         })
     }
 
+    /// Stream the json block for the next block.
+    /// Stops on non-existent block or on a block in a different tenure
     pub fn next_block(&mut self) -> Result<Vec<u8>, String> {
         let block_header_opt =
             NakamotoChainState::get_block_header(&self.headers_conn, &self.next_block_id)
@@ -166,7 +172,7 @@ impl HttpChunkGenerator for RPCTenureStream {
         // load up next block
         let mut send_more = self.next_block().map_err(|e| {
             let msg = format!("Failed to load next block in this tenure: {:?}", &e);
-            warn!("{}", &msg);
+            warn!("{msg}");
             msg
         })?;
 
