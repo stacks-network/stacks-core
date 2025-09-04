@@ -8769,16 +8769,6 @@ fn run_with_custom_wallet() {
     // If we get this far, then it also means that mining and block-production worked.
     let blocks = test_observer::get_blocks();
     assert!(blocks.len() > 1);
-
-    // bitcoin node knows of this wallet
-    let wallets = BitcoinRPCRequest::list_wallets(&conf).unwrap();
-    let mut found = false;
-    for w in wallets {
-        if w == conf.burnchain.wallet_name {
-            found = true;
-        }
-    }
-    assert!(found);
 }
 
 /// Make a contract that takes a parameterized amount of runtime

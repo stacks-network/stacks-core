@@ -78,9 +78,7 @@ use url::Url;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClient;
-#[cfg(test)]
-use crate::burnchains::rpc::bitcoin_rpc_client::BitcoinRpcClientError;
+use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcClientError};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -741,13 +739,18 @@ impl BitcoinRegtestController {
         result_vec
     }
 
+    /// Retrieve all loaded wallets.
+    pub fn list_wallets(&self) -> Result<Vec<String>, BitcoinRpcClientError> {
+        self.rpc_client.list_wallets()
+    }
+
     /// Checks if the config-supplied wallet exists.
     /// If it does not exist, this function creates it.
-    pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
-        let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
-
-        if !wallets.contains(&self.config.burnchain.wallet_name) {
-            BitcoinRPCRequest::create_wallet(&self.config, &self.config.burnchain.wallet_name)?;
+    pub fn create_wallet_if_dne(&self) -> Result<(), BitcoinRpcClientError> {
+        let wallets = self.list_wallets()?;
+        let wallet = self.get_wallet_name();
+        if !wallets.contains(wallet) {
+            self.rpc_client.create_wallet(wallet, Some(true))?
         }
         Ok(())
     }
@@ -2155,13 +2158,21 @@ impl BitcoinRegtestController {
     /// * `true` if the transaction is confirmed (has at least one confirmation).
     /// * `false` if the transaction is unconfirmed or could not be found.
     pub fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
-        match self.rpc_client.get_transaction(txid) {
+        match self
+            .rpc_client
+            .get_transaction(self.get_wallet_name(), txid)
+        {
             Ok(info) => info.confirmations > 0,
             Err(e) => {
                 error!("Bitcoin RPC failure: checking tx confirmation {e:?}");
                 false
             }
         }
+    }
+
+    /// Returns the configured wallet name from [`Config`].
+    fn get_wallet_name(&self) -> &String {
+        &self.config.burnchain.wallet_name
     }
 }
 
@@ -2690,57 +2701,6 @@ impl BitcoinRPCRequest {
         Ok(())
     }
 
-    /// Calls `listwallets` method through RPC call and returns wallet names as a vector of Strings
-    pub fn list_wallets(config: &Config) -> RPCResult<Vec<String>> {
-        let payload = BitcoinRPCRequest {
-            method: "listwallets".to_string(),
-            params: vec![],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let mut res = BitcoinRPCRequest::send(config, payload)?;
-        let mut wallets = Vec::new();
-        match res.as_object_mut() {
-            Some(ref mut object) => match object.get_mut("result") {
-                Some(serde_json::Value::Array(entries)) => {
-                    while let Some(entry) = entries.pop() {
-                        let parsed_wallet_name: String = match serde_json::from_value(entry) {
-                            Ok(wallet_name) => wallet_name,
-                            Err(err) => {
-                                warn!("Failed parsing wallet name: {err}");
-                                continue;
-                            }
-                        };
-
-                        wallets.push(parsed_wallet_name);
-                    }
-                }
-                _ => {
-                    warn!("Failed to get wallets");
-                }
-            },
-            _ => {
-                warn!("Failed to get wallets");
-            }
-        };
-
-        Ok(wallets)
-    }
-
-    /// Tries to create a wallet with the given name
-    pub fn create_wallet(config: &Config, wallet_name: &str) -> RPCResult<()> {
-        let payload = BitcoinRPCRequest {
-            method: "createwallet".to_string(),
-            params: vec![wallet_name.into(), true.into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        BitcoinRPCRequest::send(config, payload)?;
-        Ok(())
-    }
-
     pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
@@ -3198,14 +3158,14 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(0, wallets.len());
 
         btc_controller
             .create_wallet_if_dne()
             .expect("Wallet should now exists!");
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(1, wallets.len());
         assert_eq!("".to_owned(), wallets[0]);
     }
@@ -3227,7 +3187,7 @@ mod tests {
             .create_wallet_if_dne()
             .expect("Wallet should now exists!");
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(1, wallets.len());
         assert_eq!("mywallet".to_owned(), wallets[0]);
     }

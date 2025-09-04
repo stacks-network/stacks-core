@@ -45,7 +45,6 @@ mod utils {
             parsed.host_str().unwrap().to_string(),
             parsed.port_or_known_default().unwrap(),
             RpcAuth::None,
-            "mywallet".into(),
             30,
             "stacks".to_string(),
         )
@@ -323,7 +322,7 @@ fn test_list_unspent_ok() {
 
     let mut server = mockito::Server::new();
     let _m = server
-        .mock("POST", "/wallet/mywallet")
+        .mock("POST", "/wallet/my_wallet")
         .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
         .with_status(200)
         .with_header("Content-Type", "application/json")
@@ -336,6 +335,7 @@ fn test_list_unspent_ok() {
 
     let result = client
         .list_unspent(
+            "my_wallet",
             Some(1),
             Some(10),
             Some(&[&addr]),
@@ -460,7 +460,7 @@ fn test_get_transaction_ok() {
 
     let mut server = mockito::Server::new();
     let _m = server
-        .mock("POST", "/wallet/mywallet")
+        .mock("POST", "/wallet/my_wallet")
         .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
         .with_status(200)
         .with_header("Content-Type", "application/json")
@@ -470,7 +470,9 @@ fn test_get_transaction_ok() {
     let client = utils::setup_client(&server);
 
     let txid = Txid::from_hex(&txid_hex).unwrap();
-    let info = client.get_transaction(&txid).expect("Should be ok!");
+    let info = client
+        .get_transaction("my_wallet", &txid)
+        .expect("Should be ok!");
     assert_eq!(6, info.confirmations);
 }
 
@@ -732,7 +734,7 @@ fn test_import_descriptors_ok() {
 
     let mut server = mockito::Server::new();
     let _m = server
-        .mock("POST", "/")
+        .mock("POST", "/wallet/my_wallet")
         .match_body(mockito::Matcher::PartialJson(expected_request))
         .with_status(200)
         .with_header("Content-Type", "application/json")
@@ -746,7 +748,7 @@ fn test_import_descriptors_ok() {
         timestamp: Timestamp::Time(timestamp),
         internal: Some(internal),
     };
-    let result = client.import_descriptors(&[&desc_req]);
+    let result = client.import_descriptors("my_wallet", &[&desc_req]);
     assert!(result.is_ok());
 }
 
@@ -798,7 +800,7 @@ fn test_get_new_address_ok() {
 
     let mut server = mockito::Server::new();
     let _m = server
-        .mock("POST", "/")
+        .mock("POST", "/wallet/my_wallet")
         .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
         .with_status(200)
         .with_header("Content-Type", "application/json")
@@ -807,7 +809,9 @@ fn test_get_new_address_ok() {
 
     let client = utils::setup_client(&server);
 
-    let address = client.get_new_address(None, None).expect("Should be ok!");
+    let address = client
+        .get_new_address("my_wallet", None, None)
+        .expect("Should be ok!");
     assert_eq!(expected_address, address.to_string());
 }
 
@@ -830,7 +834,7 @@ fn test_get_new_address_fails_for_invalid_address() {
 
     let mut server = mockito::Server::new();
     let _m = server
-        .mock("POST", "/")
+        .mock("POST", "/wallet/my_wallet")
         .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
         .with_status(200)
         .with_header("Content-Type", "application/json")
@@ -840,7 +844,7 @@ fn test_get_new_address_fails_for_invalid_address() {
     let client = utils::setup_client(&server);
 
     let error = client
-        .get_new_address(None, None)
+        .get_new_address("my_wallet", None, None)
         .expect_err("Should fail!");
     assert!(matches!(
         error,
@@ -869,7 +873,7 @@ fn test_send_to_address_ok() {
 
     let mut server = mockito::Server::new();
     let _m = server
-        .mock("POST", "/wallet/mywallet")
+        .mock("POST", "/wallet/my_wallet")
         .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
         .with_status(200)
         .with_header("Content-Type", "application/json")
@@ -880,7 +884,7 @@ fn test_send_to_address_ok() {
 
     let address = BitcoinAddress::from_string(&address_str).unwrap();
     let txid = client
-        .send_to_address(&address, amount)
+        .send_to_address("my_wallet", &address, amount)
         .expect("Should be ok!");
     assert_eq!(expected_txid_str, txid.to_hex());
 }
@@ -906,7 +910,7 @@ fn test_send_to_address_fails_for_invalid_tx_id() {
 
     let mut server = mockito::Server::new();
     let _m = server
-        .mock("POST", "/wallet/mywallet")
+        .mock("POST", "/wallet/my_wallet")
         .match_body(mockito::Matcher::PartialJson(expected_request.clone()))
         .with_status(200)
         .with_header("Content-Type", "application/json")
@@ -917,7 +921,7 @@ fn test_send_to_address_fails_for_invalid_tx_id() {
 
     let address = BitcoinAddress::from_string(&address_str).unwrap();
     let error = client
-        .send_to_address(&address, amount)
+        .send_to_address("my_wallet", &address, amount)
         .expect_err("Should fail!");
     assert!(matches!(
         error,
