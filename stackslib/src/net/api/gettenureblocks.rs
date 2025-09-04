@@ -298,9 +298,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
             Err(e) => {
                 let msg = format!("Failed to create tenure stream: {e:?}");
                 error!("{msg}");
-                return e.into(); //StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
-                                 //.try_into_contents()
-                                 //.map_err(NetError::from);
+                return e.into();
             }
         };
 

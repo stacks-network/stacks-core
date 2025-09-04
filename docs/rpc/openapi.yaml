@@ -1081,6 +1081,12 @@ paths:
             application/json:
               schema:
                 type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /v3/sortitions:
     get:
