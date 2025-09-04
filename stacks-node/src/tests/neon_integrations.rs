@@ -87,7 +87,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use super::{ADDR_4, SK_1, SK_2, SK_3};
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -8754,16 +8754,6 @@ fn run_with_custom_wallet() {
     // If we get this far, then it also means that mining and block-production worked.
     let blocks = test_observer::get_blocks();
     assert!(blocks.len() > 1);
-
-    // bitcoin node knows of this wallet
-    let wallets = BitcoinRPCRequest::list_wallets(&conf).unwrap();
-    let mut found = false;
-    for w in wallets {
-        if w == conf.burnchain.wallet_name {
-            found = true;
-        }
-    }
-    assert!(found);
 }
 
 /// Make a contract that takes a parameterized amount of runtime
@@ -10016,7 +10006,7 @@ fn listunspent_max_utxos() {
     )
     .expect("Public key incorrect");
 
-    let filter_addresses = vec![addr2str(&address)];
+    let filter_addresses = vec![address.to_string()];
 
     let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
     let utxos = res.expect("Failed to get utxos");

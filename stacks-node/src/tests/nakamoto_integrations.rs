@@ -35,7 +35,8 @@ use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::v0::signer_state::ReplayTransactionSet;
+use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OptionalExtension};
 use serial_test::serial;
@@ -117,8 +118,9 @@ use stacks_signer::v0::SpawnedSigner;
 
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
-    TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
+    fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP,
+    TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -487,7 +489,11 @@ pub fn get_latest_block_proposal(
     let miner_ranges = stackerdb_conf.signer_ranges();
     let latest_miner = usize::from(miner_info.get_latest_winner_index());
     let miner_contract_id = boot_code_id(MINERS_NAME, false);
-    let mut miners_stackerdb = StackerDBSession::new(&conf.node.rpc_bind, miner_contract_id);
+    let mut miners_stackerdb = StackerDBSession::new(
+        &conf.node.rpc_bind,
+        miner_contract_id,
+        Duration::from_secs(30),
+    );
 
     let mut proposed_blocks: Vec<_> = stackerdb_conf
         .signers
@@ -6734,7 +6740,13 @@ fn signer_chainstate() {
             last_tenures_proposals
         {
             let reject_code = sortitions_view
-                .check_proposal(&signer_client, &mut signer_db, prior_tenure_first, true)
+                .check_proposal(
+                    &signer_client,
+                    &mut signer_db,
+                    prior_tenure_first,
+                    true,
+                    ReplayTransactionSet::none(),
+                )
                 .expect_err("Sortitions view should reject proposals from prior tenure");
             assert_eq!(
                 reject_code,
@@ -6743,7 +6755,13 @@ fn signer_chainstate() {
             );
             for block in prior_tenure_interims.iter() {
                 let reject_code = sortitions_view
-                    .check_proposal(&signer_client, &mut signer_db, block, true)
+                    .check_proposal(
+                        &signer_client,
+                        &mut signer_db,
+                        block,
+                        true,
+                        ReplayTransactionSet::none(),
+                    )
                     .expect_err("Sortitions view should reject proposals from prior tenure");
                 assert_eq!(
                     reject_code,
@@ -6775,7 +6793,13 @@ fn signer_chainstate() {
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
         sortitions_view
-            .check_proposal(&signer_client, &mut signer_db, &proposal.0, true)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &proposal.0,
+                true,
+                ReplayTransactionSet::none(),
+            )
             .expect("Nakamoto integration test produced invalid block proposal");
         signer_db
             .insert_block(&BlockInfo {
@@ -6821,7 +6845,13 @@ fn signer_chainstate() {
         let proposal_interim = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
 
         sortitions_view
-            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0, true)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &proposal_interim.0,
+                true,
+                ReplayTransactionSet::none(),
+            )
             .expect("Nakamoto integration test produced invalid block proposal");
         // force the view to refresh and check again
 
@@ -6845,7 +6875,13 @@ fn signer_chainstate() {
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
         sortitions_view
-            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0, true)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &proposal_interim.0,
+                true,
+                ReplayTransactionSet::none(),
+            )
             .expect("Nakamoto integration test produced invalid block proposal");
 
         signer_db
@@ -6911,7 +6947,13 @@ fn signer_chainstate() {
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            false,
+            ReplayTransactionSet::none(),
+        )
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but blocks have already
@@ -6959,7 +7001,13 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            false,
+            ReplayTransactionSet::none(),
+        )
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but it doesn't confirm all the blocks of the parent tenure
@@ -7013,7 +7061,13 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            false,
+            ReplayTransactionSet::none(),
+        )
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but the parent tenure is a reorg
@@ -7069,7 +7123,13 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            false,
+            ReplayTransactionSet::none(),
+        )
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     let start_sortition = &reorg_to_block.header.consensus_hash;
@@ -12616,7 +12676,7 @@ fn miner_constructs_replay_block() {
 
     // Pause mining to prevent any of the submitted txs getting mined.
     info!("Stalling mining...");
-    fault_injection_stall_miner();
+    fault_injection_try_stall_miner();
     let burn_height_before = get_chain_info(&naka_conf).burn_block_height;
     // Mine 1 bitcoin block to trigger a new block found transaction
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -12728,34 +12788,44 @@ fn miner_constructs_replay_block() {
     assert_eq!(tenure_change.cause, TenureChangeCause::BlockFound);
 
     info!("Verifying next block contains the expected replay txs...");
+    let block: StacksBlockEvent =
+        serde_json::from_value(blocks[blocks_before + 1].clone()).expect("Failed to parse block");
+    let tx = block.transactions.get(0).unwrap();
+    assert!(matches!(
+        tx.payload,
+        TransactionPayload::TenureChange(TenureChangePayload {
+            cause: TenureChangeCause::Extended,
+            ..
+        })
+    ));
     let block = &observed_blocks[observed_before + 1];
-    assert_eq!(block.tx_events.len(), 6);
-    if let TransactionEvent::Success(tx) = &block.tx_events[0] {
+    assert_eq!(block.tx_events.len(), 7);
+    if let TransactionEvent::Success(tx) = &block.tx_events[1] {
         assert_eq!(tx.txid, succeed_tx_1.txid());
     } else {
         panic!("Failed to mine the first tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[1] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[2] {
         assert_eq!(tx.txid, succeed_tx_2.txid());
     } else {
         panic!("Failed to mine the second tx");
     };
-    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[2] {
+    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[3] {
         assert_eq!(tx.txid, fail_tx_3.txid());
     } else {
         panic!("Failed to error on the third tx");
     };
-    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[3] {
+    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[4] {
         assert_eq!(tx.txid, fail_tx_4.txid());
     } else {
         panic!("Failed to error on the fourth tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[4] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[5] {
         assert_eq!(tx.txid, succeed_tx_5.txid());
     } else {
         panic!("Failed to mine the fifth tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[5] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[6] {
         assert_eq!(tx.txid, succeed_tx_6.txid());
     } else {
         panic!("Failed to mine the sixth tx");
@@ -12781,14 +12851,16 @@ fn write_signer_update(
 ) {
     let signers_contract_id =
         MessageSlotID::StateMachineUpdate.stacker_db_contract(false, reward_cycle);
-    let mut session = StackerDBSession::new(&conf.node.rpc_bind, signers_contract_id);
+    let mut session = StackerDBSession::new(
+        &conf.node.rpc_bind,
+        signers_contract_id,
+        Duration::from_secs(30),
+    );
     let message = SignerMessageV0::StateMachineUpdate(update);
 
-    // Submit the block proposal to the signers slot
-    let mut accepted = false;
+    // Submit the update to the signers slot
     let mut version = 0;
-    let start = Instant::now();
-    while !accepted {
+    wait_for(timeout.as_secs(), || {
         let mut chunk =
             StackerDBChunkData::new(signer_slot_id, version, message.serialize_to_vec());
         chunk
@@ -12796,14 +12868,11 @@ fn write_signer_update(
             .expect("Failed to sign message chunk");
         debug!("Produced a signature: {:?}", chunk.sig);
         let result = session.put_chunk(&chunk).expect("Failed to put chunk");
-        accepted = result.accepted;
         version += 1;
         debug!("Test Put Chunk ACK: {result:?}");
-        assert!(
-            start.elapsed() < timeout,
-            "Timed out waiting for signer state update to be accepted"
-        );
-    }
+        Ok(result.accepted)
+    })
+    .expect("Failed to accept signer state update");
 }
 
 /// Test SIP-031 activation

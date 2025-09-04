@@ -3866,8 +3866,7 @@ impl PeerNetwork {
     /// higher AND the Stacks tip is not yet a Nakamoto block.  This latter condition indicates
     /// that the epoch 2.x state machines are still needed to download the final epoch 2.x blocks.
     pub(crate) fn need_epoch2_state_machines(&self, epoch_id: StacksEpochId) -> bool {
-        epoch_id < StacksEpochId::Epoch30
-            || (epoch_id >= StacksEpochId::Epoch30 && !self.stacks_tip.is_nakamoto)
+        !(epoch_id >= StacksEpochId::Epoch30 && self.stacks_tip.is_nakamoto)
     }
 
     /// Do the actual work in the state machine.
