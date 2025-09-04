@@ -756,13 +756,13 @@ impl BitcoinRegtestController {
     }
 
     /// Retrieve all loaded wallets.
-    pub fn list_wallets(&self) -> Result<Vec<String>, BitcoinRpcClientError> {
-        self.rpc_client.list_wallets()
+    pub fn list_wallets(&self) -> BitcoinRegtestControllerResult<Vec<String>> {
+        Ok(self.rpc_client.list_wallets()?)
     }
 
     /// Checks if the config-supplied wallet exists.
     /// If it does not exist, this function creates it.
-    pub fn create_wallet_if_dne(&self) -> Result<(), BitcoinRpcClientError> {
+    pub fn create_wallet_if_dne(&self) -> BitcoinRegtestControllerResult<()> {
         let wallets = self.list_wallets()?;
         let wallet = self.get_wallet_name();
         if !wallets.contains(wallet) {
