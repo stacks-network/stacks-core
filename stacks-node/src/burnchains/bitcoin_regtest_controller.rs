@@ -680,7 +680,7 @@ impl BitcoinRegtestController {
         };
 
         test_debug!("Import public key '{}'", &pubk.to_hex());
-        let _result = BitcoinRPCRequest::import_public_key(&self.config, &pubk);
+        let _result = self.import_public_key(&pubk);
 
         sleep_ms(1000);
 
@@ -823,7 +823,7 @@ impl BitcoinRegtestController {
                     // Assuming that miners are in charge of correctly operating their bitcoind nodes sounds
                     // reasonable to me.
                     // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
-                    let _result = BitcoinRPCRequest::import_public_key(&self.config, &pubk);
+                    let _result = self.import_public_key(&pubk);
                     sleep_ms(1000);
                 }
 
@@ -2127,7 +2127,7 @@ impl BitcoinRegtestController {
 
         for pk in pks {
             debug!("Import public key '{}'", &pk.to_hex());
-            if let Err(e) = BitcoinRPCRequest::import_public_key(&self.config, pk) {
+            if let Err(e) = self.import_public_key(pk) {
                 warn!("Error when importing pubkey: {e:?}");
             }
         }
