@@ -157,6 +157,8 @@ components:
       $ref: ./components/schemas/tenure-tip.schema.yaml
     GetStackerSet:
       $ref: ./components/schemas/get-stacker-set.schema.yaml
+    TenureBlocks:
+      $ref: ./components/schemas/tenure-blocks.schema.yaml
 
 paths:
   /v2/transactions:
@@ -1077,11 +1079,13 @@ paths:
             pattern: "^[0-9a-f]{40}$"
       responses:
         "200":
-          description: List of Stacks block ids
+          description: List of Stacks blocks in the tenure
           content:
             application/json:
               schema:
-                type: string
+                $ref: "#/components/schemas/TenureBlocks"
+              example:
+                $ref: "./components/examples/tenure-blocks.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":

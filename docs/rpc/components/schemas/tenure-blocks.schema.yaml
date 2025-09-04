@@ -1,0 +1,39 @@
+type: object
+properties:
+  consensus_hash:
+    type: string
+    description: Consensus hash of the tenure
+    pattern: "^[0-9a-f]{40}$"
+  burn_block_height:
+    type: integer
+    description: Height of the burnchain block
+    format: uint64
+  burn_block_hash:
+    type: string
+    description: Hash of the burnchain block
+    pattern: "^[0-9a-f]{64}$"
+  stacks_blocks:
+    type: array
+    items:
+      type: object
+      properties:
+        block_id:
+          type: string
+          description: Block ID (index block hash)
+          pattern: "^[0-9a-f]{64}$"
+        block_hash:
+          type: string
+          description: Hash of the block
+          pattern: "^[0-9a-f]{64}$"
+        header_type:
+          type: string
+          description: Tpe of block (currently "epoch2" or "nakamoto")
+        height:
+          type: integer
+          description: Height of the block
+          format: uint64
+        parent_block_id:
+          type: string
+          description: Block ID (index block hash) of the parent
+          pattern: "^[0-9a-f]{64}$"
+        
