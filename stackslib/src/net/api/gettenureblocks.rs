@@ -171,7 +171,7 @@ impl HttpChunkGenerator for RPCTenureStream {
 
         // load up next block
         let mut send_more = self.next_block().map_err(|e| {
-            let msg = format!("Failed to load next block in this tenure: {:?}", &e);
+            let msg = format!("Failed to load next block in this tenure: {e:?}");
             warn!("{msg}");
             msg
         })?;
