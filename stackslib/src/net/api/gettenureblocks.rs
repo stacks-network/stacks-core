@@ -124,7 +124,7 @@ impl RPCTenureStream {
 
         let block = RPCTenureBlock {
             block_id: block_header.index_block_hash(),
-            header_type: block_header.header_type().into(),
+            header_type: block_header.header_type_name().into(),
             block_hash: block_header.anchored_header.block_hash(),
             parent_block_id,
             height: block_header.stacks_block_height,

@@ -396,7 +396,7 @@ impl StacksHeaderInfo {
         matches!(self.anchored_header, StacksBlockHeaderTypes::Nakamoto(_))
     }
 
-    pub fn header_type(&self) -> &str {
+    pub fn header_type_name(&self) -> &str {
         match self.anchored_header {
             StacksBlockHeaderTypes::Epoch2(_) => "epoch2",
             StacksBlockHeaderTypes::Nakamoto(_) => "nakamoto",
