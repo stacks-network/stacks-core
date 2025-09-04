@@ -2711,64 +2711,6 @@ impl BitcoinRPCRequest {
         Ok(())
     }
 
-    pub fn import_public_key(config: &Config, public_key: &Secp256k1PublicKey) -> RPCResult<()> {
-        let pkh = Hash160::from_data(&public_key.to_bytes())
-            .to_bytes()
-            .to_vec();
-        let (_, network_id) = config.burnchain.get_bitcoin_network();
-
-        // import both the legacy and segwit variants of this public key
-        let mut addresses = vec![BitcoinAddress::from_bytes_legacy(
-            network_id,
-            LegacyBitcoinAddressType::PublicKeyHash,
-            &pkh,
-        )
-        .expect("Public key incorrect")];
-
-        if config.miner.segwit {
-            addresses.push(
-                BitcoinAddress::from_bytes_segwit_p2wpkh(network_id, &pkh)
-                    .expect("Public key incorrect"),
-            );
-        }
-
-        for address in addresses.into_iter() {
-            debug!(
-                "Import address {address} for public key {}",
-                public_key.to_hex()
-            );
-
-            let payload = BitcoinRPCRequest {
-                method: "getdescriptorinfo".to_string(),
-                params: vec![format!("addr({address})").into()],
-                id: "stacks".to_string(),
-                jsonrpc: "2.0".to_string(),
-            };
-
-            let result = BitcoinRPCRequest::send(config, payload)?;
-            let checksum = result
-                .get("result")
-                .and_then(|res| res.as_object())
-                .and_then(|obj| obj.get("checksum"))
-                .and_then(|checksum_val| checksum_val.as_str())
-                .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{address}\"`",
-                )))?;
-
-            let payload = BitcoinRPCRequest {
-                method: "importdescriptors".to_string(),
-                params: vec![
-                    json!([{ "desc": format!("addr({address})#{checksum}"), "timestamp": 0, "internal": true }]),
-                ],
-                id: "stacks".to_string(),
-                jsonrpc: "2.0".to_string(),
-            };
-
-            BitcoinRPCRequest::send(config, payload)?;
-        }
-        Ok(())
-    }
-
     pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
