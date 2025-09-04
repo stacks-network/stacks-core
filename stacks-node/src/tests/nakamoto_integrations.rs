@@ -14244,6 +14244,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     info!("----- Mining initial contract calls -----");
     // Pause mining so we can add both transactions to the mempool at once.
     fault_injection_stall_miner();
+    let blocks_before = test_observer::get_blocks();
     let mined_before = test_observer::get_mined_nakamoto_blocks();
     let _ = call_small(&deployer_sk, &mut sender_nonces);
     let nonce = call_large(&deployer_sk, &mut sender_nonces);
@@ -14251,8 +14252,11 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     fault_injection_unstall_miner();
     wait_for(30, || {
         let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
         Ok(cur_sender_nonce > nonce
-            && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len())
+            && mined_after.len() > mined_before.len()
+            && blocks_after.len() > blocks_before.len())
     })
     .expect("Failed to mine initial contract calls");
 
@@ -14331,7 +14335,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     wait_for(120, || {
         let mined_after = test_observer::get_mined_nakamoto_blocks();
         let mined_blocks: Vec<_> = mined_after.iter().skip(mined_before.len()).collect();
-        let total_nmb_txs = mined_blocks
+        let nmb_txs = mined_blocks
             .iter()
             .map(|b| b.tx_events.len())
             .sum::<usize>();
@@ -14339,12 +14343,15 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
         let blocks_after = test_observer::get_blocks();
         let blocks: Vec<_> = blocks_after.iter().skip(blocks_before.len()).collect();
         debug!(
-            "Mined a total of {total_nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
+            "Mined a total of {nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
         );
+        if nmb_txs < expected_big + expected_small * 2 {
+            return Ok(false);
+        }
         for (i, block) in blocks.into_iter().enumerate() {
             let transactions = block.get("transactions").unwrap().as_array().unwrap();
             info!("block {i} contains {:?} transactions", transactions.len());
-            for (tx_i, tx) in transactions.iter().enumerate() {
+            for tx in transactions.iter() {
                 let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
                 let parsed =
@@ -14355,16 +14362,17 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
                         ..
                     }) => match contract_name.to_string().as_str() {
                         "small-contract" => {
-                            assert!(tx_i >= expected_big);
+                            assert!(nmb_big >= expected_big, "We should not mine small txs before filling the tenure with the large transactions");
                             nmb_small += 1;
                         }
                         "big-contract" => {
-                            assert!(tx_i < expected_big);
+                            assert!(nmb_big < expected_big, "We should not mine more than the expected number of transactions");
                             nmb_big += 1;
                         }
                         _ => panic!("Unexpected contract call to {contract_name}"),
                     },
                     TransactionPayload::TokenTransfer(..) => {
+                        assert!(nmb_big >= expected_big && nmb_small >= expected_small - expected_big, "We should not mine any transfers until we exhaust the initial contract calls");
                         nmb_transfers += 1;
                     }
                     _ => {}
@@ -14608,25 +14616,34 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
     info!("----- Mining initial contract calls -----");
     // Pause mining so we can add both transactions to the mempool at once.
     fault_injection_stall_miner();
+    let blocks_before = test_observer::get_blocks();
     let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
     let _ = call_small(&deployer_sk, &mut sender_nonces);
     let nonce = call_large(&deployer_sk, &mut sender_nonces);
 
     fault_injection_unstall_miner();
     wait_for(30, || {
         let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
         Ok(cur_sender_nonce > nonce
-            && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len())
+            && mined_after.len() > mined_before.len()
+            && blocks_after.len() > blocks_before.len()
+            && get_chain_info(&naka_conf).stacks_tip_height > stacks_height)
     })
     .expect("Failed to mine initial contract calls");
 
     info!("----- Mining BTC block to reset tenure limits -----");
     let blocks_before = test_observer::get_blocks();
     let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
     next_block_and(&mut btc_regtest_controller, 60, || {
         let blocks_after = test_observer::get_blocks();
         let mined_after = test_observer::get_mined_nakamoto_blocks();
-        Ok(blocks_after.len() > blocks_before.len() && mined_after.len() > mined_before.len())
+        Ok(blocks_after.len() > blocks_before.len()
+            && mined_after.len() > mined_before.len()
+            && get_chain_info(&naka_conf).stacks_tip_height > stacks_height)
     })
     .unwrap();
 
@@ -14689,7 +14706,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
         for (i, block) in blocks.into_iter().enumerate() {
             let transactions = block.get("transactions").unwrap().as_array().unwrap();
             info!("block {i} contains {:?} transactions", transactions.len());
-            for (tx_i, tx) in transactions.iter().enumerate() {
+            for tx in transactions.iter() {
                 let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
                 let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
                 let parsed =
@@ -14708,7 +14725,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
                         _ => panic!("Unexpected contract call to {contract_name}"),
                     },
                     TransactionPayload::TokenTransfer(..) => {
-                        assert!(tx_i >= expected_big, "We should only mine token transfers after mining all the contract calls");
+                        assert!(nmb_big >= expected_big, "We should only mine token transfers after mining all the contract calls");
                         nmb_transfers += 1;
                     }
                     _ => {}
