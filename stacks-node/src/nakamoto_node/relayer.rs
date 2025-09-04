@@ -44,7 +44,7 @@ use stacks::chainstate::stacks::miner::{
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::config::BurnchainConfig;
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::STACKS_EPOCH_LATEST_MARKER;
+use stacks::core::{marker_for_epoch, STACKS_EPOCH_LATEST_MARKER};
 use stacks::monitoring::increment_stx_blocks_mined_counter;
 use stacks::net::db::LocalPeer;
 use stacks::net::p2p::NetworkHandle;
@@ -1139,7 +1139,11 @@ impl RelayerThread {
             key_block_ptr: u32::try_from(key.block_height)
                 .expect("FATAL: burn block height exceeded u32"),
             key_vtxindex: u16::try_from(key.op_vtxindex).expect("FATAL: vtxindex exceeded u16"),
-            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            memo: if cfg!(test) && target_epoch.epoch_id > StacksEpochId::latest() {
+                vec![marker_for_epoch(target_epoch.epoch_id).expect("Unsupported epoch")]
+            } else {
+                vec![STACKS_EPOCH_LATEST_MARKER]
+            },
             new_seed: VRFSeed::from_proof(&tip_vrf_proof),
             parent_block_ptr: u32::try_from(commit_parent_block_burn_height)
                 .expect("FATAL: burn block height exceeded u32"),

@@ -14101,16 +14101,17 @@ fn test_epoch_3_3_activation() {
 
     // mine until epoch 3.3 height
     loop {
-        let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
             .unwrap();
-        wait_for(20, || {
-            Ok(commits_submitted.load(Ordering::SeqCst) > commits_before)
-        })
-        .unwrap();
 
-        let node_info = get_chain_info_opt(&naka_conf).unwrap();
-        if node_info.burn_block_height
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
             >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
         {
             break;
