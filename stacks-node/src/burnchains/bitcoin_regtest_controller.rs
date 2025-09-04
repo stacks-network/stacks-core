@@ -79,8 +79,7 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use crate::burnchains::rpc::bitcoin_rpc_client::{
-    BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
-    Timestamp,
+    BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp
 };
 
 /// The number of bitcoin blocks that can have
@@ -3544,6 +3543,36 @@ mod tests {
             .expect("Import should be ok: first time!");
 
         //ok, but it is basically a no-op
+        let result = btc_controller.import_public_key(&miner_pubkey);
+        assert!(
+            result.is_ok(),
+            "Should be ok, got err instead: {:?}",
+            result.unwrap_err()
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_import_public_key_segwit_ok() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.miner.segwit = true;
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .create_wallet_if_dne()
+            .expect("Wallet should be created!");
+
         let result = btc_controller.import_public_key(&miner_pubkey);
         assert!(
             result.is_ok(),
