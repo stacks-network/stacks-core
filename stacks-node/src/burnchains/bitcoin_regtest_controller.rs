@@ -31,7 +31,7 @@ use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
 use stacks::burnchains::bitcoin::spv::SpvClient;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::{
@@ -304,6 +304,16 @@ impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
         _ = self.unwrap_or_log_panic(context);
     }
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum BitcoinRegtestControllerError {
+    #[error("Bitcoin RPC error: {0}")]
+    Rpc(#[from] BitcoinRpcClientError),
+    #[error("Invalid public key: {0}")]
+    InvalidPublicKey(btc_error),
+}
+
+pub type BitcoinRegtestControllerResult<T> = Result<T, BitcoinRegtestControllerError>;
 
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
@@ -2178,7 +2188,10 @@ impl BitcoinRegtestController {
         &self.config.burnchain.wallet_name
     }
 
-    pub fn import_public_key(&self, public_key: &Secp256k1PublicKey) -> BitcoinRpcClientResult<()> {
+    pub fn import_public_key(
+        &self,
+        public_key: &Secp256k1PublicKey,
+    ) -> BitcoinRegtestControllerResult<()> {
         let pkh = Hash160::from_data(&public_key.to_bytes())
             .to_bytes()
             .to_vec();
@@ -2190,12 +2203,12 @@ impl BitcoinRegtestController {
             LegacyBitcoinAddressType::PublicKeyHash,
             &pkh,
         )
-        .expect("Public key incorrect")];
+        .map_err(BitcoinRegtestControllerError::InvalidPublicKey)?];
 
         if self.config.miner.segwit {
             addresses.push(
                 BitcoinAddress::from_bytes_segwit_p2wpkh(network_id, &pkh)
-                    .expect("Public key incorrect"),
+                    .map_err(BitcoinRegtestControllerError::InvalidPublicKey)?,
             );
         }
 
