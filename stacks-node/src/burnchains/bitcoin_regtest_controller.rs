@@ -78,7 +78,10 @@ use url::Url;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
-use crate::burnchains::rpc::bitcoin_rpc_client::{BitcoinRpcClient, BitcoinRpcClientError};
+use crate::burnchains::rpc::bitcoin_rpc_client::{
+    BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
+    Timestamp,
+};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -2175,7 +2178,7 @@ impl BitcoinRegtestController {
         &self.config.burnchain.wallet_name
     }
 
-    pub fn import_public_key(&self, public_key: &Secp256k1PublicKey) -> RPCResult<()> {
+    pub fn import_public_key(&self, public_key: &Secp256k1PublicKey) -> BitcoinRpcClientResult<()> {
         let pkh = Hash160::from_data(&public_key.to_bytes())
             .to_bytes()
             .to_vec();
@@ -2202,33 +2205,18 @@ impl BitcoinRegtestController {
                 public_key.to_hex()
             );
 
-            let payload = BitcoinRPCRequest {
-                method: "getdescriptorinfo".to_string(),
-                params: vec![format!("addr({address})").into()],
-                id: "stacks".to_string(),
-                jsonrpc: "2.0".to_string(),
+            let descriptor = format!("addr({address})");
+            let info = self.rpc_client.get_descriptor_info(&descriptor)?;
+
+            let descr_req = ImportDescriptorsRequest {
+                descriptor: format!("addr({address})#{}", info.checksum),
+                timestamp: Timestamp::Time(0),
+                internal: Some(true),
             };
 
-            let result = BitcoinRPCRequest::send(&self.config, payload)?;
-            let checksum = result
-                .get("result")
-                .and_then(|res| res.as_object())
-                .and_then(|obj| obj.get("checksum"))
-                .and_then(|checksum_val| checksum_val.as_str())
-                .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{address}\"`",
-                )))?;
-
-            let payload = BitcoinRPCRequest {
-                method: "importdescriptors".to_string(),
-                params: vec![
-                    json!([{ "desc": format!("addr({address})#{checksum}"), "timestamp": 0, "internal": true }]),
-                ],
-                id: "stacks".to_string(),
-                jsonrpc: "2.0".to_string(),
-            };
-
-            BitcoinRPCRequest::send(&self.config, payload)?;
+            _ = self
+                .rpc_client
+                .import_descriptors(self.get_wallet_name(), &[&descr_req])?;
         }
         Ok(())
     }
