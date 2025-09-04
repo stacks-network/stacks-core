@@ -527,7 +527,7 @@ impl BitcoinRpcClient {
     /// Mines a specified number of blocks and sends the block rewards to a given address.
     ///
     /// # Arguments
-    /// * `num_block` - The number of blocks to mine.
+    /// * `num_blocks` - The number of blocks to mine.
     /// * `address` - The [`BitcoinAddress`] to receive the block rewards.
     ///
     /// # Returns
@@ -540,13 +540,13 @@ impl BitcoinRpcClient {
     /// Typically used on `regtest` or test networks.
     pub fn generate_to_address(
         &self,
-        num_block: u64,
+        num_blocks: u64,
         address: &BitcoinAddress,
     ) -> BitcoinRpcClientResult<Vec<BurnchainHeaderHash>> {
         let response = self.global_ep.send::<GenerateToAddressResponse>(
             &self.client_id,
             "generatetoaddress",
-            vec![num_block.into(), address.to_string().into()],
+            vec![num_blocks.into(), address.to_string().into()],
         )?;
         Ok(response.0)
     }

@@ -125,23 +125,6 @@ struct LeaderBlockCommitFees {
     final_size: u64,
 }
 
-#[cfg(test)]
-pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
-    if let BitcoinAddress::Segwit(segwit_addr) = btc_addr {
-        // regtest segwit addresses use a different hrp
-        let s = segwit_addr.to_bech32_hrp("bcrt");
-        warn!("Re-encoding {segwit_addr} to {s}");
-        s
-    } else {
-        format!("{btc_addr}")
-    }
-}
-
-#[cfg(not(test))]
-pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
-    format!("{btc_addr}")
-}
-
 // TODO: add tests from mutation testing results #4862
 #[cfg_attr(test, mutants::skip)]
 pub fn burnchain_params_from_config(config: &BurnchainConfig) -> BurnchainParameters {
@@ -297,6 +280,11 @@ trait BitcoinRpcClientResultExt<T> {
     /// If the result is an `Err`, it logs the error with the given context
     /// using the [`error!`] macro and then panics.
     fn unwrap_or_log_panic(self, context: &str) -> T;
+    /// Ensure the result is `Ok`, ignoring its value.
+    ///
+    /// If the result is an `Err`, it logs the error with the given context
+    /// using the [`error!`] macro and then panics.
+    fn ok_or_log_panic(self, context: &str);
 }
 
 #[cfg(test)]
@@ -309,6 +297,10 @@ impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
                 panic!();
             }
         }
+    }
+
+    fn ok_or_log_panic(self, context: &str) {
+        _ = self.unwrap_or_log_panic(context);
     }
 }
 
@@ -663,7 +655,7 @@ impl BitcoinRegtestController {
     pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
         // Configure UTXO filter, disregard what epoch we're in
         let address = self.get_miner_address(StacksEpochId::Epoch21, public_key);
-        let filter_addresses = vec![addr2str(&address)];
+        let filter_addresses = vec![address.to_string()];
 
         let pubk = if self.config.miner.segwit {
             let mut p = public_key.clone();
@@ -682,11 +674,7 @@ impl BitcoinRegtestController {
         let max_conf = 9999999i64;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(1);
 
-        test_debug!(
-            "List unspent for '{}' ('{}')",
-            &addr2str(&address),
-            pubk.to_hex()
-        );
+        test_debug!("List unspent for '{address}' ('{}')", pubk.to_hex());
         let payload = BitcoinRPCRequest {
             method: "listunspent".to_string(),
             params: vec![
@@ -782,8 +770,8 @@ impl BitcoinRegtestController {
 
         // Configure UTXO filter
         let address = self.get_miner_address(epoch_id, &pubk);
-        test_debug!("Get UTXOs for {} ({})", pubk.to_hex(), addr2str(&address),);
-        let filter_addresses = vec![addr2str(&address)];
+        test_debug!("Get UTXOs for {} ({address})", pubk.to_hex());
+        let filter_addresses = vec![address.to_string()];
 
         let mut utxos = loop {
             let result = BitcoinRPCRequest::list_unspent(
@@ -1711,9 +1699,8 @@ impl BitcoinRegtestController {
                 Some(utxos) => utxos,
                 None => {
                     warn!(
-                        "No UTXOs for {} ({}) in epoch {epoch_id}",
+                        "No UTXOs for {} ({addr}) in epoch {epoch_id}",
                         &public_key.to_hex(),
-                        &addr2str(&addr)
                     );
                     return Err(BurnchainControllerError::NoUTXOs);
                 }
@@ -1994,9 +1981,17 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let result =
-            BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, addr2str(&address));
 
+        let result = self.rpc_client.generate_to_address(num_blocks, &address);
+        /*
+            Temporary: not using `BitcoinRpcClientResultExt::ok_or_log_panic` (test code related),
+            because we need this logic available outside `#[cfg(test)]` due to Helium network.
+
+            After the Helium cleanup (https://github.com/stacks-network/stacks-core/issues/6408),
+            we can:
+              - move `build_next_block` behind `#[cfg(test)]`
+              - simplify this match by using `ok_or_log_panic`.
+        */
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -2006,8 +2001,8 @@ impl BitcoinRegtestController {
         }
     }
 
-    #[cfg(test)]
     /// Instruct a regtest Bitcoin node to build an empty block.
+    #[cfg(test)]
     pub fn build_empty_block(&self) {
         info!("Generate empty block");
         let public_key_bytes = match &self.config.burnchain.local_mining_public_key {
@@ -2019,15 +2014,10 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let result = BitcoinRPCRequest::generate_empty_to_address(&self.config, addr2str(&address));
 
-        match result {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
-        }
+        self.rpc_client
+            .generate_block(&address, &[])
+            .ok_or_log_panic("generating block")
     }
 
     /// Invalidate a block given its hash as a [`BurnchainHeaderHash`].
@@ -2036,7 +2026,7 @@ impl BitcoinRegtestController {
         info!("Invalidating block {block}");
         self.rpc_client
             .invalidate_block(block)
-            .unwrap_or_log_panic("invalidate block")
+            .ok_or_log_panic("invalidate block")
     }
 
     /// Retrieve the hash (as a [`BurnchainHeaderHash`]) of the block at the given height.
@@ -2110,7 +2100,7 @@ impl BitcoinRegtestController {
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
     ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
     #[cfg(test)]
-    pub fn bootstrap_chain_to_pks(&self, num_blocks: usize, pks: &[Secp256k1PublicKey]) {
+    pub fn bootstrap_chain_to_pks(&self, num_blocks: u64, pks: &[Secp256k1PublicKey]) {
         info!("Creating wallet if it does not exist");
         if let Err(e) = self.create_wallet_if_dne() {
             error!("Error when creating wallet: {e:?}");
@@ -2127,38 +2117,30 @@ impl BitcoinRegtestController {
             // if we only have one pubkey, just generate all the blocks at once
             let address = self.get_miner_address(StacksEpochId::Epoch21, &pks[0]);
             debug!(
-                "Generate to address '{}' for public key '{}'",
-                &addr2str(&address),
+                "Generate to address '{address}' for public key '{}'",
                 &pks[0].to_hex()
             );
-            if let Err(e) = BitcoinRPCRequest::generate_to_address(
-                &self.config,
-                num_blocks.try_into().unwrap(),
-                addr2str(&address),
-            ) {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
+            self.rpc_client
+                .generate_to_address(num_blocks, &address)
+                .ok_or_log_panic("generating block");
             return;
         }
 
         // otherwise, round robin generate blocks
+        let num_blocks = num_blocks as usize;
         for i in 0..num_blocks {
             let pk = &pks[i % pks.len()];
             let address = self.get_miner_address(StacksEpochId::Epoch21, pk);
             if i < pks.len() {
                 debug!(
                     "Generate to address '{}' for public key '{}'",
-                    &addr2str(&address),
+                    address.to_string(),
                     &pk.to_hex(),
                 );
             }
-            if let Err(e) =
-                BitcoinRPCRequest::generate_to_address(&self.config, 1, addr2str(&address))
-            {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
+            self.rpc_client
+                .generate_to_address(1, &address)
+                .ok_or_log_panic("generating block");
         }
     }
 
@@ -2301,7 +2283,7 @@ impl BurnchainController for BitcoinRegtestController {
             local_mining_pubkey.set_compressed(true);
         }
 
-        self.bootstrap_chain_to_pks(num_blocks.try_into().unwrap(), &[local_mining_pubkey])
+        self.bootstrap_chain_to_pks(num_blocks, &[local_mining_pubkey])
     }
 }
 
@@ -2516,35 +2498,6 @@ impl BitcoinRPCRequest {
         request
     }
 
-    pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {
-        debug!("Generate {num_blocks} blocks to {address}");
-        let payload = BitcoinRPCRequest {
-            method: "generatetoaddress".to_string(),
-            params: vec![num_blocks.into(), address.clone().into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Generated {num_blocks} blocks to {address}: {res:?}");
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn generate_empty_to_address(config: &Config, address: String) -> RPCResult<()> {
-        debug!("Generate empty block to {address}");
-        let payload = BitcoinRPCRequest {
-            method: "generateblock".to_string(),
-            params: vec![address.clone().into(), serde_json::Value::Array(vec![])],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Generated empty block to {address}: {res:?}");
-        Ok(())
-    }
-
     pub fn list_unspent(
         config: &Config,
         addresses: Vec<String>,
@@ -2702,14 +2655,13 @@ impl BitcoinRPCRequest {
 
         for address in addresses.into_iter() {
             debug!(
-                "Import address {} for public key {}",
-                addr2str(&address),
+                "Import address {address} for public key {}",
                 public_key.to_hex()
             );
 
             let payload = BitcoinRPCRequest {
                 method: "getdescriptorinfo".to_string(),
-                params: vec![format!("addr({})", &addr2str(&address)).into()],
+                params: vec![format!("addr({address})").into()],
                 id: "stacks".to_string(),
                 jsonrpc: "2.0".to_string(),
             };
@@ -2721,14 +2673,13 @@ impl BitcoinRPCRequest {
                 .and_then(|obj| obj.get("checksum"))
                 .and_then(|checksum_val| checksum_val.as_str())
                 .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{}\"`",
-                    &addr2str(&address)
+                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{address}\"`",
                 )))?;
 
             let payload = BitcoinRPCRequest {
                 method: "importdescriptors".to_string(),
                 params: vec![
-                    json!([{ "desc": format!("addr({})#{checksum}", &addr2str(&address)), "timestamp": 0, "internal": true }]),
+                    json!([{ "desc": format!("addr({address})#{checksum}"), "timestamp": 0, "internal": true }]),
                 ],
                 id: "stacks".to_string(),
                 jsonrpc: "2.0".to_string(),
