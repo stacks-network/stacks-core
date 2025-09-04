@@ -176,6 +176,8 @@ impl RpcTransport {
     /// # Arguments
     ///
     /// * `id` - A unique identifier for correlating responses.
+    /// * `relative_path` - An optional relative path to append to the transport base path for this request.
+    ///                     If `None`, the base path is used. Leading `/` in the path is handled automatically.
     /// * `method` - The name of the JSON-RPC method to invoke.
     /// * `params` - A list of parameters to pass to the method.
     ///
@@ -186,6 +188,7 @@ impl RpcTransport {
     pub fn send<T: for<'de> Deserialize<'de>>(
         &self,
         id: &str,
+        relative_path: Option<&str>,
         method: &str,
         params: Vec<Value>,
     ) -> RpcResult<T> {
@@ -201,7 +204,7 @@ impl RpcTransport {
         let mut request = StacksHttpRequest::new_for_peer(
             self.peer.clone(),
             "POST".to_string(),
-            self.path.clone(),
+            self.build_req_path(relative_path),
             HttpRequestContents::new().payload_json(json_payload),
         )?;
 
@@ -246,6 +249,17 @@ impl RpcTransport {
                 let credentials = format!("{}:{}", username, password);
                 Some(format!("Basic {}", encode(credentials)))
             }
+        }
+    }
+
+    /// Build request path, joining a relative path with the transport base path
+    fn build_req_path(&self, rel_path: Option<&str>) -> String {
+        let rel_path = rel_path.unwrap_or("");
+        let clean_rel_path = rel_path.strip_prefix("/").unwrap_or(rel_path);
+        if self.path.ends_with("/") {
+            format!("{}{clean_rel_path}", self.path)
+        } else {
+            format!("{}/{clean_rel_path}", self.path)
         }
     }
 }
