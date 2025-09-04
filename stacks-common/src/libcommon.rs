@@ -6,6 +6,7 @@
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
 
 #[allow(unused_imports)]
+#[cfg(feature = "log")]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
 
@@ -37,6 +38,7 @@ pub mod deps_common {
     pub mod ctrlc;
 }
 
+#[cfg(not(feature = "wasm"))]
 pub mod bitvec;
 
 pub mod consts {

@@ -16,7 +16,7 @@
 
 pub mod bech32;
 pub mod bitcoin;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "wasm"))]
 pub mod ctrlc;
 pub mod httparse;
 

@@ -70,7 +70,7 @@ mod arithmetic;
 mod assets;
 mod boolean;
 mod conversions;
-mod crypto;
+pub mod crypto;
 mod database;
 pub mod define;
 mod options;
@@ -612,7 +612,7 @@ fn special_print(
         debug!("{}", &input);
     }
 
-    env.register_print_event(input.clone())?;
+    env.register_print_event(&input)?;
     Ok(input)
 }
 

@@ -25,6 +25,9 @@ pub mod types;
 
 pub mod contracts;
 
+#[cfg(feature = "clarity-wasm")]
+pub mod clarity_wasm;
+
 pub mod ast;
 pub mod contexts;
 pub mod database;
@@ -62,6 +65,7 @@ use self::analysis::ContractAnalysis;
 use self::ast::ContractAST;
 use self::costs::ExecutionCost;
 use self::diagnostic::Diagnostic;
+use self::events::StacksTransactionEvent;
 use crate::vm::callables::CallableType;
 pub use crate::vm::contexts::{
     CallStack, ContractContext, Environment, LocalContext, MAX_CONTEXT_DEPTH,
@@ -76,7 +80,6 @@ pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
     CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
-use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
 pub use crate::vm::functions::stx_transfer_consolidated;
 pub use crate::vm::representations::{
@@ -676,6 +679,7 @@ mod test {
             DefineType::Private,
             &"do_work".into(),
             "",
+            Some(TypeSignature::IntType),
         );
 
         let context = LocalContext::new();

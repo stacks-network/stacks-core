@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
+use clarity::rusqlite::{params, Connection};
 use clarity::vm::analysis::contract_interface_builder::{
     build_contract_interface, ContractInterface,
 };
@@ -33,7 +34,6 @@ use clarity::vm::types::{AssetIdentifier, QualifiedContractIdentifier, Value};
 #[cfg(any(test, feature = "testing"))]
 use lazy_static::lazy_static;
 use rand::Rng;
-use rusqlite::{params, Connection};
 use serde_json::json;
 use stacks::burnchains::{PoxConstants, Txid};
 use stacks::chainstate::burn::operations::{

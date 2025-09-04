@@ -442,6 +442,8 @@ impl CostErrors {
     }
 }
 
+impl std::error::Error for CostErrors {}
+
 fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
 

@@ -1,13 +1,13 @@
 use std::ops::Deref;
 
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
-use clarity::vm::analysis::mem_type_check;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::*;
 use clarity::vm::errors::{CheckErrors, Error};
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
+use clarity::vm::tooling::mem_type_check;
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TupleData, Value,
@@ -657,18 +657,23 @@ fn pox_2_contract_caller_units() {
 
     let expected_unlock_height = POX_TESTNET_CYCLE_LENGTH * 4;
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     // execute past 2.1 epoch initialization
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
     sim.execute_next_block(|_env| {});
 
     sim.execute_next_block(|env| {
-        env.initialize_versioned_contract(
+        env.initialize_versioned_contract_with_db(
             POX_2_CONTRACT_TESTNET.clone(),
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
             ASTRules::PrecheckSize,
+            &mut analysis_db,
         )
         .unwrap()
     });
@@ -676,14 +681,16 @@ fn pox_2_contract_caller_units() {
     let cc = boot_code_id("stack-through", false);
 
     sim.execute_next_block(|env| {
-        env.initialize_contract(cc.clone(),
+        env.initialize_contract_with_db(cc.clone(),
                                 "(define-public (cc-stack-stx (amount-ustx uint)
                                                            (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32))))
                                                            (start-burn-ht uint)
                                                            (lock-period uint))
                                    (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
-                                None,
-                                ASTRules::PrecheckSize)
+            None,
+            ASTRules::PrecheckSize,
+            &mut analysis_db,
+        )
             .unwrap();
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
@@ -1384,7 +1391,6 @@ fn pox_2_delegate_extend_units() {
             "Delegate still does not have enough aggregate locked up for cycle 3",
         );
 
-
         assert_eq!(
             env.execute_transaction(
                 (&USER_KEYS[0]).into(),
@@ -1768,9 +1774,18 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) =
+        let (mut ast, analysis) =
             tx.analyze_smart_contract(contract_id, version, content, ASTRules::PrecheckSize)?;
-        tx.initialize_smart_contract(contract_id, version, &ast, content, None, |_, _| None, None)?;
+        tx.initialize_smart_contract(
+            contract_id,
+            version,
+            &mut ast,
+            &analysis,
+            content,
+            None,
+            |_, _| None,
+            None,
+        )?;
         tx.save_analysis(contract_id, &analysis)?;
         return Ok(());
     })
