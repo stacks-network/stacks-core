@@ -268,7 +268,7 @@ fn convert_sat_to_btc_string(amount: u64) -> String {
 }
 
 /// Represents an error message returned when importing descriptors fails.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ImportDescriptorsErrorMessage {
     /// Numeric error code identifying the type of error.
     pub code: i64,
