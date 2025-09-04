@@ -14410,6 +14410,9 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
         debug!(
             "Mined a total of {nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
         );
+        nmb_big = 0;
+        nmb_small = 0;
+        nmb_transfers = 0;
         if nmb_txs < expected_big + expected_small * 2 {
             return Ok(false);
         }
