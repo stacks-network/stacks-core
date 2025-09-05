@@ -6,11 +6,11 @@ properties:
     pattern: "^[0-9a-f]{40}$"
   burn_block_height:
     type: integer
-    description: Height of the burnchain block
+    description: Height of the Bitcoin block
     format: uint64
   burn_block_hash:
     type: string
-    description: Hash of the burnchain block
+    description: Hash of the Bitcoin block
     pattern: "^[0-9a-f]{64}$"
   stacks_blocks:
     type: array
@@ -27,7 +27,7 @@ properties:
           pattern: "^[0-9a-f]{64}$"
         header_type:
           type: string
-          description: Tpe of block (currently "epoch2" or "nakamoto")
+          description: Type of block (currently "epoch2" or "nakamoto")
         height:
           type: integer
           description: Height of the block
