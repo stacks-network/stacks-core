@@ -343,7 +343,6 @@ pub(crate) mod tests {
             genesis_chainstate_hash: Sha256Sum::zero(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
-            affirmations: None,
             last_pox_anchor: None,
             stackerdbs: Some(
                 stackerdb_contract_ids

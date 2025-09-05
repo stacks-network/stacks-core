@@ -689,6 +689,50 @@ fn test_import_descriptor_ok() {
         .expect("import descriptor ok!");
     assert_eq!(1, response.len());
     assert!(response[0].success);
+    assert_eq!(0, response[0].warnings.len());
+    assert_eq!(None, response[0].error);
+}
+
+#[ignore]
+#[test]
+fn test_import_descriptor_twice_ok() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+    btcd_controller
+        .start_bitcoind()
+        .expect("bitcoind should be started!");
+
+    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    client
+        .create_wallet(wallet, Some(true))
+        .expect("create wallet ok!");
+
+    let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
+    let checksum = "spfcmvsn";
+
+    let desc_req = ImportDescriptorsRequest {
+        descriptor: format!("addr({address})#{checksum}"),
+        timestamp: Timestamp::Time(0),
+        internal: Some(true),
+    };
+
+    let _ = client
+        .import_descriptors(wallet, &[&desc_req])
+        .expect("import descriptor ok: first time!");
+
+    let response = client
+        .import_descriptors(wallet, &[&desc_req])
+        .expect("import descriptor ok: second time!");
+    assert_eq!(1, response.len());
+    assert!(response[0].success);
+    assert_eq!(0, response[0].warnings.len());
+    assert_eq!(None, response[0].error);
 }
 
 #[ignore]

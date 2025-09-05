@@ -582,6 +582,7 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "mutants",
+ "proptest",
  "regex",
  "rstest",
  "rstest_reuse",

@@ -101,8 +101,10 @@ fn test_get_block_availability() {
 
             TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
-            peer_1.next_burnchain_block_raw(burn_ops);
-
+            // We do not have the anchor block for peer 1, therefore it cannot advance its tip.
+            if i < 6 {
+                peer_1.next_burnchain_block_raw(burn_ops);
+            }
             let sn =
                 SortitionDB::get_canonical_burn_chain_tip(peer_2.sortdb.as_ref().unwrap().conn())
                     .unwrap();
