@@ -658,7 +658,6 @@ pub struct TransactionSmartContract {
 }
 
 /// A coinbase commits to 32 bytes of control-plane information
-#[derive(Clone)]
 pub struct CoinbasePayload(pub [u8; 32]);
 impl_byte_array_message_codec!(CoinbasePayload, 32);
 impl_array_newtype!(CoinbasePayload, u8, 32);
@@ -666,7 +665,6 @@ impl_array_hexstring_fmt!(CoinbasePayload);
 impl_byte_array_newtype!(CoinbasePayload, u8, 32);
 impl_byte_array_serde!(CoinbasePayload);
 
-#[derive(Clone)]
 pub struct TokenTransferMemo(pub [u8; 34]); // same length as it is in stacks v1
 impl_byte_array_message_codec!(TokenTransferMemo, 34);
 impl_array_newtype!(TokenTransferMemo, u8, 34);

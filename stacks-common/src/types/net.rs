@@ -49,7 +49,6 @@ impl std::error::Error for Error {
 /// Rules:
 /// -- If this is an IPv6 address, the octets are in network byte order
 /// -- If this is an IPv4 address, the octets must encode an IPv6-to-IPv4-mapped address
-#[derive(Clone)]
 pub struct PeerAddress(pub [u8; 16]);
 impl_array_newtype!(PeerAddress, u8, 16);
 impl_array_hexstring_fmt!(PeerAddress);

@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::TryRecvError;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
-use std::{env, thread, u64};
+use std::{env, thread};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::types::PrincipalData;

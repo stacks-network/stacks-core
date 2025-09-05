@@ -79,7 +79,7 @@ impl_serde_json_hex_string!(Hash20, 20);
 impl_serde_json_hex_string!(Hash32, 32);
 impl_serde_json_hex_string!(Hash64, 64);
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Hash160(
     #[serde(
         serialize_with = "Hash20::json_serialize",
@@ -92,7 +92,7 @@ impl_array_hexstring_fmt!(Hash160);
 impl_byte_array_newtype!(Hash160, u8, 20);
 pub const HASH160_ENCODED_SIZE: u32 = 20;
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Keccak256Hash(
     #[serde(
         serialize_with = "Hash32::json_serialize",
@@ -104,7 +104,7 @@ impl_array_newtype!(Keccak256Hash, u8, 32);
 impl_array_hexstring_fmt!(Keccak256Hash);
 impl_byte_array_newtype!(Keccak256Hash, u8, 32);
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Sha256Sum(
     #[serde(
         serialize_with = "Hash32::json_serialize",
@@ -122,7 +122,7 @@ impl Default for Sha256Sum {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Sha512Sum(
     #[serde(
         serialize_with = "Hash64::json_serialize",
@@ -134,7 +134,7 @@ impl_array_newtype!(Sha512Sum, u8, 64);
 impl_array_hexstring_fmt!(Sha512Sum);
 impl_byte_array_newtype!(Sha512Sum, u8, 64);
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct Sha512Trunc256Sum(
     #[serde(
         serialize_with = "Hash32::json_serialize",
@@ -146,7 +146,7 @@ impl_array_newtype!(Sha512Trunc256Sum, u8, 32);
 impl_array_hexstring_fmt!(Sha512Trunc256Sum);
 impl_byte_array_newtype!(Sha512Trunc256Sum, u8, 32);
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct DoubleSha256(
     #[serde(
         serialize_with = "Hash32::json_serialize",

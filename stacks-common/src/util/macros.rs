@@ -426,6 +426,13 @@ macro_rules! impl_array_newtype {
             }
         }
 
+        impl Clone for $thing {
+            #[allow(clippy::non_canonical_clone_impl)]
+            fn clone(&self) -> Self {
+                $thing(self.0.clone())
+            }
+        }
+
         impl ::std::hash::Hash for $thing {
             #[inline]
             fn hash<H>(&self, state: &mut H)

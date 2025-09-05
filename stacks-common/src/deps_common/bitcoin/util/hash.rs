@@ -36,7 +36,7 @@ use crate::util::HexError;
 /// A Bitcoin hash, 32-bytes, computed from x as SHA256(SHA256(x))
 // This doesn't make much sense to me, but is implicit behaviour
 // in the C++ reference client, so we need it for consensus.
-#[derive(Default, Clone)]
+#[derive(Default)]
 pub struct Sha256dHash(pub [u8; 32]);
 impl_array_newtype!(Sha256dHash, u8, 32);
 
@@ -44,12 +44,10 @@ impl_array_newtype!(Sha256dHash, u8, 32);
 pub struct Sha256dEncoder(Sha256);
 
 /// A RIPEMD-160 hash
-#[derive(Clone)]
 pub struct Ripemd160Hash([u8; 20]);
 impl_array_newtype!(Ripemd160Hash, u8, 20);
 
 /// A Bitcoin hash160, 20-bytes, computed from x as RIPEMD160(SHA256(x))
-#[derive(Clone)]
 pub struct Hash160([u8; 20]);
 impl_array_newtype!(Hash160, u8, 20);
 

@@ -198,7 +198,7 @@ impl Trie {
                 return Err(Error::CorruptionError("ptr is empty".to_string()));
             }
             let (node, node_hash) = storage.read_nodetype(ptr)?;
-            Ok((node, node_hash, *ptr))
+            Ok((node, node_hash, ptr.clone()))
         } else {
             storage.bench_mut().marf_find_backptr_node_start();
             // ptr is a backptr -- find the block

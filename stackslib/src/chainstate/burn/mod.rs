@@ -43,14 +43,12 @@ pub mod sortition;
 pub const CONSENSUS_HASH_LIFETIME: u32 = 24;
 
 // operations hash -- the sha256 hash of a sequence of transaction IDs
-#[derive(Clone)]
 pub struct OpsHash(pub [u8; 32]);
 impl_array_newtype!(OpsHash, u8, 32);
 impl_array_hexstring_fmt!(OpsHash);
 impl_byte_array_newtype!(OpsHash, u8, 32);
 
 // rolling hash of PoW outputs to mix with the VRF seed on sortition
-#[derive(Clone)]
 pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);

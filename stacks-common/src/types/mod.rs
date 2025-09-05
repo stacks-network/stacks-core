@@ -40,7 +40,6 @@ pub mod net;
 pub mod tests;
 
 /// A container for public keys (compressed secp256k1 public keys)
-#[derive(Clone)]
 pub struct StacksPublicKeyBuffer(pub [u8; 33]);
 impl_array_newtype!(StacksPublicKeyBuffer, u8, 33);
 impl_array_hexstring_fmt!(StacksPublicKeyBuffer);

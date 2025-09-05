@@ -889,7 +889,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // queue children in the same order we stored them
             for ptr in data.ptrs.iter_mut() {
                 if ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id()) {
-                    frontier.push_back(*ptr);
+                    frontier.push_back(ptr.clone());
 
                     // fix up ptrs
                     ptr.ptr = next_index;
@@ -925,7 +925,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
                 for ptr in ptrs {
                     if ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id()) {
-                        frontier.push_back(*ptr);
+                        frontier.push_back(ptr.clone());
 
                         // fix up ptrs
                         ptr.ptr = next_index;
@@ -2565,7 +2565,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                 } else {
                     let node_hash = self.inner_read_persisted_node_hash(block_id, ptr)?;
                     self.cache
-                        .store_node_hash(block_id, *ptr, node_hash.clone());
+                        .store_node_hash(block_id, ptr.clone(), node_hash.clone());
                     self.bench.read_node_hash_finish(false);
                     Ok(node_hash)
                 }

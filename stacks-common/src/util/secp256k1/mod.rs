@@ -12,14 +12,12 @@ pub use self::wasm::*;
 
 pub const MESSAGE_SIGNATURE_ENCODED_SIZE: u32 = 65;
 
-#[derive(Clone)]
 pub struct MessageSignature(pub [u8; 65]);
 impl_array_newtype!(MessageSignature, u8, 65);
 impl_array_hexstring_fmt!(MessageSignature);
 impl_byte_array_newtype!(MessageSignature, u8, 65);
 impl_byte_array_serde!(MessageSignature);
 
-#[derive(Clone)]
 pub struct SchnorrSignature(pub [u8; 65]);
 impl_array_newtype!(SchnorrSignature, u8, 65);
 impl_array_hexstring_fmt!(SchnorrSignature);

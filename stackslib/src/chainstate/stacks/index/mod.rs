@@ -150,7 +150,6 @@ impl MarfTrieId for BlockHeaderHash {}
 /// Structure that holds the actual data in a MARF leaf node.
 /// It only stores the hash of some value string, but we add 8 extra bytes for future extensions.
 /// If not used (the rule today), then they should all be 0.
-#[derive(Clone)]
 pub struct MARFValue(pub [u8; 40]);
 impl_array_newtype!(MARFValue, u8, 40);
 impl_array_hexstring_fmt!(MARFValue);

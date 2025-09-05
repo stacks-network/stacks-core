@@ -848,10 +848,10 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         ptrs: &[TriePtr],
         starting_chr: u8,
     ) -> Result<Vec<TrieMerkleProofType<T>>, Error> {
-        trace!("make_segment_proof: ptrs = {:?}", &ptrs);
+        trace!("make_segment_proof: ptrs = {ptrs:?}");
 
         assert!(!ptrs.is_empty());
-        assert_eq!(*ptrs.first().unwrap(), storage.root_trieptr());
+        assert_eq!(ptrs.first().unwrap().clone(), storage.root_trieptr());
         for ptr in ptrs
             .get(1..)
             .ok_or_else(|| Error::CorruptionError("Empty pointers list".into()))?
@@ -863,10 +863,8 @@ impl<T: MarfTrieId> TrieMerkleProof<T> {
         let mut prev_chr = starting_chr;
 
         trace!(
-            "make_segment_proof: Trie segment from {:?} starting at {:?}: {:?}",
-            &storage.get_cur_block(),
-            starting_chr,
-            ptrs
+            "make_segment_proof: Trie segment from {:?} starting at {starting_chr:?}: {ptrs:?}",
+            &storage.get_cur_block()
         );
         for ptr in ptrs.iter().rev() {
             let proof_node = TrieMerkleProof::ptr_to_segment_proof_node(storage, ptr, prev_chr)?;
