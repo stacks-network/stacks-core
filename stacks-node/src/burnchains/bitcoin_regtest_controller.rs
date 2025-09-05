@@ -2242,8 +2242,7 @@ impl BitcoinRegtestController {
                 internal: Some(true),
             };
 
-            _ = self
-                .rpc_client
+            self.rpc_client
                 .import_descriptors(self.get_wallet_name(), &[&descr_req])?;
         }
         Ok(())
