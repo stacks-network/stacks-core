@@ -33,7 +33,6 @@ use stacks_common::util::vrf::VRFPublicKey;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
 
 use super::EpochList;
-use crate::burnchains::affirmation::update_pox_affirmation_maps;
 use crate::burnchains::bitcoin::BitcoinTxOutput;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::indexer::{
@@ -1067,46 +1066,9 @@ impl Burnchain {
 
         let _blockstack_txs =
             burnchain_db.store_new_burnchain_block(burnchain, indexer, block, epoch_id)?;
-        Burnchain::process_affirmation_maps(
-            burnchain,
-            burnchain_db,
-            indexer,
-            block.block_height(),
-        )?;
 
         let header = block.header();
         Ok(header)
-    }
-
-    /// Update the affirmation maps for the previous reward cycle's commits.
-    /// This is a no-op unless the given burnchain block height falls on a reward cycle boundary.  In that
-    /// case, the previous reward cycle's block commits' affirmation maps are all re-calculated.
-    pub fn process_affirmation_maps<B: BurnchainHeaderReader>(
-        burnchain: &Burnchain,
-        burnchain_db: &mut BurnchainDB,
-        indexer: &B,
-        block_height: u64,
-    ) -> Result<(), burnchain_error> {
-        let this_reward_cycle = burnchain
-            .block_height_to_reward_cycle(block_height)
-            .unwrap_or(0);
-
-        let prev_reward_cycle = burnchain
-            .block_height_to_reward_cycle(block_height.saturating_sub(1))
-            .unwrap_or(0);
-
-        if this_reward_cycle != prev_reward_cycle {
-            // at reward cycle boundary
-            info!(
-                "Update PoX affirmation maps for reward cycle";
-                "prev_reward_cycle" => %prev_reward_cycle,
-                "this_reward_cycle" => %this_reward_cycle,
-                "block_height" => %block_height,
-                "cycle_length" => %burnchain.pox_constants.reward_cycle_length,
-            );
-            update_pox_affirmation_maps(burnchain_db, indexer, prev_reward_cycle, burnchain)?;
-        }
-        Ok(())
     }
 
     /// Hand off the block to the ChainsCoordinator _and_ process the sortition

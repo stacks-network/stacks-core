@@ -43,7 +43,6 @@ use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::Error as db_error;
 
 /// This module contains drivers and types for all burn chains we support.
-pub mod affirmation;
 pub mod bitcoin;
 pub mod burnchain;
 pub mod db;

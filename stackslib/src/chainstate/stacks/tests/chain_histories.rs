@@ -181,11 +181,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                1,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 1)
             .unwrap();
 
         let expect_success = check_oracle(&stacks_block, &microblocks);
@@ -373,11 +369,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                1,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 1)
             .unwrap();
 
         // processed _this_ block
@@ -583,11 +575,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed exactly one block, but got back two tip-infos
@@ -923,11 +911,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed _one_ block
@@ -1189,19 +1173,11 @@ where
         );
         let mut tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
         let mut tip_info_list_2 = node_2
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         tip_info_list.append(&mut tip_info_list_2);
@@ -1288,19 +1264,11 @@ where
         );
         let _ = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
         let _ = node_2
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
     }
 
@@ -1538,11 +1506,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed _one_ block
@@ -1791,11 +1755,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed all stacks blocks -- one on each burn chain fork
@@ -2101,11 +2061,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed _one_ block
@@ -2354,11 +2310,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed all stacks blocks -- one on each burn chain fork
@@ -2666,7 +2618,6 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                             let tip_info_list = node
                                 .chainstate
                                 .process_blocks_at_tip(
-                                    connect_burnchain_db(&miner_trace.burn_node.burnchain).conn(),
                                     &mut miner_trace.burn_node.sortdb,
                                     expected_num_blocks,
                                 )
@@ -2694,8 +2645,6 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                                 let tip_info_list = node
                                     .chainstate
                                     .process_blocks_at_tip(
-                                        connect_burnchain_db(&miner_trace.burn_node.burnchain)
-                                            .conn(),
                                         &mut miner_trace.burn_node.sortdb,
                                         expected_num_blocks,
                                     )

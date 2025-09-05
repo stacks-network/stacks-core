@@ -15,7 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::cmp;
+use std::path::PathBuf;
 
+use rusqlite::{params, Connection};
 use stacks_common::address::AddressHashMode;
 use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as BtcTx;
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
@@ -24,7 +26,6 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::*;
 
 use super::*;
-use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::bitcoin::address::*;
 use crate::burnchains::bitcoin::blocks::*;
 use crate::burnchains::bitcoin::*;
@@ -82,7 +83,7 @@ impl BurnchainDB {
         );
 
         db_tx.store_burnchain_db_entry(&header)?;
-        db_tx.store_blockstack_ops(burnchain, indexer, &header, &blockstack_ops)?;
+        db_tx.store_blockstack_ops(&header, &blockstack_ops)?;
 
         db_tx.commit()?;
 
@@ -626,8 +627,6 @@ fn test_get_commit_at() {
         );
         burnchain_db
             .store_new_burnchain_block_ops_unchecked(
-                &burnchain,
-                &headers,
                 block_header,
                 &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
             )
@@ -669,8 +668,6 @@ fn test_get_commit_at() {
 
     burnchain_db
         .store_new_burnchain_block_ops_unchecked(
-            &burnchain,
-            &fork_headers,
             &fork_block_header,
             &vec![BlockstackOperationType::LeaderBlockCommit(fork_cmt.clone())],
         )
@@ -736,8 +733,6 @@ fn test_get_set_check_anchor_block() {
         );
         burnchain_db
             .store_new_burnchain_block_ops_unchecked(
-                &burnchain,
-                &headers,
                 block_header,
                 &vec![BlockstackOperationType::LeaderBlockCommit(cmt.clone())],
             )
@@ -769,301 +764,6 @@ fn test_get_set_check_anchor_block() {
         &cmts[3].txid
     )
     .unwrap());
-}
-
-#[test]
-fn test_update_block_descendancy() {
-    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
-    let first_timestamp = 0;
-    let first_height = 1;
-
-    let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = burn_db_test_pox();
-    burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
-    burnchain.first_block_timestamp = first_timestamp;
-
-    let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
-
-    let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
-
-    let mut headers = vec![first_block_header.clone()];
-    let mut parent = None;
-    let mut parent_block_header: Option<BurnchainBlockHeader> = None;
-    let mut cmts = vec![];
-    let mut cmts_genesis = vec![];
-    let mut cmts_invalid = vec![];
-
-    for i in 0..5 {
-        let hdr = BurnchainHeaderHash([(i + 1) as u8; 32]);
-        let block_header = BurnchainBlockHeader {
-            block_height: first_height + i,
-            block_hash: hdr,
-            parent_block_hash: parent_block_header
-                .as_ref()
-                .map(|blk| blk.block_hash.clone())
-                .unwrap_or(first_block_header.block_hash.clone()),
-            num_txs: 3,
-            timestamp: i,
-        };
-
-        headers.push(block_header.clone());
-        parent_block_header = Some(block_header);
-    }
-
-    let mut am_id = 0;
-
-    for i in 0..5 {
-        let block_header = &headers[i + 1];
-
-        let cmt = make_simple_block_commit(
-            &burnchain,
-            parent.as_ref(),
-            block_header,
-            BlockHeaderHash([((i + 1) as u8) | 0x80; 32]),
-        );
-
-        // make a second commit that builds off of genesis
-        let mut cmt_genesis = cmt.clone();
-        cmt_genesis.parent_block_ptr = 0;
-        cmt_genesis.parent_vtxindex = 0;
-        cmt_genesis.block_header_hash = BlockHeaderHash([((i + 1) as u8) | 0xa0; 32]);
-        cmt_genesis.txid = next_txid();
-
-        // make an invalid commit
-        let mut cmt_invalid = cmt.clone();
-        cmt_invalid.parent_vtxindex += 1;
-        cmt_invalid.block_header_hash = BlockHeaderHash([((i + 1) as u8) | 0xc0; 32]);
-        cmt_invalid.txid = next_txid();
-
-        burnchain_db
-            .store_new_burnchain_block_ops_unchecked(
-                &burnchain,
-                &headers,
-                block_header,
-                &vec![
-                    BlockstackOperationType::LeaderBlockCommit(cmt.clone()),
-                    BlockstackOperationType::LeaderBlockCommit(cmt_genesis.clone()),
-                    BlockstackOperationType::LeaderBlockCommit(cmt_invalid.clone()),
-                ],
-            )
-            .unwrap();
-
-        cmts.push(cmt.clone());
-        cmts_genesis.push(cmt_genesis.clone());
-        cmts_invalid.push(cmt_invalid.clone());
-
-        parent = Some(cmt);
-
-        if i == 0 {
-            am_id = {
-                let tx = burnchain_db.tx_begin().unwrap();
-                tx.set_anchor_block(&cmts[0], 1).unwrap();
-                let am_id = tx
-                    .insert_block_commit_affirmation_map(&AffirmationMap::decode("p").unwrap())
-                    .unwrap();
-                tx.update_block_commit_affirmation(&cmts[0], Some(1), am_id)
-                    .unwrap();
-                tx.commit().unwrap();
-                am_id
-            };
-            assert_ne!(am_id, 0);
-        }
-    }
-
-    // each valid commit should have cmts[0]'s affirmation map
-    for i in 1..5 {
-        let cmt_am_id =
-            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts[i]).unwrap();
-        assert_eq!(cmt_am_id.unwrap(), am_id);
-
-        let genesis_am_id =
-            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts_genesis[i])
-                .unwrap();
-        assert_eq!(genesis_am_id.unwrap(), 0);
-
-        let invalid_am_id =
-            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts_invalid[i])
-                .unwrap();
-        assert_eq!(invalid_am_id.unwrap(), 0);
-    }
-}
-
-#[test]
-fn test_update_block_descendancy_with_fork() {
-    let first_bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
-    let first_timestamp = 0;
-    let first_height = 1;
-
-    let mut burnchain = Burnchain::regtest(":memory:");
-    burnchain.pox_constants = burn_db_test_pox();
-    burnchain.first_block_height = first_height;
-    burnchain.first_block_hash = first_bhh.clone();
-    burnchain.first_block_timestamp = first_timestamp;
-
-    let mut burnchain_db = BurnchainDB::connect(":memory:", &burnchain, true).unwrap();
-
-    let first_block_header = burnchain_db.get_canonical_chain_tip().unwrap();
-
-    let mut headers = vec![first_block_header.clone()];
-    let mut fork_headers = vec![first_block_header.clone()];
-
-    let mut parent = None;
-    let mut parent_block_header: Option<BurnchainBlockHeader> = None;
-    let mut cmts = vec![];
-    let mut cmts_genesis = vec![];
-    let mut cmts_invalid = vec![];
-
-    let mut fork_cmts = vec![];
-
-    for i in 0..5 {
-        let hdr = BurnchainHeaderHash([(i + 1) as u8; 32]);
-        let block_header = BurnchainBlockHeader {
-            block_height: first_height + i,
-            block_hash: hdr,
-            parent_block_hash: parent_block_header
-                .as_ref()
-                .map(|blk| blk.block_hash.clone())
-                .unwrap_or(first_block_header.block_hash.clone()),
-            num_txs: 3,
-            timestamp: i,
-        };
-
-        headers.push(block_header.clone());
-        parent_block_header = Some(block_header);
-    }
-
-    for i in 0..5 {
-        let hdr = BurnchainHeaderHash([(i + 128 + 1) as u8; 32]);
-        let block_header = BurnchainBlockHeader {
-            block_height: first_height + i,
-            block_hash: hdr,
-            parent_block_hash: parent_block_header
-                .as_ref()
-                .map(|blk| blk.block_hash.clone())
-                .unwrap_or(first_block_header.block_hash.clone()),
-            num_txs: 3,
-            timestamp: i,
-        };
-
-        fork_headers.push(block_header.clone());
-    }
-
-    let mut am_id = 0;
-    let mut fork_am_id = 0;
-
-    for i in 0..5 {
-        let block_header = &headers[i + 1];
-        let fork_block_header = &fork_headers[i + 1];
-
-        let cmt = make_simple_block_commit(
-            &burnchain,
-            parent.as_ref(),
-            block_header,
-            BlockHeaderHash([((i + 1) as u8) | 0x80; 32]),
-        );
-
-        // make a second commit that builds off of genesis
-        let mut cmt_genesis = cmt.clone();
-        cmt_genesis.parent_block_ptr = 0;
-        cmt_genesis.parent_vtxindex = 0;
-        cmt_genesis.block_header_hash = BlockHeaderHash([((i + 1) as u8) | 0xa0; 32]);
-        cmt_genesis.txid = next_txid();
-
-        // make an invalid commit
-        let mut cmt_invalid = cmt.clone();
-        cmt_invalid.parent_vtxindex += 1;
-        cmt_invalid.block_header_hash = BlockHeaderHash([((i + 1) as u8) | 0xc0; 32]);
-        cmt_invalid.txid = next_txid();
-
-        // make a commit on the fork
-        let mut fork_cmt = cmt.clone();
-        fork_cmt.burn_header_hash = fork_block_header.block_hash.clone();
-        fork_cmt.vtxindex = 100;
-        fork_cmt.parent_vtxindex = 100;
-
-        burnchain_db
-            .store_new_burnchain_block_ops_unchecked(
-                &burnchain,
-                &headers,
-                block_header,
-                &vec![
-                    BlockstackOperationType::LeaderBlockCommit(cmt.clone()),
-                    BlockstackOperationType::LeaderBlockCommit(cmt_genesis.clone()),
-                    BlockstackOperationType::LeaderBlockCommit(cmt_invalid.clone()),
-                ],
-            )
-            .unwrap();
-
-        burnchain_db
-            .store_new_burnchain_block_ops_unchecked(
-                &burnchain,
-                &fork_headers,
-                fork_block_header,
-                &vec![BlockstackOperationType::LeaderBlockCommit(fork_cmt.clone())],
-            )
-            .unwrap();
-
-        cmts.push(cmt.clone());
-        cmts_genesis.push(cmt_genesis.clone());
-        cmts_invalid.push(cmt_invalid.clone());
-        fork_cmts.push(fork_cmt.clone());
-
-        parent = Some(cmt);
-
-        if i == 0 {
-            am_id = {
-                let tx = burnchain_db.tx_begin().unwrap();
-                tx.set_anchor_block(&cmts[0], 1).unwrap();
-                let am_id = tx
-                    .insert_block_commit_affirmation_map(&AffirmationMap::decode("p").unwrap())
-                    .unwrap();
-                tx.update_block_commit_affirmation(&cmts[0], Some(1), am_id)
-                    .unwrap();
-                tx.commit().unwrap();
-                am_id
-            };
-            assert_ne!(am_id, 0);
-
-            fork_am_id = {
-                let tx = burnchain_db.tx_begin().unwrap();
-                tx.set_anchor_block(&fork_cmts[0], 1).unwrap();
-                let fork_am_id = tx
-                    .insert_block_commit_affirmation_map(&AffirmationMap::decode("a").unwrap())
-                    .unwrap();
-                tx.update_block_commit_affirmation(&fork_cmts[0], Some(1), fork_am_id)
-                    .unwrap();
-                tx.commit().unwrap();
-                fork_am_id
-            };
-            assert_ne!(fork_am_id, 0);
-        }
-    }
-
-    // each valid commit should have cmts[0]'s affirmation map
-    for i in 1..5 {
-        let cmt_am_id =
-            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts[i]).unwrap();
-        assert_eq!(cmt_am_id.unwrap(), am_id);
-
-        let genesis_am_id =
-            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts_genesis[i])
-                .unwrap();
-        assert_eq!(genesis_am_id.unwrap(), 0);
-
-        let invalid_am_id =
-            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &cmts_invalid[i])
-                .unwrap();
-        assert_eq!(invalid_am_id.unwrap(), 0);
-    }
-
-    // each valid commit should have fork_cmts[0]'s affirmation map
-    for i in 1..5 {
-        let cmt_am_id =
-            BurnchainDB::get_block_commit_affirmation_id(burnchain_db.conn(), &fork_cmts[i])
-                .unwrap();
-        assert_eq!(cmt_am_id.unwrap(), fork_am_id);
-    }
 }
 
 #[test]
@@ -1353,4 +1053,132 @@ fn test_classify_delegate_stx() {
     } else {
         panic!("EXPECTED to parse a delegate stx op");
     }
+}
+
+// Mock Burnchain for testing
+fn mock_burnchain() -> Burnchain {
+    let first_block_height = 100;
+    Burnchain {
+        pox_constants: PoxConstants::test_default(),
+        peer_version: 0x012345678,
+        network_id: 0x9abcdef0,
+        chain_name: "bitcoin".to_string(),
+        network_name: "testnet".to_string(),
+        working_dir: "/nope".to_string(),
+        consensus_hash_lifetime: 24,
+        stable_confirmations: 7,
+        first_block_height,
+        initial_reward_start_block: first_block_height,
+        first_block_timestamp: 0,
+        first_block_hash: BurnchainHeaderHash::zero(),
+    }
+}
+
+/// Create a temporary db path for testing purposes
+pub fn tmp_db_path() -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "burnchain-db-test-{}.sqlite",
+        rand::random::<u64>()
+    ))
+}
+
+#[test]
+fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
+    // Create an in-memory database
+    let tmp_path = tmp_db_path();
+    let conn = Connection::open(tmp_path.clone())?;
+
+    // Initialize database with schema version 2 using SCHEMA_2
+    for statement in SCHEMA_2.iter() {
+        conn.execute_batch(statement)?;
+    }
+
+    // Insert sample data to verify data integrity post-migration
+    let sample_block_hash = BurnchainHeaderHash([1u8; 32]);
+    let sample_parent_block_hash = BurnchainHeaderHash([0u8; 32]);
+    let sample_txid = "txid1".to_string();
+    conn.execute(
+            "INSERT INTO burnchain_db_block_headers (block_height, block_hash, parent_block_hash, num_txs, timestamp) VALUES (?, ?, ?, ?, ?)",
+            params![1, &sample_block_hash, &sample_parent_block_hash, 1, 1234567890],
+        )?;
+    conn.execute(
+        "INSERT INTO affirmation_maps (weight, affirmation_map) VALUES (?, ?)",
+        params![1, "test_map"],
+    )?;
+    conn.execute(
+            "INSERT INTO block_commit_metadata (burn_block_hash, txid, block_height, vtxindex, affirmation_id, anchor_block, anchor_block_descendant) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![&sample_block_hash, &sample_txid, 1, 0, 0, None::<i64>, None::<i64>],
+        )?;
+
+    // Create BurnchainDB using connect to trigger migration code
+    let burnchain = mock_burnchain();
+    let db = BurnchainDB::connect(tmp_path.to_str().unwrap(), &burnchain, true)?;
+
+    // Verify schema version is updated to 3
+    let mut stmt = conn.prepare("SELECT version FROM db_config")?;
+    let version: u32 = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .filter_map(Result::ok)
+        .filter_map(|v| v.parse::<u32>().ok())
+        .max()
+        .expect("Expected db_config to have a version");
+    assert_eq!(version, 3, "Database version should be 3 after migration");
+
+    // Verify affirmation_maps table is dropped
+    assert!(
+        !table_exists(&db.conn, "affirmation_maps")?,
+        "affirmation_maps table should be dropped"
+    );
+
+    // Verify affirmation_id column is dropped from block_commit_metadata
+    let columns: Vec<String> = db
+        .conn
+        .prepare("PRAGMA table_info(block_commit_metadata)")?
+        .query_map([], |row| row.get(1))?
+        .collect::<Result<Vec<String>, _>>()?;
+    assert!(
+        !columns.contains(&"affirmation_id".to_string()),
+        "affirmation_id column should be dropped"
+    );
+
+    // Verify other tables and data remain intact
+    assert!(
+        table_exists(&db.conn, "burnchain_db_block_headers")?,
+        "burnchain_db_block_headers table should exist"
+    );
+    assert!(
+        table_exists(&db.conn, "block_commit_metadata")?,
+        "block_commit_metadata table should exist"
+    );
+    let header: Option<BurnchainBlockHeader> = query_row(
+        &db.conn,
+        "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ?",
+        params![&sample_block_hash],
+    )?;
+    assert!(
+        header.is_some(),
+        "Sample block header should remain after migration"
+    );
+    let metadata: Option<String> = query_row(
+        &db.conn,
+        "SELECT txid FROM block_commit_metadata WHERE burn_block_hash = ?",
+        params![&sample_block_hash],
+    )?;
+    assert_eq!(
+        metadata,
+        Some(sample_txid),
+        "Sample block_commit_metadata should remain after migration"
+    );
+
+    // Verify indexes are still present
+    let indexes: Vec<String> = db.conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'index_block_commit_metadata%'")?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+    assert!(
+        indexes.contains(&"index_block_commit_metadata_burn_block_hash_anchor_block".to_string()),
+        "Expected index should still exist"
+    );
+
+    Ok(())
 }
