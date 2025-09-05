@@ -206,7 +206,6 @@ fn run_analysis_free<C: ClarityStorage>(
     save_contract: bool,
     clarity_version: ClarityVersion,
 ) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
-    let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     analysis::run_analysis(
         contract_identifier,
         expressions,
@@ -229,7 +228,6 @@ fn run_analysis<C: ClarityStorage>(
     clarity_version: ClarityVersion,
 ) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
     let mainnet = header_db.is_mainnet();
-    let clarity_version = ClarityVersion::Clarity3;
     let cost_track = LimitedCostTracker::new(
         mainnet,
         default_chain_id(mainnet),
@@ -994,6 +992,22 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
     result["output_serialized"] = serde_json::to_value(result_raw.as_str()).unwrap();
 }
 
+/// Parse --clarity_version flag. Defaults to version for DEFAULT_CLI_EPOCH.
+fn parse_clarity_version_flag(argv: &mut Vec<String>) -> ClarityVersion {
+    if let Ok(optarg) = consume_arg(argv, &["--clarity_version"], true) {
+        if let Some(s) = optarg {
+            friendly_expect(
+                s.parse::<ClarityVersion>(),
+                &format!("Invalid clarity version: {}", s),
+            )
+        } else {
+            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH)
+        }
+    } else {
+        ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH)
+    }
+}
+
 /// Returns (process-exit-code, Option<json-output>)
 pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_json::Value>) {
     if args.is_empty() {
@@ -1118,13 +1132,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         "check" => {
             if args.len() < 2 {
                 eprintln!(
-                    "Usage: {} {} [program-file.clar] [--contract_id CONTRACT_ID] [--output_analysis] [--costs] [--testnet] (vm-state.db)",
+                    "Usage: {} {} [program-file.clar] [--contract_id CONTRACT_ID] [--output_analysis] [--costs] [--testnet] [--clarity_version N] (vm-state.db)",
                     invoked_by, args[0]
                 );
                 panic_test!();
             }
 
             let mut argv = args.to_vec();
+            let clarity_version = parse_clarity_version_flag(&mut argv);
             let contract_id = if let Ok(optarg) = consume_arg(&mut argv, &["--contract_id"], true) {
                 optarg
                     .map(|optarg_str| {
@@ -1172,9 +1187,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 )
             };
 
-            // TODO: Add --clarity_version as command line argument
             let mut ast = friendly_expect(
-                parse(&contract_id, &content, ClarityVersion::Clarity3),
+                parse(&contract_id, &content, clarity_version),
                 "Failed to parse program",
             );
 
@@ -1195,7 +1209,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
                     let result = at_chaintip(&argv[2], marf_kv, |mut marf| {
                         let result =
-                            run_analysis(&contract_id, &mut ast, &header_db, &mut marf, false);
+                            run_analysis(&contract_id, &mut ast, &header_db, &mut marf, false, clarity_version);
                         (marf, result)
                     });
                     result
@@ -1210,6 +1224,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         &header_db,
                         &mut analysis_marf,
                         false,
+                        clarity_version,
                     )
                 }
             };
@@ -1248,6 +1263,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "repl" => {
             let mut argv = args.to_vec();
+            let clarity_version = parse_clarity_version_flag(&mut argv);
             let mainnet = !matches!(consume_arg(&mut argv, &["--testnet"], false), Ok(Some(_)));
             let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new_free(
@@ -1258,7 +1274,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
             let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity2,
+                clarity_version
             );
             let mut exec_env = vm_env.get_exec_environment(None, None, &placeholder_context);
             let mut analysis_marf = MemoryBackingStore::new();
@@ -1285,7 +1301,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     }
                 };
 
-                let mut ast = match parse(&contract_id, &content, ClarityVersion::Clarity3) {
+                let mut ast = match parse(&contract_id, &content, clarity_version) {
                     Ok(val) => val,
                     Err(error) => {
                         println!("Parse error:\n{error}");
@@ -1298,7 +1314,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     &mut ast,
                     &mut analysis_marf,
                     true,
-                    ClarityVersion::Clarity3,
+                    clarity_version,
                 ) {
                     Ok(_) => (),
                     Err(boxed) => {
@@ -1320,6 +1336,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "eval_raw" => {
+            let mut argv = args.to_vec();
+            let clarity_version = parse_clarity_version_flag(&mut argv);
             let content: String = {
                 let mut buffer = String::new();
                 friendly_expect(
@@ -1341,11 +1359,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let contract_id = QualifiedContractIdentifier::transient();
             let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity3,
+                clarity_version
             );
 
             let mut ast = friendly_expect(
-                parse(&contract_id, &content, ClarityVersion::Clarity3),
+                parse(&contract_id, &content, clarity_version),
                 "Failed to parse program.",
             );
             match run_analysis_free(
@@ -1353,7 +1371,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 &mut ast,
                 &mut analysis_marf,
                 true,
-                ClarityVersion::Clarity3,
+                clarity_version,
             ) {
                 Ok(_) => {
                     let result = vm_env
@@ -1391,6 +1409,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "eval" => {
             let mut argv = args.to_vec();
+            let clarity_version = parse_clarity_version_flag(&mut argv);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
 
@@ -1405,7 +1424,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mainnet = header_db.is_mainnet();
             let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity3,
+                clarity_version
             );
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
@@ -1446,12 +1465,17 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "eval_at_chaintip" => {
             let mut argv = args.to_vec();
+            let clarity_version = parse_clarity_version_flag(&mut argv);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
             let coverage_folder = consume_arg(&mut argv, &["--c"], true).unwrap_or(None);
 
             let evalInput = get_eval_input(invoked_by, &argv);
-            let vm_filename = if argv.len() == 3 { &argv[2] } else { &argv[3] };
+            let vm_filename = if argv.len() == 3 {
+                &argv[2].clone()
+            } else {
+                &argv[3].clone()
+            };
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
             let marf_kv = friendly_expect(
@@ -1462,7 +1486,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mainnet = header_db.is_mainnet();
             let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity3,
+                clarity_version
             );
             let mut coverage = if coverage_folder.is_some() {
                 Some(CoverageReporter::new())
@@ -1516,17 +1540,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "eval_at_block" => {
             let mut argv = args.to_vec();
+            let clarity_version = parse_clarity_version_flag(&mut argv);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
 
             if argv.len() != 4 {
                 eprintln!(
-                    "Usage: {} {} [--costs] [index-block-hash] [contract-identifier] [vm/clarity dir]",
+                    "Usage: {} {} [--costs] [index-block-hash] [contract-identifier] [--clarity_version N] [vm/clarity dir]",
                     invoked_by, &argv[0]
                 );
                 panic_test!();
             }
-            let chain_tip = &argv[1];
+            let chain_tip = &argv[1].clone();
             let contract_identifier = friendly_expect(
                 QualifiedContractIdentifier::parse(&argv[2]),
                 "Failed to parse contract identifier.",
@@ -1550,7 +1575,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mainnet = header_db.is_mainnet();
             let placeholder_context = ContractContext::new(
                 QualifiedContractIdentifier::transient(),
-                ClarityVersion::Clarity3,
+                clarity_version
             );
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
                 let result_and_cost =
@@ -1590,6 +1615,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "launch" => {
             let mut argv = args.to_vec();
+            let clarity_version = parse_clarity_version_flag(&mut argv);
             let coverage_folder = consume_arg(&mut argv, &["--c"], true).unwrap_or(None);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
@@ -1601,13 +1627,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if argv.len() < 4 {
                 eprintln!(
-                    "Usage: {} {} [--costs] [--assets] [--output_analysis] [contract-identifier] [contract-definition.clar] [vm-state.db]",
+                    "Usage: {} {} [--costs] [--assets] [--output_analysis] [contract-identifier] [contract-definition.clar] [--clarity_version N] [vm-state.db]",
                     invoked_by, argv[0]
                 );
                 panic_test!();
             }
 
-            let vm_filename = &argv[3];
+            let vm_filename = &argv[3].clone();
             let contract_src_file = &args[2];
             let contract_identifier = friendly_expect(
                 QualifiedContractIdentifier::parse(&argv[1]),
@@ -1619,12 +1645,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 &format!("Error reading file: {}", contract_src_file),
             );
 
-            // TODO: Add --clarity_version as command line argument
             let mut ast = friendly_expect(
                 parse(
                     &contract_identifier,
                     &contract_content,
-                    ClarityVersion::Clarity3,
+                    clarity_version
                 ),
                 "Failed to parse program.",
             );
@@ -1660,7 +1685,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let (_, _, analysis_result_and_cost) =
                 in_block(header_db, marf_kv, |header_db, mut marf| {
                     let analysis_result =
-                        run_analysis(&contract_identifier, &mut ast, &header_db, &mut marf, true);
+                        run_analysis(&contract_identifier, &mut ast, &header_db, &mut marf, true, clarity_version);
                     match analysis_result {
                         Err(e) => (header_db, marf, Err(e)),
                         Ok(analysis) => {
@@ -1672,7 +1697,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                                 |vm_env| {
                                     vm_env.initialize_versioned_contract(
                                         contract_identifier,
-                                        ClarityVersion::Clarity3,
+                                        clarity_version,
                                         &contract_content,
                                         None,
                                     )
@@ -1733,13 +1758,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "execute" => {
             let mut argv = args.to_vec();
+            let clarity_version = parse_clarity_version_flag(&mut argv);
             let coverage_folder = consume_arg(&mut argv, &["--c"], true).unwrap_or(None);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
             let assets = matches!(consume_arg(&mut argv, &["--assets"], false), Ok(Some(_)));
 
             if argv.len() < 5 {
-                eprintln!("Usage: {} {} [--costs] [--assets] [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, argv[0]);
+                eprintln!("Usage: {} {} [--costs] [--assets] [--clarity_version N] [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, argv[0]);
                 panic_test!();
             }
 
@@ -1771,7 +1797,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let arguments: Vec<_> = argv[5..]
                 .iter()
                 .map(|argument| {
-                    let clarity_version = ClarityVersion::Clarity3;
                     let argument_parsed = friendly_expect(
                         vm_execute(argument, clarity_version),
                         &format!("Error parsing argument \"{}\"", argument),
