@@ -797,7 +797,15 @@ impl Signer {
 
         // Check if proposal can be rejected now if not valid against sortition view
         if let Some(sortition_state) = sortition_state {
-            match sortition_state.check_proposal(stacks_client, &mut self.signer_db, block, true) {
+            match sortition_state.check_proposal(
+                stacks_client,
+                &mut self.signer_db,
+                block,
+                true,
+                self.global_state_evaluator
+                    .get_global_tx_replay_set()
+                    .unwrap_or_default(),
+            ) {
                 // Error validating block
                 Err(RejectReason::ConnectivityIssues(e)) => {
                     warn!(

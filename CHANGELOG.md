@@ -9,6 +9,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Add `stackerdb_timeout_secs` to miner config for limiting duration of StackerDB HTTP requests.
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
 
 ### Changed

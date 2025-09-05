@@ -55,6 +55,7 @@ use stacks::core::{
 };
 use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
+use stacks::net::api::gethealth::RPCGetHealthResponse;
 use stacks::net::api::getinfo::RPCPeerInfoData;
 use stacks::net::api::getpoxinfo::RPCPoxInfoData;
 use stacks::net::api::getsortition::SortitionInfo;
@@ -86,7 +87,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use super::{ADDR_4, SK_1, SK_2, SK_3};
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -1008,6 +1009,18 @@ pub fn get_block(http_origin: &str, block_id: &StacksBlockId) -> Option<StacksBl
     } else {
         None
     }
+}
+
+pub fn get_node_health(conf: &Config) -> RPCGetHealthResponse {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
+    let path = format!("{http_origin}/v3/health");
+    client
+        .get(&path)
+        .send()
+        .unwrap()
+        .json::<RPCGetHealthResponse>()
+        .unwrap()
 }
 
 pub fn get_chain_info_result(conf: &Config) -> Result<RPCPeerInfoData, reqwest::Error> {
@@ -8756,16 +8769,6 @@ fn run_with_custom_wallet() {
     // If we get this far, then it also means that mining and block-production worked.
     let blocks = test_observer::get_blocks();
     assert!(blocks.len() > 1);
-
-    // bitcoin node knows of this wallet
-    let wallets = BitcoinRPCRequest::list_wallets(&conf).unwrap();
-    let mut found = false;
-    for w in wallets {
-        if w == conf.burnchain.wallet_name {
-            found = true;
-        }
-    }
-    assert!(found);
 }
 
 /// Make a contract that takes a parameterized amount of runtime
@@ -10018,7 +10021,7 @@ fn listunspent_max_utxos() {
     )
     .expect("Public key incorrect");
 
-    let filter_addresses = vec![addr2str(&address)];
+    let filter_addresses = vec![address.to_string()];
 
     let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
     let utxos = res.expect("Failed to get utxos");

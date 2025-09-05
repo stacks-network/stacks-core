@@ -339,7 +339,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             return false;
         };
 
-        !std::fs::metadata(snapshot_path).is_ok()
+        std::fs::metadata(snapshot_path).is_err()
     }
 
     /// Setup a snapshot by copying the snapshot directory to the working directory.
@@ -1556,6 +1556,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             self.get_current_reward_cycle(),
             SignerSlotID(0), // We are just reading so again, don't care about index.
             SignerDb::new(":memory:").unwrap(),
+            Duration::from_secs(30),
         );
         let mut latest_msgs = StackerDB::get_messages(
             stackerdb
@@ -1620,6 +1621,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             reward_cycle,
             SignerSlotID(0), // We are just reading so again, don't care about index.
             SignerDb::new(":memory:").unwrap(), // also don't care about the signer db for version tracking
+            Duration::from_secs(30),
         )
     }
 
@@ -1664,6 +1666,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 .expect("Failed to get signer slot id")
                 .expect("Signer does not have a slot id"),
             SignerDb::new(":memory:").unwrap(),
+            Duration::from_secs(30),
         );
 
         let signature = private_key
@@ -1777,18 +1780,15 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     info!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
-    let epoch_2_5_start = usize::try_from(
-        naka_conf
-            .burnchain
-            .epochs
-            .as_ref()
-            .unwrap()
-            .iter()
-            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
-            .unwrap()
-            .start_height,
-    )
-    .expect("Failed to get epoch 2.5 start height");
+    let epoch_2_5_start = naka_conf
+        .burnchain
+        .epochs
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
+        .unwrap()
+        .start_height;
     let bootstrap_block = epoch_2_5_start - 6;
 
     if !snapshot_exists {

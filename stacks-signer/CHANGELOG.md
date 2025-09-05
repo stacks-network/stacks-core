@@ -5,7 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+
+## Unreleased
 
 ### Added
 
@@ -15,6 +16,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Database schema updated to version 17
+
+## [3.2.0.0.1.1]
+
+### Added
+
+- Introduced `stackerdb_timeout_secs`: config option to set the maximum time (in seconds) the signer will wait for StackerDB HTTP requests to complete.
 
 
 ## [3.2.0.0.1.0]

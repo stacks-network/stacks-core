@@ -1,5 +1,6 @@
 {
   "difference_from_max_peer": 0,
+  "node_stacks_tip_height": 12345,
   "max_stacks_height_of_neighbors": 12345,
-  "node_stacks_tip_height": 12345
+  "max_stacks_neighbor_address": "127.0.0.1:8080"
 }

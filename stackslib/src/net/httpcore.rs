@@ -1752,8 +1752,10 @@ impl PeerNetwork {
                             HttpPeer::saturate_http_socket(socket, convo)?;
                             Ok(event_id)
                         } else {
-                            debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
-                            Err(NetError::PeerNotConnected)
+                            debug!("HTTP failed to connect to {data_url}, {addr:?}");
+                            Err(NetError::PeerNotConnected(format!(
+                                "HTTP failed to connect to {data_url}, {addr:?}",
+                            )))
                         }
                     }
                     Err(e) => {
