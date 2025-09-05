@@ -32,6 +32,7 @@ use clarity::vm::types::{
 };
 
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{
     ClarityConnection, ClarityTransactionConnection, Error as clarity_error,
@@ -409,6 +410,50 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
         },
         clarity_error::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
+    }
+}
+
+pub fn convert_clarity_error_to_transaction_result(
+    clarity_tx: &mut ClarityTx,
+    tx: &StacksTransaction,
+    error: Error,
+) -> TransactionResult {
+    let (is_problematic, error) =
+        TransactionResult::is_problematic(tx, error, clarity_tx.get_epoch());
+    if is_problematic {
+        TransactionResult::problematic(tx, error)
+    } else {
+        match &error {
+            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
+                // note: this path _does_ not perform the tx block budget % heuristic,
+                //  because this code path is not directly called with a mempool handle.
+                clarity_tx.reset_cost(cost_before.clone());
+                if total_budget.proportion_largest_dimension(cost_before)
+                    < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                {
+                    warn!(
+                        "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                        tx.txid(),
+                        100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                    );
+                    let mut measured_cost = cost_after.clone();
+                    let measured_cost = if measured_cost.sub(cost_before).is_ok() {
+                        Some(measured_cost)
+                    } else {
+                        warn!("Failed to compute measured cost of a too big transaction");
+                        None
+                    };
+                    TransactionResult::error(tx, Error::TransactionTooBigError(measured_cost))
+                } else {
+                    warn!(
+                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                        tx.txid()
+                    );
+                    TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
+                }
+            }
+            _ => TransactionResult::error(tx, error),
+        }
     }
 }
 
