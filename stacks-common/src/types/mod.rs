@@ -431,6 +431,12 @@ impl SIP031EmissionInterval {
 }
 
 impl StacksEpochId {
+    #[cfg(any(test, feature = "testing"))]
+    pub const fn latest() -> StacksEpochId {
+        StacksEpochId::Epoch33
+    }
+
+    #[cfg(not(any(test, feature = "testing")))]
     pub const fn latest() -> StacksEpochId {
         StacksEpochId::Epoch32
     }
