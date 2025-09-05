@@ -18691,6 +18691,7 @@ fn signers_treat_signatures_as_precommits() {
         let mut session = StackerDBSession::new(
             &signer_test.running_nodes.conf.node.rpc_bind,
             signers_contract_id,
+            signer_test.running_nodes.conf.miner.stackerdb_timeout,
         );
         let message = SignerMessage::BlockResponse(accepted);
 
