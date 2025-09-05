@@ -563,9 +563,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         }
         assert!(!is_backptr(ptr.id()));
 
-        trace!(
-            "Cursor: repair_backptr_finish ptr={ptr:?} block_hash={block_hash:?}"
-        );
+        trace!("Cursor: repair_backptr_finish ptr={ptr:?} block_hash={block_hash:?}");
 
         self.node_ptrs.push(ptr.clone());
         self.block_hashes.push(block_hash);

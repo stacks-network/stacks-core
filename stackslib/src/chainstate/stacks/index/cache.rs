@@ -225,7 +225,8 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut().load_node_and_hash(block_id, trieptr.clone())
+            self.state_mut()
+                .load_node_and_hash(block_id, trieptr.clone())
         }
     }
 
