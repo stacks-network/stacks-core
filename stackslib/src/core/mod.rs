@@ -123,11 +123,6 @@ pub const BITCOIN_TESTNET_STACKS_30_BURN_HEIGHT: u64 = 30_000_000;
 pub const BITCOIN_TESTNET_STACKS_31_BURN_HEIGHT: u64 = 30_000_001;
 pub const BITCOIN_TESTNET_STACKS_32_BURN_HEIGHT: u64 = 30_000_002;
 
-/// This constant sets the approximate testnet bitcoin height at which 2.5 Xenon
-///  was reorged back to 2.5 instantiation. This is only used to calculate the
-///  expected affirmation maps (so it only must be accurate to the reward cycle).
-pub const BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT: u64 = 2_586_000;
-
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT: u64 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP: u32 = 0;
 pub const BITCOIN_REGTEST_FIRST_BLOCK_HASH: &str =

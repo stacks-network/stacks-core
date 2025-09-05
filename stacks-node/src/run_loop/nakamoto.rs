@@ -323,11 +323,6 @@ impl RunLoop {
                 let mut fee_estimator = moved_config.make_fee_estimator();
 
                 let coord_config = ChainsCoordinatorConfig {
-                    assume_present_anchor_blocks: moved_config.node.assume_present_anchor_blocks,
-                    always_use_affirmation_maps: moved_config.node.always_use_affirmation_maps,
-                    require_affirmed_anchor_blocks: moved_config
-                        .node
-                        .require_affirmed_anchor_blocks,
                     txindex: moved_config.node.txindex,
                 };
                 ChainsCoordinator::run(
