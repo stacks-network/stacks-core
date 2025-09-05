@@ -1,4 +1,4 @@
-// Copyright (C) 2020-2024 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,18 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::time::Duration;
+#![no_main]
 
-use clarity::vm::types::QualifiedContractIdentifier;
-use libsigner::{SignerSession, StackerDBSession};
+use libfuzzer_sys::fuzz_target;
 
-/// Create a new stacker db session
-pub fn stackerdb_session(
-    host: &str,
-    contract: QualifiedContractIdentifier,
-    stackerdb_timeout: Duration,
-) -> StackerDBSession {
-    let mut session = StackerDBSession::new(host, contract.clone(), stackerdb_timeout);
-    session.connect(host.to_string(), contract).unwrap();
-    session
-}
+fuzz_target!(|s: &str| {
+    let _ = clarity::vm::execute_v2(s);
+});
