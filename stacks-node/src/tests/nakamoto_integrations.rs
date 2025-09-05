@@ -71,8 +71,8 @@ use stacks::chainstate::stacks::{
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MAXIMUM_MEMPOOL_TX_CHAINING};
 use stacks::core::test_util::{
-    insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned,
-    make_stacks_transfer_serialized, make_stacks_transfer_tx,
+    insert_tx_in_mempool, make_big_read_count_contract, make_contract_call,
+    make_contract_publish_versioned, make_stacks_transfer_serialized, make_stacks_transfer_tx,
 };
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
@@ -14106,7 +14106,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
     let num_signers = 30;
     let nmb_large_tx_senders = 8;
-    let num_senders = 10 + nmb_large_tx_senders;
+    let num_senders = 20 + nmb_large_tx_senders;
     let sender_sks: Vec<_> = (0..num_senders)
         .map(|_| Secp256k1PrivateKey::random())
         .collect();
@@ -14201,25 +14201,16 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Create large and smaller contracts that will be called multiple times
-    let small_contract = format!(
-        r#"
-(define-data-var my-var uint u0)
-(define-public (f) (begin {} (ok 1))) (begin (f))
-        "#,
-        ["(var-get my-var)"; 5].join(" ")
-    );
+    // Create cheap and expensive contracts that will be called multiple times
+    let small_proportion: usize = 5;
+    let large_proportion: usize = 22;
+    let small_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, small_proportion as u64);
+    let large_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, large_proportion as u64);
+    let expected_big = 100 / large_proportion;
+    let expected_small = (100 - large_proportion * expected_big) / small_proportion;
 
-    let contract_call = format!(
-        "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
-        boot_code_id("cost-voting", false),
-        boot_code_id("costs", false),
-        boot_code_id("costs", false)
-    );
-
-    let large_contract = format!(
-        "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        [contract_call.as_str(); 1000].join(" ")
-    );
     let call_large = |sender_sk: &_, sender_nonces: &mut _| {
         let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
         let contract_tx = make_contract_call(
@@ -14229,7 +14220,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
             naka_conf.burnchain.chain_id,
             &deployer_addr,
             "big-contract",
-            "f",
+            "big-tx",
             &[],
         );
         submit_tx(&http_origin, &contract_tx);
@@ -14246,7 +14237,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
             naka_conf.burnchain.chain_id,
             &deployer_addr,
             "small-contract",
-            "f",
+            "big-tx",
             &[],
         );
         submit_tx(&http_origin, &contract_tx);
@@ -14349,32 +14340,10 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     for (sender_i, sender_sk) in sender_sks.iter().enumerate() {
         // Only send a large tx call for the first few senders
         if sender_i < nmb_large_tx_senders {
-            let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
-            let contract_tx = make_contract_call(
-                sender_sk,
-                sender_nonce,
-                large_tx_fee,
-                naka_conf.burnchain.chain_id,
-                &deployer_addr,
-                "big-contract",
-                "f",
-                &[],
-            );
-            submit_tx(&http_origin, &contract_tx);
+            call_large(sender_sk, &mut sender_nonces);
         };
-        let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
         // Every sender does both a small and transfer tx call
-        let contract_tx = make_contract_call(
-            sender_sk,
-            sender_nonce,
-            small_tx_fee,
-            naka_conf.burnchain.chain_id,
-            &deployer_addr,
-            "small-contract",
-            "f",
-            &[],
-        );
-        submit_tx(&http_origin, &contract_tx);
+        call_small(sender_sk, &mut sender_nonces);
         // Also fill up the mempool with a bunch of transfers
         let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
         let transfer_tx = make_stacks_transfer_serialized(
@@ -14390,10 +14359,6 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
 
     info!("----- Mining contract call txs -----");
     fault_injection_unstall_miner();
-    // We expect at 4 large contract calls, followed by some small contract calls.
-    // All transfers that can get mined should be (i.e. any that are not blocked by the unmined large/small contract calls)
-    let expected_big = 4;
-    let expected_small = num_senders - nmb_large_tx_senders + expected_big;
     let mut nmb_big = 0;
     let mut nmb_small = 0;
     let mut nmb_transfers = 0;
@@ -14417,14 +14382,10 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
             return Ok(false);
         }
         for (i, block) in blocks.into_iter().enumerate() {
-            let transactions = block.get("transactions").unwrap().as_array().unwrap();
-            info!("block {i} contains {:?} transactions", transactions.len());
-            for tx in transactions.iter() {
-                let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                let parsed =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                match parsed.payload {
+            let block: StacksBlockEvent = serde_json::from_value(block.clone()).unwrap();
+            info!("block {i} contains {:?} transactions", block.transactions.len());
+            for tx in block.transactions.iter() {
+                match &tx.payload {
                     TransactionPayload::ContractCall(TransactionContractCall {
                         contract_name,
                         ..
@@ -14440,7 +14401,7 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
                         _ => panic!("Unexpected contract call to {contract_name}"),
                     },
                     TransactionPayload::TokenTransfer(..) => {
-                        assert!(nmb_big >= expected_big && nmb_small >= expected_small - expected_big, "We should not mine any transfers until we exhaust the initial contract calls");
+                        assert!(nmb_big >= expected_big && nmb_small >= expected_small, "We should not mine any transfers until we exhaust the initial contract calls");
                         nmb_transfers += 1;
                     }
                     _ => {}
@@ -14525,7 +14486,8 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
             amount * 2,
         );
     }
-    naka_conf.miner.contract_cost_limit_percentage = Some(80);
+    let limit_percentage = 80;
+    naka_conf.miner.contract_cost_limit_percentage = Some(limit_percentage);
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let stacker_sks: Vec<_> = (0..num_signers)
         .map(|_| setup_stacker(&mut naka_conf))
@@ -14576,25 +14538,13 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
     wait_for_first_naka_block_commit(60, &commits_submitted);
 
     // Create cheap and expensive contracts that will be called multiple times
-    let small_contract = format!(
-        r#"
-    (define-data-var my-var uint u0)
-    (define-public (f) (begin {} (ok 1))) (begin (f))
-            "#,
-        ["(var-get my-var)"; 5].join(" ")
-    );
-
-    let contract_call = format!(
-        "(unwrap! (contract-call? '{} submit-proposal '{} \"cost-old\" '{} \"cost-new\") (err 1))",
-        boot_code_id("cost-voting", false),
-        boot_code_id("costs", false),
-        boot_code_id("costs", false)
-    );
-
-    let large_contract = format!(
-        "(define-public (f) (begin {} (ok 1))) (begin (f))",
-        [contract_call.as_str(); 1000].join(" ")
-    );
+    let small_proportion: usize = 5;
+    let large_proportion: usize = 22;
+    let small_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, small_proportion as u64);
+    let large_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, large_proportion as u64);
+    let expected_big = 100 / large_proportion;
 
     let call_large = |sender_sk: &_, sender_nonces: &mut _| {
         let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
@@ -14605,7 +14555,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
             naka_conf.burnchain.chain_id,
             &deployer_addr,
             "big-contract",
-            "f",
+            "big-tx",
             &[],
         );
         submit_tx(&http_origin, &contract_tx);
@@ -14622,7 +14572,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
             naka_conf.burnchain.chain_id,
             &deployer_addr,
             "small-contract",
-            "f",
+            "big-tx",
             &[],
         );
         submit_tx(&http_origin, &contract_tx);
@@ -14754,7 +14704,6 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
     // All transfers that can get mined should be (i.e. any that are not blocked by the unmined large/small contract calls)
     let mut nmb_big = 0;
     let mut nmb_transfers = 0;
-    let expected_big = 4;
     let expected_transfers = num_senders - nmb_small_tx_senders;
     wait_for(120, || {
         let mined_after = test_observer::get_mined_nakamoto_blocks();
@@ -14771,15 +14720,14 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
         debug!(
             "Mined a total of {total_nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
         );
+        if total_nmb_txs < expected_big + expected_transfers {
+            return Ok(false);
+        }
         for (i, block) in blocks.into_iter().enumerate() {
-            let transactions = block.get("transactions").unwrap().as_array().unwrap();
-            info!("block {i} contains {:?} transactions", transactions.len());
-            for tx in transactions.iter() {
-                let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-                let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-                let parsed =
-                    StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-                match parsed.payload {
+            let block: StacksBlockEvent = serde_json::from_value(block.clone()).unwrap();
+            info!("block {i} contains {:?} transactions", block.transactions.len());
+            for tx in block.transactions.iter() {
+                match &tx.payload {
                     TransactionPayload::ContractCall(TransactionContractCall {
                         contract_name,
                         ..
