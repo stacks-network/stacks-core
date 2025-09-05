@@ -502,16 +502,9 @@ impl BurnchainDB {
         if !table_exists(conn, "db_config")? {
             return Ok(1);
         }
-
-        // Query all version values and get the max
-        let mut stmt = conn.prepare("SELECT version FROM db_config")?;
-        let max_version: u32 = stmt
-            .query_map([], |row| row.get::<_, String>(0))?
-            .filter_map(Result::ok)
-            .filter_map(|v| v.parse::<u32>().ok())
-            .max()
-            .unwrap_or(1); // default to 1 if table exists but empty
-
+        let mut stmt =
+            conn.prepare("SELECT COALESCE(MAX(CAST(version AS INTEGER)), 1) FROM db_config")?;
+        let max_version: u32 = stmt.query_row([], |row| row.get(0))?;
         Ok(max_version)
     }
 
