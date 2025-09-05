@@ -66,7 +66,42 @@ fn test_send_with_string_result_ok() {
     let transport = utils::rpc_no_auth(&server);
 
     let result: RpcResult<String> =
-        transport.send("client_id", "some_method", vec!["param1".into()]);
+        transport.send("client_id", None, "some_method", vec!["param1".into()]);
+    assert_eq!(result.unwrap(), "some_result");
+}
+
+#[test]
+fn test_send_with_relative_path_ok() {
+    let expected_request = json!({
+        "jsonrpc": "2.0",
+        "id": "client_id",
+        "method": "some_method",
+        "params": ["param1"]
+    });
+
+    let response_body = json!({
+        "id": "client_id",
+        "result": "some_result",
+        "error": null
+    });
+
+    let mut server = mockito::Server::new();
+    let _m = server
+        .mock("POST", "/my_rel_path/subpath")
+        .match_body(mockito::Matcher::PartialJson(expected_request))
+        .with_status(200)
+        .with_header("Content-Type", "application/json")
+        .with_body(response_body.to_string())
+        .create();
+
+    let transport = utils::rpc_no_auth(&server);
+
+    let result: RpcResult<String> = transport.send(
+        "client_id",
+        Some("my_rel_path/subpath"),
+        "some_method",
+        vec!["param1".into()],
+    );
     assert_eq!(result.unwrap(), "some_result");
 }
 
@@ -105,7 +140,7 @@ fn test_send_with_string_result_with_basic_auth_ok() {
     let transport = utils::rpc_with_auth(&server, username, password);
 
     let result: RpcResult<String> =
-        transport.send("client_id", "some_method", vec!["param1".into()]);
+        transport.send("client_id", None, "some_method", vec!["param1".into()]);
     assert_eq!(result.unwrap(), "some_result");
 }
 
@@ -115,7 +150,7 @@ fn test_send_fails_due_to_unreachable_endpoint() {
     let transport = RpcTransport::new(unreachable_endpoint, RpcAuth::None, None)
         .expect("Should be created properly!");
 
-    let result: RpcResult<Value> = transport.send("client_id", "dummy_method", vec![]);
+    let result: RpcResult<Value> = transport.send("client_id", None, "dummy_method", vec![]);
     assert!(result.is_err());
 
     let err = result.unwrap_err();
@@ -135,7 +170,7 @@ fn test_send_fails_with_http_500() {
         .create();
 
     let transport = utils::rpc_no_auth(&server);
-    let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
+    let result: RpcResult<Value> = transport.send("client_id", None, "dummy", vec![]);
 
     assert!(result.is_err());
     match result {
@@ -158,7 +193,7 @@ fn test_send_fails_with_invalid_json() {
         .create();
 
     let transport = utils::rpc_no_auth(&server);
-    let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
+    let result: RpcResult<Value> = transport.send("client_id", None, "dummy", vec![]);
 
     assert!(result.is_err());
     match result {
@@ -188,7 +223,7 @@ fn test_send_ok_if_missing_both_result_and_error() {
         .create();
 
     let transport = utils::rpc_no_auth(&server);
-    let result: RpcResult<Value> = transport.send("client_id", "dummy", vec![]);
+    let result: RpcResult<Value> = transport.send("client_id", None, "dummy", vec![]);
     assert!(result.is_ok());
 }
 
@@ -208,7 +243,7 @@ fn test_send_fails_with_invalid_id() {
         .create();
 
     let transport = utils::rpc_no_auth(&server);
-    let result: RpcResult<Value> = transport.send("req_client_id", "dummy", vec![]);
+    let result: RpcResult<Value> = transport.send("req_client_id", None, "dummy", vec![]);
 
     match result {
         Err(RpcError::MismatchedId(req_id, res_id)) => {
@@ -239,7 +274,7 @@ fn test_send_fails_with_service_error() {
         .create();
 
     let transport = utils::rpc_no_auth(&server);
-    let result: RpcResult<Value> = transport.send("client_id", "unknown_method", vec![]);
+    let result: RpcResult<Value> = transport.send("client_id", None, "unknown_method", vec![]);
 
     match result {
         Err(RpcError::Service(err)) => {
@@ -282,7 +317,7 @@ fn test_send_fails_due_to_timeout() {
     let timeout = Duration::from_millis(500);
     let transport = RpcTransport::new(server.url(), RpcAuth::None, Some(timeout)).unwrap();
 
-    let result: RpcResult<String> = transport.send("client_id", "delayed_method", vec![]);
+    let result: RpcResult<String> = transport.send("client_id", None, "delayed_method", vec![]);
 
     assert!(result.is_err());
     match result.unwrap_err() {
