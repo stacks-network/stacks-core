@@ -588,7 +588,7 @@ impl BurnchainDB {
         let db_tx = self.tx_begin()?;
 
         let mut current_db_version = Self::get_schema_version(&db_tx.sql_tx)?;
-        debug!("Current Burnchain schema version: {}", current_db_version);
+        debug!("Current Burnchain schema version: {current_db_version}");
 
         for migration in MIGRATIONS.iter() {
             if current_db_version >= migration.version {
@@ -605,7 +605,7 @@ impl BurnchainDB {
                 ))));
             }
             debug!(
-                "Applying SignerDB migration for schema version {}",
+                "Applying BurnchainDB migration for schema version {}",
                 migration.version
             );
             for statement in migration.statements.iter() {
@@ -613,7 +613,7 @@ impl BurnchainDB {
             }
 
             // Verify that the migration script updated the version correctly
-            let new_version_check = Self::get_schema_version(&db_tx.conn())?;
+            let new_version_check = Self::get_schema_version(db_tx.conn())?;
             if new_version_check != migration.version {
                 db_tx.rollback()?;
                 return Err(BurnchainError::from(DBError::Other(format!(
