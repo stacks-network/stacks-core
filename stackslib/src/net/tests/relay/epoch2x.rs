@@ -2620,8 +2620,7 @@ pub fn make_contract_tx(
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
     tx_signer.sign_origin(sender).unwrap();
 
-    let tx_contract_signed = tx_signer.get_tx().unwrap();
-    tx_contract_signed
+    tx_signer.get_tx().unwrap()
 }
 
 #[test]
@@ -2633,7 +2632,7 @@ fn test_static_problematic_tests() {
     let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
-    let tx_edge_body = format!("{}u1 {}", tx_edge_body_start, tx_edge_body_end);
+    let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");
 
     let tx_edge = make_contract_tx(
         &spender_sk_1,
@@ -2647,7 +2646,7 @@ fn test_static_problematic_tests() {
     let exceeds_repeat_factor = edge_repeat_factor + 1;
     let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
     let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-    let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
+    let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");
 
     let tx_exceeds = make_contract_tx(
         &spender_sk_2,
@@ -2661,7 +2660,7 @@ fn test_static_problematic_tests() {
     let high_repeat_factor = 128 * 1024;
     let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
     let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
-    let tx_high_body = format!("{}u1 {}", tx_high_body_start, tx_high_body_end);
+    let tx_high_body = format!("{tx_high_body_start}u1 {tx_high_body_end}");
 
     let tx_high = make_contract_tx(
         &spender_sk_3,
@@ -2674,31 +2673,9 @@ fn test_static_problematic_tests() {
         false,
         StacksEpochId::Epoch2_05,
         &tx_edge,
-        ASTRules::Typical
+        ASTRules::PrecheckSize
     )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_exceeds,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_high,
-        ASTRules::Typical
-    )
-    .is_ok());
-
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_edge,
-        ASTRules::Typical
-    )
-    .is_ok());
+    .is_err());
     assert!(Relayer::static_check_problematic_relayed_tx(
         false,
         StacksEpochId::Epoch2_05,

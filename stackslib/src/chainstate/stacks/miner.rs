@@ -943,12 +943,10 @@ impl<'a> StacksMicroblockBuilder<'a> {
             StacksMicroblockHeader::first_unsigned(parent_anchor_block_hash, &tx_merkle_root)
         };
 
-        if ast_rules != ASTRules::Typical {
-            next_microblock_header.version = cmp::max(
-                STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
-                next_microblock_header.version,
-            );
-        }
+        next_microblock_header.version = cmp::max(
+            STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
+            next_microblock_header.version,
+        );
 
         next_microblock_header.sign(miner_key).unwrap();
         next_microblock_header.verify(&miner_pubkey_hash).unwrap();
@@ -1653,7 +1651,7 @@ impl StacksBlockBuilder {
                 clarity_tx,
                 tx,
                 quiet,
-                ASTRules::Typical,
+                ASTRules::PrecheckSize,
                 None,
             ) {
                 Ok((fee, receipt)) => {
@@ -1670,7 +1668,7 @@ impl StacksBlockBuilder {
                 clarity_tx,
                 tx,
                 quiet,
-                ASTRules::Typical,
+                ASTRules::PrecheckSize,
                 None,
             ) {
                 Ok((fee, receipt)) => {
@@ -2352,12 +2350,10 @@ impl StacksBlockBuilder {
         let mut miner_epoch_info =
             builder.pre_epoch_begin(&mut chainstate, burn_dbconn, settings.confirm_microblocks)?;
         let ast_rules = miner_epoch_info.ast_rules;
-        if ast_rules != ASTRules::Typical {
-            builder.header.version = cmp::max(
-                STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
-                builder.header.version,
-            );
-        }
+        builder.header.version = cmp::max(
+            STACKS_BLOCK_VERSION_AST_PRECHECK_SIZE,
+            builder.header.version,
+        );
 
         let (mut epoch_tx, confirmed_mblock_cost) =
             builder.epoch_begin(burn_dbconn, &mut miner_epoch_info)?;

@@ -8152,7 +8152,7 @@ fn test_problematic_blocks_are_not_mined() {
         (tip, cur_ast_rules)
     };
 
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
+    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
 
     // add another bad tx to the mempool
     debug!("Submit problematic tx_high transaction {tx_high_txid}");
@@ -8487,7 +8487,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         (tip, cur_ast_rules)
     };
 
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
+    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
 
     btc_regtest_controller.build_next_block(1);
 
@@ -8528,7 +8528,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     };
 
     // we reverted to the old rules (but the follower won't)
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
+    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
 
     // add another bad tx to the mempool.
     // because the miner is now non-conformant, it should mine this tx.
@@ -8561,7 +8561,7 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         };
 
         // we reverted to the old rules (but the follower won't)
-        assert_eq!(cur_ast_rules, ASTRules::Typical);
+        assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
     }
 
     let tip_info = get_chain_info(&conf);

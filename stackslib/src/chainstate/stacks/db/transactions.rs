@@ -1681,7 +1681,7 @@ pub mod test {
 
     pub const TestBurnStateDB_20: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch20,
-        ast_rules: ASTRules::Typical,
+        ast_rules: ASTRules::PrecheckSize,
     };
     pub const TestBurnStateDB_2_05: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch2_05,

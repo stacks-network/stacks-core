@@ -790,7 +790,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.eval_read_only_with_rules(contract, program, ast::ASTRules::Typical)
+        self.eval_read_only_with_rules(contract, program, ast::ASTRules::PrecheckSize)
     }
 
     pub fn begin(&mut self) {
@@ -1010,7 +1010,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<Value> {
-        self.eval_read_only_with_rules(contract_identifier, program, ast::ASTRules::Typical)
+        self.eval_read_only_with_rules(contract_identifier, program, ast::ASTRules::PrecheckSize)
     }
 
     pub fn eval_raw_with_rules(&mut self, program: &str, rules: ast::ASTRules) -> Result<Value> {
@@ -1039,7 +1039,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
-        self.eval_raw_with_rules(program, ast::ASTRules::Typical)
+        self.eval_raw_with_rules(program, ast::ASTRules::PrecheckSize)
     }
 
     /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost

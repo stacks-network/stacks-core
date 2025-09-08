@@ -197,7 +197,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
                     chainstate.mainnet,
                     stacks_epoch.epoch_id,
                     &tx,
-                    network.ast_rules,
+                    clarity::vm::ast::ASTRules::PrecheckSize
                 )
                 .is_err()
             {
@@ -205,7 +205,7 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
                 debug!(
                     "Transaction {} is problematic in rules {:?}; will not store or relay",
                     &tx.txid(),
-                    network.ast_rules
+                    clarity::vm::ast::ASTRules::PrecheckSize
                 );
                 return Ok(false);
             }

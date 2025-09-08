@@ -461,7 +461,7 @@ pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Opti
             &mut (),
             clarity_version,
             DEFAULT_CLI_EPOCH,
-            ASTRules::Typical,
+            ASTRules::PrecheckSize,
         )?
         .expressions;
         eval_all(&parsed, &mut contract_context, g, None)

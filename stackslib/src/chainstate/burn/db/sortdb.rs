@@ -3133,7 +3133,7 @@ impl SortitionDB {
             tx.execute_batch(sql_exec)?;
         }
 
-        let typical_rules = params![(ASTRules::Typical as u8), 0i64];
+        let typical_rules = params![(ASTRules::PrecheckSize as u8), 0i64];
 
         let precheck_size_rules = params![
             (ASTRules::PrecheckSize as u8),
@@ -10602,15 +10602,15 @@ pub mod tests {
 
         assert_eq!(
             SortitionDB::get_ast_rules(db.conn(), 0).unwrap(),
-            ASTRules::Typical
+            ASTRules::PrecheckSize
         );
         assert_eq!(
             SortitionDB::get_ast_rules(db.conn(), 1).unwrap(),
-            ASTRules::Typical
+            ASTRules::PrecheckSize
         );
         assert_eq!(
             SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE - 1).unwrap(),
-            ASTRules::Typical
+            ASTRules::PrecheckSize
         );
         assert_eq!(
             SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE).unwrap(),
@@ -10629,7 +10629,7 @@ pub mod tests {
 
         assert_eq!(
             SortitionDB::get_ast_rules(db.conn(), 0).unwrap(),
-            ASTRules::Typical
+            ASTRules::PrecheckSize
         );
         assert_eq!(
             SortitionDB::get_ast_rules(db.conn(), 1).unwrap(),

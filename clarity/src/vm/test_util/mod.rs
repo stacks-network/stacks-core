@@ -26,7 +26,7 @@ pub struct UnitTestHeaderDB {}
 pub const TEST_HEADER_DB: UnitTestHeaderDB = UnitTestHeaderDB {};
 pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch20,
-    ast_rules: ASTRules::Typical,
+    ast_rules: ASTRules::PrecheckSize,
 };
 pub const TEST_BURN_STATE_DB_205: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch2_05,
@@ -44,7 +44,7 @@ pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnState
         }
         StacksEpochId::Epoch20 => UnitTestBurnStateDB {
             epoch_id,
-            ast_rules: ASTRules::Typical,
+            ast_rules: ASTRules::PrecheckSize,
         },
         StacksEpochId::Epoch2_05
         | StacksEpochId::Epoch21

@@ -3027,7 +3027,7 @@ mod tests {
                 return None;
             }
             fn get_ast_rules(&self, height: u32) -> ASTRules {
-                ASTRules::Typical
+                ASTRules::PrecheckSize
             }
         }
 

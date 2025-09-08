@@ -443,7 +443,7 @@ impl BurnStateDB for NullBurnStateDB {
     }
 
     fn get_ast_rules(&self, _height: u32) -> ASTRules {
-        ASTRules::Typical
+        ASTRules::PrecheckSize
     }
 }
 
