@@ -983,8 +983,7 @@ impl BitcoinRegtestController {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, utxo)
             }
         }?;
-        self.send_transaction(transaction.clone())
-            .map(|_| transaction)
+        self.send_transaction(&transaction).map(|_| transaction)
     }
 
     #[cfg(test)]
@@ -1937,19 +1936,16 @@ impl BitcoinRegtestController {
     ///
     /// # Returns
     /// On success, returns the [`Txid`] of the broadcasted transaction.
-    pub fn send_transaction(
-        &self,
-        transaction: Transaction,
-    ) -> Result<Txid, BurnchainControllerError> {
+    pub fn send_transaction(&self, tx: &Transaction) -> Result<Txid, BurnchainControllerError> {
         debug!(
             "Sending raw transaction: {}",
-            serialize_hex(&transaction).unwrap_or("SERIALIZATION FAILED".to_string())
+            serialize_hex(tx).unwrap_or("SERIALIZATION FAILED".to_string())
         );
 
         const UNCAPPED_FEE: f64 = 0.0;
         const MAX_BURN_AMOUNT: u64 = 1_000_000;
         self.rpc_client
-            .send_raw_transaction(&transaction, Some(UNCAPPED_FEE), Some(MAX_BURN_AMOUNT))
+            .send_raw_transaction(tx, Some(UNCAPPED_FEE), Some(MAX_BURN_AMOUNT))
             .map(|txid| {
                 debug!("Transaction {txid} sent successfully");
                 txid
@@ -2358,7 +2354,7 @@ impl BurnchainController for BitcoinRegtestController {
         op_signer: &mut BurnchainOpSigner,
     ) -> Result<Txid, BurnchainControllerError> {
         let transaction = self.make_operation_tx(epoch_id, operation, op_signer)?;
-        self.send_transaction(transaction)
+        self.send_transaction(&transaction)
     }
 
     #[cfg(test)]
@@ -2792,7 +2788,7 @@ mod tests {
             create_keychain_with_seed(2).get_pub_key()
         }
 
-        pub fn mine_tx(btc_controller: &BitcoinRegtestController, tx: Transaction) {
+        pub fn mine_tx(btc_controller: &BitcoinRegtestController, tx: &Transaction) {
             btc_controller
                 .send_transaction(tx)
                 .expect("Tx should be sent to the burnchain!");
@@ -3672,7 +3668,7 @@ mod tests {
                 )
                 .expect("At first, building leader block commit should work");
 
-            utils::mine_tx(&btc_controller, first_tx_ok); // Now tx is confirmed
+            utils::mine_tx(&btc_controller, &first_tx_ok); // Now tx is confirmed
 
             // re-submitting same commit while previous it is confirmed by the burnchain
             let resubmit = btc_controller.build_leader_block_commit_tx(
@@ -3728,7 +3724,7 @@ mod tests {
             let first_txid = first_tx_ok.txid();
 
             // Now tx is confirmed: prev utxo is updated and one more utxo is generated
-            utils::mine_tx(&btc_controller, first_tx_ok);
+            utils::mine_tx(&btc_controller, &first_tx_ok);
 
             // re-gen signer othewise fails because it will be disposed during previous commit tx.
             let mut signer = keychain.generate_op_signer();
