@@ -66,7 +66,9 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-use stacks_common::deps_common::bitcoin::network::serialize::{serialize, serialize_hex, RawEncoder};
+use stacks_common::deps_common::bitcoin::network::serialize::{
+    serialize, serialize_hex, RawEncoder,
+};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::net::PeerHost;
@@ -1509,8 +1511,7 @@ impl BitcoinRegtestController {
             true, // block commit op requires change output to exist
         );
 
-        let serialized_tx = serialize(&tx)
-            .expect("BUG: failed to serialize to a vec");
+        let serialized_tx = serialize(&tx).expect("BUG: failed to serialize to a vec");
 
         let tx_size = serialized_tx.len() as u64;
         estimated_fees.register_replacement(tx_size);
@@ -1785,8 +1786,7 @@ impl BitcoinRegtestController {
                 signer,
                 force_change_output,
             );
-            let serialized_tx = serialize(&tx_cloned)
-                .expect("BUG: failed to serialize to a vec");
+            let serialized_tx = serialize(&tx_cloned).expect("BUG: failed to serialize to a vec");
             cmp::max(min_tx_size, serialized_tx.len() as u64)
         };
 
@@ -2394,33 +2394,6 @@ impl UTXOSet {
 
     pub fn num_utxos(&self) -> usize {
         self.utxos.len()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SerializedTx {
-    pub bytes: Vec<u8>,
-    pub txid: Txid,
-}
-
-impl SerializedTx {
-    pub fn new(tx: Transaction) -> SerializedTx {
-        let txid = Txid::from_vec_be(tx.txid().as_bytes()).unwrap();
-        let mut encoder = RawEncoder::new(Cursor::new(vec![]));
-        tx.consensus_encode(&mut encoder)
-            .expect("BUG: failed to serialize to a vec");
-        let bytes: Vec<u8> = encoder.into_inner().into_inner();
-
-        SerializedTx { txid, bytes }
-    }
-
-    pub fn txid(&self) -> Txid {
-        self.txid
-    }
-
-    pub fn to_hex(&self) -> String {
-        let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{b:02x}")).collect();
-        formatted_bytes.join("")
     }
 }
 
