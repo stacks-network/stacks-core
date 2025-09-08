@@ -87,7 +87,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use super::{ADDR_4, SK_1, SK_2, SK_3};
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -5180,9 +5180,6 @@ fn pox_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    // required for testing post-sunset behavior
-    conf.node.always_use_affirmation_maps = false;
-
     let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
     let second_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
     let third_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
@@ -5686,8 +5683,6 @@ fn atlas_integration_test() {
         .initial_balances
         .push(initial_balance_user_1.clone());
 
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
-
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -5711,8 +5706,6 @@ fn atlas_integration_test() {
             timeout_ms: 1000,
             disable_retries: false,
         });
-
-    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
@@ -6220,8 +6213,6 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
-
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6255,8 +6246,6 @@ fn antientropy_integration_test() {
     conf_follower_node.miner.subsequent_attempt_time_ms = 1_000_000;
     conf_follower_node.burnchain.max_rbf = 1000000;
     conf_follower_node.node.wait_time_for_blocks = 1_000;
-
-    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
@@ -6493,8 +6482,6 @@ fn atlas_stress_integration_test() {
     conf_bootstrap_node.miner.subsequent_attempt_time_ms = 2_000_000;
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
-
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
 
     let user_1 = users.pop().unwrap();
     let initial_balance_user_1 = initial_balances.pop().unwrap();
@@ -7954,8 +7941,6 @@ fn spawn_follower_node(
 
     conf.connection_options.inv_sync_interval = 3;
 
-    conf.node.always_use_affirmation_maps = false;
-
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
     let channel = run_loop.get_coordinator_channel().unwrap();
@@ -8769,16 +8754,6 @@ fn run_with_custom_wallet() {
     // If we get this far, then it also means that mining and block-production worked.
     let blocks = test_observer::get_blocks();
     assert!(blocks.len() > 1);
-
-    // bitcoin node knows of this wallet
-    let wallets = BitcoinRPCRequest::list_wallets(&conf).unwrap();
-    let mut found = false;
-    for w in wallets {
-        if w == conf.burnchain.wallet_name {
-            found = true;
-        }
-    }
-    assert!(found);
 }
 
 /// Make a contract that takes a parameterized amount of runtime
@@ -10031,7 +10006,7 @@ fn listunspent_max_utxos() {
     )
     .expect("Public key incorrect");
 
-    let filter_addresses = vec![addr2str(&address)];
+    let filter_addresses = vec![address.to_string()];
 
     let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
     let utxos = res.expect("Failed to get utxos");

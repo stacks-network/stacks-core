@@ -337,7 +337,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             return false;
         };
 
-        !std::fs::metadata(snapshot_path).is_ok()
+        std::fs::metadata(snapshot_path).is_err()
     }
 
     /// Setup a snapshot by copying the snapshot directory to the working directory.
@@ -1709,18 +1709,15 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     info!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
-    let epoch_2_5_start = usize::try_from(
-        naka_conf
-            .burnchain
-            .epochs
-            .as_ref()
-            .unwrap()
-            .iter()
-            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
-            .unwrap()
-            .start_height,
-    )
-    .expect("Failed to get epoch 2.5 start height");
+    let epoch_2_5_start = naka_conf
+        .burnchain
+        .epochs
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
+        .unwrap()
+        .start_height;
     let bootstrap_block = epoch_2_5_start - 6;
 
     if !snapshot_exists {

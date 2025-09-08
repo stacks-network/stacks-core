@@ -48,6 +48,7 @@ rusqlite = { workspace = true, features = ["functions"] }
 [dev-dependencies]
 clarity = { path = "../clarity", features = ["testing"] }
 stacks-common = { path = "../stacks-common", features = ["testing"] }
+stackslib = { path = "../stackslib", features = ["testing"] }
 num-traits = "0.2.18"
 stdext = "0.3.1"
 
@@ -62,4 +63,4 @@ features = ["serde", "recovery"]
 [features]
 default = []
 monitoring_prom = ["prometheus", "tiny_http"]
-testing = ["stacks-common/testing"]
+testing = ["stacks-common/testing", "stackslib/testing"]

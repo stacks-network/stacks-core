@@ -38,10 +38,7 @@ use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{get_ancestor_sort_id, BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::coordinator::{
-    static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
-    static_get_stacks_tip_affirmation_map, OnChainRewardSetProvider, RewardCycleInfo,
-};
+use crate::chainstate::coordinator::{OnChainRewardSetProvider, RewardCycleInfo};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
@@ -487,10 +484,6 @@ pub struct PeerNetwork {
     pub current_reward_sets: BTreeMap<u64, CurrentRewardSet>,
 
     // information about the state of the network's anchor blocks
-    pub heaviest_affirmation_map: AffirmationMap,
-    pub stacks_tip_affirmation_map: AffirmationMap,
-    pub sortition_tip_affirmation_map: AffirmationMap,
-    pub tentative_best_affirmation_map: AffirmationMap,
     pub last_anchor_block_hash: BlockHeaderHash,
     pub last_anchor_block_txid: Txid,
 
@@ -696,10 +689,6 @@ impl PeerNetwork {
             chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
             ast_rules: ASTRules::Typical,
-            heaviest_affirmation_map: AffirmationMap::empty(),
-            stacks_tip_affirmation_map: AffirmationMap::empty(),
-            sortition_tip_affirmation_map: AffirmationMap::empty(),
-            tentative_best_affirmation_map: AffirmationMap::empty(),
             last_anchor_block_hash: BlockHeaderHash([0x00; 32]),
             last_anchor_block_txid: Txid([0x00; 32]),
             burnchain_tip: BlockSnapshot::initial(
@@ -3877,8 +3866,7 @@ impl PeerNetwork {
     /// higher AND the Stacks tip is not yet a Nakamoto block.  This latter condition indicates
     /// that the epoch 2.x state machines are still needed to download the final epoch 2.x blocks.
     pub(crate) fn need_epoch2_state_machines(&self, epoch_id: StacksEpochId) -> bool {
-        epoch_id < StacksEpochId::Epoch30
-            || (epoch_id >= StacksEpochId::Epoch30 && !self.stacks_tip.is_nakamoto)
+        !(epoch_id >= StacksEpochId::Epoch30 && self.stacks_tip.is_nakamoto)
     }
 
     /// Do the actual work in the state machine.
@@ -4741,9 +4729,8 @@ impl PeerNetwork {
     /// * hint to the download state machine to start looking for the new block at the new
     /// stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
-    pub fn refresh_burnchain_view<B: BurnchainHeaderReader>(
+    pub fn refresh_burnchain_view(
         &mut self,
-        indexer: &B,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
@@ -4903,38 +4890,6 @@ impl PeerNetwork {
             // update tx validation information
             self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), canonical_sn.block_height)?;
 
-            if self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
-                // update heaviest affirmation map view
-                self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
-                    &self.burnchain,
-                    indexer,
-                    &self.burnchain_db,
-                    sortdb,
-                    &canonical_sn.sortition_id,
-                )
-                .map_err(|_| {
-                    net_error::Transient("Unable to query heaviest affirmation map".to_string())
-                })?;
-
-                self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
-                    &self.burnchain,
-                    indexer,
-                    &self.burnchain_db,
-                    sortdb,
-                    chainstate,
-                    &canonical_sn.sortition_id,
-                )
-                .map_err(|_| {
-                    net_error::Transient("Unable to query canonical affirmation map".to_string())
-                })?;
-
-                self.sortition_tip_affirmation_map =
-                    SortitionDB::find_sortition_tip_affirmation_map(
-                        sortdb,
-                        &canonical_sn.sortition_id,
-                    )?;
-            }
-
             // update last anchor data
             let ih = sortdb.index_handle(&canonical_sn.sortition_id);
             self.last_anchor_block_hash = ih
@@ -4955,21 +4910,6 @@ impl PeerNetwork {
             // refresh stackerdb configs -- canonical stacks tip has changed
             debug!("{:?}: Refresh all stackerdbs", &self.get_local_peer());
             self.refresh_stacker_db_configs(sortdb, chainstate)?;
-        }
-
-        if stacks_tip_changed && self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
-            // update stacks tip affirmation map view
-            // (NOTE: this check has to happen _after_ self.chain_view gets updated!)
-            self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
-                &self.burnchain_db,
-                sortdb,
-                &canonical_sn.sortition_id,
-                &canonical_sn.canonical_stacks_tip_consensus_hash,
-                &canonical_sn.canonical_stacks_tip_hash,
-            )
-            .map_err(|_| {
-                net_error::Transient("Unable to query stacks tip affirmation map".to_string())
-            })?;
         }
 
         // can't fail after this point
@@ -5544,7 +5484,7 @@ impl PeerNetwork {
 
         // update burnchain view, before handling any HTTP connections
         let unsolicited_buffered_messages =
-            match self.refresh_burnchain_view(indexer, sortdb, chainstate, ibd) {
+            match self.refresh_burnchain_view(sortdb, chainstate, ibd) {
                 Ok(msgs) => msgs,
                 Err(e) => {
                     warn!("Failed to refresh burnchain view: {:?}", &e);

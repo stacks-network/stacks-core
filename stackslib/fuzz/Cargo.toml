@@ -1,0 +1,30 @@
+[package]
+name = "stackslib-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.stackslib]
+path = ".."
+
+[dependencies.stacks-common]
+path = "../../stacks-common"
+
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "bitcoin_blocks_parser_parse_tx_raw"
+path = "fuzz_targets/bitcoin_blocks_parser_parse_tx_raw.rs"
+test = false
+doc = false
+bench = false
