@@ -72,6 +72,7 @@ pub trait ClarityBackingStore {
     ///   used to implement time-shifted evaluation.
     /// returns the previous block header hash on success
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
+    fn get_block_hash(&self) -> StacksBlockId;
 
     /// Is None if `block_height` >= the "currently" under construction Stacks block height.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
@@ -141,6 +142,15 @@ pub trait ClarityBackingStore {
     }
 }
 
+pub trait ClarityBackingStoreTransaction: ClarityBackingStore {
+    fn rollback_block(self: Box<Self>);
+    fn rollback_unconfirmed(self: Box<Self>) -> Result<()>;
+    fn commit_to(self: Box<Self>, final_bhh: &StacksBlockId) -> Result<()>;
+    fn commit_unconfirmed(self: Box<Self>);
+    fn commit_mined_block(self: Box<Self>, will_move_to: &StacksBlockId) -> Result<()>;
+    fn seal(&mut self) -> TrieHash;
+}
+
 // TODO: Figure out where this belongs
 pub fn make_contract_hash_key(contract: &QualifiedContractIdentifier) -> String {
     format!("clarity-contract::{contract}")
@@ -200,6 +210,10 @@ impl NullBackingStore {
 impl ClarityBackingStore for NullBackingStore {
     fn set_block_hash(&mut self, _bhh: StacksBlockId) -> Result<StacksBlockId> {
         panic!("NullBackingStore can't set block hash")
+    }
+
+    fn get_block_hash(&self) -> StacksBlockId {
+        panic!("NullBackingStore can't get block hash")
     }
 
     fn get_data(&mut self, _key: &str) -> Result<Option<String>> {

@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use clarity::vm::coverage::CoverageReporter;
+use clarity::vm::database::ClarityBackingStoreTransaction;
 use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
@@ -352,6 +353,7 @@ where
     let (headers_return, result) = {
         let marf_tx = marf_kv.begin(&from, &to);
         let (headers_return, marf_return, result) = f(headers_db, marf_tx);
+        let marf_return: Box<dyn ClarityBackingStoreTransaction> = Box::new(marf_return);
         marf_return
             .commit_to(&to)
             .expect("FATAL: failed to commit block");
@@ -374,6 +376,7 @@ where
 
     let marf_tx = marf_kv.begin(&from, &to);
     let (marf_return, result) = f(marf_tx);
+    let marf_return: Box<dyn ClarityBackingStoreTransaction> = Box::new(marf_return);
     marf_return.rollback_block();
     result
 }
@@ -389,6 +392,7 @@ where
 
     let marf_tx = marf_kv.begin(&from, &to);
     let (marf_return, result) = f(marf_tx);
+    let marf_return: Box<dyn ClarityBackingStoreTransaction> = Box::new(marf_return);
     marf_return.rollback_block();
     result
 }
