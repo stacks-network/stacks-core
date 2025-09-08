@@ -338,6 +338,41 @@ impl ClarityInstance {
         }
     }
 
+    pub fn begin_simulated_block<'a, 'b>(
+        &'a mut self,
+        current: &StacksBlockId,
+        next: &StacksBlockId,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        let mut datastore = self.datastore.begin_simulated(current, next);
+
+        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
+        let cost_track = {
+            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            Some(
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    self.chain_id,
+                    epoch.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch.epoch_id,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
+            )
+        };
+
+        ClarityBlockConnection {
+            datastore,
+            header_db,
+            burn_state_db,
+            cost_track,
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            epoch: epoch.epoch_id,
+        }
+    }
+
     pub fn begin_genesis_block<'a, 'b>(
         &'a mut self,
         current: &StacksBlockId,

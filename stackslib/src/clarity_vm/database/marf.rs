@@ -219,6 +219,30 @@ impl MarfedKV {
         }
     }
 
+    pub fn begin_simulated<'a>(
+        &'a mut self,
+        current: &StacksBlockId,
+        next: &StacksBlockId,
+    ) -> WritableMarfStore<'a> {
+        let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
+            panic!(
+                "ERROR: Failed to begin new MARF block {} - {})",
+                current, next
+            )
+        });
+        tx.begin_simulated(current, next).unwrap_or_else(|e| {
+            panic!(
+                "ERROR: Failed to begin new MARF block {} - {} {}",
+                current, next, e
+            )
+        });
+
+        WritableMarfStore {
+            chain_tip: next.clone(),
+            marf: tx,
+        }
+    }
+
     pub fn begin_unconfirmed<'a>(&'a mut self, current: &StacksBlockId) -> WritableMarfStore<'a> {
         let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
             panic!(

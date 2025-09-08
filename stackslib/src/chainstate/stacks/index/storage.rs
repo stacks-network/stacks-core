@@ -2169,6 +2169,13 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
         }
     }
 
+    pub fn hide_block(&self, bhh: &T) -> Result<bool, Error> {
+        match trie_sql::hide_block(&self.db, bhh) {
+            Ok(_) => Ok(true),
+            Err(e) => Err(e),
+        }
+    }
+
     /// Is the given block in the marf_data DB table, and is it unconfirmed?
     pub fn has_unconfirmed_block(&self, bhh: &T) -> Result<bool, Error> {
         match trie_sql::get_unconfirmed_block_identifier(&self.db, bhh) {

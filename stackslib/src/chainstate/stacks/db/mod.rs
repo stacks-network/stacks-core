@@ -304,7 +304,7 @@ impl StacksBlockHeaderTypes {
             StacksBlockHeaderTypes::Nakamoto(x) => x.block_hash(),
         }
     }
-
+    
     pub fn is_first_mined(&self) -> bool {
         match self {
             StacksBlockHeaderTypes::Epoch2(x) => x.is_first_mined(),
@@ -2039,6 +2039,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        simulated: bool,
     ) -> ClarityTx<'a, 'b> {
         let conf = chainstate_tx.config.clone();
         StacksChainState::inner_clarity_tx_begin(
@@ -2050,6 +2051,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
+            simulated,
         )
     }
 
@@ -2073,6 +2075,7 @@ impl StacksChainState {
             parent_block,
             new_consensus_hash,
             new_block,
+            false,
         )
     }
 
@@ -2136,6 +2139,45 @@ impl StacksChainState {
         F: FnOnce(&mut MARF<StacksBlockId>) -> R,
     {
         self.clarity_state.with_marf(f)
+    }
+
+    pub fn with_simulated_clarity_tx<F, R>(
+        &mut self,
+        burn_dbconn: &dyn BurnStateDB,
+        parent_block_id: &StacksBlockId,
+        new_block_id: &StacksBlockId,
+        to_do: F,
+    ) -> Option<R>
+    where
+        F: FnOnce(&mut ClarityTx) -> R,
+    {
+        match NakamotoChainState::get_block_header(self.db(), parent_block_id) {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                return None;
+            }
+            Err(e) => {
+                warn!("Failed to query for {}: {:?}", parent_block_id, &e);
+                return None;
+            }
+        }
+
+        let dbconfig = self.config();
+
+        let conn = self.clarity_state.begin_simulated_block(
+            parent_block_id,
+            new_block_id,
+            &self.state_index,
+            burn_dbconn,
+        );
+
+        let mut clarity_tx = ClarityTx {
+            block: conn,
+            config: dbconfig,
+        };
+        let result = to_do(&mut clarity_tx);
+        clarity_tx.rollback_block();
+        Some(result)
     }
 
     /// Run to_do on the state of the Clarity VM at the given chain tip.
@@ -2303,6 +2345,7 @@ impl StacksChainState {
         parent_block: &BlockHeaderHash,
         new_consensus_hash: &ConsensusHash,
         new_block: &BlockHeaderHash,
+        simulated: bool,
     ) -> ClarityTx<'a, 'b> {
         // mix consensus hash and stacks block header hash together, since the stacks block hash
         // it not guaranteed to be globally unique (but the pair is)
@@ -2330,12 +2373,21 @@ impl StacksChainState {
             parent_block
         );
 
-        let inner_clarity_tx = clarity_instance.begin_block(
-            &parent_index_block,
-            &new_index_block,
-            headers_db,
-            burn_dbconn,
-        );
+        let inner_clarity_tx = if simulated {
+            clarity_instance.begin_simulated_block(
+                &parent_index_block,
+                &new_index_block,
+                headers_db,
+                burn_dbconn,
+            )
+        } else {
+            clarity_instance.begin_block(
+                &parent_index_block,
+                &new_index_block,
+                headers_db,
+                burn_dbconn,
+            )
+        };
 
         test_debug!("Got clarity TX!");
         ClarityTx {

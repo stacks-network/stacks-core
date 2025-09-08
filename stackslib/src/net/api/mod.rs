@@ -17,6 +17,7 @@ use crate::net::http::Error;
 use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
 
+pub mod blocksimulate;
 pub mod callreadonly;
 pub mod fastcallreadonly;
 pub mod get_tenures_fork_info;
@@ -49,6 +50,9 @@ pub mod getstackerdbmetadata;
 pub mod getstackers;
 pub mod getstxtransfercost;
 pub mod gettenure;
+pub mod gettenureblocks;
+pub mod gettenureblocksbyhash;
+pub mod gettenureblocksbyheight;
 pub mod gettenureinfo;
 pub mod gettenuretip;
 pub mod gettransaction;
@@ -119,6 +123,13 @@ impl StacksHttp {
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
         self.register_rpc_endpoint(gettenuretip::RPCNakamotoTenureTipRequestHandler::new());
+        self.register_rpc_endpoint(gettenureblocks::RPCNakamotoTenureBlocksRequestHandler::new());
+        self.register_rpc_endpoint(
+            gettenureblocksbyhash::RPCNakamotoTenureBlocksByHashRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(
+            gettenureblocksbyheight::RPCNakamotoTenureBlocksByHeightRequestHandler::new(),
+        );
         self.register_rpc_endpoint(get_tenures_fork_info::GetTenuresForkInfo::default());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),
@@ -141,6 +152,7 @@ impl StacksHttp {
         self.register_rpc_endpoint(postmicroblock::RPCPostMicroblockRequestHandler::new());
         self.register_rpc_endpoint(poststackerdbchunk::RPCPostStackerDBChunkRequestHandler::new());
         self.register_rpc_endpoint(posttransaction::RPCPostTransactionRequestHandler::new());
+        self.register_rpc_endpoint(blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new());
     }
 }
 

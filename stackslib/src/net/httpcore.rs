@@ -28,7 +28,7 @@ use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
@@ -278,6 +278,23 @@ pub mod request {
             return Err(HttpError::Http(404, format!("Missing `{}`", key)));
         };
         Ok(ch)
+    }
+
+    pub fn get_burn_block_hash(
+        captures: &Captures,
+        key: &str,
+    ) -> Result<BurnchainHeaderHash, HttpError> {
+        let bbh = if let Some(bbh_str) = captures.name(key) {
+            match BurnchainHeaderHash::from_hex(bbh_str.as_str()) {
+                Ok(bbh) => bbh,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(bbh)
     }
 
     /// Get and parse a u32 from a path's captures, given the name of the regex field.
