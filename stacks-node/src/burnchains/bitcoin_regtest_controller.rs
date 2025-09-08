@@ -66,7 +66,7 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-use stacks_common::deps_common::bitcoin::network::serialize::{serialize_hex, RawEncoder};
+use stacks_common::deps_common::bitcoin::network::serialize::{serialize, serialize_hex, RawEncoder};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::net::PeerHost;
@@ -1509,9 +1509,10 @@ impl BitcoinRegtestController {
             true, // block commit op requires change output to exist
         );
 
-        let serialized_tx = SerializedTx::new(tx.clone());
+        let serialized_tx = serialize(&tx)
+            .expect("BUG: failed to serialize to a vec");
 
-        let tx_size = serialized_tx.bytes.len() as u64;
+        let tx_size = serialized_tx.len() as u64;
         estimated_fees.register_replacement(tx_size);
         let mut txid = tx.txid().as_bytes().to_vec();
         txid.reverse();
@@ -1784,8 +1785,9 @@ impl BitcoinRegtestController {
                 signer,
                 force_change_output,
             );
-            let serialized_tx = SerializedTx::new(tx_cloned);
-            cmp::max(min_tx_size, serialized_tx.bytes.len() as u64)
+            let serialized_tx = serialize(&tx_cloned)
+                .expect("BUG: failed to serialize to a vec");
+            cmp::max(min_tx_size, serialized_tx.len() as u64)
         };
 
         let rbf_fee = if spent_in_rbf == 0 {
@@ -2725,6 +2727,7 @@ mod tests {
     use stacks::burnchains::BurnchainSigner;
     use stacks::config::DEFAULT_SATS_PER_VB;
     use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
+    use stacks_common::deps_common::bitcoin::network::serialize::deserialize_hex;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::util::hash::to_hex;
     use stacks_common::util::secp256k1::Secp256k1PrivateKey;
@@ -3134,10 +3137,8 @@ mod tests {
             .unwrap();
 
         debug!("send_block_commit_operation:\n{block_commit:#?}");
-        debug!("{}", &SerializedTx::new(block_commit.clone()).to_hex());
         assert_eq!(block_commit.output[3].value, 323507);
-
-        assert_eq!(&SerializedTx::new(block_commit).to_hex(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
+        assert_eq!(serialize_hex(&block_commit).unwrap(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
     }
 
     #[test]
