@@ -71,7 +71,9 @@ MessageSlotID {
     /// Block Response message from signers
     BlockResponse = 1,
     /// Signer State Machine Update
-    StateMachineUpdate = 2
+    StateMachineUpdate = 2,
+    /// Block Pre-commit message from signers before they commit to a block response
+    BlockPreCommit = 3
 });
 
 define_u8_enum!(
@@ -114,7 +116,9 @@ SignerMessageTypePrefix {
     /// Mock block message from Epoch 2.5 miners
     MockBlock = 5,
     /// State machine update
-    StateMachineUpdate = 6
+    StateMachineUpdate = 6,
+    /// Block Pre-commit message
+    BlockPreCommit = 7
 });
 
 #[cfg_attr(test, mutants::skip)]
@@ -137,7 +141,7 @@ impl MessageSlotID {
 #[cfg_attr(test, mutants::skip)]
 impl Display for MessageSlotID {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}({})", self, self.to_u8())
+        write!(f, "{self:?}({})", self.to_u8())
     }
 }
 
@@ -161,6 +165,7 @@ impl From<&SignerMessage> for SignerMessageTypePrefix {
             SignerMessage::MockSignature(_) => SignerMessageTypePrefix::MockSignature,
             SignerMessage::MockBlock(_) => SignerMessageTypePrefix::MockBlock,
             SignerMessage::StateMachineUpdate(_) => SignerMessageTypePrefix::StateMachineUpdate,
+            SignerMessage::BlockPreCommit(_) => SignerMessageTypePrefix::BlockPreCommit,
         }
     }
 }
@@ -182,6 +187,8 @@ pub enum SignerMessage {
     MockBlock(MockBlock),
     /// A state machine update
     StateMachineUpdate(StateMachineUpdate),
+    /// The pre-commit message from signers for other signers to observe
+    BlockPreCommit(Sha512Trunc256Sum),
 }
 
 impl SignerMessage {
@@ -197,6 +204,7 @@ impl SignerMessage {
             | Self::MockBlock(_) => None,
             Self::BlockResponse(_) | Self::MockSignature(_) => Some(MessageSlotID::BlockResponse), // Mock signature uses the same slot as block response since its exclusively for epoch 2.5 testing
             Self::StateMachineUpdate(_) => Some(MessageSlotID::StateMachineUpdate),
+            Self::BlockPreCommit(_) => Some(MessageSlotID::BlockPreCommit),
         }
     }
 }
@@ -215,6 +223,9 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessage::MockBlock(block) => block.consensus_serialize(fd),
             SignerMessage::StateMachineUpdate(state_machine_update) => {
                 state_machine_update.consensus_serialize(fd)
+            }
+            SignerMessage::BlockPreCommit(block_pre_commit) => {
+                block_pre_commit.consensus_serialize(fd)
             }
         }?;
         Ok(())
@@ -252,6 +263,10 @@ impl StacksMessageCodec for SignerMessage {
             SignerMessageTypePrefix::StateMachineUpdate => {
                 let state_machine_update = StacksMessageCodec::consensus_deserialize(fd)?;
                 SignerMessage::StateMachineUpdate(state_machine_update)
+            }
+            SignerMessageTypePrefix::BlockPreCommit => {
+                let signer_signature_hash = StacksMessageCodec::consensus_deserialize(fd)?;
+                SignerMessage::BlockPreCommit(signer_signature_hash)
             }
         };
         Ok(message)
@@ -1143,6 +1158,18 @@ pub enum BlockResponse {
     Accepted(BlockAccepted),
     /// The Nakamoto block was rejected and therefore not signed
     Rejected(BlockRejection),
+}
+
+impl From<BlockRejection> for BlockResponse {
+    fn from(rejection: BlockRejection) -> Self {
+        BlockResponse::Rejected(rejection)
+    }
+}
+
+impl From<BlockAccepted> for BlockResponse {
+    fn from(accepted: BlockAccepted) -> Self {
+        BlockResponse::Accepted(accepted)
+    }
 }
 
 #[cfg_attr(test, mutants::skip)]
@@ -2603,5 +2630,15 @@ mod test {
             StateMachineUpdate::consensus_deserialize(&mut &bytes[..]).unwrap();
 
         assert_eq!(signer_message, signer_message_deserialized);
+    }
+
+    #[test]
+    fn serde_block_signer_message_pre_commit() {
+        let pre_commit = SignerMessage::BlockPreCommit(Sha512Trunc256Sum([0u8; 32]));
+        let serialized_pre_commit = pre_commit.serialize_to_vec();
+        let deserialized_pre_commit =
+            read_next::<SignerMessage, _>(&mut &serialized_pre_commit[..])
+                .expect("Failed to deserialize pre-commit");
+        assert_eq!(pre_commit, deserialized_pre_commit);
     }
 }

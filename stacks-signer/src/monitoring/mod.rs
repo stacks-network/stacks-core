@@ -91,6 +91,11 @@ pub mod actions {
         BLOCK_PROPOSALS_RECEIVED.inc();
     }
 
+    /// Increment the block pre-commit sent counter
+    pub fn increment_block_pre_commits_sent() {
+        BLOCK_PRE_COMMITS_SENT.inc();
+    }
+
     /// Update the stx balance of the signer
     pub fn update_signer_stx_balance(balance: i64) {
         SIGNER_STX_BALANCE.set(balance);
@@ -205,6 +210,9 @@ pub mod actions {
 
     /// Increment the number of block proposals received
     pub fn increment_block_proposals_received() {}
+
+    /// Increment the block pre-commits sent counter
+    pub fn increment_block_pre_commits_sent() {}
 
     /// Update the stx balance of the signer
     pub fn update_signer_stx_balance(_balance: i64) {}
