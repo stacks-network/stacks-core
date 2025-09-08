@@ -321,7 +321,7 @@ impl HttpResponse for RPCNakamotoTenureBlocksRequestHandler {
 }
 
 impl StacksHttpRequest {
-    /// Make a new getinfo request to this endpoint
+    /// Make a new request to this endpoint
     pub fn new_get_tenure_blocks(
         host: PeerHost,
         consensus_hash: &ConsensusHash,

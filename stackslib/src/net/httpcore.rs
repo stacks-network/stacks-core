@@ -28,7 +28,7 @@ use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
@@ -269,6 +269,24 @@ pub mod request {
     pub fn get_consensus_hash(captures: &Captures, key: &str) -> Result<ConsensusHash, HttpError> {
         let ch = if let Some(ch_str) = captures.name(key) {
             match ConsensusHash::from_hex(ch_str.as_str()) {
+                Ok(ch) => ch,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(ch)
+    }
+
+    /// Get and parse a BurnchainHeaderHash from a path's captures, given the name of the regex field.
+    pub fn get_burnchain_header_hash(
+        captures: &Captures,
+        key: &str,
+    ) -> Result<BurnchainHeaderHash, HttpError> {
+        let ch = if let Some(ch_str) = captures.name(key) {
+            match BurnchainHeaderHash::from_hex(ch_str.as_str()) {
                 Ok(ch) => ch,
                 Err(_e) => {
                     return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
