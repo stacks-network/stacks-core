@@ -802,7 +802,7 @@ fn parse_process_transaction_error(
                         "contract_limit_percentage" => contract_limit_percentage,
                         "total_budget" => %total_budget
                     );
-                    TransactionResult::skipped(tx, "Tx exceeds contract call block limit".into())
+                    TransactionResult::skipped_due_to_error(tx, Error::BlockCostLimitError)
                 } else {
                     warn!(
                         "Transaction {} reached block cost {cost_after}; budget was {total_budget}",

@@ -92,6 +92,7 @@ pub enum Error {
     NotInSameFork,
     InvalidChainstateDB,
     BlockTooBigError,
+    BlockCostLimitError,
     TransactionTooBigError(Option<ExecutionCost>),
     BlockCostExceeded,
     NoTransactionsToMine,
@@ -156,6 +157,7 @@ impl fmt::Display for Error {
             Error::NoSuchBlockError => write!(f, "No such Stacks block"),
             Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
             Error::BlockTooBigError => write!(f, "Too much data in block"),
+            Error::BlockCostLimitError => write!(f, "Block cost limit exceeded"),
             Error::TransactionTooBigError(ref c) => {
                 write!(f, "Too much data in transaction: measured_cost={c:?}")
             }
@@ -236,6 +238,7 @@ impl error::Error for Error {
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
             Error::BlockTooBigError => None,
+            Error::BlockCostLimitError => None,
             Error::TransactionTooBigError(..) => None,
             Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
@@ -281,6 +284,7 @@ impl Error {
             Error::NoSuchBlockError => "NoSuchBlockError",
             Error::InvalidChainstateDB => "InvalidChainstateDB",
             Error::BlockTooBigError => "BlockTooBigError",
+            Error::BlockCostLimitError => "BlockCostLimitError",
             Error::TransactionTooBigError(..) => "TransactionTooBigError",
             Error::BlockCostExceeded => "BlockCostExceeded",
             Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",
