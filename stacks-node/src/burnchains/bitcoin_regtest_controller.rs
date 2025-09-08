@@ -64,9 +64,7 @@ use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
-use stacks_common::deps_common::bitcoin::network::serialize::{
-    serialize, serialize_hex,
-};
+use stacks_common::deps_common::bitcoin::network::serialize::{serialize, serialize_hex};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::net::PeerHost;
@@ -1508,18 +1506,16 @@ impl BitcoinRegtestController {
             signer,
             true, // block commit op requires change output to exist
         );
+        debug!("Transaction relying on UTXOs: {utxos:?}");
 
         let serialized_tx = serialize(&tx).expect("BUG: failed to serialize to a vec");
-
         let tx_size = serialized_tx.len() as u64;
         estimated_fees.register_replacement(tx_size);
-        let mut txid = tx.txid().as_bytes().to_vec();
-        txid.reverse();
 
-        debug!("Transaction relying on UTXOs: {utxos:?}");
-        let txid = Txid::from_bytes(&txid[..]).unwrap();
+        let txid = Txid::from_bitcoin_tx_hash(&tx.txid());
         let mut txids = previous_txids.to_vec();
         txids.push(txid);
+
         let ongoing_block_commit = OngoingBlockCommit {
             payload,
             utxos,
