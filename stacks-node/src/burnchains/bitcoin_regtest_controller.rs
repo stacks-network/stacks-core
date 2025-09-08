@@ -2704,26 +2704,6 @@ impl BitcoinRPCRequest {
         Ok(UTXOSet { bhh, utxos })
     }
 
-    pub fn send_raw_transaction(config: &Config, tx: String) -> RPCResult<()> {
-        let payload = BitcoinRPCRequest {
-            method: "sendrawtransaction".to_string(),
-            // set maxfee (as uncapped) and maxburncap (new in bitcoin 25)
-            params: vec![tx.into(), 0.into(), 1_000_000.into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let json_resp = BitcoinRPCRequest::send(config, payload)?;
-
-        if let Some(e) = json_resp.get("error") {
-            if !e.is_null() {
-                error!("Error submitting transaction: {json_resp}");
-                return Err(RPCError::Bitcoind(json_resp.to_string()));
-            }
-        }
-        Ok(())
-    }
-
     pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
