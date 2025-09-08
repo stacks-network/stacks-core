@@ -11,6 +11,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Add `stackerdb_timeout_secs` to miner config for limiting duration of StackerDB HTTP requests.
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
+- Added `contract_cost_limit_percentage` to the miner config file — sets the percentage of a block’s execution cost at which, if a large non-boot contract call would cause a BlockTooBigError, the miner will stop adding further non-boot contract calls and only include STX transfers and boot contract calls for the remainder of the block.
 
 ### Changed
 
@@ -27,10 +28,6 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Fixed
 
 - Fixed a typo in the metrics_identifier route from `/v2/stackedb/:principal/:contract_name/replicas` to `/v2/stackerdb/:principal/:contract_name/replicas`. Note: This may be a breaking change for systems relying on the incorrect route. Please update any metrics tools accordingly.
-
-### Added 
-
-- Added `contract_cost_limit_percentage` to the miner config file — sets the percentage of a block’s execution cost at which, if a large non-boot contract call would cause a BlockTooBigError, the miner will stop adding further non-boot contract calls and only include STX transfers and boot contract calls for the remainder of the block.
 
 ## [3.2.0.0.0]
 
