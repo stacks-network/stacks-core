@@ -59,7 +59,7 @@ fn check_special_list_cons(
             type_arg.type_size()?,
         )?;
     }
-    let list_type = TypeSignature::parent_list_type(&typed_args).map_err(CheckError::from)?;
+    let list_type = TypeSignature::parent_list_type(&typed_args)?;
     Ok(TypeSignature::from(list_type))
 }
 
