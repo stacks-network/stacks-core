@@ -503,6 +503,9 @@ impl StackerDBListener {
                     SignerMessageV0::StateMachineUpdate(update) => {
                         self.update_global_state_evaluator(&signer_pubkey, update);
                     }
+                    SignerMessageV0::BlockPreCommit(_) => {
+                        debug!("Received block pre-commit message. Ignoring.");
+                    }
                 };
             }
         }
