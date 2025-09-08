@@ -199,16 +199,16 @@ macro_rules! type_force_variadic_arithmetic {
 macro_rules! make_comparison_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
-            fn greater(x: $type, y: $type) -> ExecutionResult<Value> {
+            fn greater(x: $type, y: $type) -> VmExecutionResult<Value> {
                 Ok(Value::Bool(x > y))
             }
-            fn less(x: $type, y: $type) -> ExecutionResult<Value> {
+            fn less(x: $type, y: $type) -> VmExecutionResult<Value> {
                 Ok(Value::Bool(x < y))
             }
-            fn leq(x: $type, y: $type) -> ExecutionResult<Value> {
+            fn leq(x: $type, y: $type) -> VmExecutionResult<Value> {
                 Ok(Value::Bool(x <= y))
             }
-            fn geq(x: $type, y: $type) -> ExecutionResult<Value> {
+            fn geq(x: $type, y: $type) -> VmExecutionResult<Value> {
                 Ok(Value::Bool(x >= y))
             }
         }
@@ -222,14 +222,14 @@ macro_rules! make_comparison_ops {
 macro_rules! make_arithmetic_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
-            fn xor(x: $type, y: $type) -> ExecutionResult<Value> {
+            fn xor(x: $type, y: $type) -> VmExecutionResult<Value> {
                 Self::make_value(x ^ y)
             }
-            fn bitwise_xor2(args: &[$type]) -> ExecutionResult<Value> {
+            fn bitwise_xor2(args: &[$type]) -> VmExecutionResult<Value> {
                 let result = args.iter().fold(0, |acc: $type, x: &$type| (acc ^ x));
                 Self::make_value(result)
             }
-            fn bitwise_and(args: &[$type]) -> ExecutionResult<Value> {
+            fn bitwise_and(args: &[$type]) -> VmExecutionResult<Value> {
                 let first: $type = args[0];
                 let result = args
                     .iter()
@@ -237,21 +237,21 @@ macro_rules! make_arithmetic_ops {
                     .fold(first, |acc: $type, x: &$type| (acc & x));
                 Self::make_value(result)
             }
-            fn bitwise_or(args: &[$type]) -> ExecutionResult<Value> {
+            fn bitwise_or(args: &[$type]) -> VmExecutionResult<Value> {
                 let result = args.iter().fold(0, |acc: $type, x: &$type| (acc | x));
                 Self::make_value(result)
             }
-            fn bitwise_not(x: $type) -> ExecutionResult<Value> {
+            fn bitwise_not(x: $type) -> VmExecutionResult<Value> {
                 Self::make_value(!x)
             }
-            fn add(args: &[$type]) -> ExecutionResult<Value> {
+            fn add(args: &[$type]) -> VmExecutionResult<Value> {
                 let result = args
                     .iter()
                     .try_fold(0, |acc: $type, x: &$type| acc.checked_add(*x))
                     .ok_or(RuntimeError::ArithmeticOverflow)?;
                 Self::make_value(result)
             }
-            fn sub(args: &[$type]) -> ExecutionResult<Value> {
+            fn sub(args: &[$type]) -> VmExecutionResult<Value> {
                 let (first, rest) = args
                     .split_first()
                     .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 0))?;
@@ -270,14 +270,14 @@ macro_rules! make_arithmetic_ops {
                     .ok_or(RuntimeError::ArithmeticUnderflow)?;
                 Self::make_value(result)
             }
-            fn mul(args: &[$type]) -> ExecutionResult<Value> {
+            fn mul(args: &[$type]) -> VmExecutionResult<Value> {
                 let result = args
                     .iter()
                     .try_fold(1, |acc: $type, x: &$type| acc.checked_mul(*x))
                     .ok_or(RuntimeError::ArithmeticOverflow)?;
                 Self::make_value(result)
             }
-            fn div(args: &[$type]) -> ExecutionResult<Value> {
+            fn div(args: &[$type]) -> VmExecutionResult<Value> {
                 let (first, rest) = args
                     .split_first()
                     .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 0))?;
@@ -287,14 +287,14 @@ macro_rules! make_arithmetic_ops {
                     .ok_or(RuntimeError::DivisionByZero)?;
                 Self::make_value(result)
             }
-            fn modulo(numerator: $type, denominator: $type) -> ExecutionResult<Value> {
+            fn modulo(numerator: $type, denominator: $type) -> VmExecutionResult<Value> {
                 let result = numerator
                     .checked_rem(denominator)
                     .ok_or(RuntimeError::DivisionByZero)?;
                 Self::make_value(result)
             }
             #[allow(unused_comparisons)]
-            fn pow(base: $type, power: $type) -> ExecutionResult<Value> {
+            fn pow(base: $type, power: $type) -> VmExecutionResult<Value> {
                 if base == 0 && power == 0 {
                     // Note that 0⁰ (pow(0, 0)) returns 1. Mathematically this is undefined (https://docs.rs/num-traits/0.2.10/num_traits/pow/fn.pow.html)
                     return Self::make_value(1);
@@ -325,7 +325,7 @@ macro_rules! make_arithmetic_ops {
                     .ok_or(RuntimeError::ArithmeticOverflow)?;
                 Self::make_value(result)
             }
-            fn sqrti(n: $type) -> ExecutionResult<Value> {
+            fn sqrti(n: $type) -> VmExecutionResult<Value> {
                 match n.integer_sqrt_checked() {
                     Some(result) => Self::make_value(result),
                     None => {
@@ -336,7 +336,7 @@ macro_rules! make_arithmetic_ops {
                     }
                 }
             }
-            fn log2(n: $type) -> ExecutionResult<Value> {
+            fn log2(n: $type) -> VmExecutionResult<Value> {
                 if n < 1 {
                     return Err(RuntimeError::Arithmetic(
                         "log2 must be passed a positive integer".to_string(),
