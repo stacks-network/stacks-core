@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -65,9 +64,8 @@ use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
-use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
 use stacks_common::deps_common::bitcoin::network::serialize::{
-    serialize, serialize_hex, RawEncoder,
+    serialize, serialize_hex,
 };
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -2700,7 +2698,6 @@ mod tests {
     use stacks::burnchains::BurnchainSigner;
     use stacks::config::DEFAULT_SATS_PER_VB;
     use stacks_common::deps_common::bitcoin::blockdata::script::Builder;
-    use stacks_common::deps_common::bitcoin::network::serialize::deserialize_hex;
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksAddress, VRFSeed};
     use stacks_common::util::hash::to_hex;
     use stacks_common::util::secp256k1::Secp256k1PrivateKey;
