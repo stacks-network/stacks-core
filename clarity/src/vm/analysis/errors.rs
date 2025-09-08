@@ -146,8 +146,7 @@ impl From<SyntaxBindingError> for CheckErrorKind {
 
 /// Enumerates the specific kinds of semantic or structural rule violations in Clarity code.
 ///
-/// This type represents the machine-readable "what" of an error—the specific rule that
-/// was broken. It covers failures related to the program's meaning and structure, such as
+/// This type represents failures related to the program's meaning and structure, such as
 /// type mismatches, undefined variables, or incorrect function arity.
 ///
 /// This enum serves two purposes in the VM:
