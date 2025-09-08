@@ -21,7 +21,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrorKind, EarlyReturnValue,
-    ExecutionResult as Result, SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
+    SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError, VmExecutionResult as Result,
     VmInternalError,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;

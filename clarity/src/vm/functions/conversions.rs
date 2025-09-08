@@ -17,7 +17,7 @@
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, ExecutionResult as Result, VmInternalError,
+    check_argument_count, CheckErrorKind, VmExecutionResult as Result, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::serialization::SerializationError;

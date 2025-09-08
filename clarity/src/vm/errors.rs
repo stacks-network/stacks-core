@@ -153,7 +153,7 @@ pub enum EarlyReturnValue {
     FromAssert(Value),
 }
 
-pub type ExecutionResult<R> = Result<R, VmExecutionError>;
+pub type VmExecutionResult<R> = Result<R, VmExecutionError>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {

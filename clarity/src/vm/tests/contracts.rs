@@ -25,7 +25,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrinc
 #[cfg(test)]
 use crate::vm::{
     ast::{errors::ParseErrors, ASTRules},
-    errors::{CheckErrorKind, VmExecutionError, RuntimeError},
+    errors::{CheckErrorKind, RuntimeError, VmExecutionError},
     tests::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
         tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,

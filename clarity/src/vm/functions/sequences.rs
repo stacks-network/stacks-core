@@ -21,8 +21,8 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, ExecutionResult as Result,
-    RuntimeError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, RuntimeError,
+    VmExecutionResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::ListTypeData;

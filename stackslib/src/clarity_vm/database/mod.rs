@@ -11,7 +11,7 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use clarity::vm::errors::{ExecutionResult, RuntimeError};
+use clarity::vm::errors::{RuntimeError, VmExecutionResult};
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use stacks_common::types::chainstate::{
@@ -1218,26 +1218,26 @@ impl MemoryBackingStore {
 }
 
 impl ClarityBackingStore for MemoryBackingStore {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> ExecutionResult<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> VmExecutionResult<StacksBlockId> {
         Err(RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get_data(&mut self, key: &str) -> ExecutionResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> VmExecutionResult<Option<String>> {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> ExecutionResult<Option<String>> {
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> VmExecutionResult<Option<String>> {
         SqliteConnection::get(self.get_side_store(), hash.to_string().as_str())
     }
 
-    fn get_data_with_proof(&mut self, key: &str) -> ExecutionResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> VmExecutionResult<Option<(String, Vec<u8>)>> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         key: &TrieHash,
-    ) -> ExecutionResult<Option<(String, Vec<u8>)>> {
+    ) -> VmExecutionResult<Option<(String, Vec<u8>)>> {
         Ok(
             SqliteConnection::get(self.get_side_store(), key.to_string().as_str())?
                 .map(|x| (x, vec![])),
@@ -1272,7 +1272,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn put_all_data(&mut self, items: Vec<(String, String)>) -> ExecutionResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> VmExecutionResult<()> {
         for (key, value) in items.into_iter() {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }
@@ -1282,7 +1282,7 @@ impl ClarityBackingStore for MemoryBackingStore {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> ExecutionResult<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> VmExecutionResult<(StacksBlockId, Sha512Trunc256Sum)> {
         sqlite_get_contract_hash(self, contract)
     }
 
@@ -1291,7 +1291,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> ExecutionResult<()> {
+    ) -> VmExecutionResult<()> {
         sqlite_insert_metadata(self, contract, key, value)
     }
 
@@ -1299,7 +1299,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> ExecutionResult<Option<String>> {
+    ) -> VmExecutionResult<Option<String>> {
         sqlite_get_metadata(self, contract, key)
     }
 
@@ -1308,7 +1308,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> ExecutionResult<Option<String>> {
+    ) -> VmExecutionResult<Option<String>> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }

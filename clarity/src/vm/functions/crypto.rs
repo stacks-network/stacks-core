@@ -24,7 +24,7 @@ use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp25
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, ExecutionResult as Result, VmInternalError,
+    check_argument_count, CheckErrorKind, VmExecutionResult as Result, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};

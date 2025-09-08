@@ -17,7 +17,7 @@
 use clarity::vm::analysis::errors::CheckErrorKind;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::errors::{VmExecutionError, ExecutionResult as Result, RuntimeError};
+use clarity::vm::errors::{RuntimeError, VmExecutionError, VmExecutionResult as Result};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };

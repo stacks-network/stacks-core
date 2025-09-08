@@ -29,7 +29,7 @@ use super::{
 use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind};
 use crate::vm::costs::ExecutionCost;
 use crate::vm::errors::{
-    ExecutionResult as Result, IncomparableError, RuntimeError, VmInternalError,
+    IncomparableError, RuntimeError, VmExecutionResult as Result, VmInternalError,
 };
 use crate::vm::types::QualifiedContractIdentifier;
 

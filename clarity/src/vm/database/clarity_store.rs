@@ -24,7 +24,7 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::database::{
     ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use crate::vm::errors::{ExecutionResult as Result, VmInternalError};
+use crate::vm::errors::{VmExecutionResult as Result, VmInternalError};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::Value;
 

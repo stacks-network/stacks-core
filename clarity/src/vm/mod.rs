@@ -74,7 +74,7 @@ use crate::vm::costs::{
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
-    CheckErrorKind, ExecutionResult as Result, RuntimeError, VmExecutionError, VmInternalError,
+    CheckErrorKind, RuntimeError, VmExecutionError, VmExecutionResult as Result, VmInternalError,
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;

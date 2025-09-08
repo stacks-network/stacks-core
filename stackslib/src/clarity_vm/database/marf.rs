@@ -11,7 +11,7 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection,
 };
-use clarity::vm::errors::{ExecutionResult, IncomparableError, VmInternalError, RuntimeError};
+use clarity::vm::errors::{IncomparableError, RuntimeError, VmExecutionResult, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
@@ -40,7 +40,7 @@ impl MarfedKV {
         path_str: &str,
         unconfirmed: bool,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> ExecutionResult<MARF<StacksBlockId>> {
+    ) -> VmExecutionResult<MARF<StacksBlockId>> {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path).map_err(|_| VmInternalError::FailedToCreateDataDirectory)?;
@@ -82,7 +82,7 @@ impl MarfedKV {
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> ExecutionResult<MarfedKV> {
+    ) -> VmExecutionResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -96,7 +96,7 @@ impl MarfedKV {
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> ExecutionResult<MarfedKV> {
+    ) -> VmExecutionResult<MarfedKV> {
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -160,7 +160,7 @@ impl MarfedKV {
     pub fn begin_read_only_checked<'a>(
         &'a mut self,
         at_block: Option<&StacksBlockId>,
-    ) -> ExecutionResult<ReadOnlyMarfStore<'a>> {
+    ) -> VmExecutionResult<ReadOnlyMarfStore<'a>> {
         let chain_tip = if let Some(at_block) = at_block {
             self.marf.open_block(at_block).map_err(|e| {
                 debug!(
@@ -298,7 +298,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     }
 
     /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> ExecutionResult<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> VmExecutionResult<StacksBlockId> {
         self.marf
             .check_ancestor_block_hash(&bhh)
             .map_err(|e| match e {
@@ -387,7 +387,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    fn get_data_with_proof(&mut self, key: &str) -> ExecutionResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> VmExecutionResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -412,7 +412,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> ExecutionResult<Option<(String, Vec<u8>)>> {
+    ) -> VmExecutionResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof_from_hash(&self.chain_tip, hash)
             .or_else(|e| match e {
@@ -434,7 +434,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .transpose()
     }
 
-    fn get_data(&mut self, key: &str) -> ExecutionResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> VmExecutionResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -464,7 +464,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .transpose()
     }
 
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> ExecutionResult<Option<String>> {
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> VmExecutionResult<Option<String>> {
         trace!("MarfedKV get_from_hash: {:?} tip={}", hash, &self.chain_tip);
         self.marf
             .get_from_hash(&self.chain_tip, hash)
@@ -494,7 +494,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .transpose()
     }
 
-    fn put_all_data(&mut self, _items: Vec<(String, String)>) -> ExecutionResult<()> {
+    fn put_all_data(&mut self, _items: Vec<(String, String)>) -> VmExecutionResult<()> {
         error!("Attempted to commit changes to read-only MARF");
         panic!("BUG: attempted commit to read-only MARF");
     }
@@ -502,7 +502,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> ExecutionResult<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> VmExecutionResult<(StacksBlockId, Sha512Trunc256Sum)> {
         sqlite_get_contract_hash(self, contract)
     }
 
@@ -511,7 +511,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> ExecutionResult<()> {
+    ) -> VmExecutionResult<()> {
         sqlite_insert_metadata(self, contract, key, value)
     }
 
@@ -519,7 +519,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> ExecutionResult<Option<String>> {
+    ) -> VmExecutionResult<Option<String>> {
         sqlite_get_metadata(self, contract, key)
     }
 
@@ -528,7 +528,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> ExecutionResult<Option<String>> {
+    ) -> VmExecutionResult<Option<String>> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }
@@ -550,14 +550,14 @@ impl WritableMarfStore<'_> {
         self.marf.drop_current();
     }
 
-    pub fn rollback_unconfirmed(self) -> ExecutionResult<()> {
+    pub fn rollback_unconfirmed(self) -> VmExecutionResult<()> {
         debug!("Drop unconfirmed MARF trie {}", &self.chain_tip);
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
         self.marf.drop_unconfirmed();
         Ok(())
     }
 
-    pub fn commit_to(self, final_bhh: &StacksBlockId) -> ExecutionResult<()> {
+    pub fn commit_to(self, final_bhh: &StacksBlockId) -> VmExecutionResult<()> {
         debug!("commit_to({})", final_bhh);
         SqliteConnection::commit_metadata_to(self.marf.sqlite_tx(), &self.chain_tip, final_bhh)?;
 
@@ -586,7 +586,7 @@ impl WritableMarfStore<'_> {
     // This is used by miners
     //   so that the block validation and processing logic doesn't
     //   reprocess the same data as if it were already loaded
-    pub fn commit_mined_block(self, will_move_to: &StacksBlockId) -> ExecutionResult<()> {
+    pub fn commit_mined_block(self, will_move_to: &StacksBlockId) -> VmExecutionResult<()> {
         debug!(
             "commit_mined_block: ({}->{})",
             &self.chain_tip, will_move_to
@@ -613,7 +613,7 @@ impl WritableMarfStore<'_> {
 }
 
 impl ClarityBackingStore for WritableMarfStore<'_> {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> ExecutionResult<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> VmExecutionResult<StacksBlockId> {
         self.marf
             .check_ancestor_block_hash(&bhh)
             .map_err(|e| match e {
@@ -643,7 +643,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn get_data(&mut self, key: &str) -> ExecutionResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> VmExecutionResult<Option<String>> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -673,7 +673,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
             .transpose()
     }
 
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> ExecutionResult<Option<String>> {
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> VmExecutionResult<Option<String>> {
         trace!("MarfedKV get_from_hash: {:?} tip={}", hash, &self.chain_tip);
         self.marf
             .get_from_hash(&self.chain_tip, hash)
@@ -703,7 +703,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
             .transpose()
     }
 
-    fn get_data_with_proof(&mut self, key: &str) -> ExecutionResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(&mut self, key: &str) -> VmExecutionResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -728,7 +728,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> ExecutionResult<Option<(String, Vec<u8>)>> {
+    ) -> VmExecutionResult<Option<(String, Vec<u8>)>> {
         self.marf
             .get_with_proof_from_hash(&self.chain_tip, hash)
             .or_else(|e| match e {
@@ -813,7 +813,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
         }
     }
 
-    fn put_all_data(&mut self, items: Vec<(String, String)>) -> ExecutionResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> VmExecutionResult<()> {
         let mut keys = Vec::new();
         let mut values = Vec::new();
         for (key, value) in items.into_iter() {
@@ -831,7 +831,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> ExecutionResult<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> VmExecutionResult<(StacksBlockId, Sha512Trunc256Sum)> {
         sqlite_get_contract_hash(self, contract)
     }
 
@@ -840,7 +840,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> ExecutionResult<()> {
+    ) -> VmExecutionResult<()> {
         sqlite_insert_metadata(self, contract, key, value)
     }
 
@@ -848,7 +848,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> ExecutionResult<Option<String>> {
+    ) -> VmExecutionResult<Option<String>> {
         sqlite_get_metadata(self, contract, key)
     }
 
@@ -857,7 +857,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> ExecutionResult<Option<String>> {
+    ) -> VmExecutionResult<Option<String>> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }

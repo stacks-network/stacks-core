@@ -27,7 +27,7 @@ use crate::vm::analysis::errors::CheckErrorKind;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, ExecutionResult as Result, VmExecutionError};
+use crate::vm::errors::{check_argument_count, VmExecutionError, VmExecutionResult as Result};
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,

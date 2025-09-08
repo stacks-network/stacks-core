@@ -22,8 +22,8 @@ use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, ExecutionResult as Result,
-    RuntimeError, VmInternalError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, RuntimeError,
+    VmExecutionResult as Result, VmInternalError,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{

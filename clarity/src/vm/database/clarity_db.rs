@@ -38,7 +38,7 @@ use crate::vm::database::structures::{
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
-    CheckErrorKind, ExecutionResult as Result, RuntimeError, VmExecutionError, VmInternalError,
+    CheckErrorKind, RuntimeError, VmExecutionError, VmExecutionResult as Result, VmInternalError,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;

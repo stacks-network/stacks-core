@@ -19,8 +19,8 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, ExecutionResult as Result,
-    SyntaxBindingErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, SyntaxBindingErrorType,
+    VmExecutionResult as Result,
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;

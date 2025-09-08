@@ -27,7 +27,9 @@ use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash;
 
-use crate::vm::errors::{CheckErrorKind, ExecutionResult as Result, VmInternalError, RuntimeError};
+use crate::vm::errors::{
+    CheckErrorKind, RuntimeError, VmExecutionResult as Result, VmInternalError,
+};
 use crate::vm::representations::{ClarityName, ContractName, SymbolicExpression};
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
@@ -1704,7 +1706,7 @@ pub fn byte_len_of_serialization(serialized: &str) -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::vm::errors::{VmExecutionError, VmInternalError, RuntimeError};
+    use crate::vm::errors::{RuntimeError, VmExecutionError, VmInternalError};
 
     #[test]
     fn test_constructors() {

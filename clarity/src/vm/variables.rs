@@ -20,7 +20,7 @@ use super::errors::VmInternalError;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{ExecutionResult as Result, RuntimeError};
+use crate::vm::errors::{RuntimeError, VmExecutionResult as Result};
 use crate::vm::types::Value;
 use crate::vm::ClarityVersion;
 

@@ -21,7 +21,7 @@ use integer_sqrt::IntegerSquareRoot;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, ExecutionResult, RuntimeError, VmInternalError,
+    check_argument_count, CheckErrorKind, RuntimeError, VmExecutionResult, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
@@ -37,25 +37,25 @@ struct UTF8Ops();
 struct BuffOps();
 
 impl U128Ops {
-    fn make_value(x: u128) -> ExecutionResult<Value> {
+    fn make_value(x: u128) -> VmExecutionResult<Value> {
         Ok(Value::UInt(x))
     }
 }
 
 impl I128Ops {
-    fn make_value(x: i128) -> ExecutionResult<Value> {
+    fn make_value(x: i128) -> VmExecutionResult<Value> {
         Ok(Value::Int(x))
     }
 }
 impl ASCIIOps {
-    fn make_value(x: Vec<u8>) -> ExecutionResult<Value> {
+    fn make_value(x: Vec<u8>) -> VmExecutionResult<Value> {
         Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
             ASCIIData { data: x },
         ))))
     }
 }
 impl UTF8Ops {
-    fn make_value(x: Vec<Vec<u8>>) -> ExecutionResult<Value> {
+    fn make_value(x: Vec<Vec<u8>>) -> VmExecutionResult<Value> {
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
             UTF8Data { data: x },
         ))))
@@ -63,7 +63,7 @@ impl UTF8Ops {
 }
 
 impl BuffOps {
-    fn make_value(x: Vec<u8>) -> ExecutionResult<Value> {
+    fn make_value(x: Vec<u8>) -> VmExecutionResult<Value> {
         Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: x })))
     }
 }
@@ -360,24 +360,24 @@ make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
 make_comparison_ops!(BuffOps, Vec<u8>);
 
 // Used for the `xor` function.
-pub fn native_xor(a: Value, b: Value) -> ExecutionResult<Value> {
+pub fn native_xor(a: Value, b: Value) -> VmExecutionResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
 
 // Used for the `^` xor function.
-pub fn native_bitwise_xor(mut args: Vec<Value>) -> ExecutionResult<Value> {
+pub fn native_bitwise_xor(mut args: Vec<Value>) -> VmExecutionResult<Value> {
     type_force_variadic_arithmetic!(bitwise_xor2, args)
 }
 
-pub fn native_bitwise_and(mut args: Vec<Value>) -> ExecutionResult<Value> {
+pub fn native_bitwise_and(mut args: Vec<Value>) -> VmExecutionResult<Value> {
     type_force_variadic_arithmetic!(bitwise_and, args)
 }
 
-pub fn native_bitwise_or(mut args: Vec<Value>) -> ExecutionResult<Value> {
+pub fn native_bitwise_or(mut args: Vec<Value>) -> VmExecutionResult<Value> {
     type_force_variadic_arithmetic!(bitwise_or, args)
 }
 
-pub fn native_bitwise_not(a: Value) -> ExecutionResult<Value> {
+pub fn native_bitwise_not(a: Value) -> VmExecutionResult<Value> {
     type_force_unary_arithmetic!(bitwise_not, a)
 }
 
@@ -387,7 +387,7 @@ fn special_geq_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -401,7 +401,7 @@ fn special_geq_v2(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -419,7 +419,7 @@ pub fn special_geq(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_geq_v2(args, env, context)
     } else {
@@ -434,7 +434,7 @@ fn special_leq_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -448,7 +448,7 @@ fn special_leq_v2(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -466,7 +466,7 @@ pub fn special_leq(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_leq_v2(args, env, context)
     } else {
@@ -480,7 +480,7 @@ fn special_greater_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -494,7 +494,7 @@ fn special_greater_v2(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -508,7 +508,7 @@ pub fn special_greater(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_greater_v2(args, env, context)
     } else {
@@ -522,7 +522,7 @@ fn special_less_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -536,7 +536,7 @@ fn special_less_v2(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -550,7 +550,7 @@ pub fn special_less(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> ExecutionResult<Value> {
+) -> VmExecutionResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_less_v2(args, env, context)
     } else {
@@ -558,32 +558,32 @@ pub fn special_less(
     }
 }
 
-pub fn native_add(mut args: Vec<Value>) -> ExecutionResult<Value> {
+pub fn native_add(mut args: Vec<Value>) -> VmExecutionResult<Value> {
     type_force_variadic_arithmetic!(add, args)
 }
-pub fn native_sub(mut args: Vec<Value>) -> ExecutionResult<Value> {
+pub fn native_sub(mut args: Vec<Value>) -> VmExecutionResult<Value> {
     type_force_variadic_arithmetic!(sub, args)
 }
-pub fn native_mul(mut args: Vec<Value>) -> ExecutionResult<Value> {
+pub fn native_mul(mut args: Vec<Value>) -> VmExecutionResult<Value> {
     type_force_variadic_arithmetic!(mul, args)
 }
-pub fn native_div(mut args: Vec<Value>) -> ExecutionResult<Value> {
+pub fn native_div(mut args: Vec<Value>) -> VmExecutionResult<Value> {
     type_force_variadic_arithmetic!(div, args)
 }
-pub fn native_pow(a: Value, b: Value) -> ExecutionResult<Value> {
+pub fn native_pow(a: Value, b: Value) -> VmExecutionResult<Value> {
     type_force_binary_arithmetic!(pow, a, b)
 }
-pub fn native_sqrti(n: Value) -> ExecutionResult<Value> {
+pub fn native_sqrti(n: Value) -> VmExecutionResult<Value> {
     type_force_unary_arithmetic!(sqrti, n)
 }
-pub fn native_log2(n: Value) -> ExecutionResult<Value> {
+pub fn native_log2(n: Value) -> VmExecutionResult<Value> {
     type_force_unary_arithmetic!(log2, n)
 }
-pub fn native_mod(a: Value, b: Value) -> ExecutionResult<Value> {
+pub fn native_mod(a: Value, b: Value) -> VmExecutionResult<Value> {
     type_force_binary_arithmetic!(modulo, a, b)
 }
 
-pub fn native_bitwise_left_shift(input: Value, pos: Value) -> ExecutionResult<Value> {
+pub fn native_bitwise_left_shift(input: Value, pos: Value) -> VmExecutionResult<Value> {
     if let Value::UInt(u128_val) = pos {
         let shamt = u32::try_from(u128_val & 0x7f).map_err(|_| {
             VmInternalError::Expect("FATAL: lower 32 bits did not convert to u32".into())
@@ -609,7 +609,7 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> ExecutionResult<Va
     }
 }
 
-pub fn native_bitwise_right_shift(input: Value, pos: Value) -> ExecutionResult<Value> {
+pub fn native_bitwise_right_shift(input: Value, pos: Value) -> VmExecutionResult<Value> {
     if let Value::UInt(u128_val) = pos {
         let shamt = u32::try_from(u128_val & 0x7f).map_err(|_| {
             VmInternalError::Expect("FATAL: lower 32 bits did not convert to u32".into())
@@ -635,7 +635,7 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> ExecutionResult<V
     }
 }
 
-pub fn native_to_uint(input: Value) -> ExecutionResult<Value> {
+pub fn native_to_uint(input: Value) -> VmExecutionResult<Value> {
     if let Value::Int(int_val) = input {
         let uint_val = u128::try_from(int_val).map_err(|_| RuntimeError::ArithmeticUnderflow)?;
         Ok(Value::UInt(uint_val))
@@ -644,7 +644,7 @@ pub fn native_to_uint(input: Value) -> ExecutionResult<Value> {
     }
 }
 
-pub fn native_to_int(input: Value) -> ExecutionResult<Value> {
+pub fn native_to_int(input: Value) -> VmExecutionResult<Value> {
     if let Value::UInt(uint_val) = input {
         let int_val = i128::try_from(uint_val).map_err(|_| RuntimeError::ArithmeticOverflow)?;
         Ok(Value::Int(int_val))

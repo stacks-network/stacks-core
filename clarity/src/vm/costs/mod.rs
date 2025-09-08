@@ -31,7 +31,7 @@ use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::ExecutionResult;
+use crate::vm::errors::VmExecutionResult;
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::TupleTypeSignature;
 use crate::vm::types::Value::UInt;
@@ -1030,7 +1030,7 @@ impl LimitedCostTracker {
 
 pub fn parse_cost(
     cost_function_name: &str,
-    eval_result: ExecutionResult<Option<Value>>,
+    eval_result: VmExecutionResult<Option<Value>>,
 ) -> Result<ExecutionCost> {
     match eval_result {
         Ok(Some(Value::Tuple(data))) => {

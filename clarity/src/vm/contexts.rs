@@ -35,7 +35,9 @@ use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
-use crate::vm::errors::{CheckErrorKind, ExecutionResult as Result, RuntimeError, VmInternalError};
+use crate::vm::errors::{
+    CheckErrorKind, RuntimeError, VmExecutionResult as Result, VmInternalError,
+};
 use crate::vm::events::*;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
