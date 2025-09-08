@@ -15,12 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use ::libsecp256k1;
+use ::libsecp256k1::curve::Scalar;
 pub use ::libsecp256k1::Error;
 #[cfg(not(feature = "wasm-deterministic"))]
 use ::libsecp256k1::{Error as LibSecp256k1Error, Message as LibSecp256k1Message};
 use ::libsecp256k1::{
     PublicKey as LibSecp256k1PublicKey, RecoveryId as LibSecp256k1RecoveryId,
-    SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature,
+    SecretKey as LibSecp256k1PrivateKey, Signature as LibSecp256k1Signature, ECMULT_GEN_CONTEXT,
 };
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
@@ -104,7 +105,8 @@ impl Secp256k1PublicKey {
 
     #[cfg(not(feature = "wasm-deterministic"))]
     pub fn from_private(privk: &Secp256k1PrivateKey) -> Secp256k1PublicKey {
-        let key = LibSecp256k1PublicKey::from_secret_key(&privk.key);
+        let key =
+            LibSecp256k1PublicKey::from_secret_key_with_context(&privk.key, &ECMULT_GEN_CONTEXT);
         Secp256k1PublicKey {
             key,
             compressed: privk.compress_public,
@@ -336,6 +338,45 @@ impl PrivateKey for Secp256k1PrivateKey {
         let message = LibSecp256k1Message::parse_slice(data_hash)
             .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
         let (sig, recid) = libsecp256k1::sign(&message, &self.key);
+        let rec_sig = MessageSignature::from_secp256k1_recoverable(&sig, recid);
+        Ok(rec_sig)
+    }
+
+    #[cfg(feature = "wasm-deterministic")]
+    fn sign_with_noncedata(
+        &self,
+        data_hash: &[u8],
+        noncedata: &[u8; 32],
+    ) -> Result<MessageSignature, &'static str> {
+        Err("Not implemented for wasm-deterministic")
+    }
+
+    #[cfg(not(feature = "wasm-deterministic"))]
+    fn sign_with_noncedata(
+        &self,
+        data_hash: &[u8],
+        noncedata: &[u8; 32],
+    ) -> Result<MessageSignature, &'static str> {
+        let message = LibSecp256k1Message::parse_slice(data_hash)
+            .map_err(|_e| "Invalid message: failed to decode data hash: must be a 32-byte hash")?;
+        let mut nonce = Scalar::default();
+        let _ = nonce.set_b32(&noncedata);
+
+        // we need this as the key raw data are private
+        let mut key = Scalar::default();
+        let _ = key.set_b32(&self.key.serialize());
+
+        let (sigr, sigs, recid) = match ECMULT_GEN_CONTEXT.sign_raw(&key, &message.0, &nonce) {
+            Ok(result) => result,
+            Err(_) => return Err("unable to sign message"),
+        };
+
+        let recid = match LibSecp256k1RecoveryId::parse(recid) {
+            Ok(recid) => recid,
+            Err(_) => return Err("invalid recovery id"),
+        };
+
+        let (sig, recid) = (LibSecp256k1Signature { r: sigr, s: sigs }, recid);
         let rec_sig = MessageSignature::from_secp256k1_recoverable(&sig, recid);
         Ok(rec_sig)
     }

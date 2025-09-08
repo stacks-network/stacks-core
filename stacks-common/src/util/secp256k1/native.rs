@@ -354,6 +354,21 @@ impl PrivateKey for Secp256k1PrivateKey {
             Ok(MessageSignature::from_secp256k1_recoverable(&sig))
         })
     }
+
+    fn sign_with_noncedata(
+        &self,
+        data_hash: &[u8],
+        noncedata: &[u8; 32],
+    ) -> Result<MessageSignature, &'static str> {
+        _secp256k1.with(|ctx| {
+            let msg = LibSecp256k1Message::from_slice(data_hash).map_err(|_e| {
+                "Invalid message: failed to decode data hash: must be a 32-byte hash"
+            })?;
+
+            let sig = ctx.sign_ecdsa_recoverable_with_noncedata(&msg, &self.key, noncedata);
+            Ok(MessageSignature::from_secp256k1_recoverable(&sig))
+        })
+    }
 }
 
 fn secp256k1_pubkey_serialize<S: serde::Serializer>(
