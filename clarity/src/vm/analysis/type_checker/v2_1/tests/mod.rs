@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use super::CheckResult;
-use crate::vm::analysis::errors::{CheckErrors, SyntaxBindingError};
+use crate::vm::analysis::errors::{CheckErrorKind, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::type_checker::v2_1::TypeResult;
 use crate::vm::analysis::types::ContractAnalysis;
@@ -86,26 +86,26 @@ fn test_from_consensus_buff() {
     let bad = [
         (
             "(from-consensus-buff?)",
-            CheckErrors::IncorrectArgumentCount(2, 0),
+            CheckErrorKind::IncorrectArgumentCount(2, 0),
         ),
         (
             "(from-consensus-buff? 0x00 0x00 0x00)",
-            CheckErrors::IncorrectArgumentCount(2, 3),
+            CheckErrorKind::IncorrectArgumentCount(2, 3),
         ),
         (
             "(from-consensus-buff? 0x00 0x00)",
-            CheckErrors::InvalidTypeDescription,
+            CheckErrorKind::InvalidTypeDescription,
         ),
         (
             "(from-consensus-buff? int u6)",
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 TypeSignature::max_buffer().unwrap(),
                 TypeSignature::UIntType,
             ),
         ),
         (
             "(from-consensus-buff? (buff 1048576) 0x00)",
-            CheckErrors::ValueTooLarge,
+            CheckErrorKind::ValueTooLarge,
         ),
     ];
 
@@ -182,26 +182,26 @@ fn test_to_consensus_buff() {
     let bad = [
         (
             "(to-consensus-buff?)",
-            CheckErrors::IncorrectArgumentCount(1, 0),
+            CheckErrorKind::IncorrectArgumentCount(1, 0),
         ),
         (
             "(to-consensus-buff? 0x00 0x00)",
-            CheckErrors::IncorrectArgumentCount(1, 2),
+            CheckErrorKind::IncorrectArgumentCount(1, 2),
         ),
         (
             "(define-private (my-func (x (buff 1048576)))
            (to-consensus-buff? x))",
-            CheckErrors::ValueTooLarge,
+            CheckErrorKind::ValueTooLarge,
         ),
         (
             "(define-private (my-func (x (buff 1048570)))
            (to-consensus-buff? x))",
-            CheckErrors::ValueTooLarge,
+            CheckErrorKind::ValueTooLarge,
         ),
         (
             "(define-private (my-func (x (buff 1048567)))
            (to-consensus-buff? x))",
-            CheckErrors::ValueTooLarge,
+            CheckErrorKind::ValueTooLarge,
         ),
     ];
 
@@ -260,10 +260,10 @@ fn test_get_block_info() {
         "(get-block-info? time)",
     ];
     let bad_expected = [
-        CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
-        CheckErrors::TypeError(UIntType, BoolType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::RequiresAtLeastArguments(2, 1),
+        CheckErrorKind::NoSuchBlockInfoProperty("none".to_string()),
+        CheckErrorKind::TypeError(UIntType, BoolType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::RequiresAtLeastArguments(2, 1),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -295,7 +295,7 @@ fn test_get_block_info() {
     }
 
     for good_test in good_v210.iter() {
-        if let CheckErrors::NoSuchBlockInfoProperty(_) =
+        if let CheckErrorKind::NoSuchBlockInfoProperty(_) =
             type_check_helper_v1(good_test).unwrap_err().err
         {
         } else {
@@ -316,10 +316,10 @@ fn test_get_burn_block_info() {
         r#"(get-burn-block-info? header-hash "a")"#,
     ];
     let bad_expected = [
-        CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
-        CheckErrors::IncorrectArgumentCount(2, 0),
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::TypeError(
+        CheckErrorKind::NoSuchBlockInfoProperty("none".to_string()),
+        CheckErrorKind::IncorrectArgumentCount(2, 0),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::TypeError(
             UIntType,
             SequenceType(StringType(ASCII(
                 BufferLength::try_from(1u32).expect("BufferLength::try_from failed"),
@@ -360,10 +360,10 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
         "(define-trait)",
     ];
     let bad_expected = [
-        CheckErrors::InvalidTypeDescription,
-        CheckErrors::DefineTraitBadSignature,
-        CheckErrors::DefineTraitBadSignature,
-        CheckErrors::InvalidTypeDescription,
+        CheckErrorKind::InvalidTypeDescription,
+        CheckErrorKind::DefineTraitBadSignature,
+        CheckErrorKind::DefineTraitBadSignature,
+        CheckErrorKind::InvalidTypeDescription,
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
@@ -458,32 +458,32 @@ fn test_stx_ops() {
         "(stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)"
     ];
     let bad_expected = [
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             PrincipalType,
             SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
         ),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 5),
-        CheckErrors::TypeError(PrincipalType, UIntType),
-        CheckErrors::TypeError(PrincipalType, BoolType),
-        CheckErrors::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
-        CheckErrors::IncorrectArgumentCount(3, 4),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 5),
+        CheckErrorKind::TypeError(PrincipalType, UIntType),
+        CheckErrorKind::TypeError(PrincipalType, BoolType),
+        CheckErrorKind::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
+        CheckErrorKind::IncorrectArgumentCount(3, 4),
+        CheckErrorKind::TypeError(
             PrincipalType,
             SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
         ),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(4, 5),
-        CheckErrors::TypeError(PrincipalType, UIntType),
-        CheckErrors::TypeError(PrincipalType, BoolType),
-        CheckErrors::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
-        CheckErrors::IncorrectArgumentCount(4, 3),
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(PrincipalType, BoolType),
-        CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::TypeError(PrincipalType, BoolType),
-        CheckErrors::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(4, 5),
+        CheckErrorKind::TypeError(PrincipalType, UIntType),
+        CheckErrorKind::TypeError(PrincipalType, BoolType),
+        CheckErrorKind::TypeError(PrincipalType, OptionalType(Box::from(PrincipalType))),
+        CheckErrorKind::IncorrectArgumentCount(4, 3),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::TypeError(PrincipalType, BoolType),
+        CheckErrorKind::IncorrectArgumentCount(2, 3),
+        CheckErrorKind::TypeError(PrincipalType, BoolType),
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -512,7 +512,7 @@ fn test_tx_sponsor() {
     ];
 
     let bad = ["(stx-transfer? u10 tx-sponsor? 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)"];
-    let bad_expected = [CheckErrors::TypeError(
+    let bad_expected = [CheckErrorKind::TypeError(
         PrincipalType,
         OptionalType(Box::from(PrincipalType)),
     )];
@@ -580,7 +580,7 @@ fn test_destructuring_opts(#[case] version: ClarityVersion, #[case] epoch: Stack
     let bad = [
         (
             "(unwrap-err! (some 2) 2)",
-            CheckErrors::ExpectedResponseType(TypeSignature::from_string(
+            CheckErrorKind::ExpectedResponseType(TypeSignature::from_string(
                 "(optional int)",
                 version,
                 epoch,
@@ -588,82 +588,84 @@ fn test_destructuring_opts(#[case] version: ClarityVersion, #[case] epoch: Stack
         ),
         (
             "(unwrap! (err 3) 2)",
-            CheckErrors::CouldNotDetermineResponseOkType,
+            CheckErrorKind::CouldNotDetermineResponseOkType,
         ),
         (
             "(unwrap-err-panic (ok 3))",
-            CheckErrors::CouldNotDetermineResponseErrType,
+            CheckErrorKind::CouldNotDetermineResponseErrType,
         ),
         (
             "(unwrap-panic none)",
-            CheckErrors::CouldNotDetermineResponseOkType,
+            CheckErrorKind::CouldNotDetermineResponseOkType,
         ),
         (
             "(define-private (foo) (if (> 1 0) none none)) (unwrap-panic (foo))",
-            CheckErrors::CouldNotDetermineResponseOkType,
+            CheckErrorKind::CouldNotDetermineResponseOkType,
         ),
         (
             "(unwrap-panic (err 3))",
-            CheckErrors::CouldNotDetermineResponseOkType,
+            CheckErrorKind::CouldNotDetermineResponseOkType,
         ),
         (
             "(match none inner-value (/ 1 0) (+ 1 8))",
-            CheckErrors::CouldNotDetermineMatchTypes,
+            CheckErrorKind::CouldNotDetermineMatchTypes,
         ),
         (
             "(match (ok 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
-            CheckErrors::CouldNotDetermineMatchTypes,
+            CheckErrorKind::CouldNotDetermineMatchTypes,
         ),
         (
             "(match (err 1) ok-val (/ ok-val 0) err-val (+ err-val 7))",
-            CheckErrors::CouldNotDetermineMatchTypes,
+            CheckErrorKind::CouldNotDetermineMatchTypes,
         ),
         (
             "(define-private (foo) (if (> 1 0) (ok 1) (err u8)))
          (match (foo) ok-val (+ 1 ok-val) err-val (/ err-val u0))",
-            CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::UIntType),
+            CheckErrorKind::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::UIntType),
         ),
         (
             "(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
-            CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::BoolType),
+            CheckErrorKind::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::BoolType),
         ),
         (
             "(match (some 1) inner-value (+ 1 inner-value))",
-            CheckErrors::BadMatchOptionSyntax(Box::new(CheckErrors::IncorrectArgumentCount(4, 3))),
-        ),
-        (
-            "(match (ok 1) inner-value (+ 1 inner-value))",
-            CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::IncorrectArgumentCount(
-                5, 3,
+            CheckErrorKind::BadMatchOptionSyntax(Box::new(CheckErrorKind::IncorrectArgumentCount(
+                4, 3,
             ))),
         ),
         (
+            "(match (ok 1) inner-value (+ 1 inner-value))",
+            CheckErrorKind::BadMatchResponseSyntax(Box::new(
+                CheckErrorKind::IncorrectArgumentCount(5, 3),
+            )),
+        ),
+        (
             "(match (ok 1) 1 (+ 1 1) err-val (+ 2 err-val))",
-            CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)),
+            CheckErrorKind::BadMatchResponseSyntax(Box::new(CheckErrorKind::ExpectedName)),
         ),
         (
             "(match (ok 1) ok-val (+ 1 1) (+ 3 4) (+ 2 err-val))",
-            CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)),
+            CheckErrorKind::BadMatchResponseSyntax(Box::new(CheckErrorKind::ExpectedName)),
         ),
         (
             "(match (some 1) 2 (+ 1 1) (+ 3 4))",
-            CheckErrors::BadMatchOptionSyntax(Box::new(CheckErrors::ExpectedName)),
+            CheckErrorKind::BadMatchOptionSyntax(Box::new(CheckErrorKind::ExpectedName)),
         ),
-        ("(match)", CheckErrors::RequiresAtLeastArguments(1, 0)),
+        ("(match)", CheckErrorKind::RequiresAtLeastArguments(1, 0)),
         (
             "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
-            CheckErrors::BadMatchInput(TypeSignature::from_string("int", version, epoch)),
+            CheckErrorKind::BadMatchInput(TypeSignature::from_string("int", version, epoch)),
         ),
         (
             "(default-to 3 5)",
-            CheckErrors::ExpectedOptionalType(TypeSignature::IntType),
+            CheckErrorKind::ExpectedOptionalType(TypeSignature::IntType),
         ),
         (
             "(define-private (foo (x int))
            (match (some 3)
              x (+ x 2)
              5))",
-            CheckErrors::NameAlreadyUsed("x".to_string()),
+            CheckErrorKind::NameAlreadyUsed("x".to_string()),
         ),
         (
             "(define-private (t1 (x uint)) (if (> x u1) (ok x) (err false)))
@@ -671,7 +673,7 @@ fn test_destructuring_opts(#[case] version: ClarityVersion, #[case] epoch: Stack
            (if (> x u4)
                (err u3)
                (ok (+ u2 (try! (t1 x))))))",
-            CheckErrors::ReturnTypesMustMatch(
+            CheckErrorKind::ReturnTypesMustMatch(
                 TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType)
                     .unwrap(),
                 TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType)
@@ -682,7 +684,7 @@ fn test_destructuring_opts(#[case] version: ClarityVersion, #[case] epoch: Stack
             "(define-private (t1 (x uint)) (if (> x u1) (ok x) (err false)))
          (define-private (t2 (x uint))
            (> u2 (try! (t1 x))))",
-            CheckErrors::ReturnTypesMustMatch(
+            CheckErrorKind::ReturnTypesMustMatch(
                 TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType)
                     .unwrap(),
                 TypeSignature::BoolType,
@@ -690,18 +692,24 @@ fn test_destructuring_opts(#[case] version: ClarityVersion, #[case] epoch: Stack
         ),
         (
             "(try! (ok 3))",
-            CheckErrors::CouldNotDetermineResponseErrType,
+            CheckErrorKind::CouldNotDetermineResponseErrType,
         ),
-        ("(try! none)", CheckErrors::CouldNotDetermineResponseOkType),
+        (
+            "(try! none)",
+            CheckErrorKind::CouldNotDetermineResponseOkType,
+        ),
         (
             "(try! (err 3))",
-            CheckErrors::CouldNotDetermineResponseOkType,
+            CheckErrorKind::CouldNotDetermineResponseOkType,
         ),
         (
             "(try! 3)",
-            CheckErrors::ExpectedOptionalOrResponseType(TypeSignature::IntType),
+            CheckErrorKind::ExpectedOptionalOrResponseType(TypeSignature::IntType),
         ),
-        ("(try! (ok 3) 4)", CheckErrors::IncorrectArgumentCount(1, 2)),
+        (
+            "(try! (ok 3) 4)",
+            CheckErrorKind::IncorrectArgumentCount(1, 2),
+        ),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -723,11 +731,11 @@ fn test_at_block() {
     let bad = [
         (
             "(at-block (sha512 u0) u1)",
-            CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone()),
+            CheckErrorKind::TypeError(BUFF_32.clone(), BUFF_64.clone()),
         ),
         (
             "(at-block (sha256 u0) u1 u2)",
-            CheckErrors::IncorrectArgumentCount(2, 3),
+            CheckErrorKind::IncorrectArgumentCount(2, 3),
         ),
     ];
 
@@ -761,7 +769,7 @@ fn test_trait_reference_unknown(#[case] version: ClarityVersion, #[case] epoch: 
 fn test_unexpected_use_of_field_or_trait_reference() {
     let bad = [(
         "(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)",
-        CheckErrors::UnexpectedTraitOrFieldReference,
+        CheckErrorKind::UnexpectedTraitOrFieldReference,
     )];
 
     for (bad_test, expected) in bad.iter() {
@@ -808,21 +816,21 @@ fn test_bitwise_bad_checks() {
         "(bit-or 1 2 u4)",
     ];
     let bad_expected = [
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::TypeError(IntType, UIntType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::TypeError(IntType, UIntType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::UnionTypeError(
             vec![IntType, UIntType],
             SequenceType(StringType(ASCII(BufferLength::try_from(5u32).unwrap()))),
         ),
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::TypeError(IntType, UIntType),
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(IntType, UIntType),
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::TypeError(IntType, UIntType),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::UnionTypeError(vec![IntType, UIntType], BoolType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::TypeError(IntType, UIntType),
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
@@ -847,12 +855,12 @@ fn test_simple_arithmetic_checks() {
         "(and (or true false) (+ 1 2 3))",
     ];
     let bad_expected = [
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::RequiresAtLeastArguments(1, 0),
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UndefinedVariable("x".to_string()),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::RequiresAtLeastArguments(1, 0),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::UndefinedVariable("x".to_string()),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(BoolType, IntType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -913,14 +921,14 @@ fn test_simple_hash_checks() {
     for bad_test in bad_types.iter() {
         assert!(matches!(
             type_check_helper(bad_test).unwrap_err().err,
-            CheckErrors::UnionTypeError(_, _)
+            CheckErrorKind::UnionTypeError(_, _)
         ));
     }
 
     for bad_test in invalid_args.iter() {
         assert!(matches!(
             type_check_helper(bad_test).unwrap_err().err,
-            CheckErrors::IncorrectArgumentCount(_, _)
+            CheckErrorKind::IncorrectArgumentCount(_, _)
         ));
     }
 }
@@ -943,10 +951,10 @@ fn test_simple_ifs() {
     ];
 
     let bad_expected = [
-        CheckErrors::IfArmsMustMatch(BoolType, IntType),
-        CheckErrors::IfArmsMustMatch(ascii_type(1), BoolType),
-        CheckErrors::IncorrectArgumentCount(3, 0),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrorKind::IfArmsMustMatch(BoolType, IntType),
+        CheckErrorKind::IfArmsMustMatch(ascii_type(1), BoolType),
+        CheckErrorKind::IncorrectArgumentCount(3, 0),
+        CheckErrorKind::TypeError(BoolType, IntType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -979,9 +987,9 @@ fn test_simple_lets() {
     ];
 
     let bad_expected = [
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
-        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
+        CheckErrorKind::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1051,41 +1059,41 @@ fn test_index_of() {
     ];
 
     let bad_expected = [
-        CheckErrors::ExpectedSequence(TypeSignature::IntType),
-        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
-        CheckErrors::TypeError(
+        CheckErrorKind::ExpectedSequence(TypeSignature::IntType),
+        CheckErrorKind::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrorKind::TypeError(
             TypeSignature::min_buffer().unwrap(),
             TypeSignature::min_string_ascii().unwrap(),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::min_string_utf8().unwrap(),
             TypeSignature::min_string_ascii().unwrap(),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::min_string_ascii().unwrap(),
             TypeSignature::min_string_utf8().unwrap(),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::list_of(TypeSignature::IntType, 1).unwrap(),
             TypeSignature::list_of(TypeSignature::IntType, 2).unwrap(),
         ),
-        CheckErrors::ExpectedSequence(TypeSignature::IntType),
-        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
-        CheckErrors::TypeError(
+        CheckErrorKind::ExpectedSequence(TypeSignature::IntType),
+        CheckErrorKind::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrorKind::TypeError(
             TypeSignature::min_buffer().unwrap(),
             TypeSignature::min_string_ascii().unwrap(),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::min_string_utf8().unwrap(),
             TypeSignature::min_string_ascii().unwrap(),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::min_string_ascii().unwrap(),
             TypeSignature::min_string_utf8().unwrap(),
         ),
-        CheckErrors::CouldNotDetermineType,
-        CheckErrors::CouldNotDetermineType,
-        CheckErrors::CouldNotDetermineType,
+        CheckErrorKind::CouldNotDetermineType,
+        CheckErrorKind::CouldNotDetermineType,
+        CheckErrorKind::CouldNotDetermineType,
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
@@ -1129,10 +1137,10 @@ fn test_element_at() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
-        CheckErrors::ExpectedSequence(TypeSignature::IntType),
-        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
-        CheckErrors::ExpectedSequence(TypeSignature::IntType),
+        CheckErrorKind::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
+        CheckErrorKind::ExpectedSequence(TypeSignature::IntType),
+        CheckErrorKind::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
+        CheckErrorKind::ExpectedSequence(TypeSignature::IntType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1164,9 +1172,9 @@ fn test_eqs(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(BoolType, IntType),
-        CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(BoolType, IntType),
+        CheckErrorKind::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
+        CheckErrorKind::TypeError(
             TypeSignature::from_string("(optional bool)", version, epoch),
             TypeSignature::from_string("(optional int)", version, epoch),
         ),
@@ -1200,9 +1208,9 @@ fn test_asserts() {
     ];
 
     let bad_expected = [
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::TypeError(BoolType, IntType),
-        CheckErrors::IncorrectArgumentCount(2, 3),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::TypeError(BoolType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(2, 3),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1266,23 +1274,23 @@ fn test_lists() {
         "(map + (list 1 2 3 4 5) (list true true true true true))",
     ];
     let bad_expected = [
-        CheckErrors::TypeError(BoolType, IntType),
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, buff_type(20)),
-        CheckErrors::TypeError(BoolType, buff_type(20)),
-        CheckErrors::TypeError(BoolType, IntType),
-        CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::UnknownFunction("ynot".to_string()),
-        CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedSequence(UIntType),
-        CheckErrors::ExpectedSequence(IntType),
-        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(BoolType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(BoolType, buff_type(20)),
+        CheckErrorKind::TypeError(BoolType, buff_type(20)),
+        CheckErrorKind::TypeError(BoolType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(2, 3),
+        CheckErrorKind::UnknownFunction("ynot".to_string()),
+        CheckErrorKind::IllegalOrUnknownFunctionApplication("if".to_string()),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::UnionTypeError(vec![IntType, UIntType], BoolType),
+        CheckErrorKind::ExpectedSequence(UIntType),
+        CheckErrorKind::ExpectedSequence(IntType),
+        CheckErrorKind::TypeError(IntType, BoolType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1323,20 +1331,20 @@ fn test_buff() {
         "(len 1)",
     ];
     let bad_expected = [
-        CheckErrors::TypeError(BoolType, IntType),
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, buff_type(20)),
-        CheckErrors::TypeError(BoolType, IntType),
-        CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::UnknownFunction("ynot".to_string()),
-        CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedSequence(UIntType),
-        CheckErrors::ExpectedSequence(IntType),
+        CheckErrorKind::TypeError(BoolType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(BoolType, buff_type(20)),
+        CheckErrorKind::TypeError(BoolType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(2, 3),
+        CheckErrorKind::UnknownFunction("ynot".to_string()),
+        CheckErrorKind::IllegalOrUnknownFunctionApplication("if".to_string()),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::UnionTypeError(vec![IntType, UIntType], BoolType),
+        CheckErrorKind::ExpectedSequence(UIntType),
+        CheckErrorKind::ExpectedSequence(IntType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1404,9 +1412,9 @@ fn test_native_as_max_len() {
         "(as-max-len? 0x01 u1048577)",
     ];
     let bad_expected = [
-        CheckErrors::ValueTooLarge,
-        CheckErrors::ValueTooLarge,
-        CheckErrors::ValueTooLarge,
+        CheckErrorKind::ValueTooLarge,
+        CheckErrorKind::ValueTooLarge,
+        CheckErrorKind::ValueTooLarge,
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
@@ -1450,9 +1458,9 @@ fn test_native_append() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(IntType, UIntType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::TypeError(IntType, UIntType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
@@ -1490,9 +1498,9 @@ fn test_slice_list() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 2),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
@@ -1521,9 +1529,9 @@ fn test_slice_buff() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 2),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
@@ -1555,9 +1563,9 @@ fn test_slice_ascii() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 2),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
@@ -1586,9 +1594,9 @@ fn test_slice_utf8() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 2),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 2),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
@@ -1634,15 +1642,15 @@ fn test_replace_at_list() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             IntType,
             SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
         ),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 4),
-        CheckErrors::IncorrectArgumentCount(3, 2),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 4),
+        CheckErrorKind::IncorrectArgumentCount(3, 2),
+        CheckErrorKind::TypeError(
             SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
             SequenceType(ListType(ListTypeData::new_list(IntType, 2).unwrap())),
         ),
@@ -1686,18 +1694,18 @@ fn test_replace_at_buff() {
     let buff_len = BufferLength::try_from(1u32).unwrap();
     let buff_len_two = BufferLength::try_from(2u32).unwrap();
     let bad_expected = [
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(BufferType(buff_len.clone())),
             SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(BufferType(buff_len.clone())),
             SequenceType(StringType(ASCII(buff_len.clone()))),
         ),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 4),
-        CheckErrors::IncorrectArgumentCount(3, 2),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 4),
+        CheckErrorKind::IncorrectArgumentCount(3, 2),
+        CheckErrorKind::TypeError(
             SequenceType(BufferType(buff_len)),
             SequenceType(BufferType(buff_len_two)),
         ),
@@ -1742,18 +1750,18 @@ fn test_replace_at_ascii() {
     let buff_len = BufferLength::try_from(1u32).unwrap();
     let buff_len_two = BufferLength::try_from(2u32).unwrap();
     let bad_expected = [
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(StringType(ASCII(buff_len.clone()))),
             SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(StringType(ASCII(buff_len.clone()))),
             SequenceType(BufferType(buff_len.clone())),
         ),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 4),
-        CheckErrors::IncorrectArgumentCount(3, 2),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 4),
+        CheckErrorKind::IncorrectArgumentCount(3, 2),
+        CheckErrorKind::TypeError(
             SequenceType(StringType(ASCII(buff_len))),
             SequenceType(StringType(ASCII(buff_len_two))),
         ),
@@ -1798,18 +1806,18 @@ fn test_replace_at_utf8() {
     let str_len = StringUTF8Length::try_from(1u32).unwrap();
     let str_len_two = StringUTF8Length::try_from(2u32).unwrap();
     let bad_expected = [
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(StringType(UTF8(str_len.clone()))),
             SequenceType(ListType(ListTypeData::new_list(IntType, 1).unwrap())),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(StringType(UTF8(str_len.clone()))),
             SequenceType(BufferType(buff_len)),
         ),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(3, 4),
-        CheckErrors::IncorrectArgumentCount(3, 2),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(3, 4),
+        CheckErrorKind::IncorrectArgumentCount(3, 2),
+        CheckErrorKind::TypeError(
             SequenceType(StringType(UTF8(str_len))),
             SequenceType(StringType(UTF8(str_len_two))),
         ),
@@ -1838,9 +1846,9 @@ fn test_native_concat() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(IntType, UIntType),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::TypeError(IntType, UIntType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
@@ -1923,8 +1931,8 @@ fn test_tuples() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(BoolType, IntType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1948,7 +1956,7 @@ fn test_empty_tuple_should_fail() {
 
     assert_eq!(
         mem_type_check(contract_src).unwrap_err().err,
-        CheckErrors::EmptyTuplesNotAllowed,
+        CheckErrorKind::EmptyTuplesNotAllowed,
     );
 }
 
@@ -1992,7 +2000,7 @@ fn test_high_order_map() {
 fn test_function_order_tuples() {
     let snippet = "
 (define-read-only (get-score)
-    (ok 
+    (ok
         (tuple
             (score (get-zero))
         )
@@ -2028,9 +2036,9 @@ fn test_simple_uints() {
     let bad = ["(> u1 1)", "(to-uint true)", "(to-int false)"];
 
     let bad_expected = [
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(UIntType, BoolType),
+        CheckErrorKind::TypeError(UIntType, IntType),
+        CheckErrorKind::TypeError(IntType, BoolType),
+        CheckErrorKind::TypeError(UIntType, BoolType),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -2062,13 +2070,13 @@ fn test_buffer_to_ints() {
     ];
 
     let bad_expected = [
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::IncorrectArgumentCount(1, 0),
-        CheckErrors::TypeError(
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::IncorrectArgumentCount(1, 0),
+        CheckErrorKind::TypeError(
             SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
             SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
@@ -2128,52 +2136,52 @@ fn test_string_to_ints() {
     ];
 
     let bad_expected = [
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::IncorrectArgumentCount(1, 0),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::IncorrectArgumentCount(1, 0),
+        CheckErrorKind::UnionTypeError(
             vec![IntType, UIntType],
             SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::UnionTypeError(
             vec![IntType, UIntType],
             SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::IncorrectArgumentCount(1, 0),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::IncorrectArgumentCount(1, 0),
+        CheckErrorKind::UnionTypeError(
             vec![IntType, UIntType],
             SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::UnionTypeError(
             vec![IntType, UIntType],
             SequenceType(StringType(ASCII(BufferLength::try_from(1_u32).unwrap()))),
         ),
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::IncorrectArgumentCount(1, 0),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::IncorrectArgumentCount(1, 0),
+        CheckErrorKind::UnionTypeError(
             vec![
                 TypeSignature::max_string_ascii().unwrap(),
                 TypeSignature::max_string_utf8().unwrap(),
             ],
             SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::UnionTypeError(
             vec![
                 TypeSignature::max_string_ascii().unwrap(),
                 TypeSignature::max_string_utf8().unwrap(),
             ],
             IntType,
         ),
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::IncorrectArgumentCount(1, 0),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::IncorrectArgumentCount(1, 0),
+        CheckErrorKind::UnionTypeError(
             vec![
                 TypeSignature::max_string_ascii().unwrap(),
                 TypeSignature::max_string_utf8().unwrap(),
             ],
             SequenceType(BufferType(BufferLength::try_from(17_u32).unwrap())),
         ),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::UnionTypeError(
             vec![
                 TypeSignature::max_string_ascii().unwrap(),
                 TypeSignature::max_string_utf8().unwrap(),
@@ -2228,12 +2236,12 @@ fn test_response_inference(#[case] version: ClarityVersion, #[case] epoch: Stack
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::from_string("(response bool int)", version, epoch),
             BoolType,
         ),
-        CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
-        CheckErrors::CouldNotDetermineResponseOkType,
+        CheckErrorKind::ReturnTypesMustMatch(IntType, BoolType),
+        CheckErrorKind::CouldNotDetermineResponseOkType,
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -2351,7 +2359,7 @@ fn test_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     if version < ClarityVersion::Clarity2 {
         assert!(
             match mem_run_analysis(contract, version, epoch).unwrap_err().err {
-                CheckErrors::TypeError(t1, t2) => {
+                CheckErrorKind::TypeError(t1, t2) => {
                     t1 == TypeSignature::from_string("(optional bool)", version, epoch)
                         && t2 == TypeSignature::from_string("(optional int)", version, epoch)
                 }
@@ -2361,7 +2369,7 @@ fn test_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     } else {
         assert!(
             match mem_run_analysis(contract, version, epoch).unwrap_err().err {
-                CheckErrors::TypeError(t1, t2) => {
+                CheckErrorKind::TypeError(t1, t2) => {
                     t1 == TypeSignature::from_string("bool", version, epoch)
                         && t2 == TypeSignature::from_string("int", version, epoch)
                 }
@@ -2468,7 +2476,10 @@ fn test_missing_value_on_declaration_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::IncorrectArgumentCount(_, _)));
+    assert!(matches!(
+        res.err,
+        CheckErrorKind::IncorrectArgumentCount(_, _)
+    ));
 }
 
 #[test]
@@ -2478,7 +2489,7 @@ fn test_mismatching_type_on_declaration_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(res.err, CheckErrorKind::TypeError(_, _)));
 }
 
 #[test]
@@ -2494,7 +2505,7 @@ fn test_mismatching_type_on_update_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(res.err, CheckErrorKind::TypeError(_, _)));
 }
 
 #[test]
@@ -2506,7 +2517,7 @@ fn test_direct_access_to_persisted_var_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+    assert!(matches!(res.err, CheckErrorKind::UndefinedVariable(_)));
 }
 
 #[test]
@@ -2521,7 +2532,7 @@ fn test_data_var_shadowed_by_let_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(res.err, CheckErrorKind::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -2534,7 +2545,7 @@ fn test_mutating_unknown_data_var_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NoSuchDataVariable(_)));
+    assert!(matches!(res.err, CheckErrorKind::NoSuchDataVariable(_)));
 }
 
 #[test]
@@ -2545,7 +2556,7 @@ fn test_accessing_unknown_data_var_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NoSuchDataVariable(_)));
+    assert!(matches!(res.err, CheckErrorKind::NoSuchDataVariable(_)));
 }
 
 #[test]
@@ -2556,7 +2567,7 @@ fn test_let_shadowed_by_let_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(res.err, CheckErrorKind::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -2568,7 +2579,7 @@ fn test_let_shadowed_by_nested_let_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(res.err, CheckErrorKind::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -2581,7 +2592,7 @@ fn test_define_constant_shadowed_by_let_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(res.err, CheckErrorKind::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -2593,7 +2604,7 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
     "#;
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(res.err, CheckErrorKind::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -2793,7 +2804,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
                 ({case}))"
         );
         let res = mem_type_check(&contract_src).unwrap_err();
-        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(res.err, CheckErrorKind::TypeError(_, _)));
     }
 }
 
@@ -2808,7 +2819,7 @@ fn test_fetch_entry_unbound_variables() {
                 ({case}))"
         );
         let res = mem_type_check(&contract_src).unwrap_err();
-        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+        assert!(matches!(res.err, CheckErrorKind::UndefinedVariable(_)));
     }
 }
 
@@ -2850,7 +2861,7 @@ fn test_insert_entry_mismatching_type_signatures() {
                 ({case}))"
         );
         let res = mem_type_check(&contract_src).unwrap_err();
-        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(res.err, CheckErrorKind::TypeError(_, _)));
     }
 }
 
@@ -2868,7 +2879,7 @@ fn test_insert_entry_unbound_variables() {
                 ({case}))"
         );
         let res = mem_type_check(&contract_src).unwrap_err();
-        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+        assert!(matches!(res.err, CheckErrorKind::UndefinedVariable(_)));
     }
 }
 
@@ -2908,7 +2919,7 @@ fn test_delete_entry_mismatching_type_signatures() {
                 ({case}))"
         );
         let res = mem_type_check(&contract_src).unwrap_err();
-        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(res.err, CheckErrorKind::TypeError(_, _)));
     }
 }
 
@@ -2923,7 +2934,7 @@ fn test_delete_entry_unbound_variables() {
                 ({case}))"
         );
         let res = mem_type_check(&contract_src).unwrap_err();
-        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+        assert!(matches!(res.err, CheckErrorKind::UndefinedVariable(_)));
     }
 }
 
@@ -2967,7 +2978,7 @@ fn test_set_entry_mismatching_type_signatures() {
                 ({case}))"
         );
         let res = mem_type_check(&contract_src).unwrap_err();
-        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(res.err, CheckErrorKind::TypeError(_, _)));
     }
 }
 
@@ -2985,7 +2996,7 @@ fn test_set_entry_unbound_variables() {
                 ({case}))"
         );
         let res = mem_type_check(&contract_src).unwrap_err();
-        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+        assert!(matches!(res.err, CheckErrorKind::UndefinedVariable(_)));
     }
 }
 
@@ -3101,7 +3112,7 @@ fn test_buff_negative_len() {
         (func 0x00)";
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
+    assert_eq!(res.err, CheckErrorKind::ValueOutOfBounds);
 }
 
 #[test]
@@ -3110,7 +3121,7 @@ fn test_string_ascii_negative_len() {
         (func \"\")";
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
+    assert_eq!(res.err, CheckErrorKind::ValueOutOfBounds);
 }
 
 #[test]
@@ -3119,7 +3130,7 @@ fn test_string_utf8_negative_len() {
         (func u\"\")";
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
+    assert_eq!(res.err, CheckErrorKind::ValueOutOfBounds);
 }
 
 #[test]
@@ -3163,7 +3174,7 @@ fn test_comparison_types() {
         r#"(>= "aaa" "aaa" "aaa")"#,
     ];
     let bad_expected = [
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::UnionTypeError(
             vec![
                 IntType,
                 UIntType,
@@ -3177,7 +3188,7 @@ fn test_comparison_types() {
             ],
             PrincipalType,
         ),
-        CheckErrors::UnionTypeError(
+        CheckErrorKind::UnionTypeError(
             vec![
                 IntType,
                 UIntType,
@@ -3191,25 +3202,25 @@ fn test_comparison_types() {
             ],
             SequenceType(ListType(ListTypeData::new_list(IntType, 3).unwrap())),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
             SequenceType(StringType(ASCII(BufferLength::try_from(2_u32).unwrap()))),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(StringType(ASCII(BufferLength::try_from(3_u32).unwrap()))),
             SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
             SequenceType(StringType(UTF8(StringUTF8Length::try_from(3u32).unwrap()))),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             SequenceType(BufferType(BufferLength::try_from(2_u32).unwrap())),
             SequenceType(StringType(ASCII(BufferLength::try_from(3_u32).unwrap()))),
         ),
-        CheckErrors::IncorrectArgumentCount(2, 0),
-        CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::IncorrectArgumentCount(2, 3),
+        CheckErrorKind::IncorrectArgumentCount(2, 0),
+        CheckErrorKind::IncorrectArgumentCount(2, 1),
+        CheckErrorKind::IncorrectArgumentCount(2, 3),
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
@@ -3238,9 +3249,9 @@ fn test_principal_destruct() {
         r#"(principal-destruct? 0x22)"#,
     ];
     let bad_expected = [
-        CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::IncorrectArgumentCount(1, 0),
-        CheckErrors::TypeError(TypeSignature::PrincipalType, BUFF_1.clone()),
+        CheckErrorKind::IncorrectArgumentCount(1, 2),
+        CheckErrorKind::IncorrectArgumentCount(1, 0),
+        CheckErrorKind::TypeError(TypeSignature::PrincipalType, BUFF_1.clone()),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -3291,32 +3302,32 @@ fn test_principal_construct() {
         // Too few arguments, just has the `(buff 1)`.
         (
             r#"(principal-construct? 0x22)"#,
-            CheckErrors::RequiresAtLeastArguments(2, 1),
+            CheckErrorKind::RequiresAtLeastArguments(2, 1),
         ),
         // Too few arguments, just hs the `(buff 20)`.
         (
             r#"(principal-construct? 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::RequiresAtLeastArguments(2, 1),
+            CheckErrorKind::RequiresAtLeastArguments(2, 1),
         ),
         // The first buffer is too long, should be `(buff 1)`.
         (
             r#"(principal-construct? 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(BUFF_1.clone(), BUFF_20.clone()),
+            CheckErrorKind::TypeError(BUFF_1.clone(), BUFF_20.clone()),
         ),
         // The second buffer is too long, should be `(buff 20)`.
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,
-            CheckErrors::TypeError(BUFF_20.clone(), BUFF_21.clone()),
+            CheckErrorKind::TypeError(BUFF_20.clone(), BUFF_21.clone()),
         ),
         // `int` argument instead of `(buff 1)` for version.
         (
             r#"(principal-construct? 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(BUFF_1.clone(), IntType),
+            CheckErrorKind::TypeError(BUFF_1.clone(), IntType),
         ),
         // `name` argument is too long
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 TypeSignature::contract_name_string_ascii_type().unwrap(),
                 TypeSignature::bound_string_ascii_type(41).unwrap(),
             ),
@@ -3324,7 +3335,7 @@ fn test_principal_construct() {
         // bad argument type for `name`
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 u123)"#,
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 TypeSignature::contract_name_string_ascii_type().unwrap(),
                 UIntType,
             ),
@@ -3332,7 +3343,7 @@ fn test_principal_construct() {
         // too many arguments
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo" "bar")"#,
-            CheckErrors::RequiresAtMostArguments(3, 4),
+            CheckErrorKind::RequiresAtMostArguments(3, 4),
         ),
     ];
 
@@ -3386,7 +3397,7 @@ fn test_trait_args() {
         )"];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let bad_expected = [CheckErrors::IncompatibleTrait(
+    let bad_expected = [CheckErrorKind::IncompatibleTrait(
         TraitIdentifier {
             name: ClarityName::from("trait-foo"),
             contract_identifier: contract_identifier.clone(),
@@ -3552,27 +3563,27 @@ fn test_list_arg(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         ",
     ];
     let bad_expected = [
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
             TypeSignature::list_of(TypeSignature::IntType, 4).unwrap(),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
             TypeSignature::list_of(TypeSignature::UIntType, 1).unwrap(),
         ),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
             TypeSignature::list_of(TypeSignature::list_of(TypeSignature::NoType, 0).unwrap(), 1)
                 .unwrap(),
         ),
     ];
     let bad_expected2 = [
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             TypeSignature::list_of(TypeSignature::IntType, 3).unwrap(),
             TypeSignature::list_of(TypeSignature::IntType, 4).unwrap(),
         ),
-        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrorKind::TypeError(
             TypeSignature::IntType,
             TypeSignature::list_of(TypeSignature::NoType, 0).unwrap(),
         ),
@@ -3684,17 +3695,17 @@ fn test_simple_bad_syntax_bindings() {
         "(from-consensus-buff? (tuple (a (string-ascii -12))) 0x00)",
     ];
     let expected = [
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_list(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_list(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::eval_binding_invalid_length(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_atom(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_atom(0)),
-        CheckErrors::ValueOutOfBounds,
-        CheckErrors::ValueOutOfBounds,
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::let_binding_not_list(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_list(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::eval_binding_invalid_length(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_atom(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_atom(0)),
+        CheckErrorKind::ValueOutOfBounds,
+        CheckErrorKind::ValueOutOfBounds,
     ];
 
     for (bad_code, expected_err) in bad.iter().zip(expected.iter()) {
@@ -3718,9 +3729,9 @@ fn test_nested_bad_type_signature_syntax_bindings() {
     ];
 
     let expected = [
-        CheckErrors::ValueOutOfBounds,
-        CheckErrors::InvalidTypeDescription,
-        CheckErrors::ValueOutOfBounds,
+        CheckErrorKind::ValueOutOfBounds,
+        CheckErrorKind::InvalidTypeDescription,
+        CheckErrorKind::ValueOutOfBounds,
     ];
 
     for (bad_code, expected_err) in bad.iter().zip(expected.iter()) {

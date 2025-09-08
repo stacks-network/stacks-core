@@ -15,12 +15,12 @@
 
 use std::time::Duration;
 
-use clarity::vm::analysis::CheckErrors;
+use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::errors::Error as ClarityRuntimeError;
-use clarity::vm::errors::Error::Unchecked;
+use clarity::vm::errors::VmExecutionError;
+use clarity::vm::errors::VmExecutionError::IntegrityCheck;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
@@ -227,7 +227,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                                 analysis_db.get_clarity_version(&contract_identifier)
                             })
                             .map_err(|_| {
-                                ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
+                                VmExecutionError::from(CheckErrorKind::NoSuchContract(format!(
                                     "{}",
                                     &contract_identifier
                                 )))
@@ -279,7 +279,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                 }
             }
             Ok(Some(Err(e))) => match e {
-                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
+                IntegrityCheck(CheckErrorKind::CostBalanceExceeded(actual_cost, _))
                     if actual_cost.write_count > 0 =>
                 {
                     CallReadOnlyResponse {
@@ -288,7 +288,7 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                         cause: Some("NotReadOnly".to_string()),
                     }
                 }
-                Unchecked(CheckErrors::ExecutionTimeExpired) => {
+                IntegrityCheck(CheckErrorKind::ExecutionTimeExpired) => {
                     return StacksHttpResponse::new_error(
                         &preamble,
                         &HttpRequestTimeout::new("ExecutionTime expired".to_string()),

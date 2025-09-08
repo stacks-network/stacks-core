@@ -25,7 +25,7 @@ use std::time::Instant;
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -44,14 +44,13 @@ use crate::chainstate::burn::*;
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::db::blocks::SetupBlockResult;
 use crate::chainstate::stacks::db::transactions::{
-    convert_clarity_error_to_transaction_result, handle_clarity_runtime_error,
-    ClarityRuntimeTxError,
+    convert_ClarityError_to_transaction_result, handle_clarity_runtime_error, ClarityRuntimeTxError,
 };
 use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
-use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use crate::clarity_vm::clarity::{ClarityError, ClarityInstance};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -645,7 +644,7 @@ impl TransactionResult {
                 }
                 // recover original ClarityError
                 ClarityRuntimeTxError::Acceptable { error, .. } => {
-                    if let clarity_error::Parse(ref parse_err) = error {
+                    if let ClarityError::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
                         match &parse_err.err {
                             ParseErrors::ExpressionStackDepthTooDeep
@@ -659,11 +658,11 @@ impl TransactionResult {
                     Error::ClarityError(error)
                 }
                 ClarityRuntimeTxError::CostError(cost, budget) => {
-                    Error::ClarityError(clarity_error::CostError(cost, budget))
+                    Error::ClarityError(ClarityError::CostError(cost, budget))
                 }
                 ClarityRuntimeTxError::AnalysisError(e) => {
-                    let clarity_err = Error::ClarityError(clarity_error::Interpreter(
-                        InterpreterError::Unchecked(e),
+                    let clarity_err = Error::ClarityError(ClarityError::Execution(
+                        VmExecutionError::IntegrityCheck(e),
                     ));
                     if epoch_id < StacksEpochId::Epoch21 {
                         // this would invalidate the block, so it's problematic
@@ -678,7 +677,7 @@ impl TransactionResult {
                     assets_modified,
                     tx_events,
                     reason,
-                } => Error::ClarityError(clarity_error::AbortedByCallback {
+                } => Error::ClarityError(ClarityError::AbortedByCallback {
                     output,
                     assets_modified,
                     tx_events,
@@ -1089,7 +1088,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
         let quiet = !cfg!(test);
         match StacksChainState::process_transaction(clarity_tx, &tx, quiet, ast_rules, None) {
             Ok((_fee, receipt)) => TransactionResult::success(&tx, receipt),
-            Err(e) => convert_clarity_error_to_transaction_result(clarity_tx, &tx, e),
+            Err(e) => convert_ClarityError_to_transaction_result(clarity_tx, &tx, e),
         }
     }
 
@@ -2518,7 +2517,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
-                        return convert_clarity_error_to_transaction_result(clarity_tx, tx, e);
+                        return convert_ClarityError_to_transaction_result(clarity_tx, tx, e);
                     }
                 };
             info!("Include tx";
@@ -2563,7 +2562,7 @@ impl BlockBuilder for StacksBlockBuilder {
                 {
                     Ok((fee, receipt)) => (fee, receipt),
                     Err(e) => {
-                        return convert_clarity_error_to_transaction_result(clarity_tx, tx, e);
+                        return convert_ClarityError_to_transaction_result(clarity_tx, tx, e);
                     }
                 };
             debug!(

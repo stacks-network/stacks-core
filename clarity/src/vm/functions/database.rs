@@ -22,8 +22,8 @@ use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result, RuntimeErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, ExecutionResult as Result,
+    RuntimeError, VmInternalError,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
@@ -69,7 +69,7 @@ pub fn special_contract_call(
     //   is checked in callables::DefinedFunction::execute_apply.
     runtime_cost(ClarityCostFunction::ContractCall, env, 0)?;
 
-    let function_name = args[1].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let function_name = args[1].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
     let rest_args_slice = &args[2..];
     let rest_args_len = rest_args_slice.len();
     let mut rest_args = Vec::with_capacity(rest_args_len);
@@ -93,7 +93,7 @@ pub fn special_contract_call(
                 Some(trait_data) => {
                     // Ensure that contract-call is used for inter-contract calls only
                     if trait_data.contract_identifier == env.contract_context.contract_identifier {
-                        return Err(CheckErrors::CircularReference(vec![trait_data
+                        return Err(CheckErrorKind::CircularReference(vec![trait_data
                             .contract_identifier
                             .name
                             .to_string()])
@@ -105,7 +105,9 @@ pub fn special_contract_call(
                         .database
                         .get_contract(&trait_data.contract_identifier)
                         .map_err(|_e| {
-                            CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
+                            CheckErrorKind::NoSuchContract(
+                                trait_data.contract_identifier.to_string(),
+                            )
                         })?;
                     let contract_context_to_check = contract_to_check.contract_context;
 
@@ -114,7 +116,7 @@ pub fn special_contract_call(
                     let trait_identifier = trait_data
                         .trait_identifier
                         .as_ref()
-                        .ok_or(CheckErrors::ExpectedTraitIdentifier)?;
+                        .ok_or(CheckErrorKind::ExpectedTraitIdentifier)?;
 
                     // Attempt to short circuit the dynamic dispatch checks:
                     // If the contract is explicitely implementing the trait with `impl-trait`,
@@ -131,7 +133,7 @@ pub fn special_contract_call(
                             .database
                             .get_contract(&trait_identifier.contract_identifier)
                             .map_err(|_e| {
-                                CheckErrors::NoSuchContract(
+                                CheckErrorKind::NoSuchContract(
                                     trait_identifier.contract_identifier.to_string(),
                                 )
                             })?;
@@ -141,19 +143,19 @@ pub fn special_contract_call(
                         // Retrieve the function that will be invoked
                         let function_to_check = contract_context_to_check
                             .lookup_function(function_name)
-                            .ok_or(CheckErrors::BadTraitImplementation(
+                            .ok_or(CheckErrorKind::BadTraitImplementation(
                                 trait_name.clone(),
                                 function_name.to_string(),
                             ))?;
 
                         // Check read/write compatibility
                         if env.global_context.is_read_only() {
-                            return Err(CheckErrors::TraitBasedContractCallInReadOnly.into());
+                            return Err(CheckErrorKind::TraitBasedContractCallInReadOnly.into());
                         }
 
                         // Check visibility
                         if function_to_check.define_type == DefineType::Private {
-                            return Err(CheckErrors::NoSuchPublicFunction(
+                            return Err(CheckErrorKind::NoSuchPublicFunction(
                                 trait_data.contract_identifier.to_string(),
                                 function_name.to_string(),
                             )
@@ -169,9 +171,12 @@ pub fn special_contract_call(
                         // Retrieve the expected method signature
                         let constraining_trait = contract_context_defining_trait
                             .lookup_trait_definition(&trait_name)
-                            .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.clone()))?;
+                            .ok_or(CheckErrorKind::TraitReferenceUnknown(trait_name.clone()))?;
                         let expected_sig = constraining_trait.get(function_name).ok_or(
-                            CheckErrors::TraitMethodUnknown(trait_name, function_name.to_string()),
+                            CheckErrorKind::TraitMethodUnknown(
+                                trait_name,
+                                function_name.to_string(),
+                            ),
                         )?;
                         (
                             &trait_data.contract_identifier,
@@ -179,10 +184,10 @@ pub fn special_contract_call(
                         )
                     }
                 }
-                _ => return Err(CheckErrors::ContractCallExpectName.into()),
+                _ => return Err(CheckErrorKind::ContractCallExpectName.into()),
             }
         }
-        _ => return Err(CheckErrors::ContractCallExpectName.into()),
+        _ => return Err(CheckErrorKind::ContractCallExpectName.into()),
     };
 
     let contract_principal = env.contract_context.contract_identifier.clone().into();
@@ -203,16 +208,18 @@ pub fn special_contract_call(
     // sanitize contract-call outputs in epochs >= 2.4
     let result_type = TypeSignature::type_of(&result)?;
     let (result, _) = Value::sanitize_value(env.epoch(), &result_type, result)
-        .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
+        .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
 
     // Ensure that the expected type from the trait spec admits
     // the type of the value returned by the dynamic dispatch.
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result)?;
         if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
-            return Err(
-                CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
-            );
+            return Err(CheckErrorKind::ReturnTypesMustMatch(
+                returns_type_signature,
+                actual_returns,
+            )
+            .into());
         }
     }
 
@@ -226,7 +233,7 @@ pub fn special_fetch_variable_v200(
 ) -> Result<Value> {
     check_argument_count(1, args)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -234,7 +241,7 @@ pub fn special_fetch_variable_v200(
         .contract_context
         .meta_data_var
         .get(var_name)
-        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::FetchVar,
@@ -257,7 +264,7 @@ pub fn special_fetch_variable_v205(
 ) -> Result<Value> {
     check_argument_count(1, args)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -265,7 +272,7 @@ pub fn special_fetch_variable_v205(
         .contract_context
         .meta_data_var
         .get(var_name)
-        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -289,14 +296,14 @@ pub fn special_set_variable_v200(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
 
     let value = eval(&args[1], env, context)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -304,7 +311,7 @@ pub fn special_set_variable_v200(
         .contract_context
         .meta_data_var
         .get(var_name)
-        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetVar,
@@ -329,14 +336,14 @@ pub fn special_set_variable_v205(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
 
     let value = eval(&args[1], env, context)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -344,7 +351,7 @@ pub fn special_set_variable_v205(
         .contract_context
         .meta_data_var
         .get(var_name)
-        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -371,7 +378,7 @@ pub fn special_fetch_entry_v200(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let key = eval(&args[1], env, context)?;
 
@@ -381,7 +388,7 @@ pub fn special_fetch_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::FetchEntry,
@@ -404,7 +411,7 @@ pub fn special_fetch_entry_v205(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let key = eval(&args[1], env, context)?;
 
@@ -414,7 +421,7 @@ pub fn special_fetch_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -444,12 +451,12 @@ pub fn special_at_block(
     let bhh = match eval(&args[0], env, context)? {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() != 32 {
-                return Err(RuntimeErrorType::BadBlockHash(data).into());
+                return Err(RuntimeError::BadBlockHash(data).into());
             } else {
                 StacksBlockId::from(data.as_slice())
             }
         }
-        x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into()),
+        x => return Err(CheckErrorKind::TypeValueError(BUFF_32.clone(), x).into()),
     };
 
     env.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
@@ -465,7 +472,7 @@ pub fn special_set_entry_v200(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -474,7 +481,7 @@ pub fn special_set_entry_v200(
 
     let value = eval(&args[2], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -482,7 +489,7 @@ pub fn special_set_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -508,7 +515,7 @@ pub fn special_set_entry_v205(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -517,7 +524,7 @@ pub fn special_set_entry_v205(
 
     let value = eval(&args[2], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -525,7 +532,7 @@ pub fn special_set_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -551,7 +558,7 @@ pub fn special_insert_entry_v200(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -560,7 +567,7 @@ pub fn special_insert_entry_v200(
 
     let value = eval(&args[2], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -568,7 +575,7 @@ pub fn special_insert_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -595,7 +602,7 @@ pub fn special_insert_entry_v205(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(3, args)?;
@@ -604,7 +611,7 @@ pub fn special_insert_entry_v205(
 
     let value = eval(&args[2], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -612,7 +619,7 @@ pub fn special_insert_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -638,14 +645,14 @@ pub fn special_delete_entry_v200(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
 
     let key = eval(&args[1], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -653,7 +660,7 @@ pub fn special_delete_entry_v200(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::SetEntry,
@@ -678,14 +685,14 @@ pub fn special_delete_entry_v205(
     context: &LocalContext,
 ) -> Result<Value> {
     if env.global_context.is_read_only() {
-        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
 
     check_argument_count(2, args)?;
 
     let key = eval(&args[1], env, context)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let contract = &env.contract_context.contract_identifier;
 
@@ -693,7 +700,7 @@ pub fn special_delete_entry_v205(
         .contract_context
         .meta_data_map
         .get(map_name)
-        .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     let epoch = *env.epoch();
     let result = env
@@ -727,10 +734,10 @@ pub fn special_delete_entry_v205(
 /// - `block-reward` returns the block reward for the block at `block-height`
 ///
 /// # Errors:
-/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrors::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
-/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+/// - CheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrorKind::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrorKind::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
+/// - CheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -744,18 +751,18 @@ pub fn special_get_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+        .ok_or(CheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     let version = env.contract_context.get_clarity_version();
 
     let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(property_name, version)
-        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+        .ok_or(CheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     // Handle the block-height input arg clause.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, x)),
     }?;
 
     let height_value = match u32::try_from(height_value) {
@@ -876,10 +883,10 @@ pub fn special_get_block_info(
 /// - `pox_addrs` returns the list of PoX addresses paid out at `burn_block_height`
 ///
 /// # Errors:
-/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrors::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
-/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+/// - CheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrorKind::GetBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrorKind::NoSuchBurnBlockInfoProperty if `args[0]` isn't a BurnBlockInfoProperty.
+/// - CheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -892,10 +899,10 @@ pub fn special_get_burn_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrors::GetBlockInfoExpectPropertyName)?;
+        .ok_or(CheckErrorKind::GetBlockInfoExpectPropertyName)?;
 
     let block_info_prop = BurnBlockInfoProperty::lookup_by_name(property_name).ok_or(
-        CheckErrors::NoSuchBurnBlockInfoProperty(property_name.to_string()),
+        CheckErrorKind::NoSuchBurnBlockInfoProperty(property_name.to_string()),
     )?;
 
     // Handle the block-height input arg clause.
@@ -903,7 +910,7 @@ pub fn special_get_burn_block_info(
     let height_value = match height_eval {
         Value::UInt(result) => result,
         x => {
-            return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x).into());
+            return Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, x).into());
         }
     };
 
@@ -945,7 +952,7 @@ pub fn special_get_burn_block_info(
                                 env.epoch(),
                             )
                             .map_err(|_| {
-                                InterpreterError::Expect(
+                                VmInternalError::Expect(
                                     "FATAL: could not convert address list to Value".into(),
                                 )
                             })?,
@@ -953,12 +960,12 @@ pub fn special_get_burn_block_info(
                         ("payout".into(), Value::UInt(payout)),
                     ])
                     .map_err(|_| {
-                        InterpreterError::Expect(
+                        VmInternalError::Expect(
                             "FATAL: failed to build pox addrs and payout tuple".into(),
                         )
                     })?,
                 ))
-                .map_err(|_| InterpreterError::Expect("FATAL: could not build Some(..)".into()))?),
+                .map_err(|_| VmInternalError::Expect("FATAL: could not build Some(..)".into()))?),
                 None => Ok(Value::none()),
             }
         }
@@ -973,10 +980,10 @@ pub fn special_get_burn_block_info(
 /// - `time` returns the block time at `block-height`
 ///
 /// # Errors:
-/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrors::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
-/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+/// - CheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrorKind::GetStacksBlockInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrorKind::NoSuchStacksBlockInfoProperty if `args[0]` isn't a StacksBlockInfoProperty.
+/// - CheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_stacks_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -990,17 +997,17 @@ pub fn special_get_stacks_block_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrors::GetStacksBlockInfoExpectPropertyName)?;
+        .ok_or(CheckErrorKind::GetStacksBlockInfoExpectPropertyName)?;
 
     let block_info_prop = StacksBlockInfoProperty::lookup_by_name(property_name).ok_or(
-        CheckErrors::NoSuchStacksBlockInfoProperty(property_name.to_string()),
+        CheckErrorKind::NoSuchStacksBlockInfoProperty(property_name.to_string()),
     )?;
 
     // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, x)),
     }?;
 
     let Ok(height_value) = u32::try_from(height_value) else {
@@ -1052,10 +1059,10 @@ pub fn special_get_stacks_block_info(
 /// - `block-reward` returns the block reward for the tenure of which `block-height` is a part
 ///
 /// # Errors:
-/// - CheckErrors::IncorrectArgumentCount if there aren't 2 arguments.
-/// - CheckErrors::GetTenureInfoExpectPropertyName if `args[0]` isn't a ClarityName.
-/// - CheckErrors::NoSuchTenureInfoProperty if `args[0]` isn't a TenureInfoProperty.
-/// - CheckErrors::TypeValueError if `args[1]` isn't a `uint`.
+/// - CheckErrorKind::IncorrectArgumentCount if there aren't 2 arguments.
+/// - CheckErrorKind::GetTenureInfoExpectPropertyName if `args[0]` isn't a ClarityName.
+/// - CheckErrorKind::NoSuchTenureInfoProperty if `args[0]` isn't a TenureInfoProperty.
+/// - CheckErrorKind::TypeValueError if `args[1]` isn't a `uint`.
 pub fn special_get_tenure_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
@@ -1069,16 +1076,16 @@ pub fn special_get_tenure_info(
     // Handle the block property name input arg.
     let property_name = args[0]
         .match_atom()
-        .ok_or(CheckErrors::GetTenureInfoExpectPropertyName)?;
+        .ok_or(CheckErrorKind::GetTenureInfoExpectPropertyName)?;
 
     let block_info_prop = TenureInfoProperty::lookup_by_name(property_name)
-        .ok_or(CheckErrors::GetTenureInfoExpectPropertyName)?;
+        .ok_or(CheckErrorKind::GetTenureInfoExpectPropertyName)?;
 
     // Handle the block-height input arg.
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, x)),
     }?;
 
     let Ok(height_value) = u32::try_from(height_value) else {

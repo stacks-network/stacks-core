@@ -20,7 +20,7 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckErrors, CheckResult};
+use super::errors::{CheckErrorKind, CheckResult};
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
 use crate::vm::costs::CostTracker;
@@ -48,7 +48,7 @@ impl FunctionType {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => self.check_args_2_1(accounting, args, clarity_version),
             StacksEpochId::Epoch10 => {
-                Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
+                Err(CheckErrorKind::Expects("Epoch10 is not supported".into()).into())
             }
         }
     }
@@ -75,7 +75,7 @@ impl FunctionType {
                 self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
             }
             StacksEpochId::Epoch10 => {
-                Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
+                Err(CheckErrorKind::Expects("Epoch10 is not supported".into()).into())
             }
         }
     }

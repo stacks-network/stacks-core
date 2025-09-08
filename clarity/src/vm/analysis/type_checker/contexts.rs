@@ -19,7 +19,7 @@ use std::collections::HashSet;
 use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckError, CheckErrorKind, CheckResult};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
@@ -69,14 +69,14 @@ impl TypeMap {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 if map.insert(expr.id, type_sig).is_some() {
-                    Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+                    Err(CheckError::new(CheckErrorKind::TypeAlreadyAnnotatedFailure))
                 } else {
                     Ok(())
                 }
             }
             TypeMapDataType::Set(ref mut map) => {
                 if !map.insert(expr.id) {
-                    Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+                    Err(CheckError::new(CheckErrorKind::TypeAlreadyAnnotatedFailure))
                 } else {
                     Ok(())
                 }
@@ -106,7 +106,7 @@ impl TypingContext<'_> {
 
     pub fn extend(&self) -> CheckResult<TypingContext<'_>> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(CheckError::new(CheckErrors::MaxContextDepthReached))
+            Err(CheckError::new(CheckErrorKind::MaxContextDepthReached))
         } else {
             Ok(TypingContext {
                 epoch: self.epoch,

@@ -25,7 +25,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrinc
 #[cfg(test)]
 use crate::vm::{
     ast::{errors::ParseErrors, ASTRules},
-    errors::{CheckErrors, Error, RuntimeErrorType},
+    errors::{CheckErrorKind, VmExecutionError, RuntimeError},
     tests::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
         tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
@@ -75,7 +75,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                    (token-credit! to amount)))))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (print (token-transfer (print original-sender) u1)))))                     
+             (as-contract (print (token-transfer (print original-sender) u1)))))
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
@@ -112,8 +112,8 @@ fn test_get_block_info_eval(
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
+        Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
+        Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
@@ -480,7 +480,7 @@ fn test_simple_naming_system(epoch: StacksEpochId, mut env_factory: MemoryEnviro
                         \"not enough balance\")
                    (err 1) (err 3)))))
 
-         (define-public (register 
+         (define-public (register
                         (recipient-principal principal)
                         (name int)
                         (salt int))
@@ -755,7 +755,7 @@ fn test_aborts(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenerator
 
 (define-private (get-data (id int))
   (default-to 0
-    (get value 
+    (get value
      (map-get? data (tuple (id id))))))
 ";
 
@@ -962,7 +962,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _))
+        VmExecutionError::IntegrityCheck(CheckErrorKind::NoSuchPublicFunction(_, _))
     ));
 
     let err_result = env
@@ -975,7 +975,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::IntegrityCheck(CheckErrorKind::TypeValueError(_, _))
     ));
 }
 
@@ -998,11 +998,9 @@ fn test_at_unknown_block(
         .unwrap_err();
     eprintln!("{err}");
     match err {
-        Error::Runtime(x, _) => assert_eq!(
+        VmExecutionError::Runtime(x, _) => assert_eq!(
             x,
-            RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                vec![2_u8; 32].as_slice()
-            ))
+            RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(vec![2_u8; 32].as_slice()))
         ),
         _ => panic!("Unexpected error"),
     }
@@ -1012,7 +1010,7 @@ fn test_at_unknown_block(
 fn test_as_max_len(epoch: StacksEpochId, mut tl_env_factory: TopLevelMemoryEnvironmentGenerator) {
     let mut owned_env = tl_env_factory.get_env(epoch);
     let contract = "(define-data-var token-ids (list 10 uint) (list))
-                        (var-set token-ids 
+                        (var-set token-ids
                            (unwrap! (as-max-len? (append (var-get token-ids) u1) u10) (err 10)))";
 
     owned_env
@@ -1027,11 +1025,11 @@ fn test_as_max_len(epoch: StacksEpochId, mut tl_env_factory: TopLevelMemoryEnvir
 
 #[test]
 fn test_ast_stack_depth() {
-    let program = "(+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+    let program = "(+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                       (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
                        1 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
@@ -1041,7 +1039,7 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeErrorType::ASTError(ParseErrors::VaryExpressionStackDepthTooDeep.into()).into()
+        RuntimeError::ASTError(ParseErrors::VaryExpressionStackDepthTooDeep.into()).into()
     );
 }
 
@@ -1061,7 +1059,7 @@ fn test_arg_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 
@@ -1072,15 +1070,15 @@ fn test_cc_stack_depth(
     mut env_factory: MemoryEnvironmentGenerator,
 ) {
     let mut owned_env = env_factory.get_env(epoch);
-    let contract_one = "(define-public (foo) 
-                        (ok (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+    let contract_one = "(define-public (foo)
+                        (ok (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
                        1 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)))";
     let contract_two =
-                      "(define-private (bar) 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
-                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ 
+                      "(define-private (bar)
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
+                        (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+ (+
                         (unwrap-panic (contract-call? .c-foo foo ) )
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1)
                          1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1) 1))
@@ -1098,7 +1096,7 @@ fn test_cc_stack_depth(
     assert_eq!(
         env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
             .unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 
@@ -1139,7 +1137,7 @@ fn test_cc_trait_stack_depth(
     assert_eq!(
         env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
             .unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 
@@ -1167,7 +1165,7 @@ fn test_eval_with_non_existing_contract(
     );
     assert_eq!(
         result.as_ref().unwrap_err(),
-        &Error::Unchecked(CheckErrors::NoSuchContract(
+        &VmExecutionError::IntegrityCheck(CheckErrorKind::NoSuchContract(
             QualifiedContractIdentifier::local("absent")
                 .unwrap()
                 .to_string()

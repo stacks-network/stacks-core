@@ -14,12 +14,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::CheckErrors;
+use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::errors::Error::Unchecked;
-use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
+use clarity::vm::errors::VmExecutionError::IntegrityCheck;
+use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
@@ -228,7 +228,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                                 )
                             })
                             .map_err(|_| {
-                                ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
+                                VmExecutionError::from(VmInternalError::CostContractLoadFailure)
                             })?;
 
                         let clarity_version = clarity_tx
@@ -236,7 +236,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                                 analysis_db.get_clarity_version(&contract_identifier)
                             })
                             .map_err(|_| {
-                                ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
+                                VmExecutionError::from(CheckErrorKind::NoSuchContract(format!(
                                     "{}",
                                     &contract_identifier
                                 )))
@@ -282,7 +282,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 }
             }
             Ok(Some(Err(e))) => match e {
-                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
+                IntegrityCheck(CheckErrorKind::CostBalanceExceeded(actual_cost, _))
                     if actual_cost.write_count > 0 =>
                 {
                     CallReadOnlyResponse {

@@ -25,7 +25,7 @@ pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::SymbolicExpression;
 #[cfg(test)]
-use crate::{vm::errors::Error, vm::types::Value};
+use crate::{vm::errors::VmExecutionError, vm::types::Value};
 
 mod assets;
 mod contracts;
@@ -157,7 +157,7 @@ clarity_template! {
 
 #[cfg(test)]
 impl Value {
-    pub fn list_from(list_data: Vec<Value>) -> Result<Value, Error> {
+    pub fn list_from(list_data: Vec<Value>) -> Result<Value, VmExecutionError> {
         Value::cons_list_unsanitized(list_data)
     }
 }

@@ -17,7 +17,7 @@
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_arguments_at_least, CheckErrors, InterpreterResult as Result};
+use crate::vm::errors::{check_arguments_at_least, CheckErrorKind, ExecutionResult as Result};
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TypeSignature, Value};
@@ -25,7 +25,7 @@ use crate::vm::types::{TypeSignature, Value};
 fn type_force_bool(value: &Value) -> Result<bool> {
     match *value {
         Value::Bool(boolean) => Ok(boolean),
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, value.clone()).into()),
+        _ => Err(CheckErrorKind::TypeValueError(TypeSignature::BoolType, value.clone()).into()),
     }
 }
 

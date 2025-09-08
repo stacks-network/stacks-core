@@ -18,8 +18,8 @@ use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType, ShortReturnType,
+    check_arguments_at_least, CheckErrorKind, EarlyReturnValue, ExecutionResult as Result,
+    RuntimeError, VmInternalError,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
@@ -35,7 +35,7 @@ fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
                 None
             }
         }
-        _ => return Err(CheckErrors::ExpectedOptionalOrResponseValue(to_unwrap).into()),
+        _ => return Err(CheckErrorKind::ExpectedOptionalOrResponseValue(to_unwrap).into()),
     };
 
     Ok(result)
@@ -50,7 +50,7 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>> {
                 None
             }
         }
-        _ => return Err(CheckErrors::ExpectedResponseValue(to_unwrap).into()),
+        _ => return Err(CheckErrorKind::ExpectedResponseValue(to_unwrap).into()),
     };
 
     Ok(result)
@@ -59,28 +59,28 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>> {
 pub fn native_unwrap(input: Value) -> Result<Value> {
     inner_unwrap(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(RuntimeErrorType::UnwrapFailure.into()),
+        None => Err(RuntimeError::UnwrapFailure.into()),
     })
 }
 
 pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(ShortReturnType::ExpectedValue(thrown).into()),
+        None => Err(EarlyReturnValue::FromUnwrap(thrown).into()),
     })
 }
 
 pub fn native_unwrap_err(input: Value) -> Result<Value> {
     inner_unwrap_err(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(RuntimeErrorType::UnwrapFailure.into()),
+        None => Err(RuntimeError::UnwrapFailure.into()),
     })
 }
 
 pub fn native_unwrap_err_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap_err(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(ShortReturnType::ExpectedValue(thrown).into()),
+        None => Err(EarlyReturnValue::FromUnwrap(thrown).into()),
     })
 }
 
@@ -88,21 +88,21 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
     match input {
         Value::Optional(data) => match data.data {
             Some(data) => Ok(*data),
-            None => Err(ShortReturnType::ExpectedValue(Value::none()).into()),
+            None => Err(EarlyReturnValue::FromUnwrap(Value::none()).into()),
         },
         Value::Response(data) => {
             if data.committed {
                 Ok(*data.data)
             } else {
                 let short_return_val = Value::error(*data.data).map_err(|_| {
-                    InterpreterError::Expect(
+                    VmInternalError::Expect(
                         "BUG: Failed to construct new response type from old response type".into(),
                     )
                 })?;
-                Err(ShortReturnType::ExpectedValue(short_return_val).into())
+                Err(EarlyReturnValue::FromUnwrap(short_return_val).into())
             }
         }
-        _ => Err(CheckErrors::ExpectedOptionalOrResponseValue(input).into()),
+        _ => Err(CheckErrorKind::ExpectedOptionalOrResponseValue(input).into()),
     }
 }
 
@@ -118,7 +118,7 @@ fn eval_with_new_binding(
         || env.contract_context.lookup_function(&bind_name).is_some()
         || inner_context.lookup_variable(&bind_name).is_some()
     {
-        return Err(CheckErrors::NameAlreadyUsed(bind_name.into()).into());
+        return Err(CheckErrorKind::NameAlreadyUsed(bind_name.into()).into());
     }
 
     let memory_use = bind_value.get_memory_use()?;
@@ -150,14 +150,16 @@ fn special_match_opt(
     context: &LocalContext,
 ) -> Result<Value> {
     if args.len() != 3 {
-        Err(CheckErrors::BadMatchOptionSyntax(Box::new(
-            CheckErrors::IncorrectArgumentCount(4, args.len() + 1),
+        Err(CheckErrorKind::BadMatchOptionSyntax(Box::new(
+            CheckErrorKind::IncorrectArgumentCount(4, args.len() + 1),
         )))?;
     }
 
     let bind_name = args[0]
         .match_atom()
-        .ok_or_else(|| CheckErrors::BadMatchOptionSyntax(Box::new(CheckErrors::ExpectedName)))?
+        .ok_or_else(|| {
+            CheckErrorKind::BadMatchOptionSyntax(Box::new(CheckErrorKind::ExpectedName))
+        })?
         .clone();
     let some_branch = &args[1];
     let none_branch = &args[2];
@@ -175,19 +177,23 @@ fn special_match_resp(
     context: &LocalContext,
 ) -> Result<Value> {
     if args.len() != 4 {
-        Err(CheckErrors::BadMatchResponseSyntax(Box::new(
-            CheckErrors::IncorrectArgumentCount(5, args.len() + 1),
+        Err(CheckErrorKind::BadMatchResponseSyntax(Box::new(
+            CheckErrorKind::IncorrectArgumentCount(5, args.len() + 1),
         )))?;
     }
 
     let ok_bind_name = args[0]
         .match_atom()
-        .ok_or_else(|| CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)))?
+        .ok_or_else(|| {
+            CheckErrorKind::BadMatchResponseSyntax(Box::new(CheckErrorKind::ExpectedName))
+        })?
         .clone();
     let ok_branch = &args[1];
     let err_bind_name = args[2]
         .match_atom()
-        .ok_or_else(|| CheckErrors::BadMatchResponseSyntax(Box::new(CheckErrors::ExpectedName)))?
+        .ok_or_else(|| {
+            CheckErrorKind::BadMatchResponseSyntax(Box::new(CheckErrorKind::ExpectedName))
+        })?
         .clone();
     let err_branch = &args[3];
 
@@ -212,7 +218,7 @@ pub fn special_match(
     match input {
         Value::Response(data) => special_match_resp(data, &args[1..], env, context),
         Value::Optional(data) => special_match_opt(data, &args[1..], env, context),
-        _ => Err(CheckErrors::BadMatchInput(TypeSignature::type_of(&input)?).into()),
+        _ => Err(CheckErrorKind::BadMatchInput(TypeSignature::type_of(&input)?).into()),
     }
 }
 
@@ -223,14 +229,14 @@ pub fn native_some(input: Value) -> Result<Value> {
 fn is_some(input: Value) -> Result<bool> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
-        _ => Err(CheckErrors::ExpectedOptionalValue(input).into()),
+        _ => Err(CheckErrorKind::ExpectedOptionalValue(input).into()),
     }
 }
 
 fn is_okay(input: Value) -> Result<bool> {
     match input {
         Value::Response(data) => Ok(data.committed),
-        _ => Err(CheckErrors::ExpectedResponseValue(input).into()),
+        _ => Err(CheckErrorKind::ExpectedResponseValue(input).into()),
     }
 }
 
@@ -264,6 +270,6 @@ pub fn native_default_to(default: Value, input: Value) -> Result<Value> {
             Some(data) => Ok(*data),
             None => Ok(default),
         },
-        _ => Err(CheckErrors::ExpectedOptionalValue(input).into()),
+        _ => Err(CheckErrorKind::ExpectedOptionalValue(input).into()),
     }
 }

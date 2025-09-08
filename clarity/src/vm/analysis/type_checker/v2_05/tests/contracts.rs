@@ -19,7 +19,7 @@ use stacks_common::types::StacksEpochId;
 use {assert_json_diff, serde_json};
 
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::errors::CheckErrorKind;
 use crate::vm::analysis::{mem_type_check, type_check};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
@@ -54,8 +54,8 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
 const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
            (if (< name u100000) u1000 u100))
-         
-         (define-map name-map 
+
+         (define-map name-map
            { name: uint } { owner: principal })
          (define-map preorder-map
            { name-hash: (buff 20) }
@@ -64,7 +64,7 @@ const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP0000000000000000000
          (define-private (check-balance)
            (contract-call? .tokens my-get-token-balance tx-sender))
 
-         (define-public (preorder 
+         (define-public (preorder
                         (name-hash (buff 20))
                         (name-price uint))
            (let ((xfer-result (contract-call? .tokens token-transfer
@@ -88,13 +88,13 @@ const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP0000000000000000000
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
-                 (name-entry 
+                 (name-entry
                    (map-get? name-map (tuple (name name)))))
              (if (and
                   ;; name shouldn't *already* exist
                   (is-none name-entry)
                   ;; preorder must have paid enough
-                  (<= (price-function name) 
+                  (<= (price-function name)
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
                   (is-eq tx-sender
@@ -231,7 +231,7 @@ fn test_names_tokens_contracts_interface() {
                     { "name": "tn1", "type": "bool" },
                     { "name": "tn2", "type": "int128" },
                     { "name": "tn3", "type": { "buffer": { "length": 1 } }}
-                ] } } 
+                ] } }
             },
             { "name": "f11",
                 "access": "private",
@@ -364,7 +364,7 @@ fn test_names_tokens_contracts_interface() {
                                     "name": "n2",
                                     "type": "bool"
                                 }
-                            ] 
+                            ]
                         }
                     }]
                 }
@@ -492,7 +492,7 @@ fn test_names_tokens_contracts_bad() {
             )
         })
         .unwrap_err();
-    assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(err.err, CheckErrorKind::TypeError(_, _)));
 }
 
 #[test]
@@ -534,7 +534,7 @@ fn test_bad_map_usage() {
     for contract in tests.iter() {
         let err = mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
             .unwrap_err();
-        assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(err.err, CheckErrorKind::TypeError(_, _)));
     }
 
     assert!(matches!(
@@ -545,7 +545,7 @@ fn test_bad_map_usage() {
         )
         .unwrap_err()
         .err,
-        CheckErrors::UnionTypeError(_, _)
+        CheckErrorKind::UnionTypeError(_, _)
     ));
 }
 
@@ -663,7 +663,10 @@ fn test_expects() {
         )
         .unwrap_err();
         eprintln!("unmatched_return_types returned check error: {err}");
-        assert!(matches!(err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
+        assert!(matches!(
+            err.err,
+            CheckErrorKind::ReturnTypesMustMatch(_, _)
+        ));
     }
 
     let err = mem_type_check(
@@ -673,7 +676,10 @@ fn test_expects() {
     )
     .unwrap_err();
     eprintln!("bad_default_types returned check error: {err}");
-    assert!(matches!(err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
+    assert!(matches!(
+        err.err,
+        CheckErrorKind::DefaultTypesMustMatch(_, _)
+    ));
 
     let err = mem_type_check(
         notype_response_type,
@@ -684,7 +690,7 @@ fn test_expects() {
     eprintln!("notype_response_type returned check error: {err}");
     assert!(matches!(
         err.err,
-        CheckErrors::CouldNotDetermineResponseErrType
+        CheckErrorKind::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(
@@ -696,6 +702,6 @@ fn test_expects() {
     eprintln!("notype_response_type_2 returned check error: {err}");
     assert!(matches!(
         err.err,
-        CheckErrors::CouldNotDetermineResponseOkType
+        CheckErrorKind::CouldNotDetermineResponseOkType
     ));
 }

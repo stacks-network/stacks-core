@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
-    errors::{CheckErrors, Error, RuntimeErrorType},
+    errors::{CheckErrorKind, RuntimeError, VmExecutionError},
     execute, execute_v2,
     types::{
         signatures::{
@@ -59,7 +59,7 @@ fn test_simple_list_admission() {
     );
     let err = execute(&t3).unwrap_err();
     assert!(match err {
-        Error::Unchecked(CheckErrors::TypeValueError(_, _)) => true,
+        VmExecutionError::IntegrityCheck(CheckErrorKind::TypeValueError(_, _)) => true,
         _ => {
             eprintln!("Expected TypeError, but found: {err:?}");
             false
@@ -112,16 +112,16 @@ fn test_index_of() {
     ];
 
     let bad_expected = [
-        CheckErrors::ExpectedSequence(TypeSignature::IntType),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::ExpectedSequence(TypeSignature::IntType),
+        CheckErrorKind::TypeValueError(
             TypeSignature::min_buffer().unwrap(),
             execute("\"a\"").unwrap().unwrap(),
         ),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             TypeSignature::min_string_utf8().unwrap(),
             execute("\"a\"").unwrap().unwrap(),
         ),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             TypeSignature::min_string_ascii().unwrap(),
             execute("u\"a\"").unwrap().unwrap(),
         ),
@@ -129,7 +129,7 @@ fn test_index_of() {
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         match execute(bad_test).unwrap_err() {
-            Error::Unchecked(check_error) => {
+            VmExecutionError::IntegrityCheck(check_error) => {
                 assert_eq!(&check_error, expected);
             }
             _ => unreachable!("Should have raised unchecked errors"),
@@ -173,13 +173,13 @@ fn test_element_at() {
     let bad = ["(element-at 3 u1)", "(element-at (list 1 2 3) 1)"];
 
     let bad_expected = [
-        CheckErrors::ExpectedSequence(TypeSignature::IntType),
-        CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(1)),
+        CheckErrorKind::ExpectedSequence(TypeSignature::IntType),
+        CheckErrorKind::TypeValueError(TypeSignature::UIntType, Value::Int(1)),
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         match execute(bad_test).unwrap_err() {
-            Error::Unchecked(check_error) => {
+            VmExecutionError::IntegrityCheck(check_error) => {
                 assert_eq!(&check_error, expected);
             }
             _ => unreachable!("Should have raised unchecked errors"),
@@ -451,7 +451,7 @@ fn test_simple_map_append() {
 
     assert_eq!(
         execute("(append (append (list) 1) u2)").unwrap_err(),
-        CheckErrors::TypeValueError(IntType, Value::UInt(2)).into()
+        CheckErrorKind::TypeValueError(IntType, Value::UInt(2)).into()
     );
 }
 
@@ -587,17 +587,17 @@ fn test_simple_list_concat() {
 
     assert_eq!(
         execute("(concat (list 1) (list u4 u8))").unwrap_err(),
-        CheckErrors::TypeError(IntType, UIntType).into()
+        CheckErrorKind::TypeError(IntType, UIntType).into()
     );
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        RuntimeError::BadTypeConstruction.into()
     );
 
     assert_eq!(
         execute("(concat (list 1) \"1\")").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        RuntimeError::BadTypeConstruction.into()
     );
 }
 
@@ -623,12 +623,12 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 3)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        RuntimeError::BadTypeConstruction.into()
     );
 
     assert_eq!(
         execute("(concat 0x31 (list 1))").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        RuntimeError::BadTypeConstruction.into()
     );
 }
 
@@ -710,25 +710,25 @@ fn test_simple_list_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 0 u0 (list 0))").unwrap_err(),
-        CheckErrors::ExpectedSequence(IntType).into()
+        CheckErrorKind::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at? (list 1) 0 0)").unwrap_err(),
-        CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
+        CheckErrorKind::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? (list 2 3) u0 true)").unwrap_err(),
-        CheckErrors::TypeValueError(IntType, Value::Bool(true)).into()
+        CheckErrorKind::TypeValueError(IntType, Value::Bool(true)).into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? (list 2 3) u0 0x00)").unwrap_err(),
-        CheckErrors::TypeValueError(IntType, Value::buff_from_byte(0)).into()
+        CheckErrorKind::TypeValueError(IntType, Value::buff_from_byte(0)).into()
     );
 }
 
@@ -768,27 +768,27 @@ fn test_simple_buff_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 0x00)").unwrap_err(),
-        CheckErrors::ExpectedSequence(IntType).into()
+        CheckErrorKind::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at? 0x002244 0 0x99)").unwrap_err(),
-        CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
+        CheckErrorKind::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     let buff_len = BufferLength::try_from(1u32).unwrap();
     assert_eq!(
         execute_v2("(replace-at? 0x445522 u0 55)").unwrap_err(),
-        CheckErrors::TypeValueError(SequenceType(BufferType(buff_len.clone())), Value::Int(55))
+        CheckErrorKind::TypeValueError(SequenceType(BufferType(buff_len.clone())), Value::Int(55))
             .into()
     );
 
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 0x445522 u0 (list 5))").unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             SequenceType(BufferType(buff_len.clone())),
             Value::list_from(vec![Value::Int(5)]).unwrap()
         )
@@ -798,7 +798,7 @@ fn test_simple_buff_replace_at() {
     // The element input has the wrong type (not length 1)
     assert_eq!(
         execute_v2("(replace-at? 0x445522 u0 0x0044)").unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             SequenceType(BufferType(buff_len)),
             Value::buff_from(vec![0, 68]).unwrap()
         )
@@ -842,20 +842,20 @@ fn test_simple_string_ascii_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 \"c\")").unwrap_err(),
-        CheckErrors::ExpectedSequence(IntType).into()
+        CheckErrorKind::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at? \"abc\" 0 \"c\")").unwrap_err(),
-        CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
+        CheckErrorKind::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     let buff_len = BufferLength::try_from(1u32).unwrap();
     assert_eq!(
         execute_v2("(replace-at? \"abc\" u0 55)").unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             SequenceType(StringType(ASCII(buff_len.clone()))),
             Value::Int(55)
         )
@@ -865,7 +865,7 @@ fn test_simple_string_ascii_replace_at() {
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? \"abc\" u0 0x00)").unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             SequenceType(StringType(ASCII(buff_len.clone()))),
             Value::buff_from_byte(0)
         )
@@ -875,7 +875,7 @@ fn test_simple_string_ascii_replace_at() {
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? \"abc\" u0 \"de\")").unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             SequenceType(StringType(ASCII(buff_len))),
             Value::string_ascii_from_bytes("de".into()).unwrap()
         )
@@ -923,20 +923,20 @@ fn test_simple_string_utf8_replace_at() {
     // The sequence input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? 33 u0 u\"c\")").unwrap_err(),
-        CheckErrors::ExpectedSequence(IntType).into()
+        CheckErrorKind::ExpectedSequence(IntType).into()
     );
 
     // The type of the index should be uint.
     assert_eq!(
         execute_v2("(replace-at? u\"abc\" 0 u\"c\")").unwrap_err(),
-        CheckErrors::TypeValueError(UIntType, Value::Int(0)).into()
+        CheckErrorKind::TypeValueError(UIntType, Value::Int(0)).into()
     );
 
     // The element input has the wrong type
     let str_len = StringUTF8Length::try_from(1u32).unwrap();
     assert_eq!(
         execute_v2("(replace-at? u\"abc\" u0 55)").unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
             Value::Int(55)
         )
@@ -946,7 +946,7 @@ fn test_simple_string_utf8_replace_at() {
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? u\"abc\" u0 0x00)").unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len.clone()))),
             Value::buff_from_byte(0)
         )
@@ -956,7 +956,7 @@ fn test_simple_string_utf8_replace_at() {
     // The element input has the wrong type
     assert_eq!(
         execute_v2("(replace-at? u\"abc\" u0 u\"de\")").unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             TypeSignature::SequenceType(StringType(StringSubtype::UTF8(str_len))),
             Value::string_utf8_from_string_utf8_literal("de".to_string()).unwrap()
         )
@@ -984,22 +984,22 @@ fn test_simple_buff_assert_max_len() {
 
     assert_eq!(
         execute("(as-max-len? 0x313233)").unwrap_err(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into()
+        CheckErrorKind::IncorrectArgumentCount(2, 1).into()
     );
 
     assert_eq!(
         execute("(as-max-len? 0x313233 3)").unwrap_err(),
-        CheckErrors::TypeError(UIntType, IntType).into()
+        CheckErrorKind::TypeError(UIntType, IntType).into()
     );
 
     assert_eq!(
         execute("(as-max-len? 1 u3)").unwrap_err(),
-        CheckErrors::ExpectedSequence(IntType).into()
+        CheckErrorKind::ExpectedSequence(IntType).into()
     );
 
     assert_eq!(
         execute("(as-max-len? 0x313233 0x31)").unwrap_err(),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             UIntType,
             SequenceType(SequenceSubtype::BufferType(1_u32.try_into().unwrap()))
         )
@@ -1125,7 +1125,7 @@ fn test_simple_folds_string() {
         "(define-private (get-slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
-                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
+                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
         (get data (fold get-slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
 
@@ -1162,14 +1162,14 @@ fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: Stack
     let test1 = "(list 1 2 3 true)";
     assert_eq!(
         execute(test1).unwrap_err(),
-        CheckErrors::TypeError(IntType, BoolType).into()
+        CheckErrorKind::TypeError(IntType, BoolType).into()
     );
 
     let test2 = "(define-private (bad-function (x int)) (if (is-eq x 1) true x))
                  (map bad-function (list 0 1 2 3))";
     assert_eq!(
         execute(test2).unwrap_err(),
-        CheckErrors::TypeError(IntType, BoolType).into()
+        CheckErrorKind::TypeError(IntType, BoolType).into()
     );
 
     let bad_2d_list = "(list (list 1 2 3) (list true false true))";
@@ -1177,11 +1177,11 @@ fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: Stack
 
     assert_eq!(
         execute(bad_2d_list).unwrap_err(),
-        CheckErrors::TypeError(IntType, BoolType).into()
+        CheckErrorKind::TypeError(IntType, BoolType).into()
     );
     assert_eq!(
         execute(bad_high_order_list).unwrap_err(),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             IntType,
             TypeSignature::from_string("(list 3 int)", version, epoch)
         )
@@ -1192,23 +1192,23 @@ fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: Stack
 #[test]
 fn test_eval_func_arg_panic() {
     let test1 = "(fold (lambda (x y) (* x y)) (list 1 2 3 4) 1)";
-    let e: Error = CheckErrors::ExpectedName.into();
+    let e: VmExecutionError = CheckErrorKind::ExpectedName.into();
     assert_eq!(e, execute(test1).unwrap_err());
 
     let test2 = "(map (lambda (x) (* x x)) (list 1 2 3 4))";
-    let e: Error = CheckErrors::ExpectedName.into();
+    let e: VmExecutionError = CheckErrorKind::ExpectedName.into();
     assert_eq!(e, execute(test2).unwrap_err());
 
     let test3 = "(map square (list 1 2 3 4) 2)";
-    let e: Error = CheckErrors::UndefinedFunction("square".to_string()).into();
+    let e: VmExecutionError = CheckErrorKind::UndefinedFunction("square".to_string()).into();
     assert_eq!(e, execute(test3).unwrap_err());
 
     let test4 = "(define-private (multiply-all (x int) (acc int)) (* x acc))
          (fold multiply-all (list 1 2 3 4))";
-    let e: Error = CheckErrors::IncorrectArgumentCount(3, 2).into();
+    let e: VmExecutionError = CheckErrorKind::IncorrectArgumentCount(3, 2).into();
     assert_eq!(e, execute(test4).unwrap_err());
 
     let test5 = "(map + (list 1 2 3 4) 2)";
-    let e: Error = CheckErrors::ExpectedSequence(IntType).into();
+    let e: VmExecutionError = CheckErrorKind::ExpectedSequence(IntType).into();
     assert_eq!(e, execute(test5).unwrap_err());
 }

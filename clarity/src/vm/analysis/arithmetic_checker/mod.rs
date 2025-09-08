@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
+    check_argument_count, check_arguments_at_least, CheckError, CheckErrorKind, CheckResult,
 };
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};

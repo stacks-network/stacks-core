@@ -51,7 +51,7 @@ use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
+use crate::clarity::vm::errors::{VmExecutionError, ExecutionResult, RuntimeError};
 use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
@@ -149,7 +149,7 @@ fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
     clarity_version: ClarityVersion,
-) -> Result<Vec<SymbolicExpression>, Error> {
+) -> Result<Vec<SymbolicExpression>, VmExecutionError> {
     let ast = build_ast_with_rules(
         contract_identifier,
         source_code,
@@ -158,7 +158,7 @@ fn parse(
         DEFAULT_CLI_EPOCH,
         ASTRules::PrecheckSize,
     )
-    .map_err(RuntimeErrorType::ASTError)?;
+    .map_err(RuntimeError::ASTError)?;
     Ok(ast.expressions)
 }
 
@@ -442,7 +442,10 @@ where
 
 /// Execute program in a transient environment. To be used only by CLI tools
 ///  for program evaluation, not by consensus critical code.
-pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Option<Value>, Error> {
+pub fn vm_execute(
+    program: &str,
+    clarity_version: ClarityVersion,
+) -> Result<Option<Value>, VmExecutionError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
@@ -875,7 +878,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                 None,
                 None,
                 |env| {
-                    let res: InterpreterResult<_> = Ok(env
+                    let res: ExecutionResult<_> = Ok(env
                         .global_context
                         .database
                         .set_clarity_epoch_version(DEFAULT_CLI_EPOCH));

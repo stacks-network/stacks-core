@@ -23,7 +23,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use stacks_common::codec::{read_next, write_next, Error as codec_error, StacksMessageCodec};
 
-use crate::vm::errors::RuntimeErrorType;
+use crate::vm::errors::RuntimeError;
 use crate::vm::types::{TraitIdentifier, Value};
 
 pub const CONTRACT_MIN_NAME_LENGTH: usize = 1;
@@ -68,16 +68,16 @@ guarded_string!(
     "ClarityName",
     CLARITY_NAME_REGEX,
     MAX_STRING_LEN,
-    RuntimeErrorType,
-    RuntimeErrorType::BadNameValue
+    RuntimeError,
+    RuntimeError::BadNameValue
 );
 guarded_string!(
     ContractName,
     "ContractName",
     CONTRACT_NAME_REGEX,
     MAX_STRING_LEN,
-    RuntimeErrorType,
-    RuntimeErrorType::BadNameValue
+    RuntimeError,
+    RuntimeError::BadNameValue
 );
 
 impl StacksMessageCodec for ClarityName {
@@ -624,14 +624,14 @@ impl SymbolicExpression {
     }
 
     /// Encode this SymbolicExpression as a String suitable for logging an error (such as in
-    /// CheckErrors).  The `developer-mode` feature includes the `span`.
+    /// CheckErrorKind).  The `developer-mode` feature includes the `span`.
     #[cfg(feature = "developer-mode")]
     pub fn as_error_string(&self) -> String {
         format!("{} at {:?}", &self.expr, &self.span)
     }
 
     /// Encode this SymbolicExpression as a String suitable for logging an error (such as in
-    /// CheckErrors).
+    /// CheckErrorKind).
     #[cfg(not(feature = "developer-mode"))]
     pub fn as_error_string(&self) -> String {
         format!("{}", &self.expr)

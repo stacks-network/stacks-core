@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{cmp, fs, io};
 
-pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
+pub use clarity::vm::analysis::errors::{CheckError, CheckErrorKind};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
@@ -307,8 +307,8 @@ impl From<db_error> for MemPoolRejection {
     }
 }
 
-impl From<clarity::vm::errors::Error> for MemPoolRejection {
-    fn from(e: clarity::vm::errors::Error) -> MemPoolRejection {
+impl From<clarity::vm::errors::VmExecutionError> for MemPoolRejection {
+    fn from(e: clarity::vm::errors::VmExecutionError) -> MemPoolRejection {
         MemPoolRejection::Other(e.to_string())
     }
 }
@@ -2662,7 +2662,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         StacksChainState::has_any_i64(
             self.db(),
-            "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1", 
+            "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1",
             &[&parent_index_block_hash, &min_seq]
         )
     }
@@ -3929,12 +3929,14 @@ impl StacksChainState {
     ) -> Result<(bool, Vec<StacksTransactionReceipt>), Error> {
         // is this stacks block the first of a new epoch?
         let (stacks_parent_epoch, sortition_epoch) = clarity_tx
-            .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(|db| {
-                Ok((
-                    db.get_clarity_epoch_version()?,
-                    db.get_stacks_epoch(chain_tip_burn_header_height),
-                ))
-            })?;
+            .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::VmExecutionError>>(
+                |db| {
+                    Ok((
+                        db.get_clarity_epoch_version()?,
+                        db.get_stacks_epoch(chain_tip_burn_header_height),
+                    ))
+                },
+            )?;
 
         let mut receipts = vec![];
         let mut applied = false;
@@ -6625,7 +6627,7 @@ impl StacksChainState {
 
         let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
             clarity_connection
-                .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(
+                .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::VmExecutionError>>(
                     |ref mut db| {
                         Ok((
                             db.get_current_burnchain_block_height()? as u64,

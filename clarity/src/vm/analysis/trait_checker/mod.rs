@@ -16,7 +16,7 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckErrorKind, CheckResult};
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
 use crate::vm::analysis::AnalysisDatabase;
 
@@ -50,13 +50,13 @@ impl TraitChecker {
             let trait_name = trait_identifier.name.to_string();
             let contract_defining_trait = analysis_db
                 .load_contract(&trait_identifier.contract_identifier, &self.epoch)?
-                .ok_or(CheckErrors::TraitReferenceUnknown(
+                .ok_or(CheckErrorKind::TraitReferenceUnknown(
                     trait_identifier.name.to_string(),
                 ))?;
 
             let trait_definition = contract_defining_trait
                 .get_defined_trait(&trait_name)
-                .ok_or(CheckErrors::TraitReferenceUnknown(
+                .ok_or(CheckErrorKind::TraitReferenceUnknown(
                     trait_identifier.name.to_string(),
                 ))?;
 

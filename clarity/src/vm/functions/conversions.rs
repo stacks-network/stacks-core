@@ -17,7 +17,7 @@
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
+    check_argument_count, CheckErrorKind, ExecutionResult as Result, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::serialization::SerializationError;
@@ -52,11 +52,11 @@ pub fn buff_to_int_generic(
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
             if sequence_data.len()?
                 > BufferLength::try_from(16_u32)
-                    .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?
+                    .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?
             {
-                Err(CheckErrors::TypeValueError(
+                Err(CheckErrorKind::TypeValueError(
                     SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
-                        |_| InterpreterError::Expect("Failed to construct".into()),
+                        |_| VmInternalError::Expect("Failed to construct".into()),
                     )?)),
                     value,
                 )
@@ -79,9 +79,9 @@ pub fn buff_to_int_generic(
                 Ok(value)
             }
         }
-        _ => Err(CheckErrors::TypeValueError(
+        _ => Err(CheckErrorKind::TypeValueError(
             SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
-                |_| InterpreterError::Expect("Failed to construct".into()),
+                |_| VmInternalError::Expect("Failed to construct".into()),
             )?)),
             value,
         )
@@ -144,7 +144,7 @@ pub fn native_string_to_int_generic(
                 Err(_error) => Ok(Value::none()),
             }
         }
-        _ => Err(CheckErrors::UnionTypeValueError(
+        _ => Err(CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::max_string_ascii()?,
                 TypeSignature::max_string_utf8()?,
@@ -191,16 +191,16 @@ pub fn native_int_to_string_generic(
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
             Ok(bytes_to_value_fn(as_string.into()).map_err(|_| {
-                InterpreterError::Expect("Unexpected error converting Int to string.".into())
+                VmInternalError::Expect("Unexpected error converting Int to string.".into())
             })?)
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();
             Ok(bytes_to_value_fn(as_string.into()).map_err(|_| {
-                InterpreterError::Expect("Unexpected error converting UInt to string.".into())
+                VmInternalError::Expect("Unexpected error converting UInt to string.".into())
             })?)
         }
-        _ => Err(CheckErrors::UnionTypeValueError(
+        _ => Err(CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             value,
         )
@@ -225,7 +225,7 @@ pub fn to_consensus_buff(value: Value) -> Result<Value> {
     let mut clar_buff_serialized = vec![];
     value
         .serialize_write(&mut clar_buff_serialized)
-        .map_err(|_| InterpreterError::Expect("FATAL: failed to serialize to vec".into()))?;
+        .map_err(|_| VmInternalError::Expect("FATAL: failed to serialize to vec".into()))?;
 
     let clar_buff_serialized = match Value::buff_from(clar_buff_serialized) {
         Ok(x) => x,
@@ -256,7 +256,7 @@ pub fn from_consensus_buff(
     let input_bytes = if let Value::Sequence(SequenceData::Buffer(buff_data)) = value {
         Ok(buff_data.data)
     } else {
-        Err(CheckErrors::TypeValueError(
+        Err(CheckErrorKind::TypeValueError(
             TypeSignature::max_buffer()?,
             value,
         ))
@@ -278,7 +278,7 @@ pub fn from_consensus_buff(
     ) {
         Ok(value) => value,
         Err(SerializationError::UnexpectedSerialization) => {
-            return Err(CheckErrors::Expects("UnexpectedSerialization".into()).into())
+            return Err(CheckErrorKind::Expects("UnexpectedSerialization".into()).into())
         }
         Err(_) => return Ok(Value::none()),
     };

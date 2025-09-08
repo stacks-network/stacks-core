@@ -6,7 +6,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::*;
-use clarity::vm::errors::{CheckErrors, Error};
+use clarity::vm::errors::{CheckErrorKind, VmExecutionError};
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -30,7 +30,7 @@ use crate::chainstate::stacks::boot::{
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
-use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
+use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityError};
 use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
 use crate::core::{
     StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
@@ -1721,8 +1721,8 @@ fn simple_epoch21_test() {
         )
         .expect_err("2.0 'bad' contract should not deploy successfully")
         {
-            ClarityError::Analysis(e) => {
-                assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
+            ClarityError::StaticCheck(e) => {
+                assert_eq!(e.err, CheckErrorKind::UnknownFunction("stx-account".into()));
             }
             e => panic!("Should have caused an analysis error: {:#?}", e),
         };
@@ -1748,10 +1748,12 @@ fn simple_epoch21_test() {
         )
         .expect_err("2.1 'bad' contract should not deploy successfully")
         {
-            ClarityError::Interpreter(e) => {
+            ClarityError::Execution(e) => {
                 assert_eq!(
                     e,
-                    Error::Unchecked(CheckErrors::NameAlreadyUsed("stx-account".into()))
+                    VmExecutionError::IntegrityCheck(CheckErrorKind::NameAlreadyUsed(
+                        "stx-account".into()
+                    ))
                 );
             }
             e => panic!("Should have caused an Interpreter error: {:#?}", e),

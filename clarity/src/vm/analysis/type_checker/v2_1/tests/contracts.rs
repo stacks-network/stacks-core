@@ -21,7 +21,7 @@ use serde_json;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::errors::CheckErrorKind;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
     mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError, CheckResult,
@@ -111,8 +111,8 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
 const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
            (if (< name u100000) u1000 u100))
-         
-         (define-map name-map 
+
+         (define-map name-map
            { name: uint } { owner: principal })
          (define-map preorder-map
            { name-hash: (buff 20) }
@@ -121,7 +121,7 @@ const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP0000000000000000000
          (define-private (check-balance)
            (contract-call? .tokens my-get-token-balance tx-sender))
 
-         (define-public (preorder 
+         (define-public (preorder
                         (name-hash (buff 20))
                         (name-price uint))
            (let ((xfer-result (contract-call? .tokens token-transfer
@@ -145,13 +145,13 @@ const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP0000000000000000000
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
-                 (name-entry 
+                 (name-entry
                    (map-get? name-map (tuple (name name)))))
              (if (and
                   ;; name shouldn't *already* exist
                   (is-none name-entry)
                   ;; preorder must have paid enough
-                  (<= (price-function name) 
+                  (<= (price-function name)
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
                   (is-eq tx-sender
@@ -280,7 +280,7 @@ fn test_names_tokens_contracts_interface() {
                     { "name": "tn1", "type": "bool" },
                     { "name": "tn2", "type": "int128" },
                     { "name": "tn3", "type": { "buffer": { "length": 1 } }}
-                ] } } 
+                ] } }
             },
             { "name": "f11",
                 "access": "private",
@@ -413,7 +413,7 @@ fn test_names_tokens_contracts_interface() {
                                     "name": "n2",
                                     "type": "bool"
                                 }
-                            ] 
+                            ]
                         }
                     }]
                 }
@@ -489,7 +489,7 @@ fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion, #[case] epoc
     let err = db
         .execute(|db| type_check(&names_contract_id, &mut names_contract, db, true))
         .unwrap_err();
-    assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(err.err, CheckErrorKind::TypeError(_, _)));
 }
 
 #[test]
@@ -530,12 +530,12 @@ fn test_bad_map_usage() {
 
     for contract in tests.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(err.err, CheckErrorKind::TypeError(_, _)));
     }
 
     assert!(matches!(
         mem_type_check(unhandled_option).unwrap_err().err,
-        CheckErrors::UnionTypeError(_, _)
+        CheckErrorKind::UnionTypeError(_, _)
     ));
 }
 
@@ -622,25 +622,31 @@ fn test_expects() {
     for unmatched_return_types in bad_return_types_tests.iter() {
         let err = mem_type_check(unmatched_return_types).unwrap_err();
         eprintln!("unmatched_return_types returned check error: {err}");
-        assert!(matches!(err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
+        assert!(matches!(
+            err.err,
+            CheckErrorKind::ReturnTypesMustMatch(_, _)
+        ));
     }
 
     let err = mem_type_check(bad_default_type).unwrap_err();
     eprintln!("bad_default_types returned check error: {err}");
-    assert!(matches!(err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
+    assert!(matches!(
+        err.err,
+        CheckErrorKind::DefaultTypesMustMatch(_, _)
+    ));
 
     let err = mem_type_check(notype_response_type).unwrap_err();
     eprintln!("notype_response_type returned check error: {err}");
     assert!(matches!(
         err.err,
-        CheckErrors::CouldNotDetermineResponseErrType
+        CheckErrorKind::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(notype_response_type_2).unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {err}");
     assert!(matches!(
         err.err,
-        CheckErrors::CouldNotDetermineResponseOkType
+        CheckErrorKind::CouldNotDetermineResponseOkType
     ));
 }
 
@@ -677,7 +683,7 @@ fn test_trait_to_compatible_trait() {
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -711,7 +717,7 @@ fn test_bad_principal_to_trait() {
     let err = mem_type_check(bad_principal_to_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -731,7 +737,7 @@ fn test_bad_principal_to_trait() {
     let err = mem_type_check_v1(bad_principal_to_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -767,7 +773,7 @@ fn test_bad_other_trait() {
     let err = mem_type_check(bad_other_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
+            err: CheckErrorKind::IncompatibleTrait(expected, actual),
             expressions: _,
             diagnostic: _,
         } => {
@@ -780,7 +786,7 @@ fn test_bad_other_trait() {
     let err = mem_type_check_v1(bad_other_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -820,7 +826,7 @@ fn test_embedded_trait() {
     let err = mem_type_check_v1(embedded_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
+            err: CheckErrorKind::TraitReferenceUnknown(name),
             expressions: _,
             diagnostic: _,
         } => {
@@ -855,7 +861,7 @@ fn test_embedded_trait_compatible() {
     let err = mem_type_check_v1(embedded_trait_compatible).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
+            err: CheckErrorKind::TraitReferenceUnknown(name),
             expressions: _,
             diagnostic: _,
         } => {
@@ -893,7 +899,7 @@ fn test_bad_embedded_trait() {
     let err = mem_type_check(bad_embedded_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
+            err: CheckErrorKind::IncompatibleTrait(expected, actual),
             expressions: _,
             diagnostic: _,
         } => {
@@ -906,7 +912,7 @@ fn test_bad_embedded_trait() {
     let err = mem_type_check_v1(bad_embedded_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
+            err: CheckErrorKind::TraitReferenceUnknown(name),
             expressions: _,
             diagnostic: _,
         } => {
@@ -933,7 +939,7 @@ fn test_let_trait() {
     let err = mem_type_check_v1(let_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
+            err: CheckErrorKind::TraitReferenceUnknown(name),
             expressions: _,
             diagnostic: _,
         } => {
@@ -964,7 +970,7 @@ fn test_let3_trait() {
     let err = mem_type_check_v1(let3_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
+            err: CheckErrorKind::TraitReferenceUnknown(name),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1024,7 +1030,7 @@ fn test_let3_compound_trait_call() {
     let err = mem_type_check_v1(let3_compound_trait_call).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
+            err: CheckErrorKind::TraitReferenceUnknown(name),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1053,7 +1059,7 @@ fn test_trait_args_differ() {
     let err = mem_type_check(trait_args_differ).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
+            err: CheckErrorKind::IncompatibleTrait(expected, actual),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1066,7 +1072,7 @@ fn test_trait_args_differ() {
     let err = mem_type_check_v1(trait_args_differ).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1103,7 +1109,7 @@ fn test_trait_arg_counts_differ1() {
     let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, found),
+            err: CheckErrorKind::IncompatibleTrait(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1116,7 +1122,7 @@ fn test_trait_arg_counts_differ1() {
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1153,7 +1159,7 @@ fn test_trait_arg_counts_differ2() {
     let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, found),
+            err: CheckErrorKind::IncompatibleTrait(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1166,7 +1172,7 @@ fn test_trait_arg_counts_differ2() {
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1203,7 +1209,7 @@ fn test_trait_ret_ty_differ() {
     let err = mem_type_check(trait_ret_ty_differ).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
+            err: CheckErrorKind::IncompatibleTrait(expected, actual),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1216,7 +1222,7 @@ fn test_trait_ret_ty_differ() {
     let err = mem_type_check_v1(trait_ret_ty_differ).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1261,7 +1267,7 @@ fn test_trait_with_compatible_trait_arg() {
     let err = mem_type_check_v1(trait_with_compatible_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1305,7 +1311,7 @@ fn test_trait_with_bad_trait_arg() {
     let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
+            err: CheckErrorKind::IncompatibleTrait(expected, actual),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1318,7 +1324,7 @@ fn test_trait_with_bad_trait_arg() {
     let err = mem_type_check_v1(trait_with_bad_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1363,7 +1369,7 @@ fn test_trait_with_superset_trait_arg() {
     let err = mem_type_check(trait_with_superset_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
+            err: CheckErrorKind::IncompatibleTrait(expected, actual),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1376,7 +1382,7 @@ fn test_trait_with_superset_trait_arg() {
     let err = mem_type_check_v1(trait_with_superset_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1422,7 +1428,7 @@ fn test_trait_with_subset_trait_arg() {
     let err = mem_type_check_v1(trait_with_subset_trait_arg).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1453,7 +1459,7 @@ fn test_trait_with_duplicate_method() {
     let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::DefineTraitDuplicateMethod(method_name),
+            err: CheckErrorKind::DefineTraitDuplicateMethod(method_name),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1477,17 +1483,17 @@ fn test_trait_to_subtrait_and_back() {
     ))
     (define-private (foo-0 (impl-contract <trait-2>))
         (foo-1 impl-contract))
- 
+
     (define-private (foo-1 (impl-contract <trait-1>))
         (foo-2 impl-contract))
-    
+
     (define-private (foo-2 (impl-contract <trait-2>))
         true)";
 
     let err = mem_type_check(trait_to_subtrait_and_back).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
+            err: CheckErrorKind::IncompatibleTrait(expected, actual),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1500,7 +1506,7 @@ fn test_trait_to_subtrait_and_back() {
     let err = mem_type_check_v1(trait_to_subtrait_and_back).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::TypeError(expected, found),
+            err: CheckErrorKind::TypeError(expected, found),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1554,7 +1560,7 @@ fn test_if_branches_with_incompatible_trait_types() {
     let err = mem_type_check(if_branches_with_incompatible_trait_types).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            err: CheckErrorKind::IfArmsMustMatch(type1, type2),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1575,7 +1581,7 @@ fn test_if_branches_with_incompatible_trait_types() {
     let err = mem_type_check_v1(if_branches_with_incompatible_trait_types).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            err: CheckErrorKind::IfArmsMustMatch(type1, type2),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1614,7 +1620,7 @@ fn test_if_branches_with_compatible_trait_types() {
     let err = mem_type_check(if_branches_with_compatible_trait_types).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            err: CheckErrorKind::IfArmsMustMatch(type1, type2),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1635,7 +1641,7 @@ fn test_if_branches_with_compatible_trait_types() {
     let err = mem_type_check_v1(if_branches_with_compatible_trait_types).unwrap_err();
     assert!(match err {
         CheckError {
-            err: CheckErrors::IfArmsMustMatch(type1, type2),
+            err: CheckErrorKind::IfArmsMustMatch(type1, type2),
             expressions: _,
             diagnostic: _,
         } => {
@@ -1698,7 +1704,7 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
         )
     }) {
         Err(CheckError {
-            err: CheckErrors::TraitMethodUnknown(trait_name, function),
+            err: CheckErrorKind::TraitMethodUnknown(trait_name, function),
             expressions: _,
             diagnostic: _,
         }) if version < ClarityVersion::Clarity2 => {
@@ -3485,8 +3491,8 @@ fn clarity_trait_experiments_double_trait_method2_v1_v2(
 }
 
 #[cfg(test)]
-impl From<CheckErrors> for String {
-    fn from(o: CheckErrors) -> Self {
+impl From<CheckErrorKind> for String {
+    fn from(o: CheckErrorKind) -> Self {
         o.to_string()
     }
 }

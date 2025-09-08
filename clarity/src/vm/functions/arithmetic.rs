@@ -21,7 +21,7 @@ use integer_sqrt::IntegerSquareRoot;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult, RuntimeErrorType,
+    check_argument_count, CheckErrorKind, ExecutionResult, RuntimeError, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
@@ -37,25 +37,25 @@ struct UTF8Ops();
 struct BuffOps();
 
 impl U128Ops {
-    fn make_value(x: u128) -> InterpreterResult<Value> {
+    fn make_value(x: u128) -> ExecutionResult<Value> {
         Ok(Value::UInt(x))
     }
 }
 
 impl I128Ops {
-    fn make_value(x: i128) -> InterpreterResult<Value> {
+    fn make_value(x: i128) -> ExecutionResult<Value> {
         Ok(Value::Int(x))
     }
 }
 impl ASCIIOps {
-    fn make_value(x: Vec<u8>) -> InterpreterResult<Value> {
+    fn make_value(x: Vec<u8>) -> ExecutionResult<Value> {
         Ok(Value::Sequence(SequenceData::String(CharType::ASCII(
             ASCIIData { data: x },
         ))))
     }
 }
 impl UTF8Ops {
-    fn make_value(x: Vec<Vec<u8>>) -> InterpreterResult<Value> {
+    fn make_value(x: Vec<Vec<u8>>) -> ExecutionResult<Value> {
         Ok(Value::Sequence(SequenceData::String(CharType::UTF8(
             UTF8Data { data: x },
         ))))
@@ -63,7 +63,7 @@ impl UTF8Ops {
 }
 
 impl BuffOps {
-    fn make_value(x: Vec<u8>) -> InterpreterResult<Value> {
+    fn make_value(x: Vec<u8>) -> ExecutionResult<Value> {
         Ok(Value::Sequence(SequenceData::Buffer(BuffData { data: x })))
     }
 }
@@ -76,7 +76,7 @@ macro_rules! type_force_binary_arithmetic {
         match ($x, $y) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (x, _) => Err(CheckErrors::UnionTypeValueError(
+            (x, _) => Err(CheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 x,
             )
@@ -91,7 +91,7 @@ macro_rules! type_force_binary_comparison_v1 {
         match ($x, $y) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (x, _) => Err(CheckErrors::UnionTypeValueError(
+            (x, _) => Err(CheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 x,
             )
@@ -119,7 +119,7 @@ macro_rules! type_force_binary_comparison_v2 {
                 Value::Sequence(SequenceData::Buffer(BuffData { data: x })),
                 Value::Sequence(SequenceData::Buffer(BuffData { data: y })),
             ) => BuffOps::$function(x, y),
-            (x, _) => Err(CheckErrors::UnionTypeValueError(
+            (x, _) => Err(CheckErrorKind::UnionTypeValueError(
                 vec![
                     TypeSignature::IntType,
                     TypeSignature::UIntType,
@@ -139,7 +139,7 @@ macro_rules! type_force_unary_arithmetic {
         match $x {
             Value::Int(x) => I128Ops::$function(x),
             Value::UInt(x) => U128Ops::$function(x),
-            x => Err(CheckErrors::UnionTypeValueError(
+            x => Err(CheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 x,
             )
@@ -155,14 +155,14 @@ macro_rules! type_force_variadic_arithmetic {
     ($function: ident, $args: expr) => {{
         let first = $args
             .get(0)
-            .ok_or(CheckErrors::IncorrectArgumentCount(1, $args.len()))?;
+            .ok_or(CheckErrorKind::IncorrectArgumentCount(1, $args.len()))?;
         match first {
             Value::Int(_) => {
                 let typed_args: Result<Vec<_>, _> = $args
                     .drain(..)
                     .map(|x| match x {
                         Value::Int(value) => Ok(value),
-                        _ => Err(CheckErrors::TypeValueError(
+                        _ => Err(CheckErrorKind::TypeValueError(
                             TypeSignature::IntType,
                             x.clone(),
                         )),
@@ -176,7 +176,7 @@ macro_rules! type_force_variadic_arithmetic {
                     .drain(..)
                     .map(|x| match x {
                         Value::UInt(value) => Ok(value),
-                        _ => Err(CheckErrors::TypeValueError(
+                        _ => Err(CheckErrorKind::TypeValueError(
                             TypeSignature::UIntType,
                             x.clone(),
                         )),
@@ -185,7 +185,7 @@ macro_rules! type_force_variadic_arithmetic {
                 let checked_args = typed_args?;
                 U128Ops::$function(&checked_args)
             }
-            _ => Err(CheckErrors::UnionTypeValueError(
+            _ => Err(CheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 first.clone(),
             )
@@ -199,16 +199,16 @@ macro_rules! type_force_variadic_arithmetic {
 macro_rules! make_comparison_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
-            fn greater(x: $type, y: $type) -> InterpreterResult<Value> {
+            fn greater(x: $type, y: $type) -> ExecutionResult<Value> {
                 Ok(Value::Bool(x > y))
             }
-            fn less(x: $type, y: $type) -> InterpreterResult<Value> {
+            fn less(x: $type, y: $type) -> ExecutionResult<Value> {
                 Ok(Value::Bool(x < y))
             }
-            fn leq(x: $type, y: $type) -> InterpreterResult<Value> {
+            fn leq(x: $type, y: $type) -> ExecutionResult<Value> {
                 Ok(Value::Bool(x <= y))
             }
-            fn geq(x: $type, y: $type) -> InterpreterResult<Value> {
+            fn geq(x: $type, y: $type) -> ExecutionResult<Value> {
                 Ok(Value::Bool(x >= y))
             }
         }
@@ -222,14 +222,14 @@ macro_rules! make_comparison_ops {
 macro_rules! make_arithmetic_ops {
     ($struct_name: ident, $type:ty) => {
         impl $struct_name {
-            fn xor(x: $type, y: $type) -> InterpreterResult<Value> {
+            fn xor(x: $type, y: $type) -> ExecutionResult<Value> {
                 Self::make_value(x ^ y)
             }
-            fn bitwise_xor2(args: &[$type]) -> InterpreterResult<Value> {
+            fn bitwise_xor2(args: &[$type]) -> ExecutionResult<Value> {
                 let result = args.iter().fold(0, |acc: $type, x: &$type| (acc ^ x));
                 Self::make_value(result)
             }
-            fn bitwise_and(args: &[$type]) -> InterpreterResult<Value> {
+            fn bitwise_and(args: &[$type]) -> ExecutionResult<Value> {
                 let first: $type = args[0];
                 let result = args
                     .iter()
@@ -237,64 +237,64 @@ macro_rules! make_arithmetic_ops {
                     .fold(first, |acc: $type, x: &$type| (acc & x));
                 Self::make_value(result)
             }
-            fn bitwise_or(args: &[$type]) -> InterpreterResult<Value> {
+            fn bitwise_or(args: &[$type]) -> ExecutionResult<Value> {
                 let result = args.iter().fold(0, |acc: $type, x: &$type| (acc | x));
                 Self::make_value(result)
             }
-            fn bitwise_not(x: $type) -> InterpreterResult<Value> {
+            fn bitwise_not(x: $type) -> ExecutionResult<Value> {
                 Self::make_value(!x)
             }
-            fn add(args: &[$type]) -> InterpreterResult<Value> {
+            fn add(args: &[$type]) -> ExecutionResult<Value> {
                 let result = args
                     .iter()
                     .try_fold(0, |acc: $type, x: &$type| acc.checked_add(*x))
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                    .ok_or(RuntimeError::ArithmeticOverflow)?;
                 Self::make_value(result)
             }
-            fn sub(args: &[$type]) -> InterpreterResult<Value> {
+            fn sub(args: &[$type]) -> ExecutionResult<Value> {
                 let (first, rest) = args
                     .split_first()
-                    .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
+                    .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 0))?;
                 if rest.len() == 0 {
                     // return negation
                     return Self::make_value(
                         first
                             .checked_neg()
-                            .ok_or(RuntimeErrorType::ArithmeticUnderflow)?,
+                            .ok_or(RuntimeError::ArithmeticUnderflow)?,
                     );
                 }
 
                 let result = rest
                     .iter()
                     .try_fold(*first, |acc: $type, x: &$type| acc.checked_sub(*x))
-                    .ok_or(RuntimeErrorType::ArithmeticUnderflow)?;
+                    .ok_or(RuntimeError::ArithmeticUnderflow)?;
                 Self::make_value(result)
             }
-            fn mul(args: &[$type]) -> InterpreterResult<Value> {
+            fn mul(args: &[$type]) -> ExecutionResult<Value> {
                 let result = args
                     .iter()
                     .try_fold(1, |acc: $type, x: &$type| acc.checked_mul(*x))
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                    .ok_or(RuntimeError::ArithmeticOverflow)?;
                 Self::make_value(result)
             }
-            fn div(args: &[$type]) -> InterpreterResult<Value> {
+            fn div(args: &[$type]) -> ExecutionResult<Value> {
                 let (first, rest) = args
                     .split_first()
-                    .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
+                    .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 0))?;
                 let result = rest
                     .iter()
                     .try_fold(*first, |acc: $type, x: &$type| acc.checked_div(*x))
-                    .ok_or(RuntimeErrorType::DivisionByZero)?;
+                    .ok_or(RuntimeError::DivisionByZero)?;
                 Self::make_value(result)
             }
-            fn modulo(numerator: $type, denominator: $type) -> InterpreterResult<Value> {
+            fn modulo(numerator: $type, denominator: $type) -> ExecutionResult<Value> {
                 let result = numerator
                     .checked_rem(denominator)
-                    .ok_or(RuntimeErrorType::DivisionByZero)?;
+                    .ok_or(RuntimeError::DivisionByZero)?;
                 Self::make_value(result)
             }
             #[allow(unused_comparisons)]
-            fn pow(base: $type, power: $type) -> InterpreterResult<Value> {
+            fn pow(base: $type, power: $type) -> ExecutionResult<Value> {
                 if base == 0 && power == 0 {
                     // Note that 0⁰ (pow(0, 0)) returns 1. Mathematically this is undefined (https://docs.rs/num-traits/0.2.10/num_traits/pow/fn.pow.html)
                     return Self::make_value(1);
@@ -312,7 +312,7 @@ macro_rules! make_arithmetic_ops {
                 }
 
                 if power < 0 || power > (u32::MAX as $type) {
-                    return Err(RuntimeErrorType::Arithmetic(
+                    return Err(RuntimeError::Arithmetic(
                         "Power argument to (pow ...) must be a u32 integer".to_string(),
                     )
                     .into());
@@ -322,23 +322,23 @@ macro_rules! make_arithmetic_ops {
 
                 let result = base
                     .checked_pow(power_u32)
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                    .ok_or(RuntimeError::ArithmeticOverflow)?;
                 Self::make_value(result)
             }
-            fn sqrti(n: $type) -> InterpreterResult<Value> {
+            fn sqrti(n: $type) -> ExecutionResult<Value> {
                 match n.integer_sqrt_checked() {
                     Some(result) => Self::make_value(result),
                     None => {
-                        return Err(RuntimeErrorType::Arithmetic(
+                        return Err(RuntimeError::Arithmetic(
                             "sqrti must be passed a positive integer".to_string(),
                         )
                         .into())
                     }
                 }
             }
-            fn log2(n: $type) -> InterpreterResult<Value> {
+            fn log2(n: $type) -> ExecutionResult<Value> {
                 if n < 1 {
-                    return Err(RuntimeErrorType::Arithmetic(
+                    return Err(RuntimeError::Arithmetic(
                         "log2 must be passed a positive integer".to_string(),
                     )
                     .into());
@@ -360,24 +360,24 @@ make_comparison_ops!(UTF8Ops, Vec<Vec<u8>>);
 make_comparison_ops!(BuffOps, Vec<u8>);
 
 // Used for the `xor` function.
-pub fn native_xor(a: Value, b: Value) -> InterpreterResult<Value> {
+pub fn native_xor(a: Value, b: Value) -> ExecutionResult<Value> {
     type_force_binary_arithmetic!(xor, a, b)
 }
 
 // Used for the `^` xor function.
-pub fn native_bitwise_xor(mut args: Vec<Value>) -> InterpreterResult<Value> {
+pub fn native_bitwise_xor(mut args: Vec<Value>) -> ExecutionResult<Value> {
     type_force_variadic_arithmetic!(bitwise_xor2, args)
 }
 
-pub fn native_bitwise_and(mut args: Vec<Value>) -> InterpreterResult<Value> {
+pub fn native_bitwise_and(mut args: Vec<Value>) -> ExecutionResult<Value> {
     type_force_variadic_arithmetic!(bitwise_and, args)
 }
 
-pub fn native_bitwise_or(mut args: Vec<Value>) -> InterpreterResult<Value> {
+pub fn native_bitwise_or(mut args: Vec<Value>) -> ExecutionResult<Value> {
     type_force_variadic_arithmetic!(bitwise_or, args)
 }
 
-pub fn native_bitwise_not(a: Value) -> InterpreterResult<Value> {
+pub fn native_bitwise_not(a: Value) -> ExecutionResult<Value> {
     type_force_unary_arithmetic!(bitwise_not, a)
 }
 
@@ -387,7 +387,7 @@ fn special_geq_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -401,7 +401,7 @@ fn special_geq_v2(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -419,7 +419,7 @@ pub fn special_geq(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_geq_v2(args, env, context)
     } else {
@@ -434,7 +434,7 @@ fn special_leq_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -448,7 +448,7 @@ fn special_leq_v2(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -466,7 +466,7 @@ pub fn special_leq(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_leq_v2(args, env, context)
     } else {
@@ -480,7 +480,7 @@ fn special_greater_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -494,7 +494,7 @@ fn special_greater_v2(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -508,7 +508,7 @@ pub fn special_greater(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_greater_v2(args, env, context)
     } else {
@@ -522,7 +522,7 @@ fn special_less_v1(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -536,7 +536,7 @@ fn special_less_v2(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     check_argument_count(2, args)?;
     let a = eval(&args[0], env, context)?;
     let b = eval(&args[1], env, context)?;
@@ -550,7 +550,7 @@ pub fn special_less(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> ExecutionResult<Value> {
     if *env.contract_context.get_clarity_version() >= ClarityVersion::Clarity2 {
         special_less_v2(args, env, context)
     } else {
@@ -558,35 +558,35 @@ pub fn special_less(
     }
 }
 
-pub fn native_add(mut args: Vec<Value>) -> InterpreterResult<Value> {
+pub fn native_add(mut args: Vec<Value>) -> ExecutionResult<Value> {
     type_force_variadic_arithmetic!(add, args)
 }
-pub fn native_sub(mut args: Vec<Value>) -> InterpreterResult<Value> {
+pub fn native_sub(mut args: Vec<Value>) -> ExecutionResult<Value> {
     type_force_variadic_arithmetic!(sub, args)
 }
-pub fn native_mul(mut args: Vec<Value>) -> InterpreterResult<Value> {
+pub fn native_mul(mut args: Vec<Value>) -> ExecutionResult<Value> {
     type_force_variadic_arithmetic!(mul, args)
 }
-pub fn native_div(mut args: Vec<Value>) -> InterpreterResult<Value> {
+pub fn native_div(mut args: Vec<Value>) -> ExecutionResult<Value> {
     type_force_variadic_arithmetic!(div, args)
 }
-pub fn native_pow(a: Value, b: Value) -> InterpreterResult<Value> {
+pub fn native_pow(a: Value, b: Value) -> ExecutionResult<Value> {
     type_force_binary_arithmetic!(pow, a, b)
 }
-pub fn native_sqrti(n: Value) -> InterpreterResult<Value> {
+pub fn native_sqrti(n: Value) -> ExecutionResult<Value> {
     type_force_unary_arithmetic!(sqrti, n)
 }
-pub fn native_log2(n: Value) -> InterpreterResult<Value> {
+pub fn native_log2(n: Value) -> ExecutionResult<Value> {
     type_force_unary_arithmetic!(log2, n)
 }
-pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
+pub fn native_mod(a: Value, b: Value) -> ExecutionResult<Value> {
     type_force_binary_arithmetic!(modulo, a, b)
 }
 
-pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
+pub fn native_bitwise_left_shift(input: Value, pos: Value) -> ExecutionResult<Value> {
     if let Value::UInt(u128_val) = pos {
         let shamt = u32::try_from(u128_val & 0x7f).map_err(|_| {
-            InterpreterError::Expect("FATAL: lower 32 bits did not convert to u32".into())
+            VmInternalError::Expect("FATAL: lower 32 bits did not convert to u32".into())
         })?;
 
         match input {
@@ -598,21 +598,21 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<
                 let result = input.wrapping_shl(shamt);
                 Ok(Value::UInt(result))
             }
-            _ => Err(CheckErrors::UnionTypeError(
+            _ => Err(CheckErrorKind::UnionTypeError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 TypeSignature::type_of(&input)?,
             )
             .into()),
         }
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, pos).into())
+        Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, pos).into())
     }
 }
 
-pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
+pub fn native_bitwise_right_shift(input: Value, pos: Value) -> ExecutionResult<Value> {
     if let Value::UInt(u128_val) = pos {
         let shamt = u32::try_from(u128_val & 0x7f).map_err(|_| {
-            InterpreterError::Expect("FATAL: lower 32 bits did not convert to u32".into())
+            VmInternalError::Expect("FATAL: lower 32 bits did not convert to u32".into())
         })?;
 
         match input {
@@ -624,32 +624,31 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult
                 let result = input.wrapping_shr(shamt);
                 Ok(Value::UInt(result))
             }
-            _ => Err(CheckErrors::UnionTypeError(
+            _ => Err(CheckErrorKind::UnionTypeError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 TypeSignature::type_of(&input)?,
             )
             .into()),
         }
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, pos).into())
+        Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, pos).into())
     }
 }
 
-pub fn native_to_uint(input: Value) -> InterpreterResult<Value> {
+pub fn native_to_uint(input: Value) -> ExecutionResult<Value> {
     if let Value::Int(int_val) = input {
-        let uint_val =
-            u128::try_from(int_val).map_err(|_| RuntimeErrorType::ArithmeticUnderflow)?;
+        let uint_val = u128::try_from(int_val).map_err(|_| RuntimeError::ArithmeticUnderflow)?;
         Ok(Value::UInt(uint_val))
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::IntType, input).into())
+        Err(CheckErrorKind::TypeValueError(TypeSignature::IntType, input).into())
     }
 }
 
-pub fn native_to_int(input: Value) -> InterpreterResult<Value> {
+pub fn native_to_int(input: Value) -> ExecutionResult<Value> {
     if let Value::UInt(uint_val) = input {
-        let int_val = i128::try_from(uint_val).map_err(|_| RuntimeErrorType::ArithmeticOverflow)?;
+        let int_val = i128::try_from(uint_val).map_err(|_| RuntimeError::ArithmeticOverflow)?;
         Ok(Value::Int(int_val))
     } else {
-        Err(CheckErrors::TypeValueError(TypeSignature::UIntType, input).into())
+        Err(CheckErrorKind::TypeValueError(TypeSignature::UIntType, input).into())
     }
 }

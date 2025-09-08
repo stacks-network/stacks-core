@@ -13,16 +13,16 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use crate::vm::errors::Error;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
 use crate::vm::{
-    errors::{CheckErrors, ShortReturnType, SyntaxBindingError},
+    errors::{CheckErrorKind, EarlyReturnValue, SyntaxBindingError},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
 use crate::vm::{execute, ClarityName};
 
-fn assert_executes(expected: Result<Value, Error>, input: &str) {
+fn assert_executes(expected: Result<Value, VmExecutionError>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
 }
 
@@ -297,7 +297,7 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(ShortReturnType::ExpectedValue(Value::Int(5)).into()),
+        Err(EarlyReturnValue::FromUnwrap(Value::Int(5)).into()),
         execute(&contract_src)
     );
 }
@@ -475,7 +475,7 @@ fn datamap_errors() {
     for program in tests.iter() {
         assert_eq!(
             execute(program).unwrap_err(),
-            CheckErrors::NoSuchMap("non-existent".to_string()).into()
+            CheckErrorKind::NoSuchMap("non-existent".to_string()).into()
         );
     }
 }
@@ -496,7 +496,10 @@ fn lists_system_2() {
 
     matches!(
         execute(test),
-        Err(Error::Unchecked(CheckErrors::TypeError(_, _)))
+        Err(VmExecutionError::IntegrityCheck(CheckErrorKind::TypeError(
+            _,
+            _
+        )))
     );
 }
 
@@ -561,7 +564,9 @@ fn lists_system() {
         println!("{test:#?}");
         assert!(matches!(
             test,
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _)))
+            Err(VmExecutionError::IntegrityCheck(
+                CheckErrorKind::TypeValueError(_, _)
+            ))
         ));
     }
 }
@@ -624,7 +629,7 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
+            Err(VmExecutionError::IntegrityCheck(CheckErrorKind::TypeValueError(_, _))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -644,12 +649,12 @@ fn bad_define_maps() {
         "(define-map lists { name: int } contents 5)",
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
-    let expected: Vec<Error> = vec![
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)).into(),
-        CheckErrors::UnknownTypeName("contents".to_string()).into(),
-        CheckErrors::ExpectedName.into(),
-        CheckErrors::IncorrectArgumentCount(3, 4).into(),
-        CheckErrors::InvalidTypeDescription.into(),
+    let expected: Vec<VmExecutionError> = vec![
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)).into(),
+        CheckErrorKind::UnknownTypeName("contents".to_string()).into(),
+        CheckErrorKind::ExpectedName.into(),
+        CheckErrorKind::IncorrectArgumentCount(3, 4).into(),
+        CheckErrorKind::InvalidTypeDescription.into(),
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -669,15 +674,15 @@ fn bad_tuples() {
         "(get 1234 (tuple (name 1)))",
     ];
     let expected = vec![
-        CheckErrors::NameAlreadyUsed("name".into()),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
-        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(1)),
-        CheckErrors::NoSuchTupleField(
+        CheckErrorKind::NameAlreadyUsed("name".into()),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
+        CheckErrorKind::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(1)),
+        CheckErrorKind::NoSuchTupleField(
             "value".into(),
             TupleTypeSignature::try_from(vec![("name".into(), TypeSignature::IntType)]).unwrap(),
         ),
-        CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::ExpectedName,
+        CheckErrorKind::IncorrectArgumentCount(2, 3),
+        CheckErrorKind::ExpectedName,
     ];
 
     for (test, expected_err) in tests.iter().zip(expected.into_iter()) {
@@ -770,7 +775,7 @@ fn test_non_tuple_map_get_set() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
+            Err(VmExecutionError::IntegrityCheck(CheckErrorKind::TypeValueError(_, _))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false

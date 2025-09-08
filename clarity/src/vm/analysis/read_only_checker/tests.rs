@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
-use crate::vm::analysis::{type_check, CheckErrors};
+use crate::vm::analysis::{type_check, CheckErrorKind};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
@@ -34,11 +34,11 @@ fn test_argument_count_violations() {
         (
             "(define-private (foo-bar)
            (at-block))",
-            CheckErrors::IncorrectArgumentCount(2, 0),
+            CheckErrorKind::IncorrectArgumentCount(2, 0),
         ),
         (
             "(define-private (foo-bar) (map-get?))",
-            CheckErrors::IncorrectArgumentCount(2, 0),
+            CheckErrorKind::IncorrectArgumentCount(2, 0),
         ),
     ];
 
@@ -72,7 +72,7 @@ fn test_at_block_violations() {
     for contract in examples.iter() {
         let err = mem_type_check(contract).unwrap_err();
         eprintln!("{err}");
-        assert_eq!(err.err, CheckErrors::AtBlockClosureMustBeReadOnly)
+        assert_eq!(err.err, CheckErrorKind::AtBlockClosureMustBeReadOnly)
     }
 }
 
@@ -163,26 +163,24 @@ fn test_simple_read_only_violations() {
 
     for contract in bad_contracts.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly)
+        assert_eq!(err.err, CheckErrorKind::WriteAttemptedInReadOnly)
     }
 }
 
 #[test]
 fn test_nested_writing_closure() {
-    let bad_contracts = [
-        "(define-data-var cursor int 0)
+    let bad_contracts = ["(define-data-var cursor int 0)
         (define-public (bad-at-block-function)
             (begin
                 (var-set cursor
                     (at-block 0x0101010101010101010101010101010101010101010101010101010101010101
-                        ;; should be a read only error, caught in analysis, but it isn't                     
+                        ;; should be a read only error, caught in analysis, but it isn't
                         (begin (var-set cursor 1) 2)))
-                (ok 1)))"
-    ];
+                (ok 1)))"];
 
     for contract in bad_contracts.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        assert_eq!(err.err, CheckErrors::AtBlockClosureMustBeReadOnly)
+        assert_eq!(err.err, CheckErrorKind::AtBlockClosureMustBeReadOnly)
     }
 }
 
@@ -233,7 +231,7 @@ fn test_contract_call_read_only_violations(
             )
         })
         .unwrap_err();
-    assert_eq!(err.err, CheckErrors::WriteAttemptedInReadOnly);
+    assert_eq!(err.err, CheckErrorKind::WriteAttemptedInReadOnly);
 
     db.execute(|db| {
         type_check(

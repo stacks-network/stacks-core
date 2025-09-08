@@ -23,7 +23,7 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 
 use super::ast::errors::ParseErrors;
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
     SyntaxBindingError, SyntaxBindingErrorType,
 };
 use crate::vm::ast::errors::ParseError;
@@ -37,22 +37,57 @@ pub struct IncomparableError<T> {
     pub err: T,
 }
 
+/// Represents any error that can occur during the execution phase of the Clarity VM.
+///
+/// This enum categorizes all possible failure modes **after** a program has been successfully
+/// parsed and statically analyzed. It serves as the comprehensive error type for the
+/// evaluation loop.
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
-pub enum Error {
-    /// UncheckedErrors are errors that *should* be caught by the
-    ///   TypeChecker and other check passes. Test executions may
-    ///   trigger these errors.
-    Unchecked(CheckErrors),
-    Interpreter(InterpreterError),
-    Runtime(RuntimeErrorType, Option<StackTrace>),
-    ShortReturn(ShortReturnType),
+pub enum VmExecutionError {
+    /// A semantically valid error that is part of the Clarity language specification.
+    ///
+    /// These are errors that user-written smart contracts are expected to be able to
+    /// trigger, such as arithmetic overflows or failed assertions. The VM is behaving
+    /// correctly when it produces a `Runtime` error.
+    ///
+    /// # Example
+    /// A user's code executes `(/ 1 0)`, resulting in `RuntimeError::DivisionByZero`.
+    Runtime(RuntimeError, Option<StackTrace>),
+
+    /// A critical, unrecoverable bug within the VM's internal logic.
+    ///
+    /// The presence of this error indicates a violation of one of the VM's invariants
+    /// or a corrupted state. This is **not** an error in the user's Clarity code, but
+    /// rather a bug in the VM's Rust implementation that requires a developer's attention.
+    ///
+    /// # Example
+    /// The VM's evaluation loop attempts to `pop` from an empty internal call stack,
+    /// indicating a mismatch in function entry/exit logic.
+    Internal(VmInternalError),
+
+    /// A failure of a language rule discovered during execution.
+    /// The Clarity VM performs static analysis before execution to catch errors like
+    /// incorrect argument counts or type mismatches. However, some checks can only
+    /// be fully resolved during execution.
+    /// If one of these checks fails, it produces a `IntegrityCheck` error.
+    ///
+    /// # Example
+    /// TODO: I still have to dive into the exact cases!
+    IntegrityCheck(CheckErrorKind),
+
+    /// A control-flow mechanism for implementing an early return from a function.
+    ///
+    /// This is **not** a true error. It is used by native Clarity functions like
+    /// `asserts!`, `unwrap!`, and `try!` to immediately halt execution and return a
+    /// value from the current function.
+    EarlyReturn(EarlyReturnValue),
 }
 
-/// InterpreterErrors are errors that *should never* occur.
+/// VmInternalError are errors that *should never* occur.
 /// Test executions may trigger these errors.
 #[derive(Debug, PartialEq)]
-pub enum InterpreterError {
+pub enum VmInternalError {
     BadSender(Value),
     BadSymbolicRepresentation(String),
     InterpreterError(String),
@@ -75,7 +110,7 @@ pub enum InterpreterError {
 /// RuntimeErrors are errors that smart contracts are expected
 ///   to be able to trigger during execution (e.g., arithmetic errors)
 #[derive(Debug, PartialEq)]
-pub enum RuntimeErrorType {
+pub enum RuntimeError {
     Arithmetic(String),
     ArithmeticOverflow,
     ArithmeticUnderflow,
@@ -109,13 +144,16 @@ pub enum RuntimeErrorType {
     MetadataAlreadySet,
 }
 
+/// The value to be returned by an `EarlyReturn` control-flow event.
 #[derive(Debug, PartialEq)]
-pub enum ShortReturnType {
-    ExpectedValue(Value),
-    AssertionFailed(Value),
+pub enum EarlyReturnValue {
+    /// The value returned by an `unwrap!`-style function when the unwrap fails.
+    FromUnwrap(Value),
+    /// The value returned by an `asserts!` expression when the assertion fails.
+    FromAssert(Value),
 }
 
-pub type InterpreterResult<R> = Result<R, Error>;
+pub type ExecutionResult<R> = Result<R, VmExecutionError>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
@@ -123,22 +161,22 @@ impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     }
 }
 
-impl PartialEq<Error> for Error {
-    fn eq(&self, other: &Error) -> bool {
+impl PartialEq<VmExecutionError> for VmExecutionError {
+    fn eq(&self, other: &VmExecutionError) -> bool {
         match (self, other) {
-            (Error::Runtime(x, _), Error::Runtime(y, _)) => x == y,
-            (Error::Unchecked(x), Error::Unchecked(y)) => x == y,
-            (Error::ShortReturn(x), Error::ShortReturn(y)) => x == y,
-            (Error::Interpreter(x), Error::Interpreter(y)) => x == y,
+            (VmExecutionError::Runtime(x, _), VmExecutionError::Runtime(y, _)) => x == y,
+            (VmExecutionError::IntegrityCheck(x), VmExecutionError::IntegrityCheck(y)) => x == y,
+            (VmExecutionError::EarlyReturn(x), VmExecutionError::EarlyReturn(y)) => x == y,
+            (VmExecutionError::Internal(x), VmExecutionError::Internal(y)) => x == y,
             _ => false,
         }
     }
 }
 
-impl fmt::Display for Error {
+impl fmt::Display for VmExecutionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::Runtime(ref err, ref stack) => {
+            VmExecutionError::Runtime(ref err, ref stack) => {
                 write!(f, "{err}")?;
                 if let Some(ref stack_trace) = stack {
                     writeln!(f, "\n Stack Trace: ")?;
@@ -153,89 +191,89 @@ impl fmt::Display for Error {
     }
 }
 
-impl fmt::Display for RuntimeErrorType {
+impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
 }
 
-impl error::Error for Error {
+impl error::Error for VmExecutionError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
 }
 
-impl error::Error for RuntimeErrorType {
+impl error::Error for RuntimeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
 }
 
-impl From<ParseError> for Error {
+impl From<ParseError> for VmExecutionError {
     fn from(err: ParseError) -> Self {
         match &err.err {
-            ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+            ParseErrors::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
-            _ => Error::from(RuntimeErrorType::ASTError(err)),
+            _ => VmExecutionError::from(RuntimeError::ASTError(err)),
         }
     }
 }
 
-impl From<CostErrors> for Error {
+impl From<CostErrors> for VmExecutionError {
     fn from(err: CostErrors) -> Self {
         match err {
-            CostErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+            CostErrors::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
                 "Interpreter failure during cost calculation".into(),
             )),
-            CostErrors::Expect(s) => Error::from(InterpreterError::Expect(format!(
+            CostErrors::Expect(s) => VmExecutionError::from(VmInternalError::Expect(format!(
                 "Interpreter failure during cost calculation: {s}"
             ))),
-            other_err => Error::from(CheckErrors::from(other_err)),
+            other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
         }
     }
 }
 
-impl From<RuntimeErrorType> for Error {
-    fn from(err: RuntimeErrorType) -> Self {
-        Error::Runtime(err, None)
+impl From<RuntimeError> for VmExecutionError {
+    fn from(err: RuntimeError) -> Self {
+        VmExecutionError::Runtime(err, None)
     }
 }
 
-impl From<CheckErrors> for Error {
-    fn from(err: CheckErrors) -> Self {
-        Error::Unchecked(err)
+impl From<CheckErrorKind> for VmExecutionError {
+    fn from(err: CheckErrorKind) -> Self {
+        VmExecutionError::IntegrityCheck(err)
     }
 }
 
-impl From<(CheckErrors, &SymbolicExpression)> for Error {
-    fn from(err: (CheckErrors, &SymbolicExpression)) -> Self {
-        Error::Unchecked(err.0)
+impl From<(CheckErrorKind, &SymbolicExpression)> for VmExecutionError {
+    fn from(err: (CheckErrorKind, &SymbolicExpression)) -> Self {
+        VmExecutionError::IntegrityCheck(err.0)
     }
 }
 
-impl From<ShortReturnType> for Error {
-    fn from(err: ShortReturnType) -> Self {
-        Error::ShortReturn(err)
+impl From<EarlyReturnValue> for VmExecutionError {
+    fn from(err: EarlyReturnValue) -> Self {
+        VmExecutionError::EarlyReturn(err)
     }
 }
 
-impl From<InterpreterError> for Error {
-    fn from(err: InterpreterError) -> Self {
-        Error::Interpreter(err)
+impl From<VmInternalError> for VmExecutionError {
+    fn from(err: VmInternalError) -> Self {
+        VmExecutionError::Internal(err)
     }
 }
 
 #[cfg(test)]
-impl From<Error> for () {
-    fn from(err: Error) -> Self {}
+impl From<VmExecutionError> for () {
+    fn from(err: VmExecutionError) -> Self {}
 }
 
-impl From<ShortReturnType> for Value {
-    fn from(val: ShortReturnType) -> Self {
+impl From<EarlyReturnValue> for Value {
+    fn from(val: EarlyReturnValue) -> Self {
         match val {
-            ShortReturnType::ExpectedValue(v) => v,
-            ShortReturnType::AssertionFailed(v) => v,
+            EarlyReturnValue::FromUnwrap(v) => v,
+            EarlyReturnValue::FromAssert(v) => v,
         }
     }
 }
@@ -259,16 +297,16 @@ _native_:native_div
     #[test]
     fn equality() {
         assert_eq!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true))),
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true)))
+            VmExecutionError::EarlyReturn(EarlyReturnValue::FromUnwrap(Value::Bool(true))),
+            VmExecutionError::EarlyReturn(EarlyReturnValue::FromUnwrap(Value::Bool(true)))
         );
         assert_eq!(
-            Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
-            Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
+            VmExecutionError::Internal(VmInternalError::InterpreterError("".to_string())),
+            VmExecutionError::Internal(VmInternalError::InterpreterError("".to_string()))
         );
         assert!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true)))
-                != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
+            VmExecutionError::EarlyReturn(EarlyReturnValue::FromUnwrap(Value::Bool(true)))
+                != VmExecutionError::Internal(VmInternalError::InterpreterError("".to_string()))
         );
     }
 }

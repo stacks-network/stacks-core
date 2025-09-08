@@ -25,13 +25,13 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckErrors, RuntimeErrorType};
+use super::errors::{CheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::database::clarity_store::NullBackingStore;
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::InterpreterResult;
+use crate::vm::errors::ExecutionResult;
 use crate::vm::types::signatures::FunctionType::Fixed;
 use crate::vm::types::signatures::TupleTypeSignature;
 use crate::vm::types::Value::UInt;
@@ -210,8 +210,9 @@ impl DefaultVersion {
         };
         r.map_err(|e| {
             let e = match e {
-                crate::vm::errors::Error::Runtime(RuntimeErrorType::NotImplemented, _) => {
-                    CheckErrors::UndefinedFunction(cost_function_ref.function_name.clone()).into()
+                crate::vm::errors::VmExecutionError::Runtime(RuntimeError::NotImplemented, _) => {
+                    CheckErrorKind::UndefinedFunction(cost_function_ref.function_name.clone())
+                        .into()
                 }
                 other => other,
             };
@@ -1029,7 +1030,7 @@ impl LimitedCostTracker {
 
 pub fn parse_cost(
     cost_function_name: &str,
-    eval_result: InterpreterResult<Option<Value>>,
+    eval_result: ExecutionResult<Option<Value>>,
 ) -> Result<ExecutionCost> {
     match eval_result {
         Ok(Some(Value::Tuple(data))) => {

@@ -20,8 +20,9 @@ use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, Error,
-    InterpreterResult as Result, ShortReturnType, SyntaxBindingError, SyntaxBindingErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, EarlyReturnValue,
+    ExecutionResult as Result, SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
+    VmInternalError,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -63,7 +64,6 @@ macro_rules! switch_on_global_epoch {
     };
 }
 
-use super::errors::InterpreterError;
 use crate::vm::ClarityVersion;
 
 mod arithmetic;
@@ -592,7 +592,7 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
 fn native_begin(mut args: Vec<Value>) -> Result<Value> {
     match args.pop() {
         Some(v) => Ok(v),
-        None => Err(CheckErrors::RequiresAtLeastArguments(1, 0).into()),
+        None => Err(CheckErrorKind::RequiresAtLeastArguments(1, 0).into()),
     }
 }
 
@@ -602,7 +602,7 @@ fn special_print(
     context: &LocalContext,
 ) -> Result<Value> {
     let arg = args.first().ok_or_else(|| {
-        InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
+        VmInternalError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
     let input = eval(arg, env, context)?;
 
@@ -634,7 +634,7 @@ fn special_if(
                 eval(&args[2], env, context)
             }
         }
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into()),
+        _ => Err(CheckErrorKind::TypeValueError(TypeSignature::BoolType, conditional).into()),
     }
 }
 
@@ -655,10 +655,10 @@ fn special_asserts(
                 Ok(conditional)
             } else {
                 let thrown = eval(&args[1], env, context)?;
-                Err(ShortReturnType::AssertionFailed(thrown).into())
+                Err(EarlyReturnValue::FromAssert(thrown).into())
             }
         }
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into()),
+        _ => Err(CheckErrorKind::TypeValueError(TypeSignature::BoolType, conditional).into()),
     }
 }
 
@@ -669,7 +669,7 @@ pub fn handle_binding_list<F, E>(
 ) -> std::result::Result<(), E>
 where
     F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
-    E: for<'a> From<(CheckErrors, &'a SymbolicExpression)>,
+    E: for<'a> From<(CheckErrorKind, &'a SymbolicExpression)>,
 {
     for (i, binding) in bindings.iter().enumerate() {
         let binding_expression = binding.match_list().ok_or_else(|| {
@@ -723,7 +723,7 @@ fn special_let(
     check_arguments_at_least(2, args)?;
 
     // parse and eval the bindings.
-    let bindings = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;
+    let bindings = args[0].match_list().ok_or(CheckErrorKind::BadLetSyntax)?;
 
     runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
 
@@ -733,11 +733,11 @@ fn special_let(
     let mut memory_use = 0;
 
     finally_drop_memory!( env, memory_use; {
-        handle_binding_list::<_, Error>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
+        handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
             if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
                 env.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {
-                    return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
+                    return Err(CheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
             let binding_value = eval(var_sexp, env, &inner_context)?;
@@ -761,7 +761,7 @@ fn special_let(
             last_result.replace(body_result);
         }
         // last_result should always be Some(...), because of the arg len check above.
-        last_result.ok_or_else(|| InterpreterError::Expect("Failed to get let result".into()).into())
+        last_result.ok_or_else(|| VmInternalError::Expect("Failed to get let result".into()).into())
     })
 }
 
@@ -805,7 +805,7 @@ fn special_contract_of(
 
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
-        _ => return Err(CheckErrors::ContractOfExpectsTrait.into()),
+        _ => return Err(CheckErrorKind::ContractOfExpectsTrait.into()),
     };
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
@@ -814,12 +814,12 @@ fn special_contract_of(
                 .database
                 .get_contract(&trait_data.contract_identifier)
                 .map_err(|_e| {
-                    CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
+                    CheckErrorKind::NoSuchContract(trait_data.contract_identifier.to_string())
                 })?;
 
             &trait_data.contract_identifier
         }
-        _ => return Err(CheckErrors::ContractOfExpectsTrait.into()),
+        _ => return Err(CheckErrorKind::ContractOfExpectsTrait.into()),
     };
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));

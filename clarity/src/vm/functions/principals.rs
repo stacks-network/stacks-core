@@ -7,8 +7,8 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
-    InterpreterError, InterpreterResult as Result,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
+    ExecutionResult as Result, VmInternalError,
 };
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
@@ -61,7 +61,7 @@ pub fn special_is_standard(
     let version = if let Value::Principal(ref p) = owner {
         p.version()
     } else {
-        return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into());
+        return Err(CheckErrorKind::TypeValueError(TypeSignature::PrincipalType, owner).into());
     };
 
     Ok(Value::Bool(version_matches_current_network(
@@ -98,7 +98,7 @@ fn create_principal_destruct_tuple(
                 }),
             ),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
 }
 
@@ -112,10 +112,10 @@ fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) 
             ("error_code".into(), Value::UInt(error_int as u128)),
             ("value".into(), Value::none()),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
     .map_err(|_| {
-        InterpreterError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
+        VmInternalError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
     })
 }
 
@@ -134,14 +134,14 @@ fn create_principal_value_error_response(
             (
                 "value".into(),
                 Value::some(value).map_err(|_| {
-                    InterpreterError::Expect("Unexpected problem creating Value.".into())
+                    VmInternalError::Expect("Unexpected problem creating Value.".into())
                 })?,
             ),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
     .map_err(|_| {
-        InterpreterError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
+        VmInternalError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
     })
 }
 
@@ -165,7 +165,9 @@ pub fn special_principal_destruct(
             (issuer.0, issuer.1, Some(name))
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, principal).into())
+            return Err(
+                CheckErrorKind::TypeValueError(TypeSignature::PrincipalType, principal).into(),
+            )
         }
     };
 
@@ -203,14 +205,14 @@ pub fn special_principal_construct(
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
-                Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into())
+                Err(CheckErrorKind::TypeValueError(BUFF_1.clone(), version).into())
             };
         }
     };
 
     let version_byte = if verified_version.len() > 1 {
         // should have been caught by the type-checker
-        return Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into());
+        return Err(CheckErrorKind::TypeValueError(BUFF_1.clone(), version).into());
     } else if verified_version.is_empty() {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
         // will type-check to (buff 1)
@@ -233,13 +235,13 @@ pub fn special_principal_construct(
     // This is an aborting error because this should have been caught in analysis pass.
     let verified_hash_bytes = match hash_bytes {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
-        _ => return Err(CheckErrors::TypeValueError(BUFF_20.clone(), hash_bytes).into()),
+        _ => return Err(CheckErrorKind::TypeValueError(BUFF_20.clone(), hash_bytes).into()),
     };
 
     // This must have been a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_hash_bytes.len() > 20 {
-        return Err(CheckErrors::TypeValueError(BUFF_20.clone(), hash_bytes).into());
+        return Err(CheckErrorKind::TypeValueError(BUFF_20.clone(), hash_bytes).into());
     }
 
     // If the hash-bytes buffer has less than 20 bytes, this is a runtime error, because it
@@ -259,7 +261,7 @@ pub fn special_principal_construct(
         let name_bytes = match name {
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
             _ => {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     TypeSignature::contract_name_string_ascii_type()?,
                     name,
                 )
@@ -276,7 +278,7 @@ pub fn special_principal_construct(
 
         // if it's too long, then this should have been caught by the type-checker
         if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 TypeSignature::contract_name_string_ascii_type()?,
                 Value::from(name_bytes),
             )
@@ -287,7 +289,7 @@ pub fn special_principal_construct(
         // it here at runtime.  If it's not valid, then it warrants this function evaluating to
         // (err ..).
         let name_string = String::from_utf8(name_bytes.data).map_err(|_| {
-            InterpreterError::Expect(
+            VmInternalError::Expect(
                 "FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string"
                     .into(),
             )
@@ -314,7 +316,7 @@ pub fn special_principal_construct(
 
     if version_byte_is_valid {
         Ok(Value::okay(principal).map_err(|_| {
-            InterpreterError::Expect("FAIL: failed to build an (ok ..) response".into())
+            VmInternalError::Expect("FAIL: failed to build an (ok ..) response".into())
         })?)
     } else {
         create_principal_value_error_response(PrincipalConstructErrorCode::VERSION_BYTE, principal)
