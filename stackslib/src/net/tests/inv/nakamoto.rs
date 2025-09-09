@@ -1008,6 +1008,8 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
 
+    let timeout = std::time::Duration::from_secs(30);
+    let start = std::time::Instant::now();
     // run peer and other_peer until they connect
     loop {
         let _ = peer.step_with_ibd(false);
@@ -1019,6 +1021,10 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         if event_ids.count() > 0 && other_event_ids.count() > 0 {
             break;
         }
+        assert!(
+            start.elapsed() < timeout,
+            "Timed out waiting for peer's to connect"
+        );
     }
 
     debug!("Peers are connected");
@@ -1036,6 +1042,7 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
 
     let burn_tip_start = peer.network.get_current_epoch().start_height;
 
+    let start = std::time::Instant::now();
     while inv_1_count < num_epoch2_blocks
         || inv_2_count < num_epoch2_blocks
         || highest_rc_1 < total_rcs
@@ -1097,6 +1104,11 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         );
         info!(
             "Nakamoto state machine: Peer 1: {highest_rc_1}, Peer 2: {highest_rc_2} (total {total_rcs})"
+        );
+
+        assert!(
+            start.elapsed() < timeout,
+            "Timed out waiting for inv sync across epoch. Ran {round} rounds."
         );
     }
 }

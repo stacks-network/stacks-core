@@ -2062,7 +2062,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
 
-    use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId};
+    use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
     use clarity::vm::analysis::errors::CheckErrors;
     use clarity::vm::database::{ClarityBackingStore, STXBalance, SqliteConnection};
     use clarity::vm::test_util::{TEST_BURN_STATE_DB, TEST_HEADER_DB};
@@ -2802,7 +2802,7 @@ mod tests {
 
         let marf = MarfedKV::temporary();
         let mut clarity_instance = ClarityInstance::new(false, CHAIN_ID_TESTNET, marf);
-        let sender = StandardPrincipalData::transient().into();
+        let sender: StacksAddress = StandardPrincipalData::transient().into();
 
         let spending_cond = TransactionSpendingCondition::Singlesig(SinglesigSpendingCondition {
             signer: Hash160([0x11u8; 20]),
@@ -2849,7 +2849,7 @@ mod tests {
             TransactionVersion::Mainnet,
             TransactionAuth::Standard(spending_cond),
             TransactionPayload::ContractCall(TransactionContractCall {
-                address: sender,
+                address: sender.clone(),
                 contract_name: "hello-world".into(),
                 function_name: "foo".into(),
                 function_args: vec![],

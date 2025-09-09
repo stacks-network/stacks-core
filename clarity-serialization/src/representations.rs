@@ -621,34 +621,53 @@ impl SymbolicExpression {
             None
         }
     }
+
+    /// Encode this SymbolicExpression as a String suitable for logging an error (such as in
+    /// CheckErrors).  The `developer-mode` feature includes the `span`.
+    #[cfg(feature = "developer-mode")]
+    pub fn as_error_string(&self) -> String {
+        format!("{} at {:?}", &self.expr, &self.span)
+    }
+
+    /// Encode this SymbolicExpression as a String suitable for logging an error (such as in
+    /// CheckErrors).
+    #[cfg(not(feature = "developer-mode"))]
+    pub fn as_error_string(&self) -> String {
+        format!("{}", &self.expr)
+    }
 }
 
-impl fmt::Display for SymbolicExpression {
+impl fmt::Display for SymbolicExpressionType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.expr {
-            SymbolicExpressionType::List(ref list) => {
+        match self {
+            SymbolicExpressionType::List(list) => {
                 write!(f, "(")?;
                 for item in list.iter() {
                     write!(f, " {item}")?;
                 }
                 write!(f, " )")?;
             }
-            SymbolicExpressionType::Atom(ref value) => {
+            SymbolicExpressionType::Atom(value) => {
                 write!(f, "{}", &**value)?;
             }
-            SymbolicExpressionType::AtomValue(ref value)
-            | SymbolicExpressionType::LiteralValue(ref value) => {
+            SymbolicExpressionType::AtomValue(value)
+            | SymbolicExpressionType::LiteralValue(value) => {
                 write!(f, "{value}")?;
             }
-            SymbolicExpressionType::TraitReference(ref value, _) => {
+            SymbolicExpressionType::TraitReference(value, _) => {
                 write!(f, "<{}>", &**value)?;
             }
-            SymbolicExpressionType::Field(ref value) => {
+            SymbolicExpressionType::Field(value) => {
                 write!(f, "<{value}>")?;
             }
-        };
-
+        }
         Ok(())
+    }
+}
+
+impl fmt::Display for SymbolicExpression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.expr)
     }
 }
 

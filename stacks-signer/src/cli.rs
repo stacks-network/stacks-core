@@ -84,6 +84,9 @@ pub struct StackerDBArgs {
     /// The stacker-db contract to use. Must be in the format of "STACKS_ADDRESS.CONTRACT_NAME"
     #[arg(short, long, value_parser = parse_contract)]
     pub contract: QualifiedContractIdentifier,
+    #[arg(long, default_value = "60")]
+    /// The HTTP timeout (in seconds) for read/write operations with StackerDB.
+    pub stackerdb_timeout_secs: u64,
 }
 
 /// Arguments for the get-chunk command
@@ -152,7 +155,7 @@ pub struct GenerateVoteArgs {
     pub vote_info: VoteInfo,
 }
 
-#[derive(Parser, Debug, Clone, Copy)]
+#[derive(Parser, Debug, Clone)]
 /// Arguments for the VerifyVote command
 pub struct VerifyVoteArgs {
     /// The Stacks public key to verify against
@@ -166,7 +169,7 @@ pub struct VerifyVoteArgs {
     pub vote_info: VoteInfo,
 }
 
-#[derive(Parser, Debug, Clone, Copy)]
+#[derive(Parser, Debug, Clone)]
 /// Information about a SIP vote
 pub struct VoteInfo {
     /// The SIP number to vote on
@@ -246,6 +249,9 @@ pub struct MonitorSignersArgs {
     /// Max age in seconds before a signer message is considered stale.
     #[arg(long, short, default_value = "1200")]
     pub max_age: u64,
+    /// The HTTP timeout (in seconds) for read/write operations with StackerDB.
+    #[arg(long, short, default_value = "60")]
+    pub stackerdb_timeout_secs: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]

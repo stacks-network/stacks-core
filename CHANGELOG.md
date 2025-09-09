@@ -7,6 +7,24 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Unreleased
 
+### Added
+
+- Add `stackerdb_timeout_secs` to miner config for limiting duration of StackerDB HTTP requests.
+- When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
+- New endpoint /v3/tenures/blocks/ allowing retrieving the list of stacks blocks from a burn block
+
+### Changed
+
+- Clarity errors pertaining to syntax binding errors have been made more
+  expressive (#6337)
+- Removed affirmation maps logic throughout, upgrading chainstate DB schema to 11 and burnchain DB schema to 3 (#6314)
+
+## [3.2.0.0.1]
+
+### Added
+
+- Adds node-config-docsgen to automatically create config documentation (#6227)
+
 ### Fixed
 
 - Fixed a typo in the metrics_identifier route from `/v2/stackedb/:principal/:contract_name/replicas` to `/v2/stackerdb/:principal/:contract_name/replicas`. Note: This may be a breaking change for systems relying on the incorrect route. Please update any metrics tools accordingly.

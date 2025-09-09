@@ -1871,8 +1871,8 @@ impl Relayer {
         ast_rules: ASTRules,
     ) -> bool {
         for tx in block.txs.iter() {
-            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
-                .is_ok()
+            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_err()
             {
                 info!(
                     "Block {} with tx {} will not be stored or relayed",
@@ -1897,8 +1897,8 @@ impl Relayer {
         ast_rules: ASTRules,
     ) -> bool {
         for tx in block.txs.iter() {
-            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
-                .is_ok()
+            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_err()
             {
                 info!(
                     "Nakamoto block {} with tx {} will not be stored or relayed",
@@ -1924,8 +1924,8 @@ impl Relayer {
         ast_rules: ASTRules,
     ) -> bool {
         for tx in mblock.txs.iter() {
-            if !Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
-                .is_ok()
+            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
+                .is_err()
             {
                 info!(
                     "Microblock {} with tx {} will not be stored relayed",
@@ -2206,13 +2206,13 @@ impl Relayer {
             let mut filtered_tx_data = vec![];
             for (relayers, tx) in tx_data.into_iter() {
                 if Relayer::do_static_problematic_checks()
-                    && !Relayer::static_check_problematic_relayed_tx(
+                    && Relayer::static_check_problematic_relayed_tx(
                         mainnet,
                         epoch_id,
                         &tx,
                         ASTRules::PrecheckSize,
                     )
-                    .is_ok()
+                    .is_err()
                 {
                     info!(
                         "Pushed transaction {} is problematic; will not store or relay",
@@ -2229,13 +2229,13 @@ impl Relayer {
 
         for tx in network_result.uploaded_transactions.drain(..) {
             if Relayer::do_static_problematic_checks()
-                && !Relayer::static_check_problematic_relayed_tx(
+                && Relayer::static_check_problematic_relayed_tx(
                     mainnet,
                     epoch_id,
                     &tx,
                     ASTRules::PrecheckSize,
                 )
-                .is_ok()
+                .is_err()
             {
                 info!(
                     "Uploaded transaction {} is problematic; will not store or relay",
@@ -3250,7 +3250,7 @@ impl PeerNetwork {
                             None => {
                                 network.advertize_to_peer(
                                     recipient,
-                                    &[((*ch).clone(), (*bhh).clone())],
+                                    &[(*ch, *bhh)],
                                     StacksMessageType::BlocksAvailable,
                                 );
                             }
@@ -3292,7 +3292,7 @@ impl PeerNetwork {
                             None => {
                                 network.advertize_to_peer(
                                     recipient,
-                                    &[((*ch).clone(), (*bhh).clone())],
+                                    &[(*ch, *bhh)],
                                     StacksMessageType::MicroblocksAvailable,
                                 );
                             }
@@ -3317,7 +3317,7 @@ impl PeerNetwork {
     {
         let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
         for (burn_header_hash, (_, consensus_hash)) in available.iter() {
-            wanted.push(((*consensus_hash).clone(), (*burn_header_hash).clone()));
+            wanted.push((*consensus_hash, (*burn_header_hash)));
         }
 
         self.advertize_to_peer(recipient, &wanted, msg_builder);

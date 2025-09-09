@@ -32,6 +32,7 @@ use clarity::vm::types::{
 };
 
 use crate::chainstate::stacks::db::*;
+use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
 use crate::clarity_vm::clarity::{
     ClarityConnection, ClarityTransactionConnection, Error as clarity_error,
@@ -409,6 +410,50 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
         },
         clarity_error::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
+    }
+}
+
+pub fn convert_clarity_error_to_transaction_result(
+    clarity_tx: &mut ClarityTx,
+    tx: &StacksTransaction,
+    error: Error,
+) -> TransactionResult {
+    let (is_problematic, error) =
+        TransactionResult::is_problematic(tx, error, clarity_tx.get_epoch());
+    if is_problematic {
+        TransactionResult::problematic(tx, error)
+    } else {
+        match &error {
+            Error::CostOverflowError(cost_before, cost_after, total_budget) => {
+                // note: this path _does_ not perform the tx block budget % heuristic,
+                //  because this code path is not directly called with a mempool handle.
+                clarity_tx.reset_cost(cost_before.clone());
+                if total_budget.proportion_largest_dimension(cost_before)
+                    < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                {
+                    warn!(
+                        "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
+                        tx.txid(),
+                        100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
+                    );
+                    let mut measured_cost = cost_after.clone();
+                    let measured_cost = if measured_cost.sub(cost_before).is_ok() {
+                        Some(measured_cost)
+                    } else {
+                        warn!("Failed to compute measured cost of a too big transaction");
+                        None
+                    };
+                    TransactionResult::error(tx, Error::TransactionTooBigError(measured_cost))
+                } else {
+                    warn!(
+                        "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
+                        tx.txid()
+                    );
+                    TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError)
+                }
+            }
+            _ => TransactionResult::error(tx, error),
+        }
     }
 }
 
@@ -5101,7 +5146,7 @@ pub mod test {
 
         let asset_id_1 = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_1.contract_address),
+                StandardPrincipalData::from(asset_info_1.contract_address.clone()),
                 asset_info_1.contract_name.clone(),
             ),
             asset_name: asset_info_1.asset_name.clone(),
@@ -5109,7 +5154,7 @@ pub mod test {
 
         let asset_id_2 = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_2.contract_address),
+                StandardPrincipalData::from(asset_info_2.contract_address.clone()),
                 asset_info_2.contract_name.clone(),
             ),
             asset_name: asset_info_2.asset_name.clone(),
@@ -5117,7 +5162,7 @@ pub mod test {
 
         let _asset_id_3 = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info_3.contract_address),
+                StandardPrincipalData::from(asset_info_3.contract_address.clone()),
                 asset_info_3.contract_name.clone(),
             ),
             asset_name: asset_info_3.asset_name.clone(),
@@ -6933,7 +6978,7 @@ pub mod test {
 
         let asset_id = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::new(
-                StandardPrincipalData::from(asset_info.contract_address),
+                StandardPrincipalData::from(asset_info.contract_address.clone()),
                 asset_info.contract_name.clone(),
             ),
             asset_name: asset_info.asset_name.clone(),
@@ -8345,7 +8390,7 @@ pub mod test {
             // there must be a poison record for this microblock, from the reporter, for the microblock
             // sequence.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
-            assert_eq!(report_opt.unwrap(), (reporter_addr, 123));
+            assert_eq!(report_opt.unwrap(), (reporter_addr.clone(), 123));
 
             // result must encode poison information
             let result_data = receipt.result.expect_tuple().unwrap();
@@ -8585,7 +8630,7 @@ pub mod test {
             // there must be a poison record for this microblock, from the reporter, for the microblock
             // sequence.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
-            assert_eq!(report_opt.unwrap(), (reporter_addr_1, 123));
+            assert_eq!(report_opt.unwrap(), (reporter_addr_1.clone(), 123));
 
             // process the second one!
             let (fee, receipt) = StacksChainState::process_transaction(
@@ -8601,7 +8646,7 @@ pub mod test {
             // sequence.  Moreover, since the fork was earlier in the stream, the second reporter gets
             // it.
             let report_opt = StacksChainState::get_poison_microblock_report(&mut conn, 1).unwrap();
-            assert_eq!(report_opt.unwrap(), (reporter_addr_2, 122));
+            assert_eq!(report_opt.unwrap(), (reporter_addr_2.clone(), 122));
 
             // result must encode poison information
             let result_data = receipt.result.expect_tuple().unwrap();
@@ -9815,7 +9860,7 @@ pub mod test {
             panic!("Did not get epoch is not activated error");
         }
 
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
@@ -9832,7 +9877,7 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
         conn.commit_block();
@@ -9926,7 +9971,7 @@ pub mod test {
         } else {
             panic!("Did not get epoch is not activated error");
         }
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
         let err = validate_transactions_static_epoch_and_process_transaction(
@@ -9943,7 +9988,7 @@ pub mod test {
         } else {
             panic!("Did not get unchecked interpreter error");
         }
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
 
         conn.commit_block();
@@ -10002,7 +10047,7 @@ pub mod test {
         assert_eq!(fee, 1);
 
         // nonce keeps advancing despite error
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 4);
 
         // no state change materialized
@@ -10026,7 +10071,7 @@ pub mod test {
         assert_eq!(fee, 1);
 
         // nonce keeps advancing despite error
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 5);
 
         // no state change materialized
@@ -10088,7 +10133,7 @@ pub mod test {
         assert_eq!(fee, 1);
 
         // nonce keeps advancing
-        let acct = StacksChainState::get_account(&mut conn, &addr.into());
+        let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 4);
 
         // state change materialized

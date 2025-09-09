@@ -35,7 +35,6 @@ use stacks_common::types::chainstate::SortitionId;
 use stacks_common::types::StacksEpochId;
 
 use super::{Config, EventDispatcher, Keychain};
-use crate::burnchains::bitcoin_regtest_controller::addr2str;
 use crate::burnchains::Error as BurnchainsError;
 use crate::neon_node::{LeaderKeyRegistrationState, StacksNode as NeonNode};
 use crate::run_loop::boot_nakamoto::Neon2NakaData;
@@ -167,7 +166,7 @@ impl StacksNode {
         let miner_addr = relayer_thread
             .bitcoin_controller
             .get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let miner_addr_str = addr2str(&miner_addr);
+        let miner_addr_str = miner_addr.to_string();
         let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
             warn!("Failed to set global burnchain signer: {e:?}");
             e
@@ -186,7 +185,7 @@ impl StacksNode {
         let burnchain = runloop.get_burnchain();
         let atlas_config = config.atlas.clone();
         let mut keychain = Keychain::default(config.node.seed.clone());
-        if let Some(mining_key) = config.miner.mining_key {
+        if let Some(mining_key) = config.miner.mining_key.clone() {
             keychain.set_nakamoto_sk(mining_key);
         }
 

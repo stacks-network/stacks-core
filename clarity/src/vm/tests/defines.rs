@@ -25,6 +25,7 @@ use crate::vm::errors::{CheckErrors, Error};
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
+    analysis::errors::SyntaxBindingError,
     ast::{build_ast, errors::ParseErrors},
     errors::RuntimeErrorType,
     types::{QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _, Value},
@@ -276,7 +277,7 @@ fn test_define_parse_panic() {
 fn test_define_parse_panic_2() {
     let tests = "(define-private (a b (d)) 1)";
     assert_eq_err(
-        CheckErrors::BadSyntaxExpectedListOfPairs,
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_list(0)),
         execute(tests).unwrap_err(),
     );
 }

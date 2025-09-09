@@ -25,9 +25,11 @@ use blockstack_lib::chainstate::stacks::{
     TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSpendingCondition,
     TransactionVersion,
 };
+use blockstack_lib::core::test_util::make_stacks_transfer_tx;
 use blockstack_lib::net::api::get_tenures_fork_info::TenureForkingInfo;
 use clarity::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksAddress};
 use clarity::types::PrivateKey;
+use clarity::util::secp256k1::Secp256k1PublicKey;
 use libsigner::v0::messages::RejectReason;
 use libsigner::v0::signer_state::{
     GlobalStateEvaluator, MinerState, ReplayTransactionSet, SignerStateMachine,
@@ -47,6 +49,7 @@ use crate::chainstate::v2::{GlobalStateView, SortitionState};
 use crate::chainstate::{ProposalEvalConfig, SignerChainstateError, SortitionData};
 use crate::client::tests::MockServerClient;
 use crate::client::StacksClient;
+use crate::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use crate::signerdb::tests::tmp_db_path;
 use crate::signerdb::{BlockInfo, SignerDb};
 
@@ -94,10 +97,11 @@ fn setup_test_environment(
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
+        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
     };
 
     let stacks_client = StacksClient::new(
-        StacksPrivateKey::random(),
+        &StacksPrivateKey::random(),
         SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 10000).to_string(),
         "FOO".into(),
         false,
@@ -399,6 +403,36 @@ fn check_proposal_tenure_extend() {
 }
 
 #[test]
+fn check_proposal_with_extend_during_replay() {
+    let (stacks_client, mut signer_db, block_sk, mut block, cur_sortition, _, mut sortitions_view) =
+        setup_test_environment(function_name!());
+    block.header.consensus_hash = cur_sortition.data.consensus_hash;
+    let mut extend_payload = make_tenure_change_payload();
+    extend_payload.burn_view_consensus_hash = cur_sortition.data.consensus_hash;
+    extend_payload.tenure_consensus_hash = block.header.consensus_hash;
+    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash;
+    let tx = make_tenure_change_tx(extend_payload);
+    block.txs = vec![tx];
+    block.header.sign_miner(&block_sk).unwrap();
+
+    let replay_tx = make_stacks_transfer_tx(
+        &block_sk,
+        0,
+        0,
+        1,
+        &StacksAddress::p2pkh(true, &Secp256k1PublicKey::new()).into(),
+        1000000,
+    );
+    let replay_set = ReplayTransactionSet::new(vec![replay_tx]);
+
+    sortitions_view.signer_state.tx_replay_set = replay_set;
+
+    sortitions_view
+        .check_proposal(&stacks_client, &mut signer_db, &block)
+        .expect("Proposal should validate");
+}
+
+#[test]
 fn check_sortition_timeout() {
     let signer_db_path = tmp_db_path();
     let mut signer_db = SignerDb::new(signer_db_path).unwrap();
@@ -435,7 +469,7 @@ fn check_sortition_timeout() {
     std::thread::sleep(Duration::from_secs(3));
     let address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
     let mut address_weights = HashMap::new();
-    address_weights.insert(address, 10);
+    address_weights.insert(address.clone(), 10);
     let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     // We have not yet timed out
     assert!(!SortitionState::is_timed_out(

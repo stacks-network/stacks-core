@@ -21,6 +21,7 @@ pub use clarity_serialization::errors::{
 
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
+    SyntaxBindingError, SyntaxBindingErrorType,
 };
 
 #[cfg(test)]

@@ -58,7 +58,6 @@ jobs:
         exclude:
           # The following tests are excluded from CI runs. Some of these may be
           #  worth investigating adding back into the CI
-          - test-name: tests::bitcoin_regtest::bitcoind_integration_test_segwit
           - test-name: tests::nakamoto_integrations::consensus_hash_event_dispatcher
           - test-name: tests::neon_integrations::atlas_integration_test
           - test-name: tests::neon_integrations::atlas_stress_integration_test
@@ -81,11 +80,6 @@ jobs:
           - test-name: tests::epoch_205::test_dynamic_db_method_costs
           - test-name: tests::epoch_205::test_exact_block_costs
           - test-name: tests::epoch_205::transition_empty_blocks
-          - test-name: tests::epoch_21::test_pox_missing_five_anchor_blocks
-          - test-name: tests::epoch_21::test_pox_reorg_flap_duel
-          - test-name: tests::epoch_21::test_pox_reorg_flap_reward_cycles
-          - test-name: tests::epoch_21::test_pox_reorg_one_flap
-          - test-name: tests::epoch_21::test_pox_reorgs_three_flaps
           - test-name: tests::epoch_21::test_sortition_divergence_pre_21
           - test-name: tests::epoch_21::test_v1_unlock_height_with_current_stackers
           - test-name: tests::epoch_21::test_v1_unlock_height_with_delay_and_current_stackers
@@ -100,7 +94,6 @@ jobs:
           - test-name: tests::epoch_21::transition_removes_pox_sunset
           - test-name: tests::epoch_22::disable_pox
           - test-name: tests::epoch_22::pox_2_unlock_all
-          - test-name: tests::epoch_22::test_pox_reorg_one_flap
           - test-name: tests::epoch_23::trait_invocation_behavior
           - test-name: tests::epoch_24::fix_to_pox_contract
           - test-name: tests::epoch_24::verify_auto_unlock_behavior

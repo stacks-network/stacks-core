@@ -14,6 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use clarity::codec::read_next;
 use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey};
@@ -54,7 +55,7 @@ impl SignerMonitor {
     pub fn new(args: MonitorSignersArgs) -> Self {
         url::Url::parse(&format!("http://{}", args.host)).expect("Failed to parse node host");
         let stacks_client = StacksClient::try_from_host(
-            StacksPrivateKey::random(), // We don't need a private key to read
+            &StacksPrivateKey::random(), // We don't need a private key to read
             args.host.clone(),
             "FOO".to_string(), // We don't care about authorized paths. Just accessing public info
         )
@@ -95,7 +96,7 @@ impl SignerMonitor {
             let stacks_address = StacksAddress::p2pkh(self.stacks_client.mainnet, &public_key);
             self.cycle_state
                 .signers_keys
-                .insert(stacks_address, public_key);
+                .insert(stacks_address.clone(), public_key);
             self.cycle_state
                 .signers_weights
                 .insert(stacks_address, entry.weight);
@@ -103,13 +104,13 @@ impl SignerMonitor {
         for (signer_address, slot_id) in self.cycle_state.signers_slots.iter() {
             self.cycle_state
                 .signers_addresses
-                .insert(*slot_id, *signer_address);
+                .insert(*slot_id, signer_address.clone());
         }
 
         for (signer_address, slot_id) in self.cycle_state.signers_slots.iter() {
             self.cycle_state
                 .signers_addresses
-                .insert(*slot_id, *signer_address);
+                .insert(*slot_id, signer_address.clone());
             self.cycle_state.slot_ids.push(slot_id.0);
         }
         Ok(true)
@@ -233,7 +234,8 @@ impl SignerMonitor {
             "Monitoring signers stackerdb. Polling interval: {} secs, Max message age: {} secs, Reward cycle: {reward_cycle}, StackerDB contract: {contract}",
             self.args.interval, self.args.max_age
         );
-        let mut session = stackerdb_session(&self.args.host, contract);
+        let stackerdb_timeout = Duration::from_secs(self.args.stackerdb_timeout_secs);
+        let mut session = stackerdb_session(&self.args.host, contract, stackerdb_timeout);
         info!("Confirming messages for {nmb_signers} registered signers";
             "signer_addresses" => self.cycle_state.signers_addresses.values().map(|addr| format!("{addr}")).collect::<Vec<_>>().join(", ")
         );
@@ -255,7 +257,7 @@ impl SignerMonitor {
                 info!(
                     "Reward cycle has changed to {reward_cycle}. Updating stacker db session to StackerDB contract {contract}.",
                 );
-                session = stackerdb_session(&self.args.host, contract);
+                session = stackerdb_session(&self.args.host, contract, stackerdb_timeout);
                 // Clear the last messages and signer last update times.
                 last_messages.clear();
                 last_updates.clear();
@@ -272,11 +274,12 @@ impl SignerMonitor {
                 new_messages.into_iter().zip(&self.cycle_state.slot_ids)
             {
                 let signer_slot_id = SignerSlotID(*slot_id);
-                let signer_address = *self
+                let signer_address = self
                     .cycle_state
                     .signers_addresses
                     .get(&signer_slot_id)
-                    .expect("BUG: missing signer address for given slot id");
+                    .expect("BUG: missing signer address for given slot id")
+                    .clone();
                 let Some(signer_message) = signer_message_opt else {
                     missing_signers.push(signer_address);
                     continue;
@@ -308,7 +311,7 @@ impl SignerMonitor {
                         .signers_addresses
                         .get(slot_id)
                         .expect("BUG: missing signer address for given slot id");
-                    stale_signers.push(*address);
+                    stale_signers.push(address.clone());
                 }
             }
             if missing_signers.is_empty()

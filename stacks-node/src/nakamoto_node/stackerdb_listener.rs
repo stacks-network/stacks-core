@@ -179,8 +179,11 @@ impl StackerDBListener {
             .node
             .get_rpc_loopback()
             .ok_or_else(|| ChainstateError::MinerAborted)?;
-        let mut signers_session =
-            StackerDBSession::new(&rpc_socket.to_string(), signers_contract_id.clone());
+        let mut signers_session = StackerDBSession::new(
+            &rpc_socket.to_string(),
+            signers_contract_id.clone(),
+            config.miner.stackerdb_timeout,
+        );
         let entries: Vec<_> = signer_entries.values().cloned().collect();
         let parsed_entries = SignerEntries::parse(config.is_mainnet(), &entries)
             .expect("FATAL: could not parse retrieved signer entries");
@@ -499,6 +502,9 @@ impl StackerDBListener {
                     }
                     SignerMessageV0::StateMachineUpdate(update) => {
                         self.update_global_state_evaluator(&signer_pubkey, update);
+                    }
+                    SignerMessageV0::BlockPreCommit(_) => {
+                        debug!("Received block pre-commit message. Ignoring.");
                     }
                 };
             }

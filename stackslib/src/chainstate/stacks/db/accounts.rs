@@ -897,7 +897,7 @@ impl StacksChainState {
             } else {
                 // no poison microblock reported
                 (
-                    participant.address,
+                    participant.address.clone(),
                     participant.recipient.clone(),
                     coinbase_reward,
                     false,
@@ -1193,7 +1193,6 @@ mod test {
             vec![],
             vec![],
             vec![],
-            parent_header_info.anchored_header.height() + 1,
         )
         .unwrap();
         tx.commit().unwrap();

@@ -1134,54 +1134,6 @@ impl InvState {
         list
     }
 
-    /// Returns the highest Stacks tip height reported by the given neighbors.
-    ///
-    /// This function iterates through the provided neighbors, checks their block stats,
-    /// and determines the maximum block height. The status of the neighbor (Online or Diverged during IBD,
-    /// or Online when not in IBD) is considered.
-    ///
-    /// # Arguments
-    ///
-    /// * `neighbors` - Optional slice of `Neighbor` structs to check. If `None`, all neighbors are considered.
-    /// * `ibd` - A boolean indicating if the node is in Initial Block Download (IBD) mode.
-    ///
-    /// # Returns
-    ///
-    /// * `Some(u64)` if at least one neighbor has a tip height according to its status.
-    /// * `None` if no tip heights are found.
-    pub fn get_max_stacks_height_of_neighbors(
-        &self,
-        neighbors: Option<&[Neighbor]>,
-        ibd: bool,
-    ) -> Option<u64> {
-        let filter_and_extract = |stats: &NeighborBlockStats| -> Option<u64> {
-            let status_valid = if ibd {
-                stats.status == NodeStatus::Online || stats.status == NodeStatus::Diverged
-            } else {
-                stats.status == NodeStatus::Online
-            };
-
-            if status_valid {
-                Some(stats.inv.get_block_height())
-            } else {
-                None
-            }
-        };
-
-        match neighbors {
-            Some(n) => n
-                .iter()
-                .filter_map(|neighbor| self.block_stats.get(&neighbor.addr))
-                .filter_map(filter_and_extract)
-                .max(),
-            None => self
-                .block_stats
-                .values()
-                .filter_map(filter_and_extract)
-                .max(),
-        }
-    }
-
     /// Get the list of dead
     pub fn get_dead_peers(&self) -> Vec<NeighborKey> {
         let mut list = vec![];
@@ -1806,16 +1758,13 @@ impl PeerNetwork {
         }
     }
 
-    /// Determine at which reward cycle to begin scanning inventories
-    pub(crate) fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
-        // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
-        // start scaning at the reward cycle just before that.
-        let am_rescan_rc = self
-            .stacks_tip_affirmation_map
-            .find_inv_search(&self.heaviest_affirmation_map);
-
-        // affirmation maps are compatible, so just resume scanning off of wherever we are at the
-        // tip.
+    /// Determine at which reward cycle to begin scanning inventories for this particular neighbor.
+    pub(crate) fn get_block_scan_start(
+        &self,
+        sortdb: &SortitionDB,
+        peer_block_reward_cycle: u64,
+    ) -> u64 {
+        // Resume scanning off of wherever we are at the tip.
         // NOTE: This code path only works in Stacks 2.x, but that's okay because this whole state
         // machine is only used in Stacks 2.x
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
@@ -1834,18 +1783,16 @@ impl PeerNetwork {
             .block_height_to_reward_cycle(stacks_tip_burn_block_height)
             .unwrap_or(0);
 
-        let start_reward_cycle =
-            stacks_tip_rc.saturating_sub(self.connection_opts.inv_reward_cycles);
+        // NOTE: include the last full reward cycle
+        let inv_rescan_rc =
+            stacks_tip_rc.saturating_sub(cmp::max(1, self.connection_opts.inv_reward_cycles));
 
-        let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
+        let rescan_rc = std::cmp::min(inv_rescan_rc, peer_block_reward_cycle);
 
-        test_debug!(
-            "begin blocks inv scan at {} = min({},{}) stacks_tip_am={} heaviest_am={}",
-            rescan_rc,
-            am_rescan_rc,
-            start_reward_cycle,
-            &self.stacks_tip_affirmation_map,
-            &self.heaviest_affirmation_map
+        test_debug!("begin blocks inv scan at {rescan_rc}";
+            "stacks_tip_rc" => stacks_tip_rc,
+            "peer_block_rc" => peer_block_reward_cycle,
+            "inv_rescan_rc" => inv_rescan_rc,
         );
         rescan_rc
     }
@@ -1865,8 +1812,7 @@ impl PeerNetwork {
             Some(x) => x,
             None => {
                 // proceed to block scan
-                let scan_start_rc = self.get_block_scan_start(sortdb);
-
+                let scan_start_rc = self.get_block_scan_start(sortdb, stats.block_reward_cycle);
                 debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start_rc);
                 stats.reset_block_scan(scan_start_rc);
                 return Ok(());
@@ -1925,7 +1871,7 @@ impl PeerNetwork {
                 // proceed with block scan.
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
-                let scan_start_rc = self.get_block_scan_start(sortdb);
+                let scan_start_rc = self.get_block_scan_start(sortdb, stats.block_reward_cycle);
                 debug!(
                     "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={})",
                     &self.local_peer, nk, scan_start_rc, ibd
@@ -2026,7 +1972,7 @@ impl PeerNetwork {
             }
 
             // proceed to block scan.
-            let scan_start = self.get_block_scan_start(sortdb);
+            let scan_start = self.get_block_scan_start(sortdb, stats.block_reward_cycle);
             debug!(
                 "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
                 &self.local_peer, nk, scan_start
@@ -2346,7 +2292,7 @@ impl PeerNetwork {
                             inv_state.hint_learned_data = true;
                             inv_state.hint_learned_data_height = u64::MAX;
                         }
-                        Err(net_error::PeerNotConnected) | Err(net_error::SendError(..)) => {
+                        Err(net_error::PeerNotConnected(..)) | Err(net_error::SendError(..)) => {
                             stats.status = NodeStatus::Dead;
                         }
                         Err(e) => {
@@ -2408,11 +2354,21 @@ impl PeerNetwork {
                 let broken_peers = inv_state.get_broken_peers();
                 let dead_peers = inv_state.get_dead_peers();
 
+                let local_rc = network.burnchain.block_height_to_reward_cycle(network.stacks_tip.burnchain_height).unwrap_or(0);
+
+                // find peer with lowest block_reward_cycle
+                let lowest_block_reward_cycle = inv_state
+                    .block_stats
+                    .iter()
+                    .map(|(_nk, stats)| stats.block_reward_cycle)
+                    .fold(local_rc, |min_block_reward_cycle, rc| cmp::min(rc, min_block_reward_cycle));
+
                 // hint to downloader as to where to begin scanning next time
                 inv_state.block_sortition_start = ibd_diverged_height
                     .unwrap_or(network.burnchain.reward_cycle_to_block_height(
                         network.get_block_scan_start(
                             sortdb,
+                            lowest_block_reward_cycle
                         ),
                     ))
                     .saturating_sub(sortdb.first_block_height);
@@ -2599,7 +2555,9 @@ impl PeerNetwork {
             if let Some(nstats) = inv_state.block_stats.get_mut(nk) {
                 Ok(func(network, nstats))
             } else {
-                Err(net_error::PeerNotConnected)
+                Err(net_error::PeerNotConnected(format!(
+                    "No inventory stats for neighbor {nk}",
+                )))
             }
         }) {
             Ok(Ok(x)) => Ok(x),

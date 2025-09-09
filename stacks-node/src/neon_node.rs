@@ -219,7 +219,7 @@ use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use super::{BurnchainController, Config, EventDispatcher, Keychain};
 use crate::burnchains::bitcoin_regtest_controller::{
-    addr2str, burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
+    burnchain_params_from_config, BitcoinRegtestController, OngoingBlockCommit,
 };
 use crate::burnchains::{make_bitcoin_indexer, Error as BurnchainControllerError};
 use crate::globals::{NeonGlobals as Globals, RelayerDirective};
@@ -2109,7 +2109,6 @@ impl BlockMinerThread {
             burn_db,
             &self.burnchain,
             &OnChainRewardSetProvider::new(),
-            self.config.node.always_use_affirmation_maps,
         ) {
             Ok(x) => x,
             Err(e) => {
@@ -2302,8 +2301,11 @@ impl BlockMinerThread {
     /// Only used in mock signing to determine if the peer info view was already signed across
     fn mock_block_exists(&self, peer_info: &PeerInfo) -> bool {
         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let mut miners_stackerdb =
-            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+        let mut miners_stackerdb = StackerDBSession::new(
+            &self.config.node.rpc_bind,
+            miner_contract_id,
+            self.config.miner.stackerdb_timeout,
+        );
         let miner_slot_ids: Vec<_> = (0..MINER_SLOT_COUNT * 2).collect();
         if let Ok(messages) = miners_stackerdb.get_latest_chunks(&miner_slot_ids) {
             for message in messages.into_iter().flatten() {
@@ -2379,8 +2381,11 @@ impl BlockMinerThread {
         let stackerdbs = StackerDBs::connect(&self.config.get_stacker_db_file_path(), false)
             .map_err(|e| e.to_string())?;
         let miner_contract_id = boot_code_id(MINERS_NAME, self.config.is_mainnet());
-        let mut miners_stackerdb =
-            StackerDBSession::new(&self.config.node.rpc_bind, miner_contract_id);
+        let mut miners_stackerdb = StackerDBSession::new(
+            &self.config.node.rpc_bind,
+            miner_contract_id,
+            self.config.miner.stackerdb_timeout,
+        );
         let miner_db = MinerDB::open_with_config(&self.config).map_err(|e| e.to_string())?;
 
         SignerCoordinator::send_miners_message(
@@ -4993,7 +4998,7 @@ impl StacksNode {
         let miner_addr = relayer_thread
             .bitcoin_controller
             .get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let miner_addr_str = addr2str(&miner_addr);
+        let miner_addr_str = miner_addr.to_string();
         let _ = monitoring::set_burnchain_signer(BurnchainSigner(miner_addr_str)).map_err(|e| {
             warn!("Failed to set global burnchain signer: {e:?}");
             e

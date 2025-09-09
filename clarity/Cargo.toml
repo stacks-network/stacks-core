@@ -33,7 +33,9 @@ rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
+clarity-serialization = { package = "clarity-serialization", path = "../clarity-serialization", default-features = false, features = ["testing"] }
 mutants = "0.0.3"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
 

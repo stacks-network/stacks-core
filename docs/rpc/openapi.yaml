@@ -157,6 +157,8 @@ components:
       $ref: ./components/schemas/tenure-tip.schema.yaml
     GetStackerSet:
       $ref: ./components/schemas/get-stacker-set.schema.yaml
+    TenureBlocks:
+      $ref: ./components/schemas/tenure-blocks.schema.yaml
 
 paths:
   /v2/transactions:
@@ -1057,6 +1059,40 @@ paths:
                 type: string
                 format: binary
 
+  /v3/tenures/blocks/{consensus_hash}:
+    get:
+      summary: Get the list of Stacks blocks in a tenure
+      tags:
+        - Blocks
+      security: []
+      operationId: getTenureBlocks
+      description: |
+        Get the list of blocks in a tenure. The blocks will be
+        shown in order from highest to lowest.
+      parameters:
+        - name: consensus_hash
+          in: path
+          description: The hex-encoded consensus hash of the tenure to query (40 hexadecimal characters, without 0x prefix)
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{40}$"
+      responses:
+        "200":
+          description: List of Stacks blocks in the tenure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenureBlocks"
+              example:
+                $ref: "./components/examples/tenure-blocks.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
   /v3/sortitions:
     get:
       summary: Get latest sortition information
@@ -1295,24 +1331,11 @@ paths:
         - `difference_from_max_peer`: The difference in Stacks height between this node and its most advanced peer.
         - `max_stacks_height_of_neighbors`: The maximum Stacks height observed among the node"s connected peers.
         - `node_stacks_tip_height`: The current Stacks tip height of this node.
+        - `max_stacks_neighbor_address`: The address of the most advanced peer. Null if no peer data is available.
       tags:
         - Info
       security: []
       operationId: getNodeHealth
-      parameters:
-        - in: query
-          name: neighbors
-          description: |
-            Specifies the set of peers to use for health checks.
-            - `initial` (default): Use only the initial bootstrap peers.
-            - `all`: Use all connected peers.
-          required: false
-          schema:
-            type: string
-            enum:
-              - initial
-              - all
-            default: initial
       responses:
         "200":
           description: Success
@@ -1323,11 +1346,8 @@ paths:
               example:
                 $ref: "./components/examples/node-health.example.json"
         "400":
-          description: Bad request, such as an invalid `neighbors` query parameter.
           $ref: "#/components/responses/BadRequest"
         "500":
-          description: |
-            Failed to query for health (e.g., no data or no valid peers to query from).
           $ref: "#/components/responses/InternalServerError"
 
   /v2/attachments/{hash}:

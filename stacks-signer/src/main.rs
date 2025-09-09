@@ -27,6 +27,7 @@ extern crate serde_json;
 extern crate toml;
 
 use std::io::{self, Write};
+use std::time::Duration;
 
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
 use clap::Parser;
@@ -66,21 +67,33 @@ fn write_chunk_to_stdout(chunk_opt: Option<Vec<u8>>) {
 
 fn handle_get_chunk(args: GetChunkArgs) {
     debug!("Getting chunk...");
-    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(
+        &args.db_args.host,
+        args.db_args.contract,
+        Duration::from_secs(args.db_args.stackerdb_timeout_secs),
+    );
     let chunk_opt = session.get_chunk(args.slot_id, args.slot_version).unwrap();
     write_chunk_to_stdout(chunk_opt);
 }
 
 fn handle_get_latest_chunk(args: GetLatestChunkArgs) {
     debug!("Getting latest chunk...");
-    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(
+        &args.db_args.host,
+        args.db_args.contract,
+        Duration::from_secs(args.db_args.stackerdb_timeout_secs),
+    );
     let chunk_opt = session.get_latest_chunk(args.slot_id).unwrap();
     write_chunk_to_stdout(chunk_opt);
 }
 
 fn handle_list_chunks(args: StackerDBArgs) {
     debug!("Listing chunks...");
-    let mut session = stackerdb_session(&args.host, args.contract);
+    let mut session = stackerdb_session(
+        &args.host,
+        args.contract,
+        Duration::from_secs(args.stackerdb_timeout_secs),
+    );
     let chunk_list = session.list_chunks().unwrap();
     let chunk_list_json = serde_json::to_string(&chunk_list).unwrap();
     let hexed_json = to_hex(chunk_list_json.as_bytes());
@@ -89,7 +102,11 @@ fn handle_list_chunks(args: StackerDBArgs) {
 
 fn handle_put_chunk(args: PutChunkArgs) {
     debug!("Putting chunk...");
-    let mut session = stackerdb_session(&args.db_args.host, args.db_args.contract);
+    let mut session = stackerdb_session(
+        &args.db_args.host,
+        args.db_args.contract,
+        Duration::from_secs(args.db_args.stackerdb_timeout_secs),
+    );
     let mut chunk = StackerDBChunkData::new(args.slot_id, args.slot_version, args.data);
     chunk.sign(&args.private_key).unwrap();
     let chunk_ack = session.put_chunk(&chunk).unwrap();
@@ -111,7 +128,7 @@ fn handle_generate_stacking_signature(
 ) -> MessageSignature {
     let config = GlobalConfig::try_from(&args.config).unwrap();
 
-    let private_key = config.stacks_private_key;
+    let private_key = config.stacks_private_key.clone();
     let public_key = StacksPublicKey::from_private(&private_key);
     let pk_hex = to_hex(&public_key.to_bytes_compressed());
 
@@ -396,7 +413,7 @@ pub mod tests {
         let public_key = StacksPublicKey::from_private(&private_key);
         let args = GenerateVoteArgs {
             config: config_file.into(),
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let message_signature = handle_generate_vote(args, false);
         assert!(
@@ -421,9 +438,9 @@ pub mod tests {
         };
 
         let args = VerifyVoteArgs {
-            public_key,
+            public_key: public_key.clone(),
             signature: vote_info.sign(&private_key).unwrap(),
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let valid = handle_verify_vote(args, false);
         assert!(valid, "Vote should be valid");
@@ -431,13 +448,13 @@ pub mod tests {
         let args = VerifyVoteArgs {
             public_key: invalid_public_key,
             signature: vote_info.sign(&private_key).unwrap(), // Invalid corresponding public key
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let valid = handle_verify_vote(args, false);
         assert!(!valid, "Vote should be invalid");
 
         let args = VerifyVoteArgs {
-            public_key,
+            public_key: public_key.clone(),
             signature: vote_info.sign(&private_key).unwrap(),
             vote_info: VoteInfo {
                 vote: Vote::Yes, // Invalid vote
