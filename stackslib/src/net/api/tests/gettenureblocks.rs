@@ -71,7 +71,7 @@ fn test_try_make_response() {
         StacksHttpRequest::new_get_tenure_blocks(addr.clone().into(), &nakamoto_consensus_hash);
     requests.push(request);
 
-    let genesis_consensus_hash = test_observer
+    let genesis_consensus_hash = &test_observer
         .get_blocks()
         .first()
         .unwrap()
