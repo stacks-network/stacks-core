@@ -342,7 +342,7 @@ impl PrivateKey for Secp256k1PrivateKey {
         Ok(rec_sig)
     }
 
-    #[cfg(feature = "wasm-deterministic")]
+    #[cfg(all(feature = "wasm-deterministic", any(test, feature = "testing")))]
     fn sign_with_noncedata(
         &self,
         data_hash: &[u8],
@@ -351,7 +351,7 @@ impl PrivateKey for Secp256k1PrivateKey {
         Err("Not implemented for wasm-deterministic")
     }
 
-    #[cfg(not(feature = "wasm-deterministic"))]
+    #[cfg(all(any(test, feature = "testing"), not(feature = "wasm-deterministic")))]
     fn sign_with_noncedata(
         &self,
         data_hash: &[u8],

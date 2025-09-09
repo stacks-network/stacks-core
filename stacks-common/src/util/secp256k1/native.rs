@@ -355,6 +355,7 @@ impl PrivateKey for Secp256k1PrivateKey {
         })
     }
 
+    #[cfg(any(test, feature = "testing"))]
     fn sign_with_noncedata(
         &self,
         data_hash: &[u8],
