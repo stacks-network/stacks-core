@@ -782,12 +782,11 @@ impl StacksChainState {
         for entry in entries.iter() {
             let signing_key = entry
                 .signer
-                .clone()
                 .expect("BUG: signing keys should all be set in reward-sets with any signing keys");
             if let Some(existing_entry) = signer_set.get_mut(&signing_key) {
                 *existing_entry += entry.amount_stacked;
             } else {
-                signer_set.insert(signing_key.clone(), entry.amount_stacked);
+                signer_set.insert(signing_key, entry.amount_stacked);
             };
         }
 
@@ -1903,7 +1902,7 @@ pub mod test {
         contract_opt
     }
 
-    pub fn make_pox_addr(addr_version: AddressHashMode, addr_bytes: Hash160) -> Value {
+    pub fn make_pox_addr(addr_version: AddressHashMode, addr_bytes: &Hash160) -> Value {
         Value::Tuple(
             TupleData::from_data(vec![
                 (
@@ -1926,7 +1925,7 @@ pub mod test {
         nonce: u64,
         amount: u128,
         addr_version: AddressHashMode,
-        addr_bytes: Hash160,
+        addr_bytes: &Hash160,
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
@@ -2118,12 +2117,12 @@ pub mod test {
 
     pub fn get_approved_aggregate_key(
         peer: &mut TestPeer<'_>,
-        latest_block_id: StacksBlockId,
+        latest_block_id: &StacksBlockId,
         reward_cycle: u128,
     ) -> Option<Vec<u8>> {
         let key_opt = readonly_call(
             peer,
-            &latest_block_id,
+            latest_block_id,
             SIGNERS_VOTING_NAME.into(),
             "get-approved-aggregate-key".into(),
             vec![Value::UInt(reward_cycle)],
@@ -2623,7 +2622,7 @@ pub mod test {
 
         let bad_lock_period_short = generator(
             amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
             0,
             nonce,
         );
@@ -2632,7 +2631,7 @@ pub mod test {
 
         let bad_lock_period_long = generator(
             amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
             13,
             nonce,
         );
@@ -2641,7 +2640,7 @@ pub mod test {
 
         let bad_amount = generator(
             0,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
             1,
             nonce,
         );
@@ -2718,7 +2717,7 @@ pub mod test {
         name: &str,
         amount: u128,
         addr_version: AddressHashMode,
-        addr_bytes: Hash160,
+        addr_bytes: &Hash160,
         lock_period: u128,
     ) -> StacksTransaction {
         let payload = TransactionPayload::new_contract_call(
@@ -2874,7 +2873,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3001,7 +3000,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3054,7 +3053,7 @@ pub mod test {
                 ];
 
                 if tenure_id == 1 {
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 1, tip.block_height);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, &key_to_stacks_addr(&alice).destruct().1, 1, tip.block_height);
                     block_txs.push(alice_lockup_1);
                 }
                 if tenure_id == 2 {
@@ -3093,7 +3092,7 @@ pub mod test {
                 }
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
-                    &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                    &parent_tip, vrf_proof, tip.total_burn, &microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -3193,7 +3192,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3292,7 +3291,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -3304,7 +3303,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3508,7 +3507,7 @@ pub mod test {
                                 0,
                                 1024 * POX_THRESHOLD_STEPS_USTX,
                                 AddressHashMode::SerializeP2PKH,
-                                key_to_stacks_addr(key).destruct().1,
+                                &key_to_stacks_addr(key).destruct().1,
                                 12,
                                 tip.block_height,
                             );
@@ -3522,7 +3521,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3769,7 +3768,7 @@ pub mod test {
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                         );
                         block_txs.push(alice_stack);
@@ -3780,7 +3779,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -4031,7 +4030,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -4043,7 +4042,7 @@ pub mod test {
                             0,
                             (4 * 1024 * POX_THRESHOLD_STEPS_USTX) / 5,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&bob).destruct().1,
+                            &key_to_stacks_addr(&bob).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -4055,7 +4054,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -4239,11 +4238,11 @@ pub mod test {
                 if tenure_id == 1 {
                     // Alice locks up exactly 12.5% of the liquid STX supply, twice.
                     // Only the first one succeeds.
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, &key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup_1);
 
                     // will be rejected
-                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
+                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, &key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup_2);
 
                     // let's make some allowances for contract-calls through smart contracts
@@ -4305,7 +4304,7 @@ pub mod test {
                 }
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
-                    &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                    &parent_tip, vrf_proof, tip.total_burn, &microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -4460,7 +4459,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4472,7 +4471,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -4709,7 +4708,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4726,7 +4725,7 @@ pub mod test {
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).destruct().1,
+                            &key_to_stacks_addr(&charlie).destruct().1,
                             1,
                         );
                         block_txs.push(charlie_stack);
@@ -4746,7 +4745,7 @@ pub mod test {
                             1,
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4760,7 +4759,7 @@ pub mod test {
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).destruct().1,
+                            &key_to_stacks_addr(&charlie).destruct().1,
                             1,
                         );
                         block_txs.push(charlie_stack);
@@ -4771,7 +4770,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -5231,7 +5230,7 @@ pub mod test {
                             0,
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5242,7 +5241,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&bob).destruct().1,
+                            &key_to_stacks_addr(&bob).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5253,7 +5252,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).destruct().1,
+                            &key_to_stacks_addr(&charlie).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5264,7 +5263,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&danielle).destruct().1,
+                            &key_to_stacks_addr(&danielle).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5280,7 +5279,7 @@ pub mod test {
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2SH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                         );
                         block_txs.push(alice_stack);
@@ -5352,7 +5351,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -5668,7 +5667,7 @@ pub mod test {
 
                 if tenure_id == 1 {
                     // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
-                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
+                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, &key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup);
 
                     // Bob rejects with exactly 25% of the liquid STX supply (shouldn't affect
@@ -5727,7 +5726,7 @@ pub mod test {
                     block_txs.push(charlie_reject);
                 }
 
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain, &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain, &parent_tip, vrf_proof, tip.total_burn, &microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
 
                 if tenure_id == 2 {

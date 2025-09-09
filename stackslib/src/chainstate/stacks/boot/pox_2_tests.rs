@@ -800,7 +800,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         0,
         1024 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -911,7 +911,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         1,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).destruct().1,
+        &key_to_stacks_addr(&bob).destruct().1,
         4,
         tip.block_height,
     );
@@ -973,7 +973,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -1455,7 +1455,7 @@ fn delegate_stack_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes());
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
 
@@ -2080,7 +2080,7 @@ fn test_lock_period_invariant_extend_transition() {
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -2332,7 +2332,7 @@ fn test_pox_extend_transition_pox_2() {
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -2478,7 +2478,7 @@ fn test_pox_extend_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -2771,10 +2771,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             PrincipalData::from(alice_address.clone()).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
         ],
@@ -2786,10 +2783,7 @@ fn test_delegate_extend_transition_pox_2() {
         1,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE),
         ],
     );
@@ -2799,10 +2793,7 @@ fn test_delegate_extend_transition_pox_2() {
         2,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 1),
         ],
     );
@@ -2812,10 +2803,7 @@ fn test_delegate_extend_transition_pox_2() {
         3,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 2),
         ],
     );
@@ -2825,10 +2813,7 @@ fn test_delegate_extend_transition_pox_2() {
         4,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 3),
         ],
     );
@@ -2931,10 +2916,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             PrincipalData::from(bob_address.clone()).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(3),
         ],
@@ -2947,7 +2929,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stack-extend",
         vec![
             PrincipalData::from(alice_address.clone()).into(),
-            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(6),
         ],
     );
@@ -2960,10 +2942,7 @@ fn test_delegate_extend_transition_pox_2() {
         7,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128),
         ],
     );
@@ -2973,10 +2952,7 @@ fn test_delegate_extend_transition_pox_2() {
         8,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 1),
         ],
     );
@@ -2986,10 +2962,7 @@ fn test_delegate_extend_transition_pox_2() {
         9,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 2),
         ],
     );
@@ -3009,7 +2982,7 @@ fn test_delegate_extend_transition_pox_2() {
         ],
         &mut coinbase_nonce,
     );
-    alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
+    alice_rewards_to_v2_start_checks(tip_index_block.clone(), &mut peer);
     let alice_principal = alice_address.clone().into();
     let bob_principal = bob_address.clone().into();
     let StackingStateCheckData {
@@ -3053,7 +3026,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stack-extend",
         vec![
             PrincipalData::from(bob_address.clone()).into(),
-            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(1),
         ],
     );
@@ -3063,17 +3036,14 @@ fn test_delegate_extend_transition_pox_2() {
         11,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 3),
         ],
     );
 
     let tip_index_block =
         peer.tenure_with_txs(&[delegate_extend_tx, agg_commit_tx], &mut coinbase_nonce);
-    alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
+    alice_rewards_to_v2_start_checks(tip_index_block.clone(), &mut peer);
     let StackingStateCheckData {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
@@ -3132,13 +3102,13 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stack-extend",
         vec![
             PrincipalData::from(bob_address.clone()).into(),
-            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(1),
         ],
     );
 
     let tip_index_block = peer.tenure_with_txs(&[delegate_extend_tx], &mut coinbase_nonce);
-    v2_rewards_checks(tip_index_block, &mut peer);
+    v2_rewards_checks(tip_index_block.clone(), &mut peer);
     let StackingStateCheckData {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
@@ -3196,7 +3166,7 @@ fn test_delegate_extend_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -3444,10 +3414,7 @@ fn test_pox_2_getters() {
         vec![
             PrincipalData::from(bob_address.clone()).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
         ],
@@ -3458,10 +3425,7 @@ fn test_pox_2_getters() {
         1,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128),
         ],
     );
@@ -3471,10 +3435,7 @@ fn test_pox_2_getters() {
         2,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128 + 1),
         ],
     );
@@ -3484,10 +3445,7 @@ fn test_pox_2_getters() {
         3,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128 + 2),
         ],
     );
@@ -3738,7 +3696,7 @@ fn test_get_pox_addrs() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    microblock_pubkeyhash,
+                    &microblock_pubkeyhash,
                 )
                 .unwrap();
                 let (anchored_block, _size, _cost) =
@@ -4036,7 +3994,7 @@ fn test_stack_with_segwit() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    microblock_pubkeyhash,
+                    &microblock_pubkeyhash,
                 )
                 .unwrap();
                 let (anchored_block, _size, _cost) =
@@ -4317,7 +4275,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
             Value::none(),
             Value::some(make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                alice_address.bytes().clone(),
+                alice_address.bytes(),
             ))
             .unwrap(),
         ],
@@ -4421,10 +4379,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
 
     assert_eq!(
         alice_pox_addr,
-        make_pox_addr(
-            AddressHashMode::SerializeP2PKH,
-            alice_address.bytes().clone(),
-        )
+        make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes(),)
     );
 }
 
@@ -4484,17 +4439,14 @@ fn stack_aggregation_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes());
     let charlie = keys.pop().unwrap();
     let charlie_address = key_to_stacks_addr(&charlie);
-    let charlie_pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        charlie_address.bytes().clone(),
-    );
+    let charlie_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes());
     let dan = keys.pop().unwrap();
     let dan_address = key_to_stacks_addr(&dan);
     let dan_principal = PrincipalData::from(dan_address.clone());
-    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *dan_address.bytes());
+    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes());
     let alice_nonce = 0;
     let mut bob_nonce = 0;
     let mut charlie_nonce = 0;
@@ -4930,14 +4882,11 @@ fn stack_in_both_pox1_and_pox2() {
 
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        alice_address.bytes().clone(),
-    );
+    let alice_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes());
 
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes());
 
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
@@ -4964,7 +4913,7 @@ fn stack_in_both_pox1_and_pox2() {
         alice_nonce,
         alice_first_lock_amount,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -4998,7 +4947,7 @@ fn stack_in_both_pox1_and_pox2() {
         bob_nonce,
         bob_first_lock_amount,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).destruct().1,
+        &key_to_stacks_addr(&bob).destruct().1,
         12,
         tip.block_height,
     );

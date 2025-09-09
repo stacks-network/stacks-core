@@ -112,7 +112,7 @@ impl SignerStateTest {
             self.active_signer_protocol_version,
             self.local_supported_signer_protocol_version,
             StateMachineUpdateContent::V1 {
-                burn_block: self.burn_block,
+                burn_block: self.burn_block.clone(),
                 burn_block_height: self.burn_block_height,
                 current_miner: self.current_miner.clone(),
                 replay_transactions: transactions,
@@ -219,7 +219,7 @@ fn determine_latest_supported_signer_protocol_versions() {
             active_signer_protocol_version,
             new_version,
             StateMachineUpdateContent::V0 {
-                burn_block,
+                burn_block: burn_block.clone(),
                 burn_block_height,
                 current_miner: current_miner.clone(),
             },
@@ -286,7 +286,7 @@ fn determine_global_burn_views() {
 
     assert_eq!(
         global_eval.determine_global_burn_view().unwrap(),
-        (burn_block, burn_block_height)
+        (&burn_block, burn_block_height)
     );
 
     // Let's update 3 signers (60 percent) to support a new burn block view
@@ -294,9 +294,9 @@ fn determine_global_burn_views() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
-            burn_block,
+            burn_block: burn_block.clone(),
             burn_block_height: burn_block_height.wrapping_add(1),
-            current_miner: current_miner.clone(),
+            current_miner,
         },
     )
     .unwrap();
@@ -313,7 +313,7 @@ fn determine_global_burn_views() {
     global_eval.insert_update(local_address, new_update);
     assert_eq!(
         global_eval.determine_global_burn_view().unwrap(),
-        (burn_block, burn_block_height.wrapping_add(1))
+        (&burn_block, burn_block_height.wrapping_add(1))
     );
 }
 
@@ -344,9 +344,9 @@ fn determine_global_states() {
     };
 
     let state_machine = SignerStateMachine {
-        burn_block,
+        burn_block: burn_block.clone(),
         burn_block_height,
-        current_miner: (&current_miner).into(),
+        current_miner: current_miner.clone().into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
     };
@@ -365,7 +365,7 @@ fn determine_global_states() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
-            burn_block,
+            burn_block: burn_block.clone(),
             burn_block_height,
             current_miner: new_miner.clone(),
         },
@@ -385,7 +385,7 @@ fn determine_global_states() {
     let state_machine = SignerStateMachine {
         burn_block,
         burn_block_height,
-        current_miner: (&new_miner).into(),
+        current_miner: new_miner.into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
     };
@@ -425,7 +425,7 @@ fn determine_global_states_with_tx_replay_set() {
     let state_machine = SignerStateMachine {
         burn_block,
         burn_block_height,
-        current_miner: (&current_miner).into(),
+        current_miner: current_miner.clone().into(),
         active_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
     };
@@ -460,9 +460,9 @@ fn determine_global_states_with_tx_replay_set() {
     global_eval.insert_update(local_address.clone(), no_tx_replay_set_update.clone());
 
     let new_burn_view_state_machine = SignerStateMachine {
-        burn_block,
+        burn_block: burn_block.clone(),
         burn_block_height,
-        current_miner: (&current_miner).into(),
+        current_miner: current_miner.clone().into(),
         active_signer_protocol_version: local_supported_signer_protocol_version, // a majority of signers are saying they support version the same local_supported_signer_protocol_version, so update it here...
         tx_replay_set: ReplayTransactionSet::none(),
     };
@@ -493,7 +493,7 @@ fn determine_global_states_with_tx_replay_set() {
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V1 {
-            burn_block,
+            burn_block: burn_block.clone(),
             burn_block_height,
             current_miner: current_miner.clone(),
             replay_transactions: vec![tx.clone()],
@@ -518,7 +518,7 @@ fn determine_global_states_with_tx_replay_set() {
     let tx_replay_state_machine = SignerStateMachine {
         burn_block,
         burn_block_height,
-        current_miner: (&current_miner).into(),
+        current_miner: current_miner.into(),
         active_signer_protocol_version,
         tx_replay_set: ReplayTransactionSet::new(vec![tx]),
     };

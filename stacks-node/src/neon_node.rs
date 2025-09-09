@@ -1383,7 +1383,7 @@ impl BlockMinerThread {
         // identify leaf tips -- i.e. blocks with no children
         let parent_consensus_hashes: HashSet<_> = stacks_tips
             .iter()
-            .map(|x| x.parent_consensus_hash)
+            .map(|x| x.parent_consensus_hash.clone())
             .collect();
 
         let mut leaf_tips: Vec<_> = stacks_tips
@@ -2238,9 +2238,9 @@ impl BlockMinerThread {
         // Create a peer info view of the current state
         let server_version = version_string("stacks-node", option_env!("STACKS_NODE_VERSION"));
         let stacks_tip_height = self.burn_block.canonical_stacks_tip_height;
-        let stacks_tip = self.burn_block.canonical_stacks_tip_hash;
-        let stacks_tip_consensus_hash = self.burn_block.canonical_stacks_tip_consensus_hash;
-        let pox_consensus = self.burn_block.consensus_hash;
+        let stacks_tip = self.burn_block.canonical_stacks_tip_hash.clone();
+        let stacks_tip_consensus_hash = self.burn_block.canonical_stacks_tip_consensus_hash.clone();
+        let pox_consensus = self.burn_block.consensus_hash.clone();
         let burn_block_height = self.burn_block.block_height;
 
         PeerInfo {
@@ -2569,8 +2569,8 @@ impl BlockMinerThread {
             &mut mem_pool,
             &parent_block_info.stacks_parent_header,
             parent_block_info.parent_block_total_burn,
-            vrf_proof.clone(),
-            mblock_pubkey_hash,
+            &vrf_proof,
+            &mblock_pubkey_hash,
             &coinbase_tx,
             builder_settings,
             Some(&self.event_dispatcher),
@@ -2599,8 +2599,8 @@ impl BlockMinerThread {
                     &mut mem_pool,
                     &parent_block_info.stacks_parent_header,
                     parent_block_info.parent_block_total_burn,
-                    vrf_proof.clone(),
-                    mblock_pubkey_hash,
+                    &vrf_proof,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     builder_settings,
                     Some(&self.event_dispatcher),
@@ -2775,11 +2775,11 @@ impl BlockMinerThread {
         };
 
         let assembled_block = AssembledAnchorBlock {
-            parent_consensus_hash: parent_block_info.parent_consensus_hash,
-            consensus_hash: cur_burn_chain_tip.consensus_hash,
-            burn_hash: cur_burn_chain_tip.burn_header_hash,
+            parent_consensus_hash: parent_block_info.parent_consensus_hash.clone(),
+            consensus_hash: cur_burn_chain_tip.consensus_hash.clone(),
+            burn_hash: cur_burn_chain_tip.burn_header_hash.clone(),
             burn_block_height: cur_burn_chain_tip.block_height,
-            orig_burn_hash: self.burn_block.burn_header_hash,
+            orig_burn_hash: self.burn_block.burn_header_hash.clone(),
             anchored_block,
             attempt,
             tenure_begin,
@@ -3009,10 +3009,9 @@ impl RelayerThread {
             net_receipts.processed_unconfirmed_state.receipts.len();
         if num_unconfirmed_microblock_tx_receipts > 0 {
             if let Some(unconfirmed_state) = self.chainstate_ref().unconfirmed_state.as_ref() {
-                let canonical_tip = unconfirmed_state.confirmed_chain_tip;
                 self.event_dispatcher.process_new_microblocks(
-                    canonical_tip,
-                    net_receipts.processed_unconfirmed_state,
+                    &unconfirmed_state.confirmed_chain_tip,
+                    &net_receipts.processed_unconfirmed_state,
                 );
             } else {
                 warn!("Relayer: oops, unconfirmed state is uninitialized but there are microblock events");
@@ -3267,13 +3266,15 @@ impl RelayerThread {
             };
 
             // advertize _and_ push blocks for now
-            let blocks_available =
-                Relayer::load_blocks_available_data(self.sortdb_ref(), vec![consensus_hash])
-                    .expect("Failed to obtain block information for a block we mined.");
+            let blocks_available = Relayer::load_blocks_available_data(
+                self.sortdb_ref(),
+                vec![consensus_hash.clone()],
+            )
+            .expect("Failed to obtain block information for a block we mined.");
 
             let block_data = {
                 let mut bd = HashMap::new();
-                bd.insert(consensus_hash, mined_block.clone());
+                bd.insert(consensus_hash.clone(), mined_block.clone());
                 bd
             };
 
@@ -3295,7 +3296,7 @@ impl RelayerThread {
                 );
                 miner_tip = Self::pick_higher_tip(miner_tip, None);
             } else {
-                let ch = snapshot.consensus_hash;
+                let ch = snapshot.consensus_hash.clone();
                 let bh = mined_block.block_hash();
                 let height = mined_block.header.total_work.work;
 
@@ -3435,7 +3436,7 @@ impl RelayerThread {
         for (consensus_hash, burn_hash, block_header_hash) in tenures.into_iter() {
             self.miner_thread_try_join();
             let (continue_thread, new_miner_tip) =
-                self.process_one_tenure(consensus_hash, block_header_hash, burn_hash);
+                self.process_one_tenure(consensus_hash.clone(), block_header_hash, burn_hash);
             if !continue_thread {
                 // coordinator thread hang-up
                 return false;
@@ -3560,7 +3561,7 @@ impl RelayerThread {
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
     fn inner_generate_leader_key_register_op(
         vrf_public_key: VRFPublicKey,
-        consensus_hash: &ConsensusHash,
+        consensus_hash: ConsensusHash,
         miner_pk: Option<&StacksPublicKey>,
     ) -> BlockstackOperationType {
         let memo = if let Some(pk) = miner_pk {
@@ -3571,7 +3572,7 @@ impl RelayerThread {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo,
-            consensus_hash: *consensus_hash,
+            consensus_hash,
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
@@ -3599,7 +3600,7 @@ impl RelayerThread {
             burn_block.block_height
         );
 
-        let burnchain_tip_consensus_hash = &burn_block.consensus_hash;
+        let burnchain_tip_consensus_hash = burn_block.consensus_hash.clone();
         // if the miner has set a mining key in preparation for epoch-3.0, register it as part of their VRF key registration
         // once implemented in the nakamoto_node, this will allow miners to transition from 2.5 to 3.0 without submitting a new
         // VRF key registration.
@@ -3698,7 +3699,7 @@ impl RelayerThread {
             }
         }
 
-        let burn_header_hash = last_burn_block.burn_header_hash;
+        let burn_header_hash = last_burn_block.burn_header_hash.clone();
         let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb_ref().conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
@@ -3991,8 +3992,8 @@ impl RelayerThread {
                         &last_mined_block.anchored_block.block_hash()
                     );
 
-                    let bhh = last_mined_block.burn_hash;
-                    let orig_bhh = last_mined_block.orig_burn_hash;
+                    let bhh = last_mined_block.burn_hash.clone();
+                    let orig_bhh = last_mined_block.orig_burn_hash.clone();
                     let tenure_begin = last_mined_block.tenure_begin;
 
                     self.last_mined_blocks.insert(
@@ -4047,8 +4048,8 @@ impl RelayerThread {
                                 &miner_tip.block_hash,
                             );
                             self.event_dispatcher.process_new_microblocks(
-                                parent_index_block_hash,
-                                processed_unconfirmed_state,
+                                &parent_index_block_hash,
+                                &processed_unconfirmed_state,
                             );
 
                             // send it off
@@ -4321,7 +4322,7 @@ impl ParentStacksBlockInfo {
 
         Ok(ParentStacksBlockInfo {
             stacks_parent_header: stacks_tip_header,
-            parent_consensus_hash: *mine_tip_ch,
+            parent_consensus_hash: mine_tip_ch.clone(),
             parent_block_burn_height: parent_block_height,
             parent_block_total_burn,
             parent_winning_vtxindex,

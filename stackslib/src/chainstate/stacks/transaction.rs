@@ -857,7 +857,7 @@ impl StacksTransaction {
                     },
                     next_sig,
                 );
-                Ok(*cur_sighash)
+                Ok(cur_sighash.clone())
             }
         }
     }
@@ -1859,7 +1859,7 @@ mod test {
                 TransactionPayload::PoisonMicroblock(corrupt_h1, corrupt_h2)
             }
             TransactionPayload::Coinbase(ref buf, ref recipient_opt, ref vrf_proof_opt) => {
-                let mut corrupt_buf_bytes = buf.as_bytes().clone();
+                let mut corrupt_buf_bytes = *buf.as_bytes();
                 corrupt_buf_bytes[0] = (((corrupt_buf_bytes[0] as u16) + 1) % 256) as u8;
 
                 let corrupt_buf = CoinbasePayload(corrupt_buf_bytes);
@@ -1870,7 +1870,7 @@ mod test {
                 )
             }
             TransactionPayload::TenureChange(ref tc) => {
-                let mut hash = tc.pubkey_hash.as_bytes().clone();
+                let mut hash = *tc.pubkey_hash.as_bytes();
                 hash[8] ^= 0x04; // Flip one bit
                 let corrupt_tc = TenureChangePayload {
                     pubkey_hash: hash.into(),

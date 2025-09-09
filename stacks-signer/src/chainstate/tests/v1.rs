@@ -64,7 +64,7 @@ fn setup_test_environment(
     let block_pkh = Hash160::from_node_public_key(&block_pk);
 
     let data = SortitionData {
-        miner_pkh: block_pkh,
+        miner_pkh: block_pkh.clone(),
         miner_pubkey: None,
         prior_sortition: ConsensusHash([0; 20]),
         parent_tenure_id: ConsensusHash([0; 20]),
@@ -78,7 +78,7 @@ fn setup_test_environment(
     };
 
     let data = SortitionData {
-        miner_pkh: block_pkh,
+        miner_pkh: block_pkh.clone(),
         miner_pubkey: None,
         prior_sortition: ConsensusHash([128; 20]),
         parent_tenure_id: ConsensusHash([128; 20]),
@@ -170,7 +170,7 @@ fn check_proposal_units() {
 fn check_proposal_miner_pkh_mismatch() {
     let (stacks_client, mut signer_db, _, mut view, mut block) =
         setup_test_environment(function_name!());
-    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash.clone();
     let different_block_sk = StacksPrivateKey::from_seed(&[2, 3]);
     block.header.sign_miner(&different_block_sk).unwrap();
     view.check_proposal(
@@ -182,7 +182,13 @@ fn check_proposal_miner_pkh_mismatch() {
     )
     .expect_err("Proposal should not validate");
 
-    block.header.consensus_hash = view.last_sortition.as_ref().unwrap().data.consensus_hash;
+    block.header.consensus_hash = view
+        .last_sortition
+        .as_ref()
+        .unwrap()
+        .data
+        .consensus_hash
+        .clone();
     block.header.sign_miner(&different_block_sk).unwrap();
     view.check_proposal(
         &stacks_client,
@@ -204,17 +210,22 @@ fn reorg_timing_testing(
     view.config.first_proposal_burn_block_timing =
         Duration::from_secs(first_proposal_burn_block_timing_secs);
     let block_pk = StacksPublicKey::from_private(&block_sk);
-    view.cur_sortition.data.parent_tenure_id =
-        view.last_sortition.as_ref().unwrap().data.parent_tenure_id;
-    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
+    view.cur_sortition.data.parent_tenure_id = view
+        .last_sortition
+        .as_ref()
+        .unwrap()
+        .data
+        .parent_tenure_id
+        .clone();
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash.clone();
     block.txs.push(StacksTransaction::new(
         TransactionVersion::Testnet,
         TransactionAuth::Standard(TransactionSpendingCondition::new_initial_sighash()),
         TransactionPayload::TenureChange(TenureChangePayload {
-            tenure_consensus_hash: view.cur_sortition.data.consensus_hash,
-            prev_tenure_consensus_hash: view.cur_sortition.data.parent_tenure_id,
-            burn_view_consensus_hash: view.cur_sortition.data.consensus_hash,
-            previous_tenure_end: block.header.parent_block_id,
+            tenure_consensus_hash: view.cur_sortition.data.consensus_hash.clone(),
+            prev_tenure_consensus_hash: view.cur_sortition.data.parent_tenure_id.clone(),
+            burn_view_consensus_hash: view.cur_sortition.data.consensus_hash.clone(),
+            previous_tenure_end: block.header.parent_block_id.clone(),
             previous_tenure_blocks: 10,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160::from_node_public_key(&block_pk),
@@ -231,11 +242,11 @@ fn reorg_timing_testing(
 
     let expected_result = vec![
         TenureForkingInfo {
-            burn_block_hash: last_sortition.data.burn_block_hash,
+            burn_block_hash: last_sortition.data.burn_block_hash.clone(),
             burn_block_height: 2,
             sortition_id: SortitionId([2; 32]),
             parent_sortition_id: SortitionId([1; 32]),
-            consensus_hash: last_sortition.data.consensus_hash,
+            consensus_hash: last_sortition.data.consensus_hash.clone(),
             was_sortition: true,
             first_block_mined: Some(StacksBlockId([1; 32])),
             nakamoto_blocks: None,
@@ -245,7 +256,7 @@ fn reorg_timing_testing(
             burn_block_height: 1,
             sortition_id: SortitionId([1; 32]),
             parent_sortition_id: SortitionId([0; 32]),
-            consensus_hash: view.cur_sortition.data.parent_tenure_id,
+            consensus_hash: view.cur_sortition.data.parent_tenure_id.clone(),
             was_sortition: true,
             first_block_mined: Some(StacksBlockId([2; 32])),
             nakamoto_blocks: None,
@@ -258,7 +269,7 @@ fn reorg_timing_testing(
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
-                consensus_hash: last_sortition.data.consensus_hash,
+                consensus_hash: last_sortition.data.consensus_hash.clone(),
                 parent_block_id: StacksBlockId([0; 32]),
                 tx_merkle_root: Sha512Trunc256Sum([0; 32]),
                 state_index_root: TrieHash([0; 32]),
@@ -337,7 +348,7 @@ fn check_proposal_reorg_timing_ok() {
 fn check_proposal_invalid_status() {
     let (stacks_client, mut signer_db, block_sk, mut view, mut block) =
         setup_test_environment(function_name!());
-    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash.clone();
     block.header.sign_miner(&block_sk).unwrap();
     view.check_proposal(
         &stacks_client,
@@ -357,7 +368,13 @@ fn check_proposal_invalid_status() {
     )
     .expect_err("Proposal should not validate");
 
-    block.header.consensus_hash = view.last_sortition.as_ref().unwrap().data.consensus_hash;
+    block.header.consensus_hash = view
+        .last_sortition
+        .as_ref()
+        .unwrap()
+        .data
+        .consensus_hash
+        .clone();
     block.header.sign_miner(&block_sk).unwrap();
     view.check_proposal(
         &stacks_client,
@@ -369,7 +386,13 @@ fn check_proposal_invalid_status() {
     .expect_err("Proposal should not validate");
 
     view.cur_sortition.miner_status = SortitionMinerStatus::InvalidatedBeforeFirstBlock;
-    block.header.consensus_hash = view.last_sortition.as_ref().unwrap().data.consensus_hash;
+    block.header.consensus_hash = view
+        .last_sortition
+        .as_ref()
+        .unwrap()
+        .data
+        .consensus_hash
+        .clone();
     block.header.sign_miner(&block_sk).unwrap();
     // this block passes the signer state checks, even though it doesn't have a tenure change tx.
     // this is because the signer state does not perform the tenure change logic checks: it needs
@@ -423,11 +446,11 @@ fn make_tenure_change_tx(payload: TenureChangePayload) -> StacksTransaction {
 fn check_proposal_tenure_extend_invalid_conditions() {
     let (stacks_client, mut signer_db, block_sk, mut view, mut block) =
         setup_test_environment(function_name!());
-    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash.clone();
     let mut extend_payload = make_tenure_change_payload();
-    extend_payload.burn_view_consensus_hash = view.cur_sortition.data.consensus_hash;
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash;
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash;
+    extend_payload.burn_view_consensus_hash = view.cur_sortition.data.consensus_hash.clone();
+    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
@@ -442,8 +465,8 @@ fn check_proposal_tenure_extend_invalid_conditions() {
 
     let mut extend_payload = make_tenure_change_payload();
     extend_payload.burn_view_consensus_hash = ConsensusHash([64; 20]);
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash;
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash;
+    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
@@ -461,17 +484,22 @@ fn check_proposal_tenure_extend_invalid_conditions() {
 fn check_block_proposal_timeout() {
     let (stacks_client, mut signer_db, block_sk, mut view, mut curr_sortition_block) =
         setup_test_environment(function_name!());
-    curr_sortition_block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
+    curr_sortition_block.header.consensus_hash = view.cur_sortition.data.consensus_hash.clone();
     curr_sortition_block.header.sign_miner(&block_sk).unwrap();
 
     let mut last_sortition_block = curr_sortition_block.clone();
-    last_sortition_block.header.consensus_hash =
-        view.last_sortition.as_ref().unwrap().data.consensus_hash;
+    last_sortition_block.header.consensus_hash = view
+        .last_sortition
+        .as_ref()
+        .unwrap()
+        .data
+        .consensus_hash
+        .clone();
     last_sortition_block.header.sign_miner(&block_sk).unwrap();
 
     // Ensure we have a burn height to compare against
-    let burn_hash = view.cur_sortition.data.burn_block_hash;
-    let consensus_hash = view.cur_sortition.data.consensus_hash;
+    let burn_hash = view.cur_sortition.data.burn_block_hash.clone();
+    let consensus_hash = view.cur_sortition.data.consensus_hash.clone();
     let burn_height = 1;
     let received_time = SystemTime::now();
     signer_db
@@ -538,7 +566,7 @@ fn check_sortition_timeout() {
     let block_pkh = Hash160::from_node_public_key(&block_pk);
 
     let data = SortitionData {
-        miner_pkh: block_pkh,
+        miner_pkh: block_pkh.clone(),
         miner_pubkey: None,
         prior_sortition: ConsensusHash([0; 20]),
         parent_tenure_id: ConsensusHash([0; 20]),
@@ -551,14 +579,14 @@ fn check_sortition_timeout() {
         miner_status: SortitionMinerStatus::Valid,
     };
     // Ensure we have a burn height to compare against
-    let burn_hash = sortition.data.burn_block_hash;
-    let consensus_hash = sortition.data.consensus_hash;
+    let burn_hash = &sortition.data.burn_block_hash;
+    let consensus_hash = &sortition.data.consensus_hash;
     let burn_height = 1;
     let received_time = SystemTime::now();
     signer_db
         .insert_burn_block(
-            &burn_hash,
-            &consensus_hash,
+            burn_hash,
+            consensus_hash,
             burn_height,
             &received_time,
             &BurnchainHeaderHash([0; 32]),
@@ -587,7 +615,7 @@ fn check_sortition_timeout() {
                 version: 1,
                 chain_length: 10,
                 burn_spent: 10,
-                consensus_hash: sortition.data.consensus_hash,
+                consensus_hash: sortition.data.consensus_hash.clone(),
                 parent_block_id: StacksBlockId([0; 32]),
                 tx_merkle_root: Sha512Trunc256Sum([0; 32]),
                 state_index_root: TrieHash([0; 32]),
@@ -623,7 +651,7 @@ fn check_sortition_timeout() {
 fn check_proposal_refresh() {
     let (stacks_client, mut signer_db, block_sk, mut view, mut block) =
         setup_test_environment(function_name!());
-    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash.clone();
     block.header.sign_miner(&block_sk).unwrap();
     view.check_proposal(
         &stacks_client,
@@ -644,16 +672,16 @@ fn check_proposal_refresh() {
 
     let expected_result = vec![
         SortitionInfo {
-            burn_block_hash: last_sortition.burn_block_hash,
+            burn_block_hash: last_sortition.burn_block_hash.clone(),
             burn_block_height: 2,
             sortition_id: SortitionId([2; 32]),
             parent_sortition_id: SortitionId([1; 32]),
-            consensus_hash: block.header.consensus_hash,
+            consensus_hash: block.header.consensus_hash.clone(),
             was_sortition: true,
             burn_header_timestamp: 2,
-            miner_pk_hash160: Some(view.cur_sortition.data.miner_pkh),
-            stacks_parent_ch: Some(view.cur_sortition.data.parent_tenure_id),
-            last_sortition_ch: Some(view.cur_sortition.data.parent_tenure_id),
+            miner_pk_hash160: Some(view.cur_sortition.data.miner_pkh.clone()),
+            stacks_parent_ch: Some(view.cur_sortition.data.parent_tenure_id.clone()),
+            last_sortition_ch: Some(view.cur_sortition.data.parent_tenure_id.clone()),
             committed_block_hash: None,
             vrf_seed: None,
         },
@@ -662,12 +690,12 @@ fn check_proposal_refresh() {
             burn_block_height: 1,
             sortition_id: SortitionId([1; 32]),
             parent_sortition_id: SortitionId([0; 32]),
-            consensus_hash: view.cur_sortition.data.parent_tenure_id,
+            consensus_hash: view.cur_sortition.data.parent_tenure_id.clone(),
             was_sortition: true,
             burn_header_timestamp: 1,
-            miner_pk_hash160: Some(view.cur_sortition.data.miner_pkh),
-            stacks_parent_ch: Some(view.cur_sortition.data.parent_tenure_id),
-            last_sortition_ch: Some(view.cur_sortition.data.parent_tenure_id),
+            miner_pk_hash160: Some(view.cur_sortition.data.miner_pkh.clone()),
+            stacks_parent_ch: Some(view.cur_sortition.data.parent_tenure_id.clone()),
+            last_sortition_ch: Some(view.cur_sortition.data.parent_tenure_id.clone()),
             committed_block_hash: None,
             vrf_seed: None,
         },
@@ -695,11 +723,11 @@ fn check_proposal_refresh() {
 fn check_proposal_with_extend_during_replay() {
     let (stacks_client, mut signer_db, block_sk, mut view, mut block) =
         setup_test_environment(function_name!());
-    block.header.consensus_hash = view.cur_sortition.data.consensus_hash;
+    block.header.consensus_hash = view.cur_sortition.data.consensus_hash.clone();
     let mut extend_payload = make_tenure_change_payload();
-    extend_payload.burn_view_consensus_hash = view.cur_sortition.data.consensus_hash;
-    extend_payload.tenure_consensus_hash = block.header.consensus_hash;
-    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash;
+    extend_payload.burn_view_consensus_hash = view.cur_sortition.data.consensus_hash.clone();
+    extend_payload.tenure_consensus_hash = block.header.consensus_hash.clone();
+    extend_payload.prev_tenure_consensus_hash = block.header.consensus_hash.clone();
     let tx = make_tenure_change_tx(extend_payload);
     block.txs = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();

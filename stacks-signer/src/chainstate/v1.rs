@@ -224,7 +224,7 @@ impl SortitionsView {
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "current_sortition_consensus_hash" => ?self.cur_sortition.data.consensus_hash,
-                "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.data.consensus_hash),
+                "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| &x.data.consensus_hash),
             );
             return Err(RejectReason::InvalidBitvec);
         }
@@ -250,7 +250,7 @@ impl SortitionsView {
                     "Miner block proposal has consensus hash that is neither the current or last sortition. Resetting view.";
                     "proposed_block_consensus_hash" => %block.header.consensus_hash,
                     "current_sortition_consensus_hash" => ?self.cur_sortition.data.consensus_hash,
-                    "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.data.consensus_hash),
+                    "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| &x.data.consensus_hash),
                 );
                 self.reset_view(client)
                     .map_err(SignerChainstateError::from)?;
@@ -261,7 +261,7 @@ impl SortitionsView {
                 "proposed_block_consensus_hash" => %block.header.consensus_hash,
                 "signer_signature_hash" => %block.header.signer_signature_hash(),
                 "current_sortition_consensus_hash" => ?self.cur_sortition.data.consensus_hash,
-                "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| x.data.consensus_hash),
+                "last_sortition_consensus_hash" => ?self.last_sortition.as_ref().map(|x| &x.data.consensus_hash),
             );
             return Err(RejectReason::SortitionViewMismatch);
         };
@@ -334,9 +334,9 @@ impl SortitionsView {
             // in tenure extends, we need to check:
             // (1) if this is the most recent sortition, an extend is allowed if it changes the burnchain view
             // (2) if this is the most recent sortition, an extend is allowed if enough time has passed to refresh the block limit
-            let sortition_consensus_hash = proposed_by.state().data.consensus_hash;
+            let sortition_consensus_hash = &proposed_by.state().data.consensus_hash;
             let changed_burn_view =
-                tenure_extend.burn_view_consensus_hash != sortition_consensus_hash;
+                &tenure_extend.burn_view_consensus_hash != sortition_consensus_hash;
             let extend_timestamp = signer_db.calculate_tenure_extend_timestamp(
                 self.config.tenure_idle_timeout,
                 block,

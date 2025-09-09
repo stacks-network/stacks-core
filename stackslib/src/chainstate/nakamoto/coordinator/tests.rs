@@ -112,7 +112,7 @@ fn advance_to_nakamoto(
                         .pox_addr
                         .clone()
                         .unwrap_or(default_pox_addr.clone());
-                    let max_amount = test_stacker.max_amount.clone().unwrap_or(u128::MAX);
+                    let max_amount = test_stacker.max_amount.unwrap_or(u128::MAX);
 
                     let signature = make_signer_key_signature(
                         &pox_addr,
@@ -1614,7 +1614,7 @@ fn transactions_indexing() {
     for tx in tracked_block.txs {
         let current_tx_hex = to_hex(&tx.serialize_to_vec());
         let (index_block_hash, tx_hex, _) =
-            NakamotoChainState::get_tx_info_from_txid(&chainstate.index_conn(), tx.txid())
+            NakamotoChainState::get_tx_info_from_txid(&chainstate.index_conn(), &tx.txid())
                 .unwrap()
                 .unwrap();
         assert_eq!(index_block_hash, tracked_block_id);
@@ -1678,7 +1678,7 @@ fn transactions_not_indexing() {
     // ensure untracked transactions are not recorded
     for tx in untracked_block.txs {
         assert_eq!(
-            NakamotoChainState::get_tx_info_from_txid(&chainstate.index_conn(), tx.txid(),)
+            NakamotoChainState::get_tx_info_from_txid(&chainstate.index_conn(), &tx.txid(),)
                 .unwrap()
                 .is_none(),
             true
