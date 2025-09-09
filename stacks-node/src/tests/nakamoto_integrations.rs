@@ -3651,7 +3651,7 @@ fn vote_for_aggregate_key_burn_op() {
 
     let stacker_pk = StacksPublicKey::from_private(&stacker_sk);
     let signer_key: StacksPublicKeyBuffer = stacker_pk.to_bytes_compressed().as_slice().into();
-    let aggregate_key = signer_key;
+    let aggregate_key = signer_key.clone();
 
     let vote_for_aggregate_key_op =
         BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
@@ -3660,7 +3660,7 @@ fn vote_for_aggregate_key_burn_op() {
             sender: signer_addr,
             round: 0,
             reward_cycle,
-            aggregate_key,
+            aggregate_key: aggregate_key.clone(),
             // to be filled in
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -4958,7 +4958,7 @@ fn burn_ops_integration_test() {
         reward_addr: pox_addr,
         stacked_ustx: min_stx.into(),
         num_cycles: lock_period,
-        signer_key: Some(signer_key_arg_1),
+        signer_key: Some(signer_key_arg_1.clone()),
         max_amount: Some(u128::MAX),
         auth_id: Some(auth_id),
         // to be filled in
@@ -6919,7 +6919,7 @@ fn signer_chainstate() {
         version: 1,
         chain_length: last_tenure_header.chain_length,
         burn_spent: last_tenure_header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: last_tenure_header.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -6963,8 +6963,8 @@ fn signer_chainstate() {
         version: 1,
         chain_length: last_tenure_header.chain_length,
         burn_spent: last_tenure_header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
-        parent_block_id: last_tenure_header.parent_block_id,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
+        parent_block_id: last_tenure_header.parent_block_id.clone(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
         timestamp: last_tenure_header.timestamp + 1,
@@ -7017,7 +7017,7 @@ fn signer_chainstate() {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
         burn_spent: reorg_to_block.header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -7048,9 +7048,9 @@ fn signer_chainstate() {
                 post_condition_mode: TransactionPostConditionMode::Allow,
                 post_conditions: vec![],
                 payload: TransactionPayload::TenureChange(TenureChangePayload {
-                    tenure_consensus_hash: sibling_block_header.consensus_hash,
-                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash,
-                    burn_view_consensus_hash: sibling_block_header.consensus_hash,
+                    tenure_consensus_hash: sibling_block_header.consensus_hash.clone(),
+                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash.clone(),
+                    burn_view_consensus_hash: sibling_block_header.consensus_hash.clone(),
                     previous_tenure_end: reorg_to_block.block_id(),
                     previous_tenure_blocks: 1,
                     cause: stacks::chainstate::stacks::TenureChangeCause::BlockFound,
@@ -7074,12 +7074,13 @@ fn signer_chainstate() {
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
     // make the sortition_view *think* that our block commit pointed at this old tenure
-    sortitions_view.cur_sortition.data.parent_tenure_id = reorg_to_block.header.consensus_hash;
+    sortitions_view.cur_sortition.data.parent_tenure_id =
+        reorg_to_block.header.consensus_hash.clone();
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
         burn_spent: reorg_to_block.header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -7110,9 +7111,9 @@ fn signer_chainstate() {
                 post_condition_mode: TransactionPostConditionMode::Allow,
                 post_conditions: vec![],
                 payload: TransactionPayload::TenureChange(TenureChangePayload {
-                    tenure_consensus_hash: sibling_block_header.consensus_hash,
-                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash,
-                    burn_view_consensus_hash: sibling_block_header.consensus_hash,
+                    tenure_consensus_hash: sibling_block_header.consensus_hash.clone(),
+                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash.clone(),
+                    burn_view_consensus_hash: sibling_block_header.consensus_hash.clone(),
                     previous_tenure_end: reorg_to_block.block_id(),
                     previous_tenure_blocks: 1,
                     cause: stacks::chainstate::stacks::TenureChangeCause::BlockFound,
@@ -10134,7 +10135,7 @@ fn test_shadow_recovery() {
             break;
         }
 
-        let header = header.anchored_header.as_stacks_nakamoto().clone().unwrap();
+        let header = header.anchored_header.as_stacks_nakamoto().unwrap();
 
         if header.is_shadow_block() {
             assert!(shadow_ids.contains(&header.block_id()));
@@ -10154,7 +10155,7 @@ fn test_shadow_recovery() {
             has_epoch_3_failure = true;
         }
 
-        cursor = header.parent_block_id;
+        cursor = header.parent_block_id.clone();
     }
 
     assert!(has_epoch_3_recovery);
@@ -10748,7 +10749,7 @@ fn consensus_hash_event_dispatcher() {
     let burn_block = burn_blocks.last().unwrap();
     assert_eq!(burn_block.consensus_hash, tip.consensus_hash);
 
-    let parent_burn_block_hash = parent_burn_block.burn_block_hash;
+    let parent_burn_block_hash = parent_burn_block.burn_block_hash.clone();
 
     assert_eq!(burn_block.parent_burn_block_hash, parent_burn_block_hash);
 
@@ -12288,12 +12289,12 @@ fn v3_transaction_api_endpoint() {
     let last_block_event = block_events.last().unwrap();
 
     let first_transaction = match last_block_event.tx_events.first().unwrap() {
-        TransactionEvent::Success(first_transaction) => Some(first_transaction.txid),
+        TransactionEvent::Success(first_transaction) => Some(first_transaction.txid.clone()),
         _ => None,
     }
     .unwrap();
 
-    let response_json = get_v3_transaction(first_transaction);
+    let response_json = get_v3_transaction(first_transaction.clone());
 
     assert_eq!(
         response_json

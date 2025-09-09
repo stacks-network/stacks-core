@@ -407,7 +407,7 @@ impl BitcoinRpcClient {
 
         let rpc_timeout = Duration::from_secs(timeout);
 
-        let endpoint = RpcTransport::new(rpc_url, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
+        let endpoint = RpcTransport::new(rpc_url, rpc_auth.clone(), Some(rpc_timeout))?;
 
         Ok(Self {
             client_id,

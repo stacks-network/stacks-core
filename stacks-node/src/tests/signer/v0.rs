@@ -384,7 +384,7 @@ impl SignerTest<SpawnedSigner> {
 
         // Verify that the signers accepted the proposed block, sending back a validate ok response
         let proposed_signer_signature_hash = self
-            .wait_for_validate_ok_response(timeout)
+            .wait_for_validate_ok_response(timeout.as_secs())
             .signer_signature_hash;
         let message = proposed_signer_signature_hash.0;
 
@@ -1279,7 +1279,7 @@ pub fn wait_for_block_proposal(
 /// with the provided signer signature hash
 fn wait_for_block_pushed(
     timeout_secs: u64,
-    block_signer_signature_hash: Sha512Trunc256Sum,
+    block_signer_signature_hash: &Sha512Trunc256Sum,
 ) -> Result<NakamotoBlock, String> {
     let mut block = None;
     wait_for(timeout_secs, || {
@@ -1290,7 +1290,7 @@ fn wait_for_block_pushed(
                 continue;
             };
             if let SignerMessage::BlockPushed(pushed_block) = message {
-                if pushed_block.header.signer_signature_hash() == block_signer_signature_hash {
+                if &pushed_block.header.signer_signature_hash() == block_signer_signature_hash {
                     block = Some(pushed_block);
                     return Ok(true);
                 }
@@ -1370,7 +1370,7 @@ pub fn wait_for_block_pre_commits_from_signers(
 /// with the provided signer signature hash
 fn wait_for_block_global_rejection(
     timeout_secs: u64,
-    block_signer_signature_hash: Sha512Trunc256Sum,
+    block_signer_signature_hash: &Sha512Trunc256Sum,
     num_signers: usize,
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
@@ -1385,10 +1385,10 @@ fn wait_for_block_global_rejection(
                 signer_signature_hash,
                 signature,
                 ..
-            })) = message
+            })) = &message
             {
                 if signer_signature_hash == block_signer_signature_hash {
-                    found_rejections.insert(signature);
+                    found_rejections.insert(signature.clone());
                 }
             }
         }
@@ -1400,7 +1400,7 @@ fn wait_for_block_global_rejection(
 /// with the provided signer signature hash and the specified reject_reason
 pub fn wait_for_block_global_rejection_with_reject_reason(
     timeout_secs: u64,
-    block_signer_signature_hash: Sha512Trunc256Sum,
+    block_signer_signature_hash: &Sha512Trunc256Sum,
     num_signers: usize,
     reject_reason: Option<RejectReason>,
 ) -> Result<(), String> {
@@ -1417,7 +1417,7 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
                 signature,
                 response_data,
                 ..
-            })) = message
+            })) = &message
             {
                 if signer_signature_hash != block_signer_signature_hash {
                     continue;
@@ -1427,7 +1427,7 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
                         continue;
                     }
                 }
-                found_rejections.insert(signature);
+                found_rejections.insert(signature.clone());
             }
         }
         Ok(found_rejections.len() >= num_signers * 3 / 10)
@@ -1438,7 +1438,7 @@ pub fn wait_for_block_global_rejection_with_reject_reason(
 /// with the provided signer signature hash
 fn wait_for_block_rejections(
     timeout_secs: u64,
-    block_signer_signature_hash: Sha512Trunc256Sum,
+    block_signer_signature_hash: &Sha512Trunc256Sum,
     num_rejections: usize,
 ) -> Result<(), String> {
     let mut found_rejections = HashSet::new();
@@ -1453,10 +1453,10 @@ fn wait_for_block_rejections(
                 signer_signature_hash,
                 signature,
                 ..
-            })) = message
+            })) = &message
             {
                 if signer_signature_hash == block_signer_signature_hash {
-                    found_rejections.insert(signature);
+                    found_rejections.insert(signature.clone());
                 }
             }
         }
@@ -1480,7 +1480,7 @@ pub fn wait_for_block_global_acceptance_from_signers(
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
-                    if accepted.signer_signature_hash == *signer_signature_hash
+                    if &accepted.signer_signature_hash == signer_signature_hash
                         && expected_signers.iter().any(|pk| {
                             pk.verify(accepted.signer_signature_hash.bits(), &accepted.signature)
                                 .expect("Failed to verify signature")
@@ -1512,13 +1512,13 @@ pub fn wait_for_block_acceptance_from_signers(
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
-                    if accepted.signer_signature_hash == *signer_signature_hash
+                    if &accepted.signer_signature_hash == signer_signature_hash
                         && expected_signers.iter().any(|pk| {
                             pk.verify(accepted.signer_signature_hash.bits(), &accepted.signature)
                                 .expect("Failed to verify signature")
                         })
                     {
-                        return Some((accepted.signature, accepted));
+                        return Some((accepted.signature.clone(), accepted));
                     }
                 }
                 None
@@ -1554,7 +1554,7 @@ pub fn wait_for_block_rejections_from_signers(
                         let rejected_pubkey = rejection
                             .recover_public_key()
                             .expect("Failed to recover public key from rejection");
-                        if rejection.signer_signature_hash == *signer_signature_hash
+                        if &rejection.signer_signature_hash == signer_signature_hash
                             && expected_signers.contains(&rejected_pubkey)
                         {
                             Some((rejected_pubkey, rejection))
@@ -1635,7 +1635,7 @@ pub fn wait_for_state_machine_update(
                 continue;
             }
             if let Some((expected_miner_pkh, expected_miner_parent_tenure_last_block_height)) =
-                expected_miner_info
+                &expected_miner_info
             {
                 match current_miner {
                     StateMachineUpdateMinerState::ActiveMiner {
@@ -1643,8 +1643,8 @@ pub fn wait_for_state_machine_update(
                         parent_tenure_last_block_height,
                         ..
                     } => {
-                        if expected_miner_pkh != current_miner_pkh
-                            || expected_miner_parent_tenure_last_block_height
+                        if expected_miner_pkh != &current_miner_pkh
+                            || *expected_miner_parent_tenure_last_block_height
                                 != parent_tenure_last_block_height
                         {
                             continue;
@@ -1779,7 +1779,7 @@ fn block_proposal_rejection() {
     signer_test.propose_block(block.clone(), short_timeout);
 
     // Wait for the first block to be mined successfully so we have the most up to date sortition view
-    signer_test.wait_for_validate_ok_response(short_timeout);
+    signer_test.wait_for_validate_ok_response(short_timeout.as_secs());
 
     // Propose a block to the signers that passes initial checks but will be rejected by the stacks node
     let view = SortitionsView::fetch_view(proposal_conf, &signer_test.stacks_client).unwrap();
@@ -1796,8 +1796,8 @@ fn block_proposal_rejection() {
 
     info!("------------------------- Test Block Proposal Rejected -------------------------");
     // Verify the signers rejected the second block via the endpoint
-    let reject =
-        signer_test.wait_for_validate_reject_response(short_timeout, block_signer_signature_hash_2);
+    let reject = signer_test
+        .wait_for_validate_reject_response(short_timeout.as_secs(), &block_signer_signature_hash_2);
     assert!(matches!(
         reject.reason_code,
         ValidateRejectCode::UnknownParent
@@ -2168,7 +2168,7 @@ fn revalidate_unknown_parent() {
     signer_test.check_signer_states_normal();
 
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1.clone()));
 
     info!("------- Unblocking Miner 2 ------");
     rl2_skip_commit_op.set(false);
@@ -2184,7 +2184,7 @@ fn revalidate_unknown_parent() {
     signer_test.mine_bitcoin_block();
     signer_test.check_signer_states_normal();
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_2));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_2.clone()));
 
     // Setup miner 1 to ignore a block in this tenure
     let ignore_block = peer_info_before.stacks_tip_height + 2;
@@ -2835,7 +2835,7 @@ fn forked_tenure_testing(
         microblock_tail: None,
         stacks_block_height: tip_b_block.header.chain_length,
         index_root: TrieHash([0x00; 32]), // we can't know this yet since the block hasn't been processed
-        consensus_hash: tip_b_block.header.consensus_hash,
+        consensus_hash: tip_b_block.header.consensus_hash.clone(),
         burn_header_hash: tip_sn.burn_header_hash,
         burn_header_height: tip_sn.block_height as u32,
         burn_header_timestamp: tip_sn.burn_header_timestamp,
@@ -3652,7 +3652,7 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
     );
     wait_for_block_global_rejection_with_reject_reason(
         30,
-        rejected_block.header.signer_signature_hash(),
+        &rejected_block.header.signer_signature_hash(),
         num_signers,
         Some(RejectReason::ValidationFailed(
             ValidateRejectCode::InvalidTransactionReplay,
@@ -4063,7 +4063,7 @@ fn tx_replay_failsafe() {
 
     // Wait for the block commit re-broadcast to be confirmed
     wait_for(10, || {
-        let is_confirmed = btc_controller.is_transaction_confirmed(&commit_txid.unwrap());
+        let is_confirmed = btc_controller.is_transaction_confirmed(commit_txid.as_ref().unwrap());
         Ok(is_confirmed)
     })
     .expect("Timed out waiting for transaction to be confirmed");
@@ -4347,7 +4347,7 @@ fn tx_replay_disagreement() {
 
     // Wait for the block commit re-broadcast to be confirmed
     wait_for(10, || {
-        let is_confirmed = btc_controller.is_transaction_confirmed(&commit_txid.unwrap());
+        let is_confirmed = btc_controller.is_transaction_confirmed(commit_txid.as_ref().unwrap());
         Ok(is_confirmed)
     })
     .expect("Timed out waiting for transaction to be confirmed");
@@ -5558,7 +5558,7 @@ fn multiple_miners() {
         let blocks = get_nakamoto_headers(&conf_1);
         // for this test, there should be one block per tenure
         let consensus_hash_set: HashSet<_> =
-            blocks.iter().map(|header| header.consensus_hash).collect();
+            blocks.iter().map(|header| &header.consensus_hash).collect();
         assert_eq!(
             consensus_hash_set.len(),
             blocks.len(),
@@ -5744,7 +5744,7 @@ fn miner_forking() {
     .into_iter()
     .map(|header| {
         info!("Nakamoto block"; "height" => header.stacks_block_height, "consensus_hash" => %header.consensus_hash, "last_sortition_hash" => %tip.consensus_hash);
-        (header.consensus_hash, header)
+        (header.consensus_hash.clone(), header)
     })
     .collect();
 
@@ -5793,7 +5793,7 @@ fn miner_forking() {
         .into_iter()
         .map(|header| {
             info!("Nakamoto block"; "height" => header.stacks_block_height, "consensus_hash" => %header.consensus_hash, "last_sortition_hash" => %tip.consensus_hash);
-            (header.consensus_hash, header)
+            (header.consensus_hash.clone(), header)
         })
         .collect();
 
@@ -5841,7 +5841,7 @@ fn miner_forking() {
         .into_iter()
         .map(|header| {
             info!("Nakamoto block"; "height" => header.stacks_block_height, "consensus_hash" => %header.consensus_hash, "last_sortition_hash" => %tip.consensus_hash);
-            (header.consensus_hash, header)
+            (header.consensus_hash.clone(), header)
         })
         .collect();
 
@@ -6730,7 +6730,7 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
         .expect("Timed out waiting for a tenure extend proposal");
     wait_for_block_global_rejection(
         30,
-        proposed_block.header.signer_signature_hash(),
+        &proposed_block.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Timed out waiting for a tenure extend proposal to be rejected");
@@ -6951,17 +6951,7 @@ fn idle_tenure_extend_active_mining() {
         Sha512Trunc256Sum::from_vec(&block_hash).unwrap()
     };
 
-    let last_block_hash = get_last_block_hash();
-
     let slot_id = 0_u32;
-
-    let get_last_block_hash = || {
-        let blocks = test_observer::get_blocks();
-        let last_block = blocks.last().unwrap();
-        let block_hash =
-            hex_bytes(&last_block.get("block_hash").unwrap().as_str().unwrap()[2..]).unwrap();
-        Sha512Trunc256Sum::from_vec(&block_hash).unwrap()
-    };
 
     let log_idle_diff = |timestamp: u64| {
         let now = get_epoch_time_secs();
@@ -6972,7 +6962,7 @@ fn idle_tenure_extend_active_mining() {
     let initial_response = signer_test.get_latest_block_response(slot_id);
     assert_eq!(
         initial_response.get_signer_signature_hash(),
-        last_block_hash
+        &get_last_block_hash()
     );
 
     info!(
@@ -7089,7 +7079,7 @@ fn idle_tenure_extend_active_mining() {
             );
             assert_eq!(
                 latest_response.get_signer_signature_hash(),
-                get_last_block_hash(),
+                &get_last_block_hash(),
                 "Expected the latest block response to be for the latest block"
             );
             assert_ne!(
@@ -8356,9 +8346,9 @@ fn duplicate_signers() {
     // Pick a message hash
     let accepted = signer_accepted_responses
         .iter()
-        .min_by_key(|accepted| accepted.signer_signature_hash)
+        .min_by_key(|accepted| accepted.signer_signature_hash.clone())
         .expect("No `BlockResponse::Accepted` messages recieved");
-    let selected_sighash = accepted.signer_signature_hash;
+    let selected_sighash = accepted.signer_signature_hash.clone();
 
     // Filter only resonses for selected block and collect unique pubkeys and signatures
     let (pubkeys, signatures): (HashSet<_>, HashSet<_>) = signer_accepted_responses
@@ -8732,7 +8722,7 @@ fn multiple_miners_with_nakamoto_blocks() {
             if seen_burn_hashes.contains(&header.burn_header_hash) {
                 continue;
             }
-            seen_burn_hashes.insert(header.burn_header_hash);
+            seen_burn_hashes.insert(header.burn_header_hash.clone());
 
             let header = header.anchored_header.as_stacks_nakamoto().unwrap();
             if miner_1_pk
@@ -8962,7 +8952,7 @@ fn partial_tenure_fork() {
     signer_test.check_signer_states_normal();
 
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1.clone()));
 
     // Setup miner 2 to ignore a block in this tenure
     let ignore_block = info_before.stacks_tip_height + 3;
@@ -9002,7 +8992,7 @@ fn partial_tenure_fork() {
     //  is trying to reorg Miner 1's tenure
     signer_test.check_signer_states_normal();
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_2));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_2.clone()));
 
     wait_for(60, || {
         Ok(rl2_counters.naka_proposed_blocks.get() > proposals_before
@@ -9032,7 +9022,7 @@ fn partial_tenure_fork() {
     // Miner 2's tenure is an allowed reorg before the prior tenure had no blocks
     signer_test.check_signer_states_reorg(&signer_test.signer_test_pks(), &[]);
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_2));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_2.clone()));
 
     let peer_info = signer_test.get_peer_info();
     assert_eq!(
@@ -9054,7 +9044,7 @@ fn partial_tenure_fork() {
     rl2_skip_commit_op.set(false);
     signer_test.check_signer_states_reorg(&signer_test.signer_test_pks(), &[]);
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1.clone()));
 
     for interim_block_ix in 0..inter_blocks_per_tenure {
         info!(
@@ -9080,7 +9070,7 @@ fn partial_tenure_fork() {
     //  the signer set to treat miner 2's reorg as rejected.
     signer_test.check_signer_states_reorg(&[], &signer_test.signer_test_pks());
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_2));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_2.clone()));
 
     wait_for(60, || {
         Ok(rl2_counters.naka_proposed_blocks.get() > proposals_before)
@@ -9993,7 +9983,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     // Assert the N+1' block was rejected
     wait_for_block_global_rejection(
         30,
-        block_n_1_prime.header.signer_signature_hash(),
+        &block_n_1_prime.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Timed out waiting for block N+1' to be rejected");
@@ -10166,7 +10156,7 @@ fn continue_after_fast_block_no_sortition() {
         .expect("Failed to get Miner 2's Block Proposal");
     wait_for_block_global_rejection(
         30,
-        miner_2_block.header.signer_signature_hash(),
+        &miner_2_block.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Failed to get expected block rejections for Miner 2's block proposal");
@@ -10574,7 +10564,7 @@ fn multiple_miners_with_custom_chain_id() {
             if seen_burn_hashes.contains(&header.burn_header_hash) {
                 continue;
             }
-            seen_burn_hashes.insert(header.burn_header_hash);
+            seen_burn_hashes.insert(&header.burn_header_hash);
 
             let header = header.anchored_header.as_stacks_nakamoto().unwrap();
             if miner_1_pk
@@ -11145,7 +11135,7 @@ fn block_validation_pending_table() {
         let proposal_responses = test_observer::get_proposal_responses();
         let found_proposal = proposal_responses
             .iter()
-            .any(|p| p.signer_signature_hash() == block_signer_signature_hash);
+            .any(|p| p.signer_signature_hash() == &block_signer_signature_hash);
         Ok(found_proposal)
     })
     .expect("Timed out waiting for pending block validation to be submitted");
@@ -11307,7 +11297,7 @@ fn new_tenure_while_validating_previous_scenario() {
         let proposal_responses = test_observer::get_proposal_responses();
         let found_proposal = proposal_responses
             .iter()
-            .any(|p| p.signer_signature_hash() == new_block_hash);
+            .any(|p| p.signer_signature_hash() == &new_block_hash);
         Ok(found_proposal)
     })
     .expect("Timed out waiting for pending block validation to be submitted");
@@ -11429,7 +11419,7 @@ fn tenure_extend_after_failed_miner() {
         30,
         &info_before.pox_consensus,
         info_before.burn_block_height,
-        Some((miner_pkh_1, starting_peer_height)),
+        Some((miner_pkh_1.clone(), starting_peer_height)),
         &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Failed to update signer state");
@@ -12270,7 +12260,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
         }))
     })
     .expect("Failed to verify all signers recorded a signature rejection");
-    wait_for_block_global_rejection(30, block_n_1_prime_signature_hash, num_signers)
+    wait_for_block_global_rejection(30, &block_n_1_prime_signature_hash, num_signers)
         .expect("Failed to find block N+1'");
 
     info!("------------------------- Confirm N+1 Accepted -------------------------");
@@ -12471,7 +12461,8 @@ fn incoming_signers_ignore_block_proposals() {
 
     signer_test.propose_block(block, short_timeout);
     // Verify the signers rejected the second block via the endpoint
-    signer_test.wait_for_validate_reject_response(short_timeout, signer_signature_hash_2);
+    signer_test
+        .wait_for_validate_reject_response(short_timeout.as_secs(), &signer_signature_hash_2);
     wait_for_block_rejections_from_signers(30, &signer_signature_hash_2, &all_signers)
         .expect("Timed out waiting for block rejections");
     no_next_signer_messages();
@@ -12574,7 +12565,8 @@ fn outgoing_signers_ignore_block_proposals() {
     let new_signature_hash = test_observer::get_mined_nakamoto_blocks()
         .last()
         .unwrap()
-        .signer_signature_hash;
+        .signer_signature_hash
+        .clone();
     let blocks_before = mined_blocks.load(Ordering::SeqCst);
     let mut stackerdb = signer_test.readonly_stackerdb_client(old_reward_cycle);
 
@@ -12602,7 +12594,7 @@ fn outgoing_signers_ignore_block_proposals() {
         })
         .is_err());
     };
-    old_signers_ignore_block_proposals(new_signature_hash);
+    old_signers_ignore_block_proposals(&new_signature_hash);
 
     let proposal_conf = ProposalEvalConfig {
         proposal_wait_for_parent_time: Duration::from_secs(0),
@@ -12639,10 +12631,10 @@ fn outgoing_signers_ignore_block_proposals() {
 
     signer_test.propose_block(block, short_timeout);
     // Verify the signers rejected the second block via the endpoint
-    signer_test.wait_for_validate_reject_response(short_timeout, signer_signature_hash);
-    wait_for_block_global_rejection(30, signer_signature_hash, num_signers)
+    signer_test.wait_for_validate_reject_response(short_timeout.as_secs(), &signer_signature_hash);
+    wait_for_block_global_rejection(30, &signer_signature_hash, num_signers)
         .expect("Failed to see majority rejections of ivalid block'");
-    old_signers_ignore_block_proposals(signer_signature_hash);
+    old_signers_ignore_block_proposals(&signer_signature_hash);
 
     assert_eq!(blocks_before, mined_blocks.load(Ordering::SeqCst));
     signer_test.shutdown();
@@ -12951,7 +12943,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
                 let message = SignerMessage::consensus_deserialize(&mut chunk.data.as_slice())
                     .expect("Failed to deserialize SignerMessage");
                 if let SignerMessage::BlockResponse(BlockResponse::Accepted(accepted)) = message {
-                    new_signature_hash = Some(accepted.signer_signature_hash);
+                    new_signature_hash = Some(accepted.signer_signature_hash.clone());
                     return non_ignoring_signers.iter().find(|key| {
                         key.verify(accepted.signer_signature_hash.bits(), &accepted.signature)
                             .unwrap()
@@ -12971,7 +12963,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
     signer_test.verify_no_block_response_found(
         &mut stackerdb,
         next_reward_cycle,
-        new_signature_hash,
+        &new_signature_hash,
     );
 
     // Get the last block proposal
@@ -13187,7 +13179,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     info!("------------------------- Wait for Block N' Rejection -------------------------");
     wait_for_block_global_rejection(
         30,
-        block_proposal_n_prime.header.signer_signature_hash(),
+        &block_proposal_n_prime.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Failed to see majority rejections of block N'");
@@ -13370,7 +13362,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     info!("------------------------- Wait for Block N' Rejection -------------------------");
     wait_for_block_global_rejection(
         30,
-        block_proposal_n_prime.header.signer_signature_hash(),
+        &block_proposal_n_prime.header.signer_signature_hash(),
         num_signers,
     )
     .expect("FAIL: Timed out waiting for block proposal rejections of N'");
@@ -13389,7 +13381,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     info!("------------------------- Wait for Block N+1 Rejection -------------------------");
     wait_for_block_global_rejection(
         30,
-        block_proposal_n_1.header.signer_signature_hash(),
+        &block_proposal_n_1.header.signer_signature_hash(),
         num_signers,
     )
     .expect("FAIL: Timed out waiting for block proposal rejections of N+1");
@@ -13554,7 +13546,7 @@ fn multiple_miners_empty_sortition() {
     miners.signer_test.mine_bitcoin_block();
     miners.signer_test.check_signer_states_normal();
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1.clone()));
 
     wait_for(60, || {
         Ok(get_chain_info(&conf_1).stacks_tip_height > tenure_0_stacks_height)
@@ -13797,7 +13789,7 @@ fn block_proposal_timeout() {
         },
     )
     .unwrap();
-    let reverted_tenure_id = chain_before.pox_consensus;
+    let reverted_tenure_id = &chain_before.pox_consensus;
     info!("------------------------- Wait for Signers to Mark {miner_pkh} at height {} invalid -------------------------", chain_before.stacks_tip_height;
     "expected_burn_block" => %chain_before.pox_consensus,
     "expected_burn_block_height" => chain_before.burn_block_height,
@@ -13806,7 +13798,7 @@ fn block_proposal_timeout() {
     );
     wait_for_state_machine_update_by_miner_tenure_id(
         block_proposal_timeout.as_secs() + 30,
-        &reverted_tenure_id,
+        reverted_tenure_id,
         &signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers state to revert to old miner");
@@ -13819,7 +13811,7 @@ fn block_proposal_timeout() {
             .expect("Failed to get block proposal N");
     wait_for_block_global_rejection(
         30,
-        block_proposal_n.header.signer_signature_hash(),
+        &block_proposal_n.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Failed to get block rejections for N");
@@ -14140,7 +14132,7 @@ fn disallow_reorg_within_first_proposal_burn_block_timing_secs_but_more_than_one
     // check it has been rejected
     wait_for_block_global_rejection(
         30,
-        proposed_block.header.signer_signature_hash(),
+        &proposed_block.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Timed out waiting for a block proposal to be rejected");
@@ -14473,7 +14465,7 @@ fn interrupt_miner_on_new_stacks_tip() {
 
     info!("------------------------- Signers Accept Block N+1 -------------------------");
     let miner_2_block_n_1 =
-        wait_for_block_pushed(30, miner_2_block_n_1.header.signer_signature_hash())
+        wait_for_block_pushed(30, &miner_2_block_n_1.header.signer_signature_hash())
             .expect("Failed to see block acceptance of Miner 2's Block N+1");
     assert_eq!(
         miner_2_block_n_1.header.block_hash(),
@@ -14714,7 +14706,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_success() {
     info!("------------------------- Verify Miner 2's N+1' was Rejected -------------------------");
     wait_for_block_global_rejection(
         30,
-        miner_2_block_n_1.header.signer_signature_hash(),
+        &miner_2_block_n_1.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Timed out waiting for global rejection of Miner 2's block N+1'");
@@ -14892,7 +14884,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
     // Miner 1's proposed block should get rejected by the signers
     wait_for_block_global_rejection(
         30,
-        miner_1_block_n_1.header.signer_signature_hash(),
+        &miner_1_block_n_1.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Timed out waiting for Block N+1' to be globally rejected");
@@ -14915,7 +14907,7 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
 
     // Miner 2's proposed block should get approved and pushed
     let miner_2_block_n_1 =
-        wait_for_block_pushed(30, miner_2_block_n_1.header.signer_signature_hash())
+        wait_for_block_pushed(30, &miner_2_block_n_1.header.signer_signature_hash())
             .expect("Timed out waiting for Block N+1 to be pushed");
 
     let peer_info = miners.get_peer_info();
@@ -15068,7 +15060,7 @@ fn prev_miner_will_not_attempt_to_extend_if_incoming_miner_produces_a_block() {
     let miner_2_block_n_1 = wait_for_block_proposal(60, stacks_height_before + 1, &miner_pk_2)
         .expect("Timed out waiting for N+1 block proposal from miner 2");
     let miner_2_block_n_1 =
-        wait_for_block_pushed(30, miner_2_block_n_1.header.signer_signature_hash())
+        wait_for_block_pushed(30, &miner_2_block_n_1.header.signer_signature_hash())
             .expect("Timed out waiting for N+1 block to be approved");
 
     let peer_info = miners.get_peer_info();
@@ -15256,7 +15248,7 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     // Miner 2's proposed block should get rejected by the signers
     wait_for_block_global_rejection(
         30,
-        miner_2_block_n_1.header.signer_signature_hash(),
+        &miner_2_block_n_1.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Timed out waiting for Block N+1' to be globally rejected");
@@ -15479,7 +15471,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     info!("------------------------- Verify that Miner 1's Block N+1' was Rejected ------------------------");
     wait_for_block_global_rejection(
         30,
-        miner_1_block_n_1_prime.header.signer_signature_hash(),
+        &miner_1_block_n_1_prime.header.signer_signature_hash(),
         num_signers,
     )
     .expect("Failed to reach rejection consensus for Miner 1's Block N+1'");
@@ -15502,7 +15494,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     info!("------------------------- Verify Minority of Signer's Rejected Miner 2's Block N+1 -------------------------");
     wait_for_block_rejections(
         30,
-        miner_2_block_n_1.header.signer_signature_hash(),
+        &miner_2_block_n_1.header.signer_signature_hash(),
         non_block_minority,
     )
     .expect("Failed to get expected rejections for Miner 2's block N+1.");
@@ -15529,7 +15521,7 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     );
     wait_for_block_rejections(
         30,
-        miner_2_block_n_2.header.signer_signature_hash(),
+        &miner_2_block_n_2.header.signer_signature_hash(),
         non_block_minority,
     )
     .expect("Failed to get expected rejections for Miner 2's block N+2.");
@@ -16081,7 +16073,7 @@ fn signer_can_accept_rejected_block() {
     let expected_block_height = block.header.chain_length;
 
     // Wait for signer[0] to reject the block
-    wait_for_block_rejections(30, block.header.signer_signature_hash(), 1)
+    wait_for_block_rejections(30, &block.header.signer_signature_hash(), 1)
         .expect("Failed to get expected rejections for Miner 1's block");
 
     info!("Disable signer 0 from rejecting proposals");
@@ -17013,7 +17005,7 @@ fn signers_send_state_message_updates() {
         60,
         &get_burn_consensus_hash(),
         starting_burn_height + 1,
-        Some((miner_pkh_1, starting_peer_height)),
+        Some((miner_pkh_1.clone(), starting_peer_height)),
         &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send a state update");
@@ -17061,7 +17053,7 @@ fn signers_send_state_message_updates() {
         60,
         &get_burn_consensus_hash(),
         starting_burn_height + 2,
-        Some((miner_pkh_1, starting_peer_height)),
+        Some((miner_pkh_1.clone(), starting_peer_height)),
         &miners.signer_test.signer_addresses_versions(),
     )
     .expect("Timed out waiting for signers to send their state update");
@@ -17157,7 +17149,7 @@ fn verify_mempool_caches() {
     fault_injection_stall_miner();
 
     // Wait for rejections
-    wait_for_block_rejections(30, block.header.signer_signature_hash(), num_signers)
+    wait_for_block_rejections(30, &block.header.signer_signature_hash(), num_signers)
         .expect("Failed to get expected rejections for block");
 
     // Check the nonce cache -- it should have the nonce cached because it will
@@ -17597,7 +17589,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         microblock_tail: None,
         stacks_block_height: tenure_b_block.header.chain_length,
         index_root: TrieHash([0x00; 32]), // we can't know this yet since the block hasn't been processed
-        consensus_hash: tenure_b_block.header.consensus_hash,
+        consensus_hash: tenure_b_block.header.consensus_hash.clone(),
         burn_header_hash: tip_sn.burn_header_hash,
         burn_header_height: tip_sn.block_height as u32,
         burn_header_timestamp: tip_sn.burn_header_timestamp,
@@ -18115,7 +18107,7 @@ fn bitcoin_reorg_extended_tenure() {
 
     miners.signer_test.check_signer_states_normal();
     let tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1));
+    assert_eq!(tip_sn.miner_pk_hash, Some(mining_pkh_1.clone()));
 
     let last_active_sortition = get_sortition_info(&conf_1);
     assert!(last_active_sortition.was_sortition);
@@ -18245,7 +18237,7 @@ fn bitcoin_reorg_extended_tenure() {
                     latest_br.get_signer_signature_hash(),
                     latest_br.as_block_accepted().is_some()
                 );
-                if latest_br.get_signer_signature_hash() != latest_signer_sighash {
+                if latest_br.get_signer_signature_hash() != &latest_signer_sighash {
                     Some(latest_br)
                 } else {
                     None

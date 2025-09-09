@@ -25,7 +25,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_gethealth(addr.into());
     let bytes = request.try_serialize().unwrap();
@@ -74,8 +74,7 @@ fn test_get_health(
         IpAddr::V4(Ipv4Addr::LOCALHOST),
         rpc_test.peer_1.config.http_port,
     );
-    rpc_test.peer_2.network.highest_stacks_neighbor =
-        Some((peer_1_addr.clone(), peer_1_actual_height));
+    rpc_test.peer_2.network.highest_stacks_neighbor = Some((peer_1_addr, peer_1_actual_height));
 
     // --- Invoke the Handler ---
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 33333);

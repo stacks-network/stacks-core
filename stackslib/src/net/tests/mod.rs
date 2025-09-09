@@ -696,7 +696,7 @@ impl NakamotoBootPlan {
 
                     // extending last tenure
                     let tenure_change_extend = tenure_change.extend(
-                        next_consensus_hash,
+                        next_consensus_hash.clone(),
                         blocks.last().cloned().unwrap().header.block_id(),
                         blocks_since_last_tenure,
                     );
@@ -1824,7 +1824,7 @@ fn test_update_highest_stacks_height_of_neighbors(
 
     let prev_highest_neighbor =
         old_height.map(|h| (SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080), h));
-    peer.network.highest_stacks_neighbor = prev_highest_neighbor.clone();
+    peer.network.highest_stacks_neighbor = prev_highest_neighbor;
 
     let peer_sortdb = peer.sortdb.take().unwrap();
     let mut peer_stacks_node = peer.stacks_node.take().unwrap();

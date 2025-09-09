@@ -337,8 +337,10 @@ impl BitcoinIndexer {
     /// Note that this isn't a generic GetHeaders message -- you should use this only to ask
     /// for a batch of 2,000 block hashes after this given hash.
     pub fn send_getheaders(&mut self, prev_block_hash: Sha256dHash) -> Result<(), btc_error> {
-        let getheaders =
-            btc_message_blockdata::GetHeadersMessage::new(vec![prev_block_hash], prev_block_hash);
+        let getheaders = btc_message_blockdata::GetHeadersMessage::new(
+            vec![prev_block_hash.clone()],
+            prev_block_hash.clone(),
+        );
         let payload = btc_message::NetworkMessage::GetHeaders(getheaders);
 
         debug!(

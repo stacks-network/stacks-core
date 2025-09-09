@@ -186,10 +186,10 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
 
 impl BlockValidateResponse {
     /// Get the signer signature hash from the response
-    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+    pub fn signer_signature_hash(&self) -> &Sha512Trunc256Sum {
         match self {
-            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
-            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+            BlockValidateResponse::Ok(o) => &o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => &r.signer_signature_hash,
         }
     }
 }

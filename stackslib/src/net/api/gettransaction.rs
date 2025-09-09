@@ -111,13 +111,13 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
         node.with_node_state(|_network, _sortdb, chainstate, _mempool, _rpc_args| {
             let index_block_hash_and_tx_hex_opt = match NakamotoChainState::get_tx_info_from_txid(
                 chainstate.index_conn().conn(),
-                txid,
+                &txid,
             ) {
                 Ok(index_block_hash_and_tx_hex_opt) => index_block_hash_and_tx_hex_opt,
                 Err(e) => {
                     // nope -- error trying to check
-                    let msg = format!("Failed to load transaction: {:?}\n", &e);
-                    warn!("{}", &msg);
+                    let msg = format!("Failed to load transaction: {e:?}\n");
+                    warn!("{msg}");
                     return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
                         .try_into_contents()
                         .map_err(NetError::from);
@@ -138,7 +138,7 @@ impl RPCRequestHandler for RPCGetTransactionRequestHandler {
                     // txid not found
                     return StacksHttpResponse::new_error(
                         &preamble,
-                        &HttpNotFound::new(format!("No such transaction {:?}\n", &txid)),
+                        &HttpNotFound::new(format!("No such transaction {txid:?}\n")),
                     )
                     .try_into_contents()
                     .map_err(NetError::from);

@@ -313,10 +313,10 @@ fn test_nakamoto_tenure_downloader() {
         .try_accept_tenure_start_block(blocks.first().unwrap().clone())
         .is_ok());
 
-    let NakamotoTenureDownloadState::GetTenureEndBlock(block_id, ..) = td.state else {
+    let NakamotoTenureDownloadState::GetTenureEndBlock(block_id, ..) = &td.state else {
         panic!("wrong state");
     };
-    assert_eq!(block_id, next_tenure_start_block.header.block_id());
+    assert_eq!(block_id, &next_tenure_start_block.header.block_id());
     assert_eq!(td.tenure_start_block, Some(tenure_start_block.clone()));
     assert!(td.tenure_length().is_none());
 
@@ -520,7 +520,8 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         let mut empty_downloaders = HashMap::new();
         let mut full_downloaders = {
             let mut dl = HashMap::new();
-            let utd = NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id));
+            let utd =
+                NakamotoUnconfirmedTenureDownloader::new(naddr.clone(), Some(tip_block_id.clone()));
             dl.insert(naddr.clone(), utd);
             dl
         };
@@ -2174,8 +2175,8 @@ fn test_nakamoto_download_run_2_peers() {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                         .unwrap();
 
-                last_stacks_tip_ch = stacks_tip_ch;
-                last_stacks_tip_bhh = stacks_tip_bhh;
+                last_stacks_tip_ch = stacks_tip_ch.clone();
+                last_stacks_tip_bhh = stacks_tip_bhh.clone();
 
                 debug!(
                     "Booting peer's stacks tip is now {:?}",
@@ -2281,8 +2282,8 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                         .unwrap();
 
-                last_stacks_tip_ch = stacks_tip_ch;
-                last_stacks_tip_bhh = stacks_tip_bhh;
+                last_stacks_tip_ch = stacks_tip_ch.clone();
+                last_stacks_tip_bhh = stacks_tip_bhh.clone();
 
                 debug!(
                     "Booting peer's stacks tip is now {:?}",
@@ -2461,8 +2462,8 @@ fn test_nakamoto_microfork_download_run_2_peers() {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                         .unwrap();
 
-                last_stacks_tip_ch = stacks_tip_ch;
-                last_stacks_tip_bhh = stacks_tip_bhh;
+                last_stacks_tip_ch = stacks_tip_ch.clone();
+                last_stacks_tip_bhh = stacks_tip_bhh.clone();
 
                 debug!(
                     "Booting peer's stacks tip is now {:?}",
@@ -2644,7 +2645,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                         .unwrap();
 
-                last_stacks_tip_ch = stacks_tip_ch;
+                last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh;
 
                 debug!(
@@ -2847,7 +2848,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                         .unwrap();
 
-                last_stacks_tip_ch = stacks_tip_ch;
+                last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh;
 
                 debug!(
@@ -3052,7 +3053,7 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
                     SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
                         .unwrap();
 
-                last_stacks_tip_ch = stacks_tip_ch;
+                last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh;
 
                 debug!(
