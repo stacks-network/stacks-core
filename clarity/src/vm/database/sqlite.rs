@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use rusqlite::types::{FromSql, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use rusqlite::{params, Connection, OptionalExtension};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
@@ -27,7 +26,6 @@ use super::{
     NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::analysis::{AnalysisDatabase, CheckErrors};
-use crate::vm::costs::ExecutionCost;
 use crate::vm::errors::{
     IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
@@ -401,22 +399,5 @@ impl ClarityBackingStore for MemoryBackingStore {
         key: &str,
     ) -> Result<Option<String>> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
-    }
-}
-
-impl ToSql for ExecutionCost {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        let val = serde_json::to_string(self)
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
-        Ok(ToSqlOutput::from(val))
-    }
-}
-
-impl FromSql for ExecutionCost {
-    fn column_result(value: ValueRef) -> FromSqlResult<ExecutionCost> {
-        let str_val = String::column_result(value)?;
-        let parsed = serde_json::from_str(&str_val)
-            .map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))?;
-        Ok(parsed)
     }
 }

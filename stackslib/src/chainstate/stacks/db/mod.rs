@@ -395,6 +395,13 @@ impl StacksHeaderInfo {
     pub fn is_nakamoto_block(&self) -> bool {
         matches!(self.anchored_header, StacksBlockHeaderTypes::Nakamoto(_))
     }
+
+    pub fn header_type_name(&self) -> &str {
+        match self.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => "epoch2",
+            StacksBlockHeaderTypes::Nakamoto(_) => "nakamoto",
+        }
+    }
 }
 
 impl FromRow<DBConfig> for DBConfig {

@@ -25,7 +25,8 @@ use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, UIntType};
 use crate::vm::types::{
-    FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, BUFF_32, BUFF_64,
+    FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _,
+    BUFF_32, BUFF_64,
 };
 use crate::vm::ClarityVersion;
 mod assets;
@@ -1292,7 +1293,7 @@ fn test_high_order_map() {
 fn test_function_order_tuples() {
     let snippet = "
 (define-read-only (get-score)
-    (ok 
+    (ok
         (tuple
             (score (get-zero))
         )

@@ -49,7 +49,7 @@ use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, ListData, ListTypeData,
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     SequenceSubtype, StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature,
-    Value, MAX_TYPE_DEPTH,
+    TypeSignatureExt as _, Value, MAX_TYPE_DEPTH,
 };
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
