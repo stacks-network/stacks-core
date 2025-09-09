@@ -312,6 +312,21 @@ pub mod request {
         };
         Ok(u)
     }
+
+    /// Get and parse a u64 from a path's captures, given the name of the regex field.
+    pub fn get_u64(captures: &Captures, key: &str) -> Result<u64, HttpError> {
+        let u = if let Some(u64_str) = captures.name(key) {
+            match u64_str.as_str().parse::<u64>() {
+                Ok(x) => x,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(u)
+    }
 }
 
 /// Extension to HttpRequestContents to give it awareness of Stacks-specific fields

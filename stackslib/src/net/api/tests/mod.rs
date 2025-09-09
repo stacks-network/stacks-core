@@ -92,6 +92,7 @@ mod getstxtransfercost;
 mod gettenure;
 mod gettenureblocks;
 mod gettenureblocksbyhash;
+mod gettenureblocksbyheight;
 mod gettenureinfo;
 mod gettenuretip;
 mod gettransaction;
