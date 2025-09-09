@@ -69,7 +69,11 @@ pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::Deserial
 pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
-    fn sign_with_noncedata(&self, data_hash: &[u8], noncedata: &[u8; 32]) -> Result<MessageSignature, &'static str>;
+    fn sign_with_noncedata(
+        &self,
+        data_hash: &[u8],
+        noncedata: &[u8; 32],
+    ) -> Result<MessageSignature, &'static str>;
 }
 
 pub trait Address: Clone + fmt::Debug + fmt::Display {
