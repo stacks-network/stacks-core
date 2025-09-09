@@ -1127,7 +1127,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v3/tenures/blocks/hash/{burnchain_block_height}:
+  /v3/tenures/blocks/height/{burnchain_block_height}:
     get:
       summary: Get the list of Nakamoto Stacks blocks in a tenure given Bitcoin block height
       tags:
