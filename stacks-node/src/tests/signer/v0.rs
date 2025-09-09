@@ -3894,26 +3894,39 @@ fn tx_replay_btc_on_stx_invalidation() {
 
     let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
 
+    test_observer::clear();
     fault_injection_unstall_miner();
-
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
 
-    // Ensure that only one block was mined
+    let mut found_block = None;
+    // Ensure that we don't mine any of the replay transactions
     wait_for(30, || {
-        let new_tip = get_chain_info(&conf).stacks_tip_height;
-        Ok(new_tip == stacks_height_before + 1)
-    })
-    .expect("Timed out waiting for block to advance by 1");
-
-    let account = get_account(&_http_origin, &recipient_addr);
-    assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
-
-    let blocks = test_observer::get_blocks();
-    let block: StacksBlockEvent =
-        serde_json::from_value(blocks.last().unwrap().clone()).expect("Failed to parse block");
-    assert_eq!(block.transactions.len(), 2);
+        let blocks = test_observer::get_blocks();
+        for block in blocks {
+            let block: StacksBlockEvent =
+            serde_json::from_value(block).expect("Failed to parse block");
+            match &block.transactions[0].payload {
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::BlockFound,
+                    ..
+                }) => {
+                    found_block = Some(block);
+                    return Ok(true);
+                },
+                TransactionPayload::TenureChange(TenureChangePayload {
+                    cause: TenureChangeCause::Extended,
+                    ..
+                }) => {
+                    continue;
+                }
+                _ => panic!("We should not see any transactions mined beyone extend or block found/tenure change"),
+            }
+        }
+        Ok(false)
+    }).expect("Failed to mine tenure start");
+    let block = found_block.unwrap();
     assert!(matches!(
         block.transactions[0].payload,
         TransactionPayload::TenureChange(TenureChangePayload {
@@ -3925,6 +3938,9 @@ fn tx_replay_btc_on_stx_invalidation() {
         block.transactions[1].payload,
         TransactionPayload::Coinbase(..)
     ));
+
+    let account = get_account(&_http_origin, &recipient_addr);
+    assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
 
     signer_test.shutdown();
 }
