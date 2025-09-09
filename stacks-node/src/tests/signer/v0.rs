@@ -3921,7 +3921,7 @@ fn tx_replay_btc_on_stx_invalidation() {
                 }) => {
                     continue;
                 }
-                _ => panic!("We should not see any transactions mined beyone extend or block found/tenure change"),
+                _ => panic!("We should not see any transactions mined beyond extend or block found/tenure change"),
             }
         }
         Ok(false)
