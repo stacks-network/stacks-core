@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
+
+use clarity_serialization::representations::ClarityName;
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::ContractAST;
@@ -22,11 +24,11 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker};
 use crate::vm::functions::define::DefineFunctions;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::PreSymbolicExpression;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, AtomValue, Comment, FieldIdentifier, List, Placeholder, SugaredContractIdentifier,
     SugaredFieldIdentifier, TraitReference, Tuple,
 };
-use crate::vm::representations::{ClarityName, PreSymbolicExpression};
 use crate::vm::ClarityVersion;
 
 #[cfg(test)]

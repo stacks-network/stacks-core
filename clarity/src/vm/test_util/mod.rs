@@ -1,4 +1,3 @@
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
@@ -6,7 +5,7 @@ use stacks_common::consts::{
 };
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksAddress,
-    StacksBlockId, StacksPrivateKey, StacksPublicKey, VRFSeed,
+    StacksBlockId, VRFSeed,
 };
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -15,7 +14,7 @@ use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{PrincipalData, StandardPrincipalData, TupleData, Value};
+use crate::vm::types::{TupleData, Value};
 use crate::vm::{execute as vm_execute, execute_on_network as vm_execute_on_network, StacksEpoch};
 
 pub struct UnitTestBurnStateDB {
@@ -99,31 +98,6 @@ pub fn is_err_code_i128(v: &Value, e: i128) -> bool {
     match v {
         Value::Response(ref data) => !data.committed && *data.data == Value::Int(e),
         _ => false,
-    }
-}
-
-impl From<&StacksPrivateKey> for StandardPrincipalData {
-    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
-        let stacks_addr = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(o)],
-        )
-        .unwrap();
-        StandardPrincipalData::from(stacks_addr)
-    }
-}
-
-impl From<&StacksPrivateKey> for PrincipalData {
-    fn from(o: &StacksPrivateKey) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData::from(o))
-    }
-}
-
-impl From<&StacksPrivateKey> for Value {
-    fn from(o: &StacksPrivateKey) -> Value {
-        Value::from(StandardPrincipalData::from(o))
     }
 }
 

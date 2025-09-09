@@ -161,14 +161,13 @@ pub struct ListUnspentResponse {
     pub confirmations: u32,
 }
 
-/// Deserializes a JSON string (hex-encoded in big-endian order) into [`Txid`],
-/// storing bytes in little-endian order
+/// Deserializes a JSON string (hex-encoded in big-endian order) into [`Txid`].
 fn deserialize_string_to_txid<'de, D>(deserializer: D) -> Result<Txid, D::Error>
 where
     D: Deserializer<'de>,
 {
     let hex_str: String = Deserialize::deserialize(deserializer)?;
-    let txid = Txid::from_bitcoin_hex(&hex_str).map_err(serde::de::Error::custom)?;
+    let txid = Txid::from_hex(&hex_str).map_err(serde::de::Error::custom)?;
     Ok(txid)
 }
 
@@ -269,7 +268,7 @@ fn convert_sat_to_btc_string(amount: u64) -> String {
 }
 
 /// Represents an error message returned when importing descriptors fails.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ImportDescriptorsErrorMessage {
     /// Numeric error code identifying the type of error.
     pub code: i64,
@@ -305,14 +304,14 @@ impl<'de> Deserialize<'de> for GenerateToAddressResponse {
 /// Response mainly used as deserialization wrapper for [`Txid`]
 struct TxidWrapperResponse(pub Txid);
 
-/// Deserializes a JSON string (hex-encoded, big-endian) into [`Txid`] and wrap it into [`TxidWrapperResponse`]
+/// Deserializes a JSON string (hex-encoded in big-endian order) into [`Txid`] and wrap it into [`TxidWrapperResponse`]
 impl<'de> Deserialize<'de> for TxidWrapperResponse {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let hex_str: String = Deserialize::deserialize(deserializer)?;
-        let txid = Txid::from_bitcoin_hex(&hex_str).map_err(serde::de::Error::custom)?;
+        let txid = Txid::from_hex(&hex_str).map_err(serde::de::Error::custom)?;
         Ok(TxidWrapperResponse(txid))
     }
 }
@@ -338,10 +337,8 @@ impl<'de> Deserialize<'de> for BurnchainHeaderHashWrapperResponse {
 pub struct BitcoinRpcClient {
     /// The client ID to identify the source of the requests.
     client_id: String,
-    /// RPC endpoint used for global calls
-    global_ep: RpcTransport,
-    /// RPC endpoint used for wallet-specific calls
-    wallet_ep: RpcTransport,
+    /// RPC endpoint used for api calls
+    endpoint: RpcTransport,
 }
 
 /// Represents errors that can occur when using [`BitcoinRpcClient`].
@@ -371,7 +368,6 @@ impl BitcoinRpcClient {
         let port = config.burnchain.rpc_port;
         let username_opt = &config.burnchain.username;
         let password_opt = &config.burnchain.password;
-        let wallet_name = config.burnchain.wallet_name.clone();
         let timeout = config.burnchain.timeout;
         let client_id = "stacks".to_string();
 
@@ -383,7 +379,7 @@ impl BitcoinRpcClient {
             _ => return Err(BitcoinRpcClientError::MissingCredentials),
         };
 
-        Self::new(host, port, rpc_auth, wallet_name, timeout, client_id)
+        Self::new(host, port, rpc_auth, timeout, client_id)
     }
 
     /// Creates a new instance of the Bitcoin RPC client with both global and wallet-specific endpoints.
@@ -393,7 +389,6 @@ impl BitcoinRpcClient {
     /// * `host` - Hostname or IP address of the Bitcoin RPC server (e.g., `localhost`).
     /// * `port` - Port number the RPC server is listening on.
     /// * `auth` - RPC authentication credentials (`RpcAuth::None` or `RpcAuth::Basic`).
-    /// * `wallet_name` - Name of the wallet to target for wallet-specific RPC calls.
     /// * `timeout` - Timeout for RPC requests, in seconds.
     /// * `client_id` - Identifier used in the `id` field of JSON-RPC requests for traceability.
     ///
@@ -404,25 +399,25 @@ impl BitcoinRpcClient {
         host: String,
         port: u16,
         auth: RpcAuth,
-        wallet_name: String,
-        timeout: u32,
+        timeout: u64,
         client_id: String,
     ) -> BitcoinRpcClientResult<Self> {
-        let rpc_global_path = format!("http://{host}:{port}");
-        let rpc_wallet_path = format!("{rpc_global_path}/wallet/{wallet_name}");
+        let rpc_url = format!("http://{host}:{port}");
         let rpc_auth = auth;
 
-        let rpc_timeout = Duration::from_secs(u64::from(timeout));
+        let rpc_timeout = Duration::from_secs(timeout);
 
-        let global_ep =
-            RpcTransport::new(rpc_global_path, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
-        let wallet_ep = RpcTransport::new(rpc_wallet_path, rpc_auth, Some(rpc_timeout))?;
+        let endpoint = RpcTransport::new(rpc_url, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
 
         Ok(Self {
             client_id,
-            global_ep,
-            wallet_ep,
+            endpoint,
         })
+    }
+
+    /// create a wallet rpc path based on the given wallet name.
+    fn wallet_path(wallet: &str) -> String {
+        format!("wallet/{wallet}")
     }
 
     /// Creates and loads a new wallet into the Bitcoin Core node.
@@ -450,8 +445,9 @@ impl BitcoinRpcClient {
     ) -> BitcoinRpcClientResult<()> {
         let disable_private_keys = disable_private_keys.unwrap_or(false);
 
-        self.global_ep.send::<Value>(
+        self.endpoint.send::<Value>(
             &self.client_id,
+            None,
             "createwallet",
             vec![wallet_name.into(), disable_private_keys.into()],
         )?;
@@ -467,13 +463,14 @@ impl BitcoinRpcClient {
     /// Available since Bitcoin Core **v0.15.0**.
     pub fn list_wallets(&self) -> BitcoinRpcClientResult<Vec<String>> {
         Ok(self
-            .global_ep
-            .send(&self.client_id, "listwallets", vec![])?)
+            .endpoint
+            .send(&self.client_id, None, "listwallets", vec![])?)
     }
 
     /// Retrieve a list of unspent transaction outputs (UTXOs) that meet the specified criteria.
     ///
     /// # Arguments
+    /// * `wallet` - The name of the wallet to query. This is used to construct the wallet-specific RPC endpoint.
     /// * `min_confirmations` - Minimum number of confirmations required for a UTXO to be included (Default: 0).
     /// * `max_confirmations` - Maximum number of confirmations allowed (Default: 9.999.999).
     /// * `addresses` - Optional list of addresses to filter UTXOs by (Default: no filtering).
@@ -492,6 +489,7 @@ impl BitcoinRpcClient {
     /// Additional parameters can be added in the future as needed.
     pub fn list_unspent(
         &self,
+        wallet: &str,
         min_confirmations: Option<u64>,
         max_confirmations: Option<u64>,
         addresses: Option<&[&BitcoinAddress]>,
@@ -509,8 +507,9 @@ impl BitcoinRpcClient {
         let addr_as_strings: Vec<String> = addresses.iter().map(|addr| addr.to_string()).collect();
         let min_amount_btc_str = convert_sat_to_btc_string(minimum_amount);
 
-        Ok(self.wallet_ep.send(
+        Ok(self.endpoint.send(
             &self.client_id,
+            Some(&Self::wallet_path(wallet)),
             "listunspent",
             vec![
                 min_confirmations.into(),
@@ -528,7 +527,7 @@ impl BitcoinRpcClient {
     /// Mines a specified number of blocks and sends the block rewards to a given address.
     ///
     /// # Arguments
-    /// * `num_block` - The number of blocks to mine.
+    /// * `num_blocks` - The number of blocks to mine.
     /// * `address` - The [`BitcoinAddress`] to receive the block rewards.
     ///
     /// # Returns
@@ -541,13 +540,14 @@ impl BitcoinRpcClient {
     /// Typically used on `regtest` or test networks.
     pub fn generate_to_address(
         &self,
-        num_block: u64,
+        num_blocks: u64,
         address: &BitcoinAddress,
     ) -> BitcoinRpcClientResult<Vec<BurnchainHeaderHash>> {
-        let response = self.global_ep.send::<GenerateToAddressResponse>(
+        let response = self.endpoint.send::<GenerateToAddressResponse>(
             &self.client_id,
+            None,
             "generatetoaddress",
-            vec![num_block.into(), address.to_string().into()],
+            vec![num_blocks.into(), address.to_string().into()],
         )?;
         Ok(response.0)
     }
@@ -558,21 +558,25 @@ impl BitcoinRpcClient {
     /// hex-encoded transaction, and other metadata for a transaction tracked by the wallet.
     ///
     /// # Arguments
-    /// * `txid` - The transaction ID (as [`Txid`]) to query,
-    ///            which is intended to be created with [`Txid::from_bitcoin_hex`],
-    ///            or an analogous process.
+    /// * `wallet` - The name of the wallet to query. This is used to construct the wallet-specific RPC endpoint.
+    /// * `txid` - The transaction ID (as [`Txid`]) to query (in big-endian order).
     ///
     /// # Returns
     /// A [`GetTransactionResponse`] containing detailed metadata for the specified transaction.
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.10.0**.
-    pub fn get_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<GetTransactionResponse> {
-        let btc_txid = txid.to_bitcoin_hex();
-
-        Ok(self
-            .wallet_ep
-            .send(&self.client_id, "gettransaction", vec![btc_txid.into()])?)
+    pub fn get_transaction(
+        &self,
+        wallet: &str,
+        txid: &Txid,
+    ) -> BitcoinRpcClientResult<GetTransactionResponse> {
+        Ok(self.endpoint.send(
+            &self.client_id,
+            Some(&Self::wallet_path(wallet)),
+            "gettransaction",
+            vec![txid.to_hex().into()],
+        )?)
     }
 
     /// Broadcasts a raw transaction to the Bitcoin network.
@@ -591,7 +595,7 @@ impl BitcoinRpcClient {
     ///     - If `None`, defaults to `0`, meaning burning is not allowed.
     ///
     /// # Returns
-    /// A [`Txid`] as a transaction ID (storing internally bytes in **little-endian** order)
+    /// A [`Txid`] as a transaction ID (in big-endian order)
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
@@ -607,8 +611,9 @@ impl BitcoinRpcClient {
         let max_fee_rate = max_fee_rate.unwrap_or(DEFAULT_FEE_RATE_BTC_KVB);
         let max_burn_amount = max_burn_amount.unwrap_or(0);
 
-        let response = self.global_ep.send::<TxidWrapperResponse>(
+        let response = self.endpoint.send::<TxidWrapperResponse>(
             &self.client_id,
+            None,
             "sendrawtransaction",
             vec![tx_hex.into(), max_fee_rate.into(), max_burn_amount.into()],
         )?;
@@ -629,8 +634,9 @@ impl BitcoinRpcClient {
         &self,
         descriptor: &str,
     ) -> BitcoinRpcClientResult<DescriptorInfoResponse> {
-        Ok(self.global_ep.send(
+        Ok(self.endpoint.send(
             &self.client_id,
+            None,
             "getdescriptorinfo",
             vec![descriptor.into()],
         )?)
@@ -639,6 +645,7 @@ impl BitcoinRpcClient {
     /// Imports one or more descriptors into the currently loaded wallet.
     ///
     /// # Arguments
+    /// * `wallet` - The name of the wallet to query. This is used to construct the wallet-specific RPC endpoint.
     /// * `descriptors` – A slice of [`ImportDescriptorsRequest`] items. Each item defines a single
     ///   descriptor and optional metadata for how it should be imported.
     ///
@@ -649,6 +656,7 @@ impl BitcoinRpcClient {
     /// - **Since**: Bitcoin Core **v0.21.0**.
     pub fn import_descriptors(
         &self,
+        wallet: &str,
         descriptors: &[&ImportDescriptorsRequest],
     ) -> BitcoinRpcClientResult<Vec<ImportDescriptorsResponse>> {
         let descriptor_values = descriptors
@@ -656,8 +664,9 @@ impl BitcoinRpcClient {
             .map(serde_json::to_value)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(self.global_ep.send(
+        Ok(self.endpoint.send(
             &self.client_id,
+            Some(&Self::wallet_path(wallet)),
             "importdescriptors",
             vec![descriptor_values.into()],
         )?)
@@ -674,8 +683,9 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.9.0**.
     pub fn get_block_hash(&self, height: u64) -> BitcoinRpcClientResult<BurnchainHeaderHash> {
-        let response = self.global_ep.send::<BurnchainHeaderHashWrapperResponse>(
+        let response = self.endpoint.send::<BurnchainHeaderHashWrapperResponse>(
             &self.client_id,
+            None,
             "getblockhash",
             vec![height.into()],
         )?;

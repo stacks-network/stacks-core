@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use super::CheckResult;
-use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::errors::{CheckErrors, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::type_checker::v2_1::TypeResult;
 use crate::vm::analysis::types::ContractAnalysis;
@@ -35,7 +35,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    TypeSignature, TypeSignatureExt as _, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
 use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
@@ -979,8 +979,8 @@ fn test_simple_lets() {
     ];
 
     let bad_expected = [
-        CheckErrors::BadSyntaxBinding,
-        CheckErrors::BadSyntaxBinding,
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
     ];
 
@@ -1948,7 +1948,7 @@ fn test_empty_tuple_should_fail() {
 
     assert_eq!(
         mem_type_check(contract_src).unwrap_err().err,
-        CheckErrors::BadSyntaxBinding
+        CheckErrors::EmptyTuplesNotAllowed,
     );
 }
 
@@ -1992,7 +1992,7 @@ fn test_high_order_map() {
 fn test_function_order_tuples() {
     let snippet = "
 (define-read-only (get-score)
-    (ok 
+    (ok
         (tuple
             (score (get-zero))
         )
@@ -3101,7 +3101,7 @@ fn test_buff_negative_len() {
         (func 0x00)";
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -3110,7 +3110,7 @@ fn test_string_ascii_negative_len() {
         (func \"\")";
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -3119,7 +3119,7 @@ fn test_string_utf8_negative_len() {
         (func u\"\")";
 
     let res = mem_type_check(contract_src).unwrap_err();
-    assert!(matches!(res.err, CheckErrors::BadSyntaxBinding));
+    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -3652,5 +3652,79 @@ fn test_principal_admits() {
         let res = mem_type_check(bad_test);
         println!("{res:?}");
         assert!(res.is_err());
+    }
+}
+
+/// Comprehensive test of all of the bad syntax binding error variants we can detect.
+/// Only concerns itself with simple errors (no nesting).
+#[test]
+fn test_simple_bad_syntax_bindings() {
+    let bad = [
+        // bad let-binding -- binding item is not a list
+        "(let (oops (bar u1)) (ok true))",
+        // bad let-binding -- binding item is not a 2-element list
+        "(let ((oops u1 u2) (bar u1)) (ok true))",
+        // bad let-binding -- binding item name is not an atom
+        "(let ((1 2) (bar u1)) (ok true))",
+        // bad eval-binding -- binding item is not a list
+        "(define-private (foo oops (bar uint)) (ok true))",
+        // bad eval-binding -- binding item is not a 2-element list
+        "(define-private (foo (oops uint uint) (bar uint)) (ok true))",
+        // bad eval-binding -- binding item name is not an atom
+        "(define-private (foo (u1 uint) (bar uint)) (ok true))",
+        // bad tuple binding -- binding item is not a list
+        "(tuple oops (bar u1))",
+        // bad tuple binding -- binding item is not a 2-element list
+        "(tuple (oops u1 u2) (bar u1))",
+        // bad tuple binding -- binding item name is not an atom
+        "(tuple (u1 u2) (bar u1))",
+        // bad type signature (no longer a bad syntax binding error)
+        "(define-private (foo (bar (string-ascii -12))) (ok true))",
+        // bad type signature (no longer a bad syntax binding error)
+        "(from-consensus-buff? (tuple (a (string-ascii -12))) 0x00)",
+    ];
+    let expected = [
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_list(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_list(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::eval_binding_invalid_length(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::eval_binding_not_atom(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_list(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)),
+        CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_not_atom(0)),
+        CheckErrors::ValueOutOfBounds,
+        CheckErrors::ValueOutOfBounds,
+    ];
+
+    for (bad_code, expected_err) in bad.iter().zip(expected.iter()) {
+        debug!("test simple bad syntax binding: '{}'", bad_code);
+        assert_eq!(expected_err, &type_check_helper(bad_code).unwrap_err().err);
+    }
+}
+
+/// Nested type signature binding errors.
+/// These are no longer BadSyntaxBinding errors, but are instead reported as their innermost
+/// type-check error.
+#[test]
+fn test_nested_bad_type_signature_syntax_bindings() {
+    let bad = [
+        // bad tuple type signature within a tower of tuples
+        "(define-public (foo (bar { a: { b: { c: (string-ascii -19) } } })) (ok true))",
+        // bad type signature within a tower of lists
+        "(define-public (foo (bar (list (list 10 (string-ascii -19))))) (ok true))",
+        // bad type signature within a tower of tuples
+        "(from-consensus-buff? { a : { b: { c: (string-ascii -19) } } } 0x00)",
+    ];
+
+    let expected = [
+        CheckErrors::ValueOutOfBounds,
+        CheckErrors::InvalidTypeDescription,
+        CheckErrors::ValueOutOfBounds,
+    ];
+
+    for (bad_code, expected_err) in bad.iter().zip(expected.iter()) {
+        debug!("test nested bad syntax binding: '{}'", bad_code);
+        assert_eq!(expected_err, &type_check_helper(bad_code).unwrap_err().err);
     }
 }

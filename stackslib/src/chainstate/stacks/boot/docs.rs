@@ -13,9 +13,10 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+use std::collections::{HashMap, HashSet};
+
 use clarity::vm::docs::contracts::{produce_docs_refs, ContractSupportDocs};
 use clarity::vm::ClarityVersion;
-use hashbrown::{HashMap, HashSet};
 
 use super::STACKS_BOOT_CODE_MAINNET;
 
@@ -104,7 +105,7 @@ When transferring a name, you have the option to also clear the name's zone file
         ("name-renewal", "Depending in the namespace rules, a name can expire. For example, names in the .id namespace expire after 2 years. You need to send a name renewal every so often to keep your name.
 
 You will pay the registration cost of your name to the namespace's designated burn address when you renew it.
-When a name expires, it enters a \"grace period\". The period is set to 5000 blocks (a month) but can be configured for each namespace. 
+When a name expires, it enters a \"grace period\". The period is set to 5000 blocks (a month) but can be configured for each namespace.
 
 It will stop resolving in the grace period, and all of the above operations will cease to be honored by the BNS consensus rules.
 You may, however, send a NAME_RENEWAL during this grace period to preserve your name. After the grace period, everybody can register that name again.

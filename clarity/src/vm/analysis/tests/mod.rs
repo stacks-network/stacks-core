@@ -123,14 +123,16 @@ fn test_no_such_tuple_field() {
 fn test_bad_tuple_construction() {
     let snippet = "(tuple (key 1) (key 2))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid tuple syntax, expecting list of pair"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("invalid tuple syntax: defining 'key' conflicts with previous value."));
 }
 
 #[test]
 fn test_tuple_expects_pairs() {
     let snippet = "(tuple (key 1) (key-with-missing-value))";
     let err = mem_type_check(snippet).unwrap_err();
-    assert!(format!("{}", err.diagnostic).contains("invalid tuple syntax, expecting pair"));
+    assert!(format!("{}", err.diagnostic)
+        .contains("invalid syntax binding: Tuple constructor item #2 is not a two-element list."));
 }
 
 #[test]

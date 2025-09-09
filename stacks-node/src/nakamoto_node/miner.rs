@@ -112,6 +112,15 @@ pub fn fault_injection_stall_miner() {
 }
 
 #[cfg(test)]
+/// Set the `TEST_MINE_STALL` flag to `Pending` and do not block.
+pub fn fault_injection_try_stall_miner() {
+    let mut stall_lock = TEST_MINE_STALL.0.lock().unwrap();
+    if stall_lock.as_ref().is_none() || stall_lock.as_ref() == Some(&TestMineStall::NotStalled) {
+        *stall_lock = Some(TestMineStall::Pending);
+    }
+}
+
+#[cfg(test)]
 /// Unstall the miner by setting the `TEST_MINE_STALL` flag to `NotStalled`.
 pub fn fault_injection_unstall_miner() {
     TEST_MINE_STALL.set(TestMineStall::NotStalled);
@@ -1106,7 +1115,11 @@ impl BlockMinerThread {
             NakamotoNodeError::MinerConfigurationFailed("Failed to get RPC loopback socket")
         })?;
         let miners_contract_id = boot_code_id(MINERS_NAME, chain_state.mainnet);
-        let mut miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
+        let mut miners_session = StackerDBSession::new(
+            &rpc_socket.to_string(),
+            miners_contract_id,
+            self.config.miner.stackerdb_timeout,
+        );
 
         if Self::fault_injection_skip_block_push() {
             warn!(
@@ -1647,35 +1660,46 @@ impl BlockMinerThread {
         };
         // Check if we can and should include a time-based tenure extend.
         if self.last_block_mined.is_some() {
-            // Do not extend if we have spent < 50% of the budget, since it is
-            // not necessary.
-            let usage = self
-                .tenure_budget
-                .proportion_largest_dimension(&self.tenure_cost);
-            if usage < self.config.miner.tenure_extend_cost_threshold {
-                return Ok(NakamotoTenureInfo {
-                    coinbase_tx: None,
-                    tenure_change_tx: None,
-                });
-            }
-
-            let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
-            if get_epoch_time_secs() <= tenure_extend_timestamp
-                && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
+            if self.config.miner.replay_transactions
+                && coordinator
+                    .get_signer_global_state()
+                    .map(|state| state.tx_replay_set.is_some())
+                    .unwrap_or(false)
             {
-                return Ok(NakamotoTenureInfo {
-                    coinbase_tx: None,
-                    tenure_change_tx: None,
-                });
-            }
+                // we're in replay, we should always TenureExtend
+                info!("Tenure extend: In replay, always extending tenure");
+                self.tenure_extend_reset();
+            } else {
+                // Do not extend if we have spent < 50% of the budget, since it is
+                // not necessary.
+                let usage = self
+                    .tenure_budget
+                    .proportion_largest_dimension(&self.tenure_cost);
+                if usage < self.config.miner.tenure_extend_cost_threshold {
+                    return Ok(NakamotoTenureInfo {
+                        coinbase_tx: None,
+                        tenure_change_tx: None,
+                    });
+                }
 
-            info!("Miner: Time-based tenure extend";
-                "current_timestamp" => get_epoch_time_secs(),
-                "tenure_extend_timestamp" => tenure_extend_timestamp,
-                "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
-                "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
-            );
-            self.tenure_extend_reset();
+                let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
+                if get_epoch_time_secs() <= tenure_extend_timestamp
+                    && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
+                {
+                    return Ok(NakamotoTenureInfo {
+                        coinbase_tx: None,
+                        tenure_change_tx: None,
+                    });
+                }
+
+                info!("Miner: Time-based tenure extend";
+                    "current_timestamp" => get_epoch_time_secs(),
+                    "tenure_extend_timestamp" => tenure_extend_timestamp,
+                    "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
+                    "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
+                );
+                self.tenure_extend_reset();
+            }
         }
 
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();

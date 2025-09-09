@@ -23,14 +23,14 @@ use super::ClarityVersion;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
-#[cfg(test)]
-use crate::{vm::errors::Error, vm::types::Value};
 
 mod assets;
 mod contracts;
 mod datamaps;
 mod defines;
 mod principals;
+#[cfg(test)]
+mod representations;
 mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
@@ -165,13 +165,6 @@ clarity_template! {
     (Epoch33, Clarity2),
     (Epoch33, Clarity3),
     (Epoch33, Clarity4),
-}
-
-#[cfg(test)]
-impl Value {
-    pub fn list_from(list_data: Vec<Value>) -> Result<Value, Error> {
-        Value::cons_list_unsanitized(list_data)
-    }
 }
 
 #[fixture]

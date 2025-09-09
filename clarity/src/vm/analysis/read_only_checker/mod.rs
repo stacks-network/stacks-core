@@ -14,11 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::HashMap;
+use std::collections::HashMap;
+
+use clarity_serialization::representations::ClarityName;
+use clarity_serialization::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
+    SyntaxBindingError,
 };
 use super::AnalysisDatabase;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
@@ -27,8 +31,7 @@ use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{PrincipalData, Value};
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::ClarityVersion;
 
 #[cfg(test)]
@@ -324,10 +327,18 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
                 let binding_list = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;
 
-                for pair in binding_list.iter() {
-                    let pair_expression = pair.match_list().ok_or(CheckErrors::BadSyntaxBinding)?;
+                for (i, pair) in binding_list.iter().enumerate() {
+                    let pair_expression = pair.match_list().ok_or_else(|| {
+                        CheckError::with_expression(
+                            SyntaxBindingError::let_binding_not_list(i).into(),
+                            pair,
+                        )
+                    })?;
                     if pair_expression.len() != 2 {
-                        return Err(CheckErrors::BadSyntaxBinding.into());
+                        return Err(CheckError::with_expression(
+                            SyntaxBindingError::let_binding_invalid_length(i).into(),
+                            pair,
+                        ));
                     }
 
                     if !self.check_read_only(&pair_expression[1])? {
@@ -364,11 +375,18 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 self.check_expression_application_is_read_only(args)
             }
             TupleCons => {
-                for pair in args.iter() {
-                    let pair_expression =
-                        pair.match_list().ok_or(CheckErrors::TupleExpectsPairs)?;
+                for (i, pair) in args.iter().enumerate() {
+                    let pair_expression = pair.match_list().ok_or_else(|| {
+                        CheckError::with_expression(
+                            SyntaxBindingError::tuple_cons_not_list(i).into(),
+                            pair,
+                        )
+                    })?;
                     if pair_expression.len() != 2 {
-                        return Err(CheckErrors::TupleExpectsPairs.into());
+                        return Err(CheckError::with_expression(
+                            SyntaxBindingError::tuple_cons_invalid_length(i).into(),
+                            pair,
+                        ));
                     }
 
                     if !self.check_read_only(&pair_expression[1])? {

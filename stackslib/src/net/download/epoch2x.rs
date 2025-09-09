@@ -1666,7 +1666,7 @@ impl PeerNetwork {
                         mblock_height += scan_batch_size;
                     }
 
-                    test_debug!("{:?}: at {},{}: {} blocks to get, {} microblock streams to get (up to {},{})", 
+                    test_debug!("{:?}: at {},{}: {} blocks to get, {} microblock streams to get (up to {},{})",
                                 &network.local_peer, next_block_sortition_height, next_microblock_sortition_height, next_blocks_to_try.len(), next_microblocks_to_try.len(), max_height, max_mblock_height);
 
                     test_debug!("{:?}: Begin block requests", &network.local_peer);
@@ -1795,7 +1795,7 @@ impl PeerNetwork {
                             }
                         }
 
-                        debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({}) from {:?}", 
+                        debug!("{:?}: will request microblock stream confirmed by sortition {}: {}/{} ({}) from {:?}",
                                &network.local_peer, mblock_height, &requests.front().as_ref().unwrap().consensus_hash, &requests.front().as_ref().unwrap().anchor_block_hash, &index_block_hash,
                                 requests.iter().map(|r| &r.data_url).collect::<Vec<_>>()
                                );
@@ -1867,7 +1867,7 @@ impl PeerNetwork {
                 downloader.next_block_sortition_height = next_block_sortition_height;
                 downloader.next_microblock_sortition_height = next_microblock_sortition_height;
 
-                debug!("{:?}: Will try for {} blocks and {} microblocks (next sortition heights are {},{}, chain tip is {})", 
+                debug!("{:?}: Will try for {} blocks and {} microblocks (next sortition heights are {},{}, chain tip is {})",
                         &network.local_peer, downloader.blocks_to_try.len(), downloader.microblocks_to_try.len(), next_block_sortition_height, next_microblock_sortition_height, network.chain_view.burn_block_height - sortdb.first_block_height);
                 Ok(())
             })?;

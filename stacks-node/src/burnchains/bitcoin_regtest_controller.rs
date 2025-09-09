@@ -31,7 +31,7 @@ use stacks::burnchains::bitcoin::indexer::{
     BitcoinIndexer, BitcoinIndexerConfig, BitcoinIndexerRuntime,
 };
 use stacks::burnchains::bitcoin::spv::SpvClient;
-use stacks::burnchains::bitcoin::BitcoinNetworkType;
+use stacks::burnchains::bitcoin::{BitcoinNetworkType, Error as btc_error};
 use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::indexer::BurnchainIndexer;
 use stacks::burnchains::{
@@ -66,8 +66,6 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
 use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-#[cfg(test)]
-use stacks_common::deps_common::bitcoin::network::serialize::deserialize as btc_deserialize;
 use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
@@ -80,6 +78,9 @@ use url::Url;
 use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
+use crate::burnchains::rpc::bitcoin_rpc_client::{
+    BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
+};
 
 /// The number of bitcoin blocks that can have
 ///  passed since the UTXO cache was last refreshed before
@@ -101,6 +102,7 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
+    rpc_client: BitcoinRpcClient,
 }
 
 #[derive(Clone)]
@@ -121,23 +123,6 @@ struct LeaderBlockCommitFees {
     spent_in_attempts: u64,
     is_rbf_enabled: bool,
     final_size: u64,
-}
-
-#[cfg(test)]
-pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
-    if let BitcoinAddress::Segwit(segwit_addr) = btc_addr {
-        // regtest segwit addresses use a different hrp
-        let s = segwit_addr.to_bech32_hrp("bcrt");
-        warn!("Re-encoding {segwit_addr} to {s}");
-        s
-    } else {
-        format!("{btc_addr}")
-    }
-}
-
-#[cfg(not(test))]
-pub fn addr2str(btc_addr: &BitcoinAddress) -> String {
-    format!("{btc_addr}")
 }
 
 // TODO: add tests from mutation testing results #4862
@@ -170,6 +155,7 @@ pub fn make_bitcoin_indexer(
             username: burnchain_config.username,
             password: burnchain_config.password,
             timeout: burnchain_config.timeout,
+            socket_timeout: burnchain_config.socket_timeout,
             spv_headers_path: config.get_spv_headers_file_path(),
             first_block: burnchain_params.first_block_height,
             magic_bytes: burnchain_config.magic_bytes,
@@ -178,7 +164,7 @@ pub fn make_bitcoin_indexer(
     };
 
     let (_, network_type) = config.burnchain.get_bitcoin_network();
-    let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+    let indexer_runtime = BitcoinIndexerRuntime::new(network_type, indexer_config.timeout);
     BitcoinIndexer {
         config: indexer_config,
         runtime: indexer_runtime,
@@ -285,6 +271,53 @@ impl LeaderBlockCommitFees {
     }
 }
 
+/// Extension methods for working with [`BitcoinRpcClient`] result
+/// that log failures and panic.
+#[cfg(test)]
+trait BitcoinRpcClientResultExt<T> {
+    /// Unwraps the result, returning the value if `Ok`.
+    ///
+    /// If the result is an `Err`, it logs the error with the given context
+    /// using the [`error!`] macro and then panics.
+    fn unwrap_or_log_panic(self, context: &str) -> T;
+    /// Ensure the result is `Ok`, ignoring its value.
+    ///
+    /// If the result is an `Err`, it logs the error with the given context
+    /// using the [`error!`] macro and then panics.
+    fn ok_or_log_panic(self, context: &str);
+}
+
+#[cfg(test)]
+impl<T> BitcoinRpcClientResultExt<T> for Result<T, BitcoinRpcClientError> {
+    fn unwrap_or_log_panic(self, context: &str) -> T {
+        match self {
+            Ok(val) => val,
+            Err(e) => {
+                error!("Bitcoin RPC failure: {context} {e:?}");
+                panic!();
+            }
+        }
+    }
+
+    fn ok_or_log_panic(self, context: &str) {
+        _ = self.unwrap_or_log_panic(context);
+    }
+}
+
+/// Represents errors that can occur when using [`BitcoinRegtestController`].
+#[derive(Debug, thiserror::Error)]
+pub enum BitcoinRegtestControllerError {
+    /// Error related to Bitcoin RPC failures.
+    #[error("Bitcoin RPC error: {0}")]
+    Rpc(#[from] BitcoinRpcClientError),
+    /// Error related to invalid or malformed [`Secp256k1PublicKey`].
+    #[error("Invalid public key: {0}")]
+    InvalidPublicKey(btc_error),
+}
+
+/// Alias for results returned from [`BitcoinRegtestController`] operations.
+pub type BitcoinRegtestControllerResult<T> = Result<T, BitcoinRegtestControllerError>;
+
 impl BitcoinRegtestController {
     pub fn new(config: Config, coordinator_channel: Option<CoordinatorChannels>) -> Self {
         BitcoinRegtestController::with_burnchain(config, coordinator_channel, None, None)
@@ -331,6 +364,7 @@ impl BitcoinRegtestController {
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
+                socket_timeout: burnchain_config.socket_timeout,
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
@@ -339,12 +373,15 @@ impl BitcoinRegtestController {
         };
 
         let (_, network_type) = config.burnchain.get_bitcoin_network();
-        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type, config.burnchain.timeout);
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config,
             runtime: indexer_runtime,
             should_keep_running: should_keep_running.clone(),
         };
+
+        let rpc_client = BitcoinRpcClient::from_stx_config(&config)
+            .expect("unable to instantiate the RPC client!");
 
         Self {
             use_coordinator: coordinator_channel,
@@ -356,6 +393,7 @@ impl BitcoinRegtestController {
             burnchain_config: burnchain,
             ongoing_block_commit: None,
             should_keep_running,
+            rpc_client,
         }
     }
 
@@ -376,6 +414,7 @@ impl BitcoinRegtestController {
                 username: burnchain_config.username,
                 password: burnchain_config.password,
                 timeout: burnchain_config.timeout,
+                socket_timeout: burnchain_config.socket_timeout,
                 spv_headers_path: config.get_spv_headers_file_path(),
                 first_block: burnchain_params.first_block_height,
                 magic_bytes: burnchain_config.magic_bytes,
@@ -384,12 +423,15 @@ impl BitcoinRegtestController {
         };
 
         let (_, network_type) = config.burnchain.get_bitcoin_network();
-        let indexer_runtime = BitcoinIndexerRuntime::new(network_type);
+        let indexer_runtime = BitcoinIndexerRuntime::new(network_type, config.burnchain.timeout);
         let burnchain_indexer = BitcoinIndexer {
             config: indexer_config,
             runtime: indexer_runtime,
             should_keep_running: None,
         };
+
+        let rpc_client = BitcoinRpcClient::from_stx_config(&config)
+            .expect("unable to instantiate the RPC client!");
 
         Self {
             use_coordinator: None,
@@ -401,6 +443,7 @@ impl BitcoinRegtestController {
             burnchain_config: None,
             ongoing_block_commit: None,
             should_keep_running: None,
+            rpc_client,
         }
     }
 
@@ -626,7 +669,7 @@ impl BitcoinRegtestController {
     pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
         // Configure UTXO filter, disregard what epoch we're in
         let address = self.get_miner_address(StacksEpochId::Epoch21, public_key);
-        let filter_addresses = vec![addr2str(&address)];
+        let filter_addresses = vec![address.to_string()];
 
         let pubk = if self.config.miner.segwit {
             let mut p = public_key.clone();
@@ -637,7 +680,10 @@ impl BitcoinRegtestController {
         };
 
         test_debug!("Import public key '{}'", &pubk.to_hex());
-        let _result = BitcoinRPCRequest::import_public_key(&self.config, &pubk);
+        let result = self.import_public_key(&pubk);
+        if let Err(error) = result {
+            warn!("Import public key '{}' failed: {error:?}", &pubk.to_hex());
+        }
 
         sleep_ms(1000);
 
@@ -645,11 +691,7 @@ impl BitcoinRegtestController {
         let max_conf = 9999999i64;
         let minimum_amount = ParsedUTXO::sat_to_serialized_btc(1);
 
-        test_debug!(
-            "List unspent for '{}' ('{}')",
-            &addr2str(&address),
-            pubk.to_hex()
-        );
+        test_debug!("List unspent for '{address}' ('{}')", pubk.to_hex());
         let payload = BitcoinRPCRequest {
             method: "listunspent".to_string(),
             params: vec![
@@ -716,13 +758,18 @@ impl BitcoinRegtestController {
         result_vec
     }
 
+    /// Retrieve all loaded wallets.
+    pub fn list_wallets(&self) -> BitcoinRegtestControllerResult<Vec<String>> {
+        Ok(self.rpc_client.list_wallets()?)
+    }
+
     /// Checks if the config-supplied wallet exists.
     /// If it does not exist, this function creates it.
-    pub fn create_wallet_if_dne(&self) -> RPCResult<()> {
-        let wallets = BitcoinRPCRequest::list_wallets(&self.config)?;
-
-        if !wallets.contains(&self.config.burnchain.wallet_name) {
-            BitcoinRPCRequest::create_wallet(&self.config, &self.config.burnchain.wallet_name)?;
+    pub fn create_wallet_if_dne(&self) -> BitcoinRegtestControllerResult<()> {
+        let wallets = self.list_wallets()?;
+        let wallet = self.get_wallet_name();
+        if !wallets.contains(wallet) {
+            self.rpc_client.create_wallet(wallet, Some(true))?
         }
         Ok(())
     }
@@ -745,8 +792,8 @@ impl BitcoinRegtestController {
 
         // Configure UTXO filter
         let address = self.get_miner_address(epoch_id, &pubk);
-        test_debug!("Get UTXOs for {} ({})", pubk.to_hex(), addr2str(&address),);
-        let filter_addresses = vec![addr2str(&address)];
+        test_debug!("Get UTXOs for {} ({address})", pubk.to_hex());
+        let filter_addresses = vec![address.to_string()];
 
         let mut utxos = loop {
             let result = BitcoinRPCRequest::list_unspent(
@@ -779,7 +826,10 @@ impl BitcoinRegtestController {
                     // Assuming that miners are in charge of correctly operating their bitcoind nodes sounds
                     // reasonable to me.
                     // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
-                    let _result = BitcoinRPCRequest::import_public_key(&self.config, &pubk);
+                    let result = self.import_public_key(&pubk);
+                    if let Err(error) = result {
+                        warn!("Import public key '{}' failed: {error:?}", &pubk.to_hex());
+                    }
                     sleep_ms(1000);
                 }
 
@@ -1517,11 +1567,7 @@ impl BitcoinRegtestController {
         for txid in ongoing_op.txids.iter() {
             // check if ongoing_op is in the burnchain_db *or* has been confirmed via the bitcoin RPC
             let mined_op = burnchain_db.find_burnchain_op(&self.indexer, txid);
-            let ongoing_tx_confirmed = mined_op.is_some()
-                || matches!(
-                    BitcoinRPCRequest::check_transaction_confirmed(&self.config, txid),
-                    Ok(true)
-                );
+            let ongoing_tx_confirmed = mined_op.is_some() || self.is_transaction_confirmed(txid);
 
             test_debug!("Ongoing Tx confirmed: {ongoing_tx_confirmed} - TXID: {txid}");
             if ongoing_tx_confirmed {
@@ -1678,9 +1724,8 @@ impl BitcoinRegtestController {
                 Some(utxos) => utxos,
                 None => {
                     warn!(
-                        "No UTXOs for {} ({}) in epoch {epoch_id}",
+                        "No UTXOs for {} ({addr}) in epoch {epoch_id}",
                         &public_key.to_hex(),
-                        &addr2str(&addr)
                     );
                     return Err(BurnchainControllerError::NoUTXOs);
                 }
@@ -1961,9 +2006,17 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let result =
-            BitcoinRPCRequest::generate_to_address(&self.config, num_blocks, addr2str(&address));
 
+        let result = self.rpc_client.generate_to_address(num_blocks, &address);
+        /*
+            Temporary: not using `BitcoinRpcClientResultExt::ok_or_log_panic` (test code related),
+            because we need this logic available outside `#[cfg(test)]` due to Helium network.
+
+            After the Helium cleanup (https://github.com/stacks-network/stacks-core/issues/6408),
+            we can:
+              - move `build_next_block` behind `#[cfg(test)]`
+              - simplify this match by using `ok_or_log_panic`.
+        */
         match result {
             Ok(_) => {}
             Err(e) => {
@@ -1973,8 +2026,8 @@ impl BitcoinRegtestController {
         }
     }
 
-    #[cfg(test)]
     /// Instruct a regtest Bitcoin node to build an empty block.
+    #[cfg(test)]
     pub fn build_empty_block(&self) {
         info!("Generate empty block");
         let public_key_bytes = match &self.config.burnchain.local_mining_public_key {
@@ -1986,49 +2039,27 @@ impl BitcoinRegtestController {
         let public_key = Secp256k1PublicKey::from_slice(&public_key_bytes)
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
-        let result = BitcoinRPCRequest::generate_empty_to_address(&self.config, addr2str(&address));
 
-        match result {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
-        }
+        self.rpc_client
+            .generate_block(&address, &[])
+            .ok_or_log_panic("generating block")
     }
 
+    /// Invalidate a block given its hash as a [`BurnchainHeaderHash`].
     #[cfg(test)]
     pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
         info!("Invalidating block {block}");
-        let request = BitcoinRPCRequest {
-            method: "invalidateblock".into(),
-            params: vec![json!(&block.to_string())],
-            id: "stacks-forker".into(),
-            jsonrpc: "2.0".into(),
-        };
-        if let Err(e) = BitcoinRPCRequest::send(&self.config, request) {
-            error!("Bitcoin RPC failure: error invalidating block {e:?}");
-            panic!();
-        }
+        self.rpc_client
+            .invalidate_block(block)
+            .ok_or_log_panic("invalidate block")
     }
 
+    /// Retrieve the hash (as a [`BurnchainHeaderHash`]) of the block at the given height.
     #[cfg(test)]
     pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
-        let request = BitcoinRPCRequest {
-            method: "getblockhash".into(),
-            params: vec![json!(height)],
-            id: "stacks-forker".into(),
-            jsonrpc: "2.0".into(),
-        };
-        match BitcoinRPCRequest::send(&self.config, request) {
-            Ok(v) => {
-                BurnchainHeaderHash::from_hex(v.get("result").unwrap().as_str().unwrap()).unwrap()
-            }
-            Err(e) => {
-                error!("Bitcoin RPC failure: error invalidating block {e:?}");
-                panic!();
-            }
-        }
+        self.rpc_client
+            .get_block_hash(height)
+            .unwrap_or_log_panic("retrieve block")
     }
 
     #[cfg(test)]
@@ -2083,17 +2114,18 @@ impl BitcoinRegtestController {
         transaction.map(SerializedTx::new)
     }
 
+    /// Retrieves a raw [`Transaction`] by its [`Txid`]
     #[cfg(test)]
     pub fn get_raw_transaction(&self, txid: &Txid) -> Transaction {
-        let txstr = BitcoinRPCRequest::get_raw_transaction(&self.config, txid).unwrap();
-        let tx: Transaction = btc_deserialize(&hex_bytes(&txstr).unwrap()).unwrap();
-        tx
+        self.rpc_client
+            .get_raw_transaction(txid)
+            .unwrap_or_log_panic("retrieve raw tx")
     }
 
     /// Produce `num_blocks` regtest bitcoin blocks, sending the bitcoin coinbase rewards
     ///  to the bitcoin single sig addresses corresponding to `pks` in a round robin fashion.
     #[cfg(test)]
-    pub fn bootstrap_chain_to_pks(&self, num_blocks: usize, pks: &[Secp256k1PublicKey]) {
+    pub fn bootstrap_chain_to_pks(&self, num_blocks: u64, pks: &[Secp256k1PublicKey]) {
         info!("Creating wallet if it does not exist");
         if let Err(e) = self.create_wallet_if_dne() {
             error!("Error when creating wallet: {e:?}");
@@ -2101,7 +2133,7 @@ impl BitcoinRegtestController {
 
         for pk in pks {
             debug!("Import public key '{}'", &pk.to_hex());
-            if let Err(e) = BitcoinRPCRequest::import_public_key(&self.config, pk) {
+            if let Err(e) = self.import_public_key(pk) {
                 warn!("Error when importing pubkey: {e:?}");
             }
         }
@@ -2110,39 +2142,110 @@ impl BitcoinRegtestController {
             // if we only have one pubkey, just generate all the blocks at once
             let address = self.get_miner_address(StacksEpochId::Epoch21, &pks[0]);
             debug!(
-                "Generate to address '{}' for public key '{}'",
-                &addr2str(&address),
+                "Generate to address '{address}' for public key '{}'",
                 &pks[0].to_hex()
             );
-            if let Err(e) = BitcoinRPCRequest::generate_to_address(
-                &self.config,
-                num_blocks.try_into().unwrap(),
-                addr2str(&address),
-            ) {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
-            }
+            self.rpc_client
+                .generate_to_address(num_blocks, &address)
+                .ok_or_log_panic("generating block");
             return;
         }
 
         // otherwise, round robin generate blocks
+        let num_blocks = num_blocks as usize;
         for i in 0..num_blocks {
             let pk = &pks[i % pks.len()];
             let address = self.get_miner_address(StacksEpochId::Epoch21, pk);
             if i < pks.len() {
                 debug!(
                     "Generate to address '{}' for public key '{}'",
-                    &addr2str(&address),
+                    address.to_string(),
                     &pk.to_hex(),
                 );
             }
-            if let Err(e) =
-                BitcoinRPCRequest::generate_to_address(&self.config, 1, addr2str(&address))
-            {
-                error!("Bitcoin RPC failure: error generating block {e:?}");
-                panic!();
+            self.rpc_client
+                .generate_to_address(1, &address)
+                .ok_or_log_panic("generating block");
+        }
+    }
+
+    /// Checks whether a transaction has been confirmed by the burnchain
+    ///
+    /// # Arguments
+    ///
+    /// * `txid` - The transaction ID to check (in big-endian order)
+    ///
+    /// # Returns
+    ///
+    /// * `true` if the transaction is confirmed (has at least one confirmation).
+    /// * `false` if the transaction is unconfirmed or could not be found.
+    pub fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
+        match self
+            .rpc_client
+            .get_transaction(self.get_wallet_name(), txid)
+        {
+            Ok(info) => info.confirmations > 0,
+            Err(e) => {
+                error!("Bitcoin RPC failure: checking tx confirmation {e:?}");
+                false
             }
         }
+    }
+
+    /// Returns the configured wallet name from [`Config`].
+    fn get_wallet_name(&self) -> &String {
+        &self.config.burnchain.wallet_name
+    }
+
+    /// Imports a public key into configured wallet by registering its
+    /// corresponding addresses as descriptors.
+    ///
+    /// This computes both **legacy (P2PKH)** and, if the miner is configured
+    /// with `segwit` enabled, also **SegWit (P2WPKH)** addresses, then imports
+    /// the related descriptors into the wallet.
+    pub fn import_public_key(
+        &self,
+        public_key: &Secp256k1PublicKey,
+    ) -> BitcoinRegtestControllerResult<()> {
+        let pkh = Hash160::from_data(&public_key.to_bytes())
+            .to_bytes()
+            .to_vec();
+        let (_, network_id) = self.config.burnchain.get_bitcoin_network();
+
+        // import both the legacy and segwit variants of this public key
+        let mut addresses = vec![BitcoinAddress::from_bytes_legacy(
+            network_id,
+            LegacyBitcoinAddressType::PublicKeyHash,
+            &pkh,
+        )
+        .map_err(BitcoinRegtestControllerError::InvalidPublicKey)?];
+
+        if self.config.miner.segwit {
+            addresses.push(
+                BitcoinAddress::from_bytes_segwit_p2wpkh(network_id, &pkh)
+                    .map_err(BitcoinRegtestControllerError::InvalidPublicKey)?,
+            );
+        }
+
+        for address in addresses.into_iter() {
+            debug!(
+                "Import address {address} for public key {}",
+                public_key.to_hex()
+            );
+
+            let descriptor = format!("addr({address})");
+            let info = self.rpc_client.get_descriptor_info(&descriptor)?;
+
+            let descr_req = ImportDescriptorsRequest {
+                descriptor: format!("addr({address})#{}", info.checksum),
+                timestamp: Timestamp::Time(0),
+                internal: Some(true),
+            };
+
+            self.rpc_client
+                .import_descriptors(self.get_wallet_name(), &[&descr_req])?;
+        }
+        Ok(())
     }
 }
 
@@ -2264,7 +2367,7 @@ impl BurnchainController for BitcoinRegtestController {
             local_mining_pubkey.set_compressed(true);
         }
 
-        self.bootstrap_chain_to_pks(num_blocks.try_into().unwrap(), &[local_mining_pubkey])
+        self.bootstrap_chain_to_pks(num_blocks, &[local_mining_pubkey])
     }
 }
 
@@ -2479,75 +2582,6 @@ impl BitcoinRPCRequest {
         request
     }
 
-    #[cfg(test)]
-    pub fn get_raw_transaction(config: &Config, txid: &Txid) -> RPCResult<String> {
-        debug!("Get raw transaction {txid}");
-        let payload = BitcoinRPCRequest {
-            method: "getrawtransaction".to_string(),
-            params: vec![format!("{txid}").into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Got raw transaction {txid}: {res:?}");
-        Ok(res.get("result").unwrap().as_str().unwrap().to_string())
-    }
-
-    /// Was a given transaction ID confirmed by the burnchain?
-    pub fn check_transaction_confirmed(config: &Config, txid: &Txid) -> RPCResult<bool> {
-        let payload = BitcoinRPCRequest {
-            method: "gettransaction".to_string(),
-            params: vec![format!("{txid}").into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        let confirmations = res
-            .get("result")
-            .ok_or_else(|| RPCError::Parsing("No 'result' field in bitcoind RPC response".into()))?
-            .get("confirmations")
-            .ok_or_else(|| {
-                RPCError::Parsing("No 'confirmations' field in bitcoind RPC response".into())
-            })?
-            .as_i64()
-            .ok_or_else(|| {
-                RPCError::Parsing(
-                    "Expected 'confirmations' field to be numeric in bitcoind RPC response".into(),
-                )
-            })?;
-
-        Ok(confirmations >= 1)
-    }
-
-    pub fn generate_to_address(config: &Config, num_blocks: u64, address: String) -> RPCResult<()> {
-        debug!("Generate {num_blocks} blocks to {address}");
-        let payload = BitcoinRPCRequest {
-            method: "generatetoaddress".to_string(),
-            params: vec![num_blocks.into(), address.clone().into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Generated {num_blocks} blocks to {address}: {res:?}");
-        Ok(())
-    }
-
-    #[cfg(test)]
-    pub fn generate_empty_to_address(config: &Config, address: String) -> RPCResult<()> {
-        debug!("Generate empty block to {address}");
-        let payload = BitcoinRPCRequest {
-            method: "generateblock".to_string(),
-            params: vec![address.clone().into(), serde_json::Value::Array(vec![])],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let res = BitcoinRPCRequest::send(config, payload)?;
-        debug!("Generated empty block to {address}: {res:?}");
-        Ok(())
-    }
-
     pub fn list_unspent(
         config: &Config,
         addresses: Vec<String>,
@@ -2679,117 +2713,6 @@ impl BitcoinRPCRequest {
                 return Err(RPCError::Bitcoind(json_resp.to_string()));
             }
         }
-        Ok(())
-    }
-
-    pub fn import_public_key(config: &Config, public_key: &Secp256k1PublicKey) -> RPCResult<()> {
-        let pkh = Hash160::from_data(&public_key.to_bytes())
-            .to_bytes()
-            .to_vec();
-        let (_, network_id) = config.burnchain.get_bitcoin_network();
-
-        // import both the legacy and segwit variants of this public key
-        let mut addresses = vec![BitcoinAddress::from_bytes_legacy(
-            network_id,
-            LegacyBitcoinAddressType::PublicKeyHash,
-            &pkh,
-        )
-        .expect("Public key incorrect")];
-
-        if config.miner.segwit {
-            addresses.push(
-                BitcoinAddress::from_bytes_segwit_p2wpkh(network_id, &pkh)
-                    .expect("Public key incorrect"),
-            );
-        }
-
-        for address in addresses.into_iter() {
-            debug!(
-                "Import address {} for public key {}",
-                addr2str(&address),
-                public_key.to_hex()
-            );
-
-            let payload = BitcoinRPCRequest {
-                method: "getdescriptorinfo".to_string(),
-                params: vec![format!("addr({})", &addr2str(&address)).into()],
-                id: "stacks".to_string(),
-                jsonrpc: "2.0".to_string(),
-            };
-
-            let result = BitcoinRPCRequest::send(config, payload)?;
-            let checksum = result
-                .get("result")
-                .and_then(|res| res.as_object())
-                .and_then(|obj| obj.get("checksum"))
-                .and_then(|checksum_val| checksum_val.as_str())
-                .ok_or(RPCError::Bitcoind(format!(
-                    "Did not receive an object with `checksum` from `getdescriptorinfo \"{}\"`",
-                    &addr2str(&address)
-                )))?;
-
-            let payload = BitcoinRPCRequest {
-                method: "importdescriptors".to_string(),
-                params: vec![
-                    json!([{ "desc": format!("addr({})#{checksum}", &addr2str(&address)), "timestamp": 0, "internal": true }]),
-                ],
-                id: "stacks".to_string(),
-                jsonrpc: "2.0".to_string(),
-            };
-
-            BitcoinRPCRequest::send(config, payload)?;
-        }
-        Ok(())
-    }
-
-    /// Calls `listwallets` method through RPC call and returns wallet names as a vector of Strings
-    pub fn list_wallets(config: &Config) -> RPCResult<Vec<String>> {
-        let payload = BitcoinRPCRequest {
-            method: "listwallets".to_string(),
-            params: vec![],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let mut res = BitcoinRPCRequest::send(config, payload)?;
-        let mut wallets = Vec::new();
-        match res.as_object_mut() {
-            Some(ref mut object) => match object.get_mut("result") {
-                Some(serde_json::Value::Array(entries)) => {
-                    while let Some(entry) = entries.pop() {
-                        let parsed_wallet_name: String = match serde_json::from_value(entry) {
-                            Ok(wallet_name) => wallet_name,
-                            Err(err) => {
-                                warn!("Failed parsing wallet name: {err}");
-                                continue;
-                            }
-                        };
-
-                        wallets.push(parsed_wallet_name);
-                    }
-                }
-                _ => {
-                    warn!("Failed to get wallets");
-                }
-            },
-            _ => {
-                warn!("Failed to get wallets");
-            }
-        };
-
-        Ok(wallets)
-    }
-
-    /// Tries to create a wallet with the given name
-    pub fn create_wallet(config: &Config, wallet_name: &str) -> RPCResult<()> {
-        let payload = BitcoinRPCRequest {
-            method: "createwallet".to_string(),
-            params: vec![wallet_name.into(), true.into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        BitcoinRPCRequest::send(config, payload)?;
         Ok(())
     }
 
@@ -3115,8 +3038,7 @@ mod tests {
         ];
 
         // test serialize_tx()
-        let mut config = Config::default();
-        config.burnchain.magic_bytes = "T3".as_bytes().into();
+        let config = utils::create_config();
 
         let mut btc_controller = BitcoinRegtestController::new(config, None);
         let mut utxo_set = UTXOSet {
@@ -3251,14 +3173,14 @@ mod tests {
 
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(0, wallets.len());
 
         btc_controller
             .create_wallet_if_dne()
             .expect("Wallet should now exists!");
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(1, wallets.len());
         assert_eq!("".to_owned(), wallets[0]);
     }
@@ -3280,7 +3202,7 @@ mod tests {
             .create_wallet_if_dne()
             .expect("Wallet should now exists!");
 
-        let wallets = BitcoinRPCRequest::list_wallets(&config).unwrap();
+        let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(1, wallets.len());
         assert_eq!("mywallet".to_owned(), wallets[0]);
     }
@@ -3490,6 +3412,129 @@ mod tests {
         assert!(
             utxos.is_none(),
             "None because filtering exclude existent utxo set"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_tx_confirmed_from_utxo_ok() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+
+        btc_controller.bootstrap_chain(101);
+        let utxos = btc_controller.get_all_utxos(&miner_pubkey);
+        assert_eq!(1, utxos.len(), "One UTXO should be confirmed!");
+
+        let txid = Txid::from_bitcoin_tx_hash(&utxos[0].txid);
+        assert!(
+            btc_controller.is_transaction_confirmed(&txid),
+            "UTXO tx should be confirmed!"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_import_public_key_ok() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let config = utils::create_config();
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .create_wallet_if_dne()
+            .expect("Wallet should be created!");
+
+        let result = btc_controller.import_public_key(&miner_pubkey);
+        assert!(
+            result.is_ok(),
+            "Should be ok, got err instead: {:?}",
+            result.unwrap_err()
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_import_public_key_twice_ok() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let config = utils::create_config();
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .create_wallet_if_dne()
+            .expect("Wallet should be created!");
+
+        btc_controller
+            .import_public_key(&miner_pubkey)
+            .expect("Import should be ok: first time!");
+
+        //ok, but it is basically a no-op
+        let result = btc_controller.import_public_key(&miner_pubkey);
+        assert!(
+            result.is_ok(),
+            "Should be ok, got err instead: {:?}",
+            result.unwrap_err()
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn test_import_public_key_segwit_ok() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.miner.segwit = true;
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("bitcoind should be started!");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller
+            .create_wallet_if_dne()
+            .expect("Wallet should be created!");
+
+        let result = btc_controller.import_public_key(&miner_pubkey);
+        assert!(
+            result.is_ok(),
+            "Should be ok, got err instead: {:?}",
+            result.unwrap_err()
         );
     }
 

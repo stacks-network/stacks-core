@@ -22,7 +22,6 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 
-use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::http::{
@@ -30,7 +29,7 @@ use crate::net::http::{
     HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
+    HttpPreambleExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::p2p::PeerNetwork;
 use crate::net::{Error as NetError, StacksNodeState};
@@ -44,15 +43,6 @@ impl RPCPeerInfoRequestHandler {
         Self {}
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCAffirmationData {
-    pub heaviest: AffirmationMap,
-    pub stacks_tip: AffirmationMap,
-    pub sortition_tip: AffirmationMap,
-    pub tentative_best: AffirmationMap,
-}
-
 /// Information about the last PoX anchor block
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCLastPoxAnchorData {
@@ -86,9 +76,6 @@ pub struct RPCPeerInfoData {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_public_key_hash: Option<Hash160>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub affirmations: Option<RPCAffirmationData>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pox_anchor: Option<RPCLastPoxAnchorData>,
@@ -146,12 +133,6 @@ impl RPCPeerInfoData {
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
-            affirmations: Some(RPCAffirmationData {
-                heaviest: network.heaviest_affirmation_map.clone(),
-                stacks_tip: network.stacks_tip_affirmation_map.clone(),
-                sortition_tip: network.sortition_tip_affirmation_map.clone(),
-                tentative_best: network.tentative_best_affirmation_map.clone(),
-            }),
             last_pox_anchor: Some(RPCLastPoxAnchorData {
                 anchor_block_hash: network.last_anchor_block_hash.clone(),
                 anchor_block_txid: network.last_anchor_block_txid.clone(),
@@ -233,8 +214,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
             }
         };
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&rpc_peer_info)?;
         Ok((preamble, body))
     }
@@ -254,7 +234,7 @@ impl HttpResponse for RPCPeerInfoRequestHandler {
 
 impl StacksHttpRequest {
     /// Make a new getinfo request to this endpoint
-    pub fn new_getinfo(host: PeerHost, stacks_height: Option<u32>) -> StacksHttpRequest {
+    pub fn new_getinfo(host: PeerHost, stacks_height: Option<u64>) -> StacksHttpRequest {
         let mut req = StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),

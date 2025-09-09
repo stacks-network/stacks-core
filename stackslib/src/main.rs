@@ -768,7 +768,7 @@ check if the associated microblocks can be downloaded
             let pox_consts = PoxConstants::mainnet_default();
 
             let result = sort_conn
-                .get_chosen_pox_anchor_check_position_v205(
+                .get_chosen_pox_anchor_check_position(
                     &eval_tip.burn_header_hash,
                     &pox_consts,
                     false,
@@ -1569,12 +1569,7 @@ check if the associated microblocks can be downloaded
                 let sortition_tx = new_sortition_db.tx_handle_begin(&sortition_tip).unwrap();
                 let null_event_dispatcher: Option<&DummyEventDispatcher> = None;
                 let receipts = new_chainstate
-                    .process_blocks(
-                        old_burnchaindb.conn(),
-                        sortition_tx,
-                        1,
-                        null_event_dispatcher,
-                    )
+                    .process_blocks(sortition_tx, 1, null_event_dispatcher)
                     .unwrap();
                 if receipts.is_empty() {
                     break;
@@ -1947,11 +1942,9 @@ fn analyze_sortition_mev(argv: Vec<String>) {
             &burn_block.header.parent_block_hash,
             &tip_sort_id,
             &burnchain,
-            &burnchaindb,
             &mut chainstate,
             &mut sortdb,
             &OnChainRewardSetProvider::new(),
-            false,
         )
         .unwrap();
 

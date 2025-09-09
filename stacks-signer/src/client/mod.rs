@@ -155,7 +155,9 @@ pub(crate) mod tests {
     use stacks_common::util::hash::{Hash160, Sha256Sum};
 
     use super::*;
-    use crate::config::{GlobalConfig, SignerConfig, SignerConfigMode};
+    use crate::config::{
+        GlobalConfig, SignerConfig, SignerConfigMode, DEFAULT_STACKERDB_TIMEOUT_SECS,
+    };
     #[cfg(any(test, feature = "testing"))]
     use crate::v0::signer_state::SUPPORTED_SIGNER_PROTOCOL_VERSION;
 
@@ -341,7 +343,6 @@ pub(crate) mod tests {
             genesis_chainstate_hash: Sha256Sum::zero(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
-            affirmations: None,
             last_pox_anchor: None,
             stackerdbs: Some(
                 stackerdb_contract_ids
@@ -438,6 +439,7 @@ pub(crate) mod tests {
             capitulate_miner_view_timeout: config.capitulate_miner_view_timeout,
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
+            stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
         }
     }
 

@@ -31,7 +31,6 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 
-use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandleContext,
@@ -576,8 +575,6 @@ fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<
     let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
-    let burn_db_path = format!("{db_path}/burnchain/burnchain.sqlite");
-    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
     let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
@@ -636,7 +633,6 @@ fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<
         sort_tx,
         chainstate_tx,
         clarity_instance,
-        &burnchain_blocks_db,
         &parent_header_info,
         &next_staging_block.parent_microblock_hash,
         next_staging_block.parent_microblock_seq,
@@ -654,8 +650,6 @@ fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<
 fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Option<&Config>) {
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
-    let burn_db_path = format!("{db_path}/burnchain/burnchain.sqlite");
-    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
     let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
@@ -710,7 +704,6 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
         sort_tx,
         chainstate_tx,
         clarity_instance,
-        &burnchain_blocks_db,
         &parent_header_info,
         &block.anchored_block.header.parent_microblock,
         block.anchored_block.header.parent_microblock_sequence,
@@ -730,7 +723,6 @@ fn replay_block(
     mut sort_tx: IndexDBTx<SortitionHandleContext, SortitionId>,
     mut chainstate_tx: ChainstateTx,
     clarity_instance: &mut ClarityInstance,
-    burnchain_blocks_db: &BurnchainDB,
     parent_header_info: &StacksHeaderInfo,
     parent_microblock_hash: &BlockHeaderHash,
     parent_microblock_seq: u16,
@@ -822,14 +814,6 @@ fn replay_block(
     assert_eq!(*parent_microblock_hash, last_microblock_hash);
     assert_eq!(parent_microblock_seq, last_microblock_seq);
 
-    let block_am = StacksChainState::find_stacks_tip_affirmation_map(
-        burnchain_blocks_db,
-        sort_tx.tx(),
-        block_consensus_hash,
-        block_hash,
-    )
-    .unwrap();
-
     let pox_constants = sort_tx.context.pox_constants.clone();
 
     match StacksChainState::append_block(
@@ -847,7 +831,6 @@ fn replay_block(
         &next_microblocks,
         block_commit_burn,
         block_sortition_burn,
-        block_am.weight(),
         true,
     ) {
         Ok((receipt, _, _)) => {

@@ -27,7 +27,7 @@ use super::contexts::{TypeMap, TypingContext};
 use super::ContractAnalysis;
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
-    CheckErrors, CheckResult,
+    CheckErrors, CheckResult, SyntaxBindingErrorType,
 };
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -49,7 +49,7 @@ use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, ListData, ListTypeData,
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     SequenceSubtype, StringSubtype, TraitIdentifier, TupleData, TupleTypeSignature, TypeSignature,
-    Value, MAX_TYPE_DEPTH,
+    TypeSignatureExt as _, Value, MAX_TYPE_DEPTH,
 };
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
@@ -1251,8 +1251,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
-        let args = parse_name_type_pairs::<()>(StacksEpochId::Epoch21, args, &mut ())
-            .map_err(|_| CheckErrors::BadSyntaxBinding)?;
+        let args = parse_name_type_pairs::<(), CheckError>(
+            StacksEpochId::Epoch21,
+            args,
+            SyntaxBindingErrorType::Eval,
+            &mut (),
+        )?;
 
         if self.function_return_tracker.is_some() {
             return Err(CheckErrors::Expects(

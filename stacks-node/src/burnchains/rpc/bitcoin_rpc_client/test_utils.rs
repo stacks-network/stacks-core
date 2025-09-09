@@ -136,15 +136,14 @@ impl BitcoinRpcClient {
     /// A [`GetBlockChainInfoResponse`] struct containing blockchain metadata.
     pub fn get_blockchain_info(&self) -> BitcoinRpcClientResult<GetBlockChainInfoResponse> {
         Ok(self
-            .global_ep
-            .send(&self.client_id, "getblockchaininfo", vec![])?)
+            .endpoint
+            .send(&self.client_id, None, "getblockchaininfo", vec![])?)
     }
 
     /// Retrieves and deserializes a raw Bitcoin transaction by its ID.
     ///
     /// # Arguments
-    /// * `txid` - Transaction ID to fetch, which is intended to be created with [`Txid::from_bitcoin_hex`],
-    ///            or an analogous process.
+    /// * `txid` - The transaction ID (as [`Txid`]) to query (in big-endian order).
     ///
     /// # Returns
     /// A [`Transaction`] struct representing the decoded transaction.
@@ -152,12 +151,11 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.7.0**.
     pub fn get_raw_transaction(&self, txid: &Txid) -> BitcoinRpcClientResult<Transaction> {
-        let btc_txid = txid.to_bitcoin_hex();
-
-        let raw_hex = self.global_ep.send::<String>(
+        let raw_hex = self.endpoint.send::<String>(
             &self.client_id,
+            None,
             "getrawtransaction",
-            vec![btc_txid.to_string().into()],
+            vec![txid.to_hex().into()],
         )?;
         Ok(deserialize_hex(&raw_hex)?)
     }
@@ -182,8 +180,9 @@ impl BitcoinRpcClient {
         address: &BitcoinAddress,
         txs: &[&str],
     ) -> BitcoinRpcClientResult<BurnchainHeaderHash> {
-        let response = self.global_ep.send::<GenerateBlockResponse>(
+        let response = self.endpoint.send::<GenerateBlockResponse>(
             &self.client_id,
+            None,
             "generateblock",
             vec![address.to_string().into(), txs.into()],
         )?;
@@ -201,12 +200,13 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.1.0**.
     pub fn stop(&self) -> BitcoinRpcClientResult<String> {
-        Ok(self.global_ep.send(&self.client_id, "stop", vec![])?)
+        Ok(self.endpoint.send(&self.client_id, None, "stop", vec![])?)
     }
 
     /// Retrieves a new Bitcoin address from the wallet.
     ///
     /// # Arguments
+    /// * `wallet` - The name of the wallet to query. This is used to construct the wallet-specific RPC endpoint.
     /// * `label` - Optional label to associate with the address.
     /// * `address_type` - Optional [`AddressType`] variant to specify the type of address.
     ///   If `None`, the address type defaults to the node’s `-addresstype` setting.
@@ -221,6 +221,7 @@ impl BitcoinRpcClient {
     /// - Defaulting to `bech32` (when unset) introduced in **v0.20.0**.
     pub fn get_new_address(
         &self,
+        wallet: &str,
         label: Option<&str>,
         address_type: Option<AddressType>,
     ) -> BitcoinRpcClientResult<BitcoinAddress> {
@@ -233,8 +234,9 @@ impl BitcoinRpcClient {
             params.push(at.to_string().into());
         }
 
-        let response = self.global_ep.send::<GetNewAddressResponse>(
+        let response = self.endpoint.send::<GetNewAddressResponse>(
             &self.client_id,
+            Some(&Self::wallet_path(wallet)),
             "getnewaddress",
             params,
         )?;
@@ -245,21 +247,24 @@ impl BitcoinRpcClient {
     /// Sends a specified amount of BTC to a given address.
     ///
     /// # Arguments
+    /// * `wallet` - The name of the wallet to query. This is used to construct the wallet-specific RPC endpoint.
     /// * `address` - The destination Bitcoin address as a [`BitcoinAddress`].
     /// * `amount` - Amount to send in BTC (not in satoshis).
     ///
     /// # Returns
-    /// A [`Txid`] struct representing the transaction ID (storing internally bytes in **little-endian** order)
+    /// A [`Txid`] as a transaction ID (in big-endian order)
     ///
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.1.0**.
     pub fn send_to_address(
         &self,
+        wallet: &str,
         address: &BitcoinAddress,
         amount: f64,
     ) -> BitcoinRpcClientResult<Txid> {
-        let response = self.wallet_ep.send::<TxidWrapperResponse>(
+        let response = self.endpoint.send::<TxidWrapperResponse>(
             &self.client_id,
+            Some(&Self::wallet_path(wallet)),
             "sendtoaddress",
             vec![address.to_string().into(), amount.into()],
         )?;
@@ -277,8 +282,9 @@ impl BitcoinRpcClient {
     /// # Availability
     /// - **Since**: Bitcoin Core **v0.1.0**.
     pub fn invalidate_block(&self, hash: &BurnchainHeaderHash) -> BitcoinRpcClientResult<()> {
-        self.global_ep.send::<Value>(
+        self.endpoint.send::<Value>(
             &self.client_id,
+            None,
             "invalidateblock",
             vec![hash.to_hex().into()],
         )?;
