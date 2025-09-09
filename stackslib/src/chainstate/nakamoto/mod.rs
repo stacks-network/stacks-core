@@ -2936,17 +2936,18 @@ impl NakamotoChainState {
     ///
     /// Get the highest block in a given tenure (identified by burnchain block height) with a canonical
     ///  burn_view (i.e., burn_view on the canonical sortition fork)
-    pub fn find_highest_known_block_header_in_tenure_by_height(
+    pub fn find_highest_known_block_header_in_tenure_by_block_height(
         chainstate: &StacksChainState,
         sort_db: &SortitionDB,
         tenure_height: u64,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let chainstate_db_conn = chainstate.db();
 
-        let candidates = Self::get_highest_known_block_header_in_tenure_by_height_at_each_burnview(
-            chainstate_db_conn,
-            tenure_height,
-        )?;
+        let candidates =
+            Self::get_highest_known_block_header_in_tenure_by_block_height_at_each_burnview(
+                chainstate_db_conn,
+                tenure_height,
+            )?;
 
         let canonical_sortition_handle = sort_db.index_handle_at_tip();
         for candidate in candidates.into_iter() {
@@ -2976,10 +2977,11 @@ impl NakamotoChainState {
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let chainstate_db_conn = chainstate.db();
 
-        let candidates = Self::get_highest_known_block_header_in_tenure_by_block_hash_at_each_burnview(
-            chainstate_db_conn,
-            tenure_block_hash,
-        )?;
+        let candidates =
+            Self::get_highest_known_block_header_in_tenure_by_block_hash_at_each_burnview(
+                chainstate_db_conn,
+                tenure_block_hash,
+            )?;
 
         let canonical_sortition_handle = sort_db.index_handle_at_tip();
         for candidate in candidates.into_iter() {
@@ -3002,7 +3004,7 @@ impl NakamotoChainState {
     ///
     /// Get the highest blocks in a given tenure (identified by burnchain block height) at each burn view
     ///  active in that tenure. If there are ties at a given burn view, they will both be returned
-    fn get_highest_known_block_header_in_tenure_by_height_at_each_burnview(
+    fn get_highest_known_block_header_in_tenure_by_block_height_at_each_burnview(
         db: &Connection,
         tenure_height: u64,
     ) -> Result<Vec<StacksHeaderInfo>, ChainstateError> {

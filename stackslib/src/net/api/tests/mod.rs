@@ -91,6 +91,7 @@ mod getstackerdbmetadata;
 mod getstxtransfercost;
 mod gettenure;
 mod gettenureblocks;
+mod gettenureblocksbyhash;
 mod gettenureinfo;
 mod gettenuretip;
 mod gettransaction;

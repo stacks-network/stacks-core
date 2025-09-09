@@ -18,6 +18,7 @@ use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::net::PeerHost;
 
 use crate::chainstate::nakamoto::NakamotoChainState;
+use crate::chainstate::stacks::Error as ChainstateError;
 use crate::net::api::gettenureblocks::{RPCTenure, RPCTenureStream};
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
@@ -46,7 +47,7 @@ impl HttpRequest for RPCNakamotoTenureBlocksByHashRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/tenures/blocks/hash/(?P<burnchain_block_hash>[0-9a-f]{32})$"#).unwrap()
+        Regex::new(r#"^/v3/tenures/blocks/hash/(?P<burnchain_block_hash>[0-9a-f]{64})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
@@ -101,7 +102,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
                         &burnchain_block_hash,
                     ) {
                         Ok(Some(header)) => header,
-                        Ok(None) => {
+                        Ok(None) | Err(ChainstateError::NoSuchBlockError) => {
                             let msg = format!("No blocks in tenure with burnchain block hash {burnchain_block_hash}");
                             debug!("{msg}");
                             return Err(StacksHttpResponse::new_error(
