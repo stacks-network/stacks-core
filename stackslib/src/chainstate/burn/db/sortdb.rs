@@ -3133,7 +3133,7 @@ impl SortitionDB {
             tx.execute_batch(sql_exec)?;
         }
 
-        let typical_rules = params![(ASTRules::PrecheckSize as u8), 0i64];
+        let typical_rules = params![(ASTRules::PrecheckSize as u8), 1i64];
 
         let precheck_size_rules = params![
             (ASTRules::PrecheckSize as u8),
