@@ -111,8 +111,8 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
 const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP000000000000000000002Q6VF78)
          (define-private (price-function (name uint))
            (if (< name u100000) u1000 u100))
-         
-         (define-map name-map 
+
+         (define-map name-map
            { name: uint } { owner: principal })
          (define-map preorder-map
            { name-hash: (buff 20) }
@@ -121,7 +121,7 @@ const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP0000000000000000000
          (define-private (check-balance)
            (contract-call? .tokens my-get-token-balance tx-sender))
 
-         (define-public (preorder 
+         (define-public (preorder
                         (name-hash (buff 20))
                         (name-price uint))
            (let ((xfer-result (contract-call? .tokens token-transfer
@@ -145,13 +145,13 @@ const SIMPLE_NAMES: &str = "(define-constant burn-address 'SP0000000000000000000
                    ;; preorder entry must exist!
                    (unwrap! (map-get? preorder-map
                                   (tuple (name-hash (hash160 (xor name salt))))) (err 2)))
-                 (name-entry 
+                 (name-entry
                    (map-get? name-map (tuple (name name)))))
              (if (and
                   ;; name shouldn't *already* exist
                   (is-none name-entry)
                   ;; preorder must have paid enough
-                  (<= (price-function name) 
+                  (<= (price-function name)
                       (get paid preorder-entry))
                   ;; preorder must have been the current principal
                   (is-eq tx-sender
@@ -280,7 +280,7 @@ fn test_names_tokens_contracts_interface() {
                     { "name": "tn1", "type": "bool" },
                     { "name": "tn2", "type": "int128" },
                     { "name": "tn3", "type": { "buffer": { "length": 1 } }}
-                ] } } 
+                ] } }
             },
             { "name": "f11",
                 "access": "private",
@@ -413,7 +413,7 @@ fn test_names_tokens_contracts_interface() {
                                     "name": "n2",
                                     "type": "bool"
                                 }
-                            ] 
+                            ]
                         }
                     }]
                 }
@@ -1477,10 +1477,10 @@ fn test_trait_to_subtrait_and_back() {
     ))
     (define-private (foo-0 (impl-contract <trait-2>))
         (foo-1 impl-contract))
- 
+
     (define-private (foo-1 (impl-contract <trait-1>))
         (foo-2 impl-contract))
-    
+
     (define-private (foo-2 (impl-contract <trait-2>))
         true)";
 
@@ -3539,4 +3539,17 @@ fn clarity_trait_experiments_cross_epochs(
         Ok(_) => (),
         res => panic!("expected success, got {res:?}"),
     };
+}
+
+#[apply(test_clarity_versions)]
+fn clarity_trait_experiments_undefined_top_variable(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let err = db
+        .execute(|db| load_versioned(db, "undefined-top-variable", version, epoch))
+        .unwrap_err();
+    assert!(err.starts_with("UndefinedVariable(\"foo\")"));
 }
