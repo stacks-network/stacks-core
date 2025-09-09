@@ -5362,7 +5362,7 @@ impl SortitionHandleTx<'_> {
         )?;
 
         let mut sn = snapshot.clone();
-        sn.index_root = root_hash.clone();
+        sn.index_root = root_hash;
 
         let cur_epoch =
             SortitionDB::get_stacks_epoch(self, snapshot.block_height)?.unwrap_or_else(|| {
@@ -8185,7 +8185,7 @@ pub mod tests {
                 .unwrap()
         };
 
-        first_snapshot.index_root = initial_snapshot.index_root.clone();
+        first_snapshot.index_root = initial_snapshot.index_root;
         first_snapshot.burn_header_timestamp = initial_snapshot.burn_header_timestamp;
         assert_eq!(initial_snapshot, first_snapshot);
 
@@ -8214,7 +8214,7 @@ pub mod tests {
                 .unwrap()
         };
 
-        next_snapshot.index_root = initial_snapshot.index_root.clone();
+        next_snapshot.index_root = initial_snapshot.index_root;
         next_snapshot.burn_header_timestamp = initial_snapshot.burn_header_timestamp;
         assert_eq!(initial_snapshot, next_snapshot);
 
@@ -8242,7 +8242,7 @@ pub mod tests {
             ic.get_last_snapshot_with_sortition(block_height).unwrap()
         };
 
-        snapshot_with_sortition.index_root = next_snapshot_2.index_root.clone();
+        snapshot_with_sortition.index_root = next_snapshot_2.index_root;
         snapshot_with_sortition.burn_header_timestamp = next_snapshot_2.burn_header_timestamp;
         assert_eq!(snapshot_with_sortition, next_snapshot_2);
     }
@@ -8705,10 +8705,10 @@ pub mod tests {
                 next_index_root
             };
 
-            next_snapshot.index_root = next_index_root.clone();
+            next_snapshot.index_root = next_index_root;
 
             let mut expected_tip = next_snapshot.clone();
-            expected_tip.index_root = next_index_root.clone();
+            expected_tip.index_root = next_index_root;
 
             let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(db.conn()).unwrap();
             assert_eq!(canonical_tip, expected_tip);

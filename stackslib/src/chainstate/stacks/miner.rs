@@ -1705,7 +1705,7 @@ impl StacksBlockBuilder {
         let state_root_hash = clarity_tx.seal();
 
         self.header.tx_merkle_root = tx_merkle_root;
-        self.header.state_index_root = state_root_hash.clone();
+        self.header.state_index_root = state_root_hash;
 
         let block = StacksBlock {
             header: self.header.clone(),

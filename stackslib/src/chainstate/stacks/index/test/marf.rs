@@ -54,7 +54,7 @@ fn marf_insert_different_leaf_same_block_100() {
 
         for i in 0..100 {
             let value = TrieLeaf::new(&[], &[i as u8; 40]);
-            marf.insert_raw(path.clone(), value).unwrap();
+            marf.insert_raw(path, value).unwrap();
         }
 
         debug!("---------");
@@ -565,7 +565,7 @@ where
             debug!("----------------");
             debug!("insert");
             debug!("----------------");
-            marf.insert_raw(triepath.clone(), value.clone()).unwrap();
+            marf.insert_raw(triepath, value.clone()).unwrap();
 
             // verify that this leaf exists in _this_ Trie
             debug!("----------------");
@@ -1133,7 +1133,7 @@ fn marf_split_leaf_path() {
     );
     debug!("----------------");
 
-    marf.insert_raw(triepath.clone(), value.clone()).unwrap();
+    marf.insert_raw(triepath, value.clone()).unwrap();
 
     // insert a leaf along the same path but in a different block
     let block_header_2 = BlockHeaderHash::from_bytes(&[
@@ -1157,8 +1157,7 @@ fn marf_split_leaf_path() {
 
     marf.commit().unwrap();
     marf.begin(&block_header, &block_header_2).unwrap();
-    marf.insert_raw(triepath_2.clone(), value_2.clone())
-        .unwrap();
+    marf.insert_raw(triepath_2, value_2.clone()).unwrap();
 
     debug!("----------------");
     debug!(
@@ -2049,7 +2048,7 @@ fn test_marf_read_only() {
         Err(Error::ReadOnlyError)
     ));
     assert!(matches!(
-        ro_marf.insert_raw(triepath.clone(), leaf),
+        ro_marf.insert_raw(triepath, leaf),
         Err(Error::ReadOnlyError)
     ));
     assert!(matches!(
@@ -2096,12 +2095,12 @@ fn test_marf_begin_from_sentinel_twice() {
 
     marf.begin(&BlockHeaderHash::sentinel(), &block_header_1)
         .unwrap();
-    marf.insert_raw(triepath_1.clone(), value_1).unwrap();
+    marf.insert_raw(triepath_1, value_1).unwrap();
     marf.commit_to(&block_header_1).unwrap();
 
     marf.begin(&BlockHeaderHash::sentinel(), &block_header_2)
         .unwrap();
-    marf.insert_raw(triepath_2.clone(), value_2).unwrap();
+    marf.insert_raw(triepath_2, value_2).unwrap();
     marf.commit_to(&block_header_2).unwrap();
 
     let read_value_1 = MARF::get_path(
@@ -2170,7 +2169,7 @@ fn test_marf_unconfirmed() {
     }
 
     let unconfirmed_tip = marf.begin_unconfirmed(&block_header).unwrap();
-    marf.insert_raw(triepath_1.clone(), value_1).unwrap();
+    marf.insert_raw(triepath_1, value_1).unwrap();
     marf.commit().unwrap();
 
     // read succeeds
@@ -2184,7 +2183,7 @@ fn test_marf_unconfirmed() {
     eprintln!("read_value_1 from {unconfirmed_tip:?} is {read_value_1:?}");
 
     marf.begin_unconfirmed(&block_header).unwrap();
-    marf.insert_raw(triepath_2.clone(), value_2).unwrap();
+    marf.insert_raw(triepath_2, value_2).unwrap();
     marf.drop_current();
 
     // read still succeeds -- only current trie is dropped

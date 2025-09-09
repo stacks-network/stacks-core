@@ -2123,7 +2123,7 @@ mod tests {
                 prev_snapshot = snapshot_row;
             }
 
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let mut fixtures = vec![
@@ -2656,7 +2656,7 @@ mod tests {
                 prev_snapshot = snapshot_row;
             }
 
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let block_height = 124;

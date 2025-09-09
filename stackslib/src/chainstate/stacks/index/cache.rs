@@ -61,7 +61,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
         trieptr: TriePtr,
     ) -> Option<(TrieNodeType, TrieHash)> {
         match (
-            self.load_node(block_id, trieptr.clone()),
+            self.load_node(block_id, trieptr),
             self.load_node_hash(block_id, trieptr),
         ) {
             (Some(node), Some(hash)) => Some((node, hash)),
@@ -91,7 +91,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
         node: TrieNodeType,
         hash: TrieHash,
     ) {
-        self.store_node(block_id, trieptr.clone(), node);
+        self.store_node(block_id, trieptr, node);
         self.store_node_hash(block_id, trieptr, hash)
     }
 
@@ -211,7 +211,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut().load_node(block_id, trieptr.clone())
+            self.state_mut().load_node(block_id, *trieptr)
         }
     }
 
@@ -225,8 +225,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut()
-                .load_node_and_hash(block_id, trieptr.clone())
+            self.state_mut().load_node_and_hash(block_id, *trieptr)
         }
     }
 
@@ -235,7 +234,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut().load_node_hash(block_id, trieptr.clone())
+            self.state_mut().load_node_hash(block_id, *trieptr)
         }
     }
 

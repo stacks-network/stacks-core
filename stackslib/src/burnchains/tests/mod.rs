@@ -713,7 +713,7 @@ impl TestBurnchainFork {
             mined: 0,
             tip_header_hash: start_header_hash.clone(),
             tip_sortition_id: SortitionId::stubbed(start_header_hash),
-            tip_index_root: start_index_root.clone(),
+            tip_index_root: *start_index_root,
             blocks: vec![],
             pending_blocks: vec![],
             fork_id,
@@ -765,7 +765,7 @@ impl TestBurnchainFork {
 
             self.blocks.push(block);
             self.mined += 1;
-            self.tip_index_root = snapshot.index_root.clone();
+            self.tip_index_root = snapshot.index_root;
             self.tip_header_hash = snapshot.burn_header_hash.clone();
             self.tip_sortition_id = snapshot.sortition_id.clone();
         }
@@ -801,7 +801,7 @@ impl TestBurnchainFork {
 
             self.blocks.push(block);
             self.mined += 1;
-            self.tip_index_root = snapshot.index_root.clone();
+            self.tip_index_root = snapshot.index_root;
             self.tip_header_hash = snapshot.burn_header_hash.clone();
             self.tip_sortition_id = snapshot.sortition_id.clone();
         }

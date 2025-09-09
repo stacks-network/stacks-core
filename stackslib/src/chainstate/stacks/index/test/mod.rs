@@ -206,7 +206,7 @@ pub fn make_node_path(
     let root_ptr = s.root_ptr();
     let root = TrieNode256::new(&path_segments[0].0);
     let root_hash = TrieHash::from_data(&[0u8; 32]); // don't care about this in this test
-    s.write_node(root_ptr, &root, root_hash.clone()).unwrap();
+    s.write_node(root_ptr, &root, root_hash).unwrap();
 
     let mut parent = TrieNodeType::Node256(Box::new(root));
     let mut parent_ptr = root_ptr;

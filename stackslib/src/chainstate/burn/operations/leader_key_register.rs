@@ -602,7 +602,7 @@ pub mod tests {
                 tx.commit().unwrap();
                 prev_snapshot = snapshot_row;
             }
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let check_fixtures = vec![

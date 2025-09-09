@@ -184,7 +184,7 @@ impl<T: TrieNode, M: BlockMap> ConsensusSerializable<M> for T {
 }
 
 /// Child pointer
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TriePtr {
     pub id: u8, // ID of the child.  Will have bit 0x80 set if the child is a back-pointer (in which case, back_block will be nonzero)
     pub chr: u8, // Path character at which this child resides
@@ -333,7 +333,7 @@ pub struct TrieCursor<T: MarfTrieId> {
 impl<T: MarfTrieId> TrieCursor<T> {
     pub fn new(path: &TrieHash, root_ptr: TriePtr) -> TrieCursor<T> {
         TrieCursor {
-            path: path.clone(),
+            path: *path,
             index: 0,
             node_path_index: 0,
             nodes: vec![],
@@ -372,7 +372,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     pub fn ptr(&self) -> TriePtr {
         // should always be true by construction
         assert!(!self.node_ptrs.is_empty());
-        self.node_ptrs.last().unwrap().clone()
+        *self.node_ptrs.last().unwrap()
     }
 
     /// last node visited.
@@ -451,14 +451,14 @@ impl<T: MarfTrieId> TrieCursor<T> {
                 Some(ptr) => {
                     if !is_backptr(ptr.id()) {
                         // not going to follow a back-pointer
-                        self.node_ptrs.push(ptr.clone());
+                        self.node_ptrs.push(*ptr);
                         self.block_hashes.push(block_hash.clone());
                         true
                     } else {
                         // the caller will need to follow the backptr, and call
                         // repair_backptr_step_backptr() for each node visited, and then repair_backptr_finish()
                         // once the final ptr and block_hash are discovered.
-                        self.last_error = Some(CursorError::BackptrEncountered(ptr.clone()));
+                        self.last_error = Some(CursorError::BackptrEncountered(*ptr));
                         false
                     }
                 }
@@ -509,7 +509,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         self.block_hashes.pop();
 
         self.nodes.push(node.clone());
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(hash.clone());
 
         self.last_error = None;
@@ -565,7 +565,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
 
         trace!("Cursor: repair_backptr_finish ptr={ptr:?} block_hash={block_hash:?}");
 
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(block_hash);
 
         self.last_error = None;
@@ -582,7 +582,7 @@ impl TrieLeaf {
     pub fn new(path: &[u8], data: &[u8]) -> TrieLeaf {
         assert!(data.len() <= 40);
         let mut bytes = [0u8; 40];
-        bytes.copy_from_slice(&data[..]);
+        bytes.copy_from_slice(data);
         TrieLeaf {
             path: path.to_owned(),
             data: MARFValue(bytes),
@@ -644,7 +644,7 @@ impl TrieNode4 {
     pub fn new(path: &[u8]) -> TrieNode4 {
         TrieNode4 {
             path: path.to_owned(),
-            ptrs: std::array::from_fn(|_| TriePtr::default()),
+            ptrs: [TriePtr::default(); 4],
         }
     }
 }
@@ -671,14 +671,14 @@ impl TrieNode16 {
     pub fn new(path: &[u8]) -> TrieNode16 {
         TrieNode16 {
             path: path.to_owned(),
-            ptrs: std::array::from_fn(|_| TriePtr::default()),
+            ptrs: [TriePtr::default(); 16],
         }
     }
 
     /// Promote a Node4 to a Node16
     pub fn from_node4(node4: &TrieNode4) -> TrieNode16 {
-        let mut ptrs = std::array::from_fn(|_| TriePtr::default());
-        ptrs[..4].clone_from_slice(&node4.ptrs[..4]);
+        let mut ptrs = [TriePtr::default(); 16];
+        ptrs[..4].copy_from_slice(&node4.ptrs[..4]);
         TrieNode16 {
             path: node4.path.clone(),
             ptrs,
@@ -716,7 +716,7 @@ impl TrieNode48 {
         TrieNode48 {
             path: path.to_owned(),
             indexes: [-1; 256],
-            ptrs: std::array::from_fn(|_| TriePtr::default()),
+            ptrs: [TriePtr::default(); 48],
         }
     }
 
@@ -725,10 +725,10 @@ impl TrieNode48 {
     // with constant-sized indexes
     #[allow(clippy::indexing_slicing)]
     pub fn from_node16(node16: &TrieNode16) -> TrieNode48 {
-        let mut ptrs = std::array::from_fn(|_| TriePtr::default());
+        let mut ptrs = [TriePtr::default(); 48];
         let mut indexes = [-1i8; 256];
         for i in 0..16 {
-            ptrs[i] = node16.ptrs[i].clone();
+            ptrs[i] = node16.ptrs[i];
             indexes[ptrs[i].chr() as usize] = i as i8;
         }
         TrieNode48 {
@@ -767,7 +767,7 @@ impl TrieNode256 {
     pub fn new(path: &[u8]) -> TrieNode256 {
         TrieNode256 {
             path: path.to_owned(),
-            ptrs: std::array::from_fn(|_| TriePtr::default()),
+            ptrs: [TriePtr::default(); 256],
         }
     }
 
@@ -775,10 +775,10 @@ impl TrieNode256 {
     //  fixed size arrays (256 array can always be indexed by u8)
     #[allow(clippy::indexing_slicing)]
     pub fn from_node4(node4: &TrieNode4) -> TrieNode256 {
-        let mut ptrs = std::array::from_fn(|_| TriePtr::default());
+        let mut ptrs = [TriePtr::default(); 256];
         for node4_ptr in node4.ptrs.iter() {
             let c = node4_ptr.chr();
-            ptrs[c as usize] = node4_ptr.clone();
+            ptrs[c as usize] = *node4_ptr;
         }
         TrieNode256 {
             path: node4.path.clone(),
@@ -791,10 +791,10 @@ impl TrieNode256 {
     //  fixed size arrays (256 array can always be indexed by u8)
     #[allow(clippy::indexing_slicing)]
     pub fn from_node48(node48: &TrieNode48) -> TrieNode256 {
-        let mut ptrs = std::array::from_fn(|_| TriePtr::default());
+        let mut ptrs = [TriePtr::default(); 256];
         for node48_ptr in node48.ptrs.iter() {
             let c = node48_ptr.chr();
-            ptrs[c as usize] = node48_ptr.clone();
+            ptrs[c as usize] = *node48_ptr;
         }
         TrieNode256 {
             path: node48.path.clone(),
@@ -811,21 +811,21 @@ impl TrieNode for TrieNode4 {
     fn empty() -> TrieNode4 {
         TrieNode4 {
             path: vec![],
-            ptrs: std::array::from_fn(|_| TriePtr::default()),
+            ptrs: [TriePtr::default(); 4],
         }
     }
 
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for ptr in self.ptrs.iter() {
             if !ptr.is_empty() && ptr.chr() == chr {
-                return Some(ptr.clone());
+                return Some(*ptr);
             }
         }
-        return None;
+        None
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode4, Error> {
-        let mut ptrs_slice = std::array::from_fn(|_| TriePtr::default());
+        let mut ptrs_slice = [TriePtr::default(); 4];
         ptrs_from_bytes(TrieNodeID::Node4 as u8, r, &mut ptrs_slice)?;
         let path = path_from_bytes(r)?;
 
@@ -842,21 +842,21 @@ impl TrieNode for TrieNode4 {
 
         for slot in self.ptrs.iter_mut() {
             if slot.is_empty() {
-                *slot = ptr.clone();
+                *slot = *ptr;
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         for slot in self.ptrs.iter_mut() {
             if !slot.is_empty() && slot.chr() == ptr.chr() {
-                *slot = ptr.clone();
+                *slot = *ptr;
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn ptrs(&self) -> &[TriePtr] {
@@ -880,21 +880,21 @@ impl TrieNode for TrieNode16 {
     fn empty() -> TrieNode16 {
         TrieNode16 {
             path: vec![],
-            ptrs: std::array::from_fn(|_| TriePtr::default()),
+            ptrs: [TriePtr::default(); 16],
         }
     }
 
     fn walk(&self, chr: u8) -> Option<TriePtr> {
         for ptr in self.ptrs.iter() {
             if !ptr.is_empty() && ptr.chr() == chr {
-                return Some(ptr.clone());
+                return Some(*ptr);
             }
         }
-        return None;
+        None
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode16, Error> {
-        let mut ptrs_slice = std::array::from_fn(|_| TriePtr::default());
+        let mut ptrs_slice = [TriePtr::default(); 16];
         ptrs_from_bytes(TrieNodeID::Node16 as u8, r, &mut ptrs_slice)?;
 
         let path = path_from_bytes(r)?;
@@ -912,21 +912,21 @@ impl TrieNode for TrieNode16 {
 
         for slot in self.ptrs.iter_mut() {
             if slot.is_empty() {
-                *slot = ptr.clone();
+                *slot = *ptr;
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         for slot in self.ptrs.iter_mut() {
             if !slot.is_empty() && slot.chr() == ptr.chr() {
-                *slot = ptr.clone();
+                *slot = *ptr;
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn ptrs(&self) -> &[TriePtr] {
@@ -951,7 +951,7 @@ impl TrieNode for TrieNode48 {
         TrieNode48 {
             path: vec![],
             indexes: [-1; 256],
-            ptrs: std::array::from_fn(|_| TriePtr::default()),
+            ptrs: [TriePtr::default(); 48],
         }
     }
 
@@ -964,7 +964,7 @@ impl TrieNode for TrieNode48 {
         if ptr.is_empty() {
             return None;
         }
-        Some(ptr.clone())
+        Some(*ptr)
     }
 
     fn write_bytes<W: Write>(&self, w: &mut W) -> Result<(), Error> {
@@ -984,7 +984,7 @@ impl TrieNode for TrieNode48 {
 
     #[allow(clippy::indexing_slicing)]
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode48, Error> {
-        let mut ptrs_slice = std::array::from_fn(|_| TriePtr::default());
+        let mut ptrs_slice = [TriePtr::default(); 48];
         ptrs_from_bytes(TrieNodeID::Node48 as u8, r, &mut ptrs_slice)?;
 
         let mut indexes = [0u8; 256];
@@ -1047,7 +1047,7 @@ impl TrieNode for TrieNode48 {
         for i in 0..48 {
             if self.ptrs[i].is_empty() {
                 self.indexes[c as usize] = i as i8;
-                self.ptrs[i] = ptr.clone();
+                self.ptrs[i] = *ptr;
                 return true;
             }
         }
@@ -1058,7 +1058,7 @@ impl TrieNode for TrieNode48 {
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let i = self.indexes[ptr.chr() as usize];
         if i >= 0 {
-            self.ptrs[i as usize] = ptr.clone();
+            self.ptrs[i as usize] = *ptr;
             true
         } else {
             false
@@ -1086,7 +1086,7 @@ impl TrieNode for TrieNode256 {
     fn empty() -> TrieNode256 {
         TrieNode256 {
             path: vec![],
-            ptrs: std::array::from_fn(|_| TriePtr::default()),
+            ptrs: [TriePtr::default(); 256],
         }
     }
 
@@ -1096,11 +1096,11 @@ impl TrieNode for TrieNode256 {
         if ptr.is_empty() {
             return None;
         }
-        Some(ptr.clone())
+        Some(*ptr)
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode256, Error> {
-        let mut ptrs_slice = std::array::from_fn(|_| TriePtr::default());
+        let mut ptrs_slice = [TriePtr::default(); 256];
         ptrs_from_bytes(TrieNodeID::Node256 as u8, r, &mut ptrs_slice)?;
 
         let path = path_from_bytes(r)?;
@@ -1117,7 +1117,7 @@ impl TrieNode for TrieNode256 {
             return true;
         }
         let c = ptr.chr() as usize;
-        self.ptrs[c] = ptr.clone();
+        self.ptrs[c] = *ptr;
         true
     }
 
@@ -1125,7 +1125,7 @@ impl TrieNode for TrieNode256 {
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let c = ptr.chr() as usize;
         if !self.ptrs[c].is_empty() && self.ptrs[c].chr() == ptr.chr() {
-            self.ptrs[c] = ptr.clone();
+            self.ptrs[c] = *ptr;
             true
         } else {
             false
@@ -1192,8 +1192,7 @@ impl TrieNode for TrieLeaf {
 
         if l_leaf_data != (MARF_VALUE_ENCODED_SIZE as usize) {
             return Err(Error::CorruptionError(format!(
-                "Leaf: read only {} out of {} bytes",
-                l_leaf_data, MARF_VALUE_ENCODED_SIZE
+                "Leaf: read only {l_leaf_data} out of {MARF_VALUE_ENCODED_SIZE} bytes"
             )));
         }
 

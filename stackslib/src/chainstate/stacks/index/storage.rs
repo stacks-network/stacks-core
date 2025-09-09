@@ -572,7 +572,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             let node = node_data
                 .get(*indirect as usize)
                 .ok_or_else(|| Error::CorruptionError("node_data_order pointer invalid".into()))?;
-            write_nodetype_bytes(f, &node.0, node.1.clone())?;
+            write_nodetype_bytes(f, &node.0, node.1)?;
 
             // next node
             let next_offset = *offsets.get(ix).ok_or_else(|| {
@@ -632,7 +632,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
         }
 
         // need to store this hash too, since we deferred calculation
-        self.write_node_hash(0, marf_root_hash.clone())?;
+        self.write_node_hash(0, marf_root_hash)?;
         Ok(marf_root_hash)
     }
 
@@ -889,7 +889,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             // queue children in the same order we stored them
             for ptr in data.ptrs.iter_mut() {
                 if ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id()) {
-                    frontier.push_back(ptr.clone());
+                    frontier.push_back(*ptr);
 
                     // fix up ptrs
                     ptr.ptr = next_index;
@@ -925,7 +925,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
 
                 for ptr in ptrs {
                     if ptr.id() != TrieNodeID::Empty as u8 && !is_backptr(ptr.id()) {
-                        frontier.push_back(ptr.clone());
+                        frontier.push_back(*ptr);
 
                         // fix up ptrs
                         ptr.ptr = next_index;
@@ -969,7 +969,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             Error::NotFoundError
         })?;
 
-        Ok(node_trie_hash.clone())
+        Ok(*node_trie_hash)
     }
 
     /// Get an immutable reference to a node and its hash from the TrieRAM.  ptr.ptr() is an array index.
@@ -1856,7 +1856,7 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
         if let Some((bhh, trie_ram)) = self.data.uncommitted_writes.take() {
             let sealed_trie_ram = trie_ram.seal(self)?;
             let root_hash = match &sealed_trie_ram {
-                UncommittedState::Sealed(_, root_hash) => root_hash.clone(),
+                UncommittedState::Sealed(_, root_hash) => *root_hash,
                 _ => {
                     unreachable!("FATAL: .seal() did not make a sealed trieram");
                 }
@@ -2137,7 +2137,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
 
                 let root_hash = trie_ram.read_node_hash(&ptr)?;
 
-                ret.insert(root_hash.clone(), bhh.clone());
+                ret.insert(root_hash, bhh.clone());
                 Some((bhh, trie_ram))
             }
             _ => None,
@@ -2564,8 +2564,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     Ok(res)
                 } else {
                     let node_hash = self.inner_read_persisted_node_hash(block_id, ptr)?;
-                    self.cache
-                        .store_node_hash(block_id, ptr.clone(), node_hash.clone());
+                    self.cache.store_node_hash(block_id, *ptr, node_hash);
                     self.bench.read_node_hash_finish(false);
                     Ok(node_hash)
                 }
@@ -2677,12 +2676,8 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     } else {
                         let (node_inst, node_hash) =
                             self.inner_read_persisted_nodetype(id, &clear_ptr, read_hash)?;
-                        self.cache.store_node_and_hash(
-                            id,
-                            clear_ptr,
-                            node_inst.clone(),
-                            node_hash.clone(),
-                        );
+                        self.cache
+                            .store_node_and_hash(id, clear_ptr, node_inst.clone(), node_hash);
                         (node_inst, node_hash)
                     }
                 } else if let Some(node_inst) = self.cache.load_node(id, &clear_ptr) {

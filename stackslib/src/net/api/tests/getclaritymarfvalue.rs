@@ -42,7 +42,7 @@ fn test_try_parse_request() {
     for key in valid_keys {
         let request = StacksHttpRequest::new_getclaritymarf(
             addr.into(),
-            key.clone(),
+            key,
             TipRequest::SpecificTip(StacksBlockId([0x22; 32])),
             true,
         );
@@ -69,7 +69,7 @@ fn test_try_parse_request() {
         let (preamble, contents) = parsed_request.destruct();
 
         // consumed path args
-        assert_eq!(handler.marf_key_hash, Some(key.clone()));
+        assert_eq!(handler.marf_key_hash, Some(key));
 
         assert_eq!(&preamble, request.preamble());
 

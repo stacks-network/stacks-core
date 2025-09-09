@@ -323,7 +323,7 @@ impl HttpResponsePreamble {
         let hdr = key.to_lowercase();
         match hdr.as_str() {
             "content-type" => Some(format!("{}", &self.content_type)),
-            "content-length" => self.content_length.map(|cl| format!("{cl}")),
+            "content-length" => self.content_length.map(|cl| cl.to_string()),
             _ => self.headers.get(&hdr).cloned(),
         }
     }

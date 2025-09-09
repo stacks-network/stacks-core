@@ -156,7 +156,7 @@ impl StacksBlockHeader {
             parent_microblock,
             parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
-            state_index_root: state_index_root.clone(),
+            state_index_root: *state_index_root,
             microblock_pubkey_hash: microblock_pubkey_hash.clone(),
         }
     }

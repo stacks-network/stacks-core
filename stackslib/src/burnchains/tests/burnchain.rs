@@ -474,7 +474,7 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_121_snapshot.index_root = sn121.index_root.clone();
+        block_121_snapshot.index_root = sn121.index_root;
         block_121_snapshot.parent_sortition_id = sn121.parent_sortition_id.clone();
         assert_eq!(sn121, block_121_snapshot);
     }
@@ -497,7 +497,7 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_122_snapshot.index_root = sn122.index_root.clone();
+        block_122_snapshot.index_root = sn122.index_root;
         block_122_snapshot.parent_sortition_id = sn122.parent_sortition_id.clone();
         assert_eq!(sn122, block_122_snapshot);
     }
@@ -519,7 +519,7 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_123_snapshot.index_root = sn123.index_root.clone();
+        block_123_snapshot.index_root = sn123.index_root;
         block_123_snapshot.parent_sortition_id = sn123.parent_sortition_id.clone();
         assert_eq!(sn123, block_123_snapshot);
     }
@@ -631,7 +631,7 @@ fn test_process_block_ops() {
                 .unwrap();
             tx.commit().unwrap();
 
-            block_124_snapshot.index_root = sn124.index_root.clone();
+            block_124_snapshot.index_root = sn124.index_root;
             block_124_snapshot.parent_sortition_id = sn124.parent_sortition_id.clone();
             sn124
         };
@@ -749,7 +749,7 @@ fn test_burn_snapshot_sequence() {
         ])
         .unwrap();
         let parent_burn_block_hash = prev_snapshot.burn_header_hash.clone();
-        let parent_index_root = prev_snapshot.index_root.clone();
+        let parent_index_root = prev_snapshot.index_root;
 
         // insert block commit paired to previous round's leader key, as well as a user burn
         if i > 0 {
