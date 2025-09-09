@@ -1946,7 +1946,10 @@ impl BitcoinRegtestController {
                 debug!("Transaction {txid} sent successfully");
                 txid
             })
-            .map_err(|e| BurnchainControllerError::TransactionSubmissionFailed(format!("{e:?}")))
+            .map_err(|e| {
+                error!("Bitcoin RPC error: transaction submission failed - {e:?}");
+                BurnchainControllerError::TransactionSubmissionFailed(format!("{e:?}"))
+            })
     }
 
     /// wait until the ChainsCoordinator has processed sortitions up to
