@@ -26,7 +26,9 @@ use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
-use crate::vm::types::{parse_name_type_pairs, TraitIdentifier, TypeSignature, Value};
+use crate::vm::types::{
+    parse_name_type_pairs, TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value,
+};
 
 define_named_enum!(DefineFunctions {
     Constant("define-constant"),
