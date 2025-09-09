@@ -91,11 +91,12 @@ jobs:
       - name: Run cargo hack check (WASM Web)
         run: |
           cargo hack check \
+            -p clarity \
             -p clarity-serialization \
             -p stacks-common \
             --each-feature \
             --no-dev-deps \
-            --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic \
+            --exclude-features=default,rusqlite,ctrlc-handler,wasm-deterministic,testing \
             --features=wasm-web
 
       - name: Run cargo hack check (WASM Deterministic)
@@ -107,9 +108,6 @@ jobs:
             --no-dev-deps \
             --include-features=wasm-deterministic,slog_json \
             --features=wasm-deterministic
-
-      - name: Run cargo hack check
-        run: ${{ matrix.command }}
 
   fuzz-targets:
     name: Fuzz targets (nightly)

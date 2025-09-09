@@ -318,7 +318,8 @@ pub fn build_ast<T: CostTracker>(
 
 #[cfg(test)]
 mod test {
-    use hashbrown::HashMap;
+    use std::collections::HashMap;
+
     use stacks_common::types::StacksEpochId;
 
     use crate::vm::ast::errors::ParseErrors;

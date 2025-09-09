@@ -673,6 +673,18 @@ CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;"#;
 
+static CREATE_BLOCK_PRE_COMMITS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_pre_commits (
+    -- The block sighash commits to all of the stacks and burnchain state as of its parent,
+    -- as well as the tenure itself so there's no need to include the reward cycle.  Just
+    -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
+    -- and stacks forks.
+    signer_signature_hash TEXT NOT NULL,
+    -- signer address committing to sign the block
+    signer_addr TEXT NOT NULL,
+    PRIMARY KEY (signer_signature_hash, signer_addr)
+) STRICT;"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -786,6 +798,11 @@ static SCHEMA_16: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (16);",
 ];
 
+static SCHEMA_17: &[&str] = &[
+    CREATE_BLOCK_PRE_COMMITS_TABLE,
+    "INSERT INTO db_config (version) VALUES (17);",
+];
+
 struct Migration {
     version: u32,
     statements: &'static [&'static str],
@@ -856,11 +873,15 @@ static MIGRATIONS: &[Migration] = &[
         version: 16,
         statements: SCHEMA_16,
     },
+    Migration {
+        version: 17,
+        statements: SCHEMA_17,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 16;
+    pub const SCHEMA_VERSION: u32 = 17;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1829,6 +1850,62 @@ impl SignerDb {
         }
 
         Ok(None)
+    }
+
+    /// Record an observed block pre-commit
+    pub fn add_block_pre_commit(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        address: &StacksAddress,
+    ) -> Result<(), DBError> {
+        let qry = "INSERT OR REPLACE INTO block_pre_commits (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
+        let args = params![block_sighash, address.to_string()];
+
+        debug!("Inserting block pre-commit.";
+            "signer_signature_hash" => %block_sighash,
+            "signer_addr" => %address);
+
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Check if the given address has already committed to sign the block identified by block_sighash
+    pub fn has_committed(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        address: &StacksAddress,
+    ) -> Result<bool, DBError> {
+        let qry_check = "
+            SELECT 1 FROM block_pre_commits
+            WHERE signer_signature_hash = ?1 AND signer_addr = ?2
+            LIMIT 1;";
+
+        let exists: Option<u8> = self
+            .db
+            .query_row(
+                qry_check,
+                params![block_sighash, address.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(exists.is_some())
+    }
+
+    /// Get all pre-committers for a block
+    pub fn get_block_pre_committers(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<StacksAddress>, DBError> {
+        let qry = "SELECT signer_addr FROM block_pre_commits WHERE signer_signature_hash = ?1";
+        let args = params![block_sighash];
+        let addrs_txt: Vec<String> = query_rows(&self.db, qry, args)?;
+
+        let res: Result<Vec<_>, _> = addrs_txt
+            .into_iter()
+            .map(|addr| StacksAddress::from_string(&addr).ok_or(DBError::Corruption))
+            .collect();
+        res
     }
 }
 
@@ -3389,5 +3466,57 @@ pub mod tests {
             .unwrap();
 
         assert!(result_3.is_none());
+    }
+
+    #[test]
+    fn insert_and_get_state_block_pre_commits() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let block_sighash1 = Sha512Trunc256Sum([1u8; 32]);
+        let address1 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        let block_sighash2 = Sha512Trunc256Sum([2u8; 32]);
+        let address2 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        let address3 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        assert!(db
+            .get_block_pre_committers(&block_sighash1)
+            .unwrap()
+            .is_empty());
+
+        db.add_block_pre_commit(&block_sighash1, &address1).unwrap();
+        assert_eq!(
+            db.get_block_pre_committers(&block_sighash1).unwrap(),
+            vec![address1.clone()]
+        );
+
+        db.add_block_pre_commit(&block_sighash1, &address2).unwrap();
+        let commits = db.get_block_pre_committers(&block_sighash1).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert!(commits.contains(&address2));
+        assert!(commits.contains(&address1));
+
+        db.add_block_pre_commit(&block_sighash2, &address3).unwrap();
+        let commits = db.get_block_pre_committers(&block_sighash1).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert!(commits.contains(&address2));
+        assert!(commits.contains(&address1));
+        let commits = db.get_block_pre_committers(&block_sighash2).unwrap();
+        assert_eq!(commits.len(), 1);
+        assert!(commits.contains(&address3));
+
+        assert!(db.has_committed(&block_sighash1, &address1).unwrap());
+        assert!(db.has_committed(&block_sighash1, &address2).unwrap());
+        assert!(!db.has_committed(&block_sighash1, &address3).unwrap());
+        assert!(!db.has_committed(&block_sighash2, &address1).unwrap());
+        assert!(!db.has_committed(&block_sighash2, &address2).unwrap());
+        assert!(db.has_committed(&block_sighash2, &address3).unwrap());
     }
 }

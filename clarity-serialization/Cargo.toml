@@ -12,11 +12,12 @@ readme = "README.md"
 [dependencies]
 lazy_static = { workspace = true }
 regex = { version = "1", default-features = false }
+rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
+serde_json = { version = "1.0", default-features = false }
 serde_derive = { workspace = true }
 slog = { workspace = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
-thiserror = { workspace = true }
 
 [dev-dependencies]
 mutants = "0.0.3"
@@ -25,7 +26,9 @@ rstest = "0.17.0"
 [features]
 default = []
 testing = []
+developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
+rusqlite = ["stacks_common/rusqlite", "dep:rusqlite"]
 
 # Wasm-specific features for easier configuration
 wasm-web = ["stacks_common/wasm-web"]
