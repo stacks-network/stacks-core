@@ -10,13 +10,19 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
+- Added two-phase commit to signer block responses ensuring signers only issue a signature in a BlockResponse when a majority threshold number have pre-committed to sign a proposed Naka block
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
+
+### Changed
+
+- Database schema updated to version 17
 
 ## [3.2.0.0.1.1]
 
 ### Added
 
 - Introduced `stackerdb_timeout_secs`: config option to set the maximum time (in seconds) the signer will wait for StackerDB HTTP requests to complete.
+
 
 ## [3.2.0.0.1.0]
 
