@@ -1923,7 +1923,7 @@ impl BitcoinRegtestController {
 
     /// Broadcast a signed raw [`Transaction`] to the underlying Bitcoin node.
     ///
-    /// The transaction is submitted with following paramters:
+    /// The transaction is submitted with following parameters:
     /// - `max_fee_rate = 0.0` (uncapped, accept any fee rate),
     /// - `max_burn_amount = 1_000_000` (in sats).
     ///
