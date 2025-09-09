@@ -1108,6 +1108,41 @@ pub fn call_read_only(
     response.result().unwrap()
 }
 
+#[derive(Deserialize, Debug)]
+struct ConstantResponse {
+    #[serde(rename = "data")]
+    data_hex: String,
+}
+
+impl ConstantResponse {
+    pub fn result(&self) -> Result<Value, SerializationError> {
+        Value::try_deserialize_hex_untyped(&self.data_hex)
+    }
+}
+
+
+pub fn get_constant(
+    conf: &Config,
+    principal: &StacksAddress,
+    contract: &str,
+    name: &str,
+) -> Value {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
+
+    info!("Get constant: {contract}.{name}");
+
+    let path = format!("{http_origin}/v2/constant_val/{principal}/{contract}/{name}");
+
+    let response: ConstantResponse = client
+        .get(path)
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
+    response.result().unwrap()
+}
+
 fn find_microblock_privkey(
     conf: &Config,
     pubkey_hash: &Hash160,

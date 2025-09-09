@@ -39,6 +39,7 @@ define_versioned_named_enum_with_max!(NativeVariables(ClarityVersion) {
     ChainId("chain-id", ClarityVersion::Clarity2, None),
     StacksBlockHeight("stacks-block-height", ClarityVersion::Clarity3, None),
     TenureHeight("tenure-height", ClarityVersion::Clarity3, None),
+    BlockTime("block-time", ClarityVersion::Clarity4, None)
 });
 
 pub fn is_reserved_name(name: &str, version: &ClarityVersion) -> bool {
@@ -132,6 +133,11 @@ pub fn lookup_reserved_variable(
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
                 let tenure_height = env.global_context.database.get_tenure_height()?;
                 Ok(Some(Value::UInt(tenure_height as u128)))
+            }
+            NativeVariables::BlockTime => {
+                runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
+                let block_time = 1234;
+                Ok(Some(Value::UInt(block_time as u128)))
             }
         }
     } else {
