@@ -73,7 +73,7 @@ fn test_try_make_response() {
         .last()
         .unwrap()
         .metadata
-        .burn_header_hash;
+        .burn_header_hash.clone();
 
     let mut requests = vec![];
 
@@ -87,7 +87,7 @@ fn test_try_make_response() {
         .first()
         .unwrap()
         .metadata
-        .burn_header_hash;
+        .burn_header_hash.clone();
 
     // query existing, non-empty Epoch2 tenure (will fail as we do not support it in search by hash or height)
     let request = StacksHttpRequest::new_get_tenure_blocks_by_hash(
