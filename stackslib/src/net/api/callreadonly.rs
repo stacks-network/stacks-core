@@ -231,21 +231,9 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                                 ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                             })?;
 
-                        let clarity_version = clarity_tx
-                            .with_analysis_db_readonly(|analysis_db| {
-                                analysis_db.get_clarity_version(&contract_identifier)
-                            })
-                            .map_err(|_| {
-                                ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
-                                    "{}",
-                                    &contract_identifier
-                                )))
-                            })?;
-
                         clarity_tx.with_readonly_clarity_env(
                             mainnet,
                             chain_id,
-                            clarity_version,
                             sender,
                             sponsor,
                             cost_track,

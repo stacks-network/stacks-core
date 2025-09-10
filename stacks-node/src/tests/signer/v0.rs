@@ -3891,54 +3891,45 @@ fn tx_replay_btc_on_stx_invalidation() {
         .expect("Timed out waiting for tx replay set to be updated");
 
     info!("---- Waiting for tx replay set to be cleared ----");
-
-    let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
-
     test_observer::clear();
     fault_injection_unstall_miner();
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
 
-    let mut found_block = None;
-    // Ensure that we don't mine any of the replay transactions
-    wait_for(30, || {
+    let mut found_block = false;
+    // Ensure that we don't mine any of the replay transactions in a sufficient amount of elapsed time
+    let _ = wait_for(30, || {
         let blocks = test_observer::get_blocks();
         for block in blocks {
             let block: StacksBlockEvent =
-            serde_json::from_value(block).expect("Failed to parse block");
-            match &block.transactions[0].payload {
-                TransactionPayload::TenureChange(TenureChangePayload {
-                    cause: TenureChangeCause::BlockFound,
-                    ..
-                }) => {
-                    found_block = Some(block);
-                    return Ok(true);
-                },
-                TransactionPayload::TenureChange(TenureChangePayload {
-                    cause: TenureChangeCause::Extended,
-                    ..
-                }) => {
-                    continue;
+                serde_json::from_value(block).expect("Failed to parse block");
+            for tx in block.transactions {
+                match tx.payload {
+                    TransactionPayload::TenureChange(TenureChangePayload {
+                        cause: TenureChangeCause::BlockFound,
+                        ..
+                    })
+                    | TransactionPayload::Coinbase(..) => {
+                        found_block = true;
+                    }
+                    TransactionPayload::TenureChange(TenureChangePayload {
+                        cause: TenureChangeCause::Extended,
+                        ..
+                    }) => {
+                        continue;
+                    }
+                    _ => {
+                        panic!("We should not see any transactions mined beyond tenure change or coinbase txs");
+                    }
                 }
-                _ => panic!("We should not see any transactions mined beyond extend or block found/tenure change"),
             }
         }
         Ok(false)
-    }).expect("Failed to mine tenure start");
-    let block = found_block.unwrap();
-    assert!(matches!(
-        block.transactions[0].payload,
-        TransactionPayload::TenureChange(TenureChangePayload {
-            cause: TenureChangeCause::BlockFound,
-            ..
-        })
-    ));
-    assert!(matches!(
-        block.transactions[1].payload,
-        TransactionPayload::Coinbase(..)
-    ));
+    });
 
+    assert!(found_block, "Failed to mine the tenure change block");
+    // Ensure that in the 30 seconds, the nonce did not increase. This also asserts that no tx replays were mined.
     let account = get_account(&_http_origin, &recipient_addr);
     assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
 
