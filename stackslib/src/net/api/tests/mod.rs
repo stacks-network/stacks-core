@@ -517,7 +517,7 @@ impl<'a> TestRPC<'a> {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    microblock_pubkeyhash,
+                    &microblock_pubkeyhash,
                 )
                 .unwrap();
                 let (anchored_block, anchored_block_size, anchored_block_cost) =
@@ -663,7 +663,7 @@ impl<'a> TestRPC<'a> {
                     &consensus_hash,
                     &stacks_block.block_hash(),
                     true,
-                    txid.clone(),
+                    &txid,
                     tx_bytes,
                     tx_fee,
                     stacks_block.header.total_work.work,
@@ -786,7 +786,7 @@ impl<'a> TestRPC<'a> {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    microblock_pubkeyhash,
+                    &microblock_pubkeyhash,
                 )
                 .unwrap();
                 let (anchored_block, anchored_block_size, anchored_block_cost) =
@@ -1329,7 +1329,7 @@ fn prefixed_opt_hex_serialization() {
     ];
 
     for test in tests_32b.iter() {
-        let inp = test.clone().map(BurnchainHeaderHash);
+        let inp = (*test).map(BurnchainHeaderHash);
         let mut out_buff = Vec::new();
         let mut serializer = serde_json::Serializer::new(&mut out_buff);
         prefix_opt_hex::serialize(&inp, &mut serializer).unwrap();
@@ -1393,7 +1393,7 @@ fn prefixed_hex_serialization() {
     ];
 
     for test in tests_32b.iter() {
-        let inp = BurnchainHeaderHash(test.clone());
+        let inp = BurnchainHeaderHash(*test);
         let mut out_buff = Vec::new();
         let mut serializer = serde_json::Serializer::new(&mut out_buff);
         prefix_hex::serialize(&inp, &mut serializer).unwrap();

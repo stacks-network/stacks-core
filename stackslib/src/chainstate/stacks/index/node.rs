@@ -333,7 +333,7 @@ pub struct TrieCursor<T: MarfTrieId> {
 impl<T: MarfTrieId> TrieCursor<T> {
     pub fn new(path: &TrieHash, root_ptr: TriePtr) -> TrieCursor<T> {
         TrieCursor {
-            path: path.clone(),
+            path: *path,
             index: 0,
             node_path_index: 0,
             nodes: vec![],
@@ -372,7 +372,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
     pub fn ptr(&self) -> TriePtr {
         // should always be true by construction
         assert!(!self.node_ptrs.is_empty());
-        self.node_ptrs.last().unwrap().clone()
+        *self.node_ptrs.last().unwrap()
     }
 
     /// last node visited.
@@ -447,18 +447,18 @@ impl<T: MarfTrieId> TrieCursor<T> {
             self.index += 1;
             let mut ptr_opt = node.walk(*chr);
 
-            let do_walk = match ptr_opt {
+            let do_walk = match &ptr_opt {
                 Some(ptr) => {
                     if !is_backptr(ptr.id()) {
                         // not going to follow a back-pointer
-                        self.node_ptrs.push(ptr);
+                        self.node_ptrs.push(*ptr);
                         self.block_hashes.push(block_hash.clone());
                         true
                     } else {
                         // the caller will need to follow the backptr, and call
                         // repair_backptr_step_backptr() for each node visited, and then repair_backptr_finish()
                         // once the final ptr and block_hash are discovered.
-                        self.last_error = Some(CursorError::BackptrEncountered(ptr));
+                        self.last_error = Some(CursorError::BackptrEncountered(*ptr));
                         false
                     }
                 }
@@ -509,7 +509,7 @@ impl<T: MarfTrieId> TrieCursor<T> {
         self.block_hashes.pop();
 
         self.nodes.push(node.clone());
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(hash.clone());
 
         self.last_error = None;
@@ -563,13 +563,9 @@ impl<T: MarfTrieId> TrieCursor<T> {
         }
         assert!(!is_backptr(ptr.id()));
 
-        trace!(
-            "Cursor: repair_backptr_finish ptr={:?} block_hash={:?}",
-            &ptr,
-            &block_hash
-        );
+        trace!("Cursor: repair_backptr_finish ptr={ptr:?} block_hash={block_hash:?}");
 
-        self.node_ptrs.push(ptr.clone());
+        self.node_ptrs.push(*ptr);
         self.block_hashes.push(block_hash);
 
         self.last_error = None;
@@ -586,7 +582,7 @@ impl TrieLeaf {
     pub fn new(path: &[u8], data: &[u8]) -> TrieLeaf {
         assert!(data.len() <= 40);
         let mut bytes = [0u8; 40];
-        bytes.copy_from_slice(&data[..]);
+        bytes.copy_from_slice(data);
         TrieLeaf {
             path: path.to_owned(),
             data: MARFValue(bytes),
@@ -825,7 +821,7 @@ impl TrieNode for TrieNode4 {
                 return Some(*ptr);
             }
         }
-        return None;
+        None
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode4, Error> {
@@ -850,7 +846,7 @@ impl TrieNode for TrieNode4 {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn replace(&mut self, ptr: &TriePtr) -> bool {
@@ -860,7 +856,7 @@ impl TrieNode for TrieNode4 {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn ptrs(&self) -> &[TriePtr] {
@@ -894,7 +890,7 @@ impl TrieNode for TrieNode16 {
                 return Some(*ptr);
             }
         }
-        return None;
+        None
     }
 
     fn from_bytes<R: Read>(r: &mut R) -> Result<TrieNode16, Error> {
@@ -920,7 +916,7 @@ impl TrieNode for TrieNode16 {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn replace(&mut self, ptr: &TriePtr) -> bool {
@@ -930,7 +926,7 @@ impl TrieNode for TrieNode16 {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     fn ptrs(&self) -> &[TriePtr] {
@@ -1051,21 +1047,21 @@ impl TrieNode for TrieNode48 {
         for i in 0..48 {
             if self.ptrs[i].is_empty() {
                 self.indexes[c as usize] = i as i8;
-                self.ptrs[i] = ptr.clone();
+                self.ptrs[i] = *ptr;
                 return true;
             }
         }
-        return false;
+        false
     }
 
     #[allow(clippy::indexing_slicing)]
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let i = self.indexes[ptr.chr() as usize];
         if i >= 0 {
-            self.ptrs[i as usize] = ptr.clone();
-            return true;
+            self.ptrs[i as usize] = *ptr;
+            true
         } else {
-            return false;
+            false
         }
     }
 
@@ -1121,18 +1117,18 @@ impl TrieNode for TrieNode256 {
             return true;
         }
         let c = ptr.chr() as usize;
-        self.ptrs[c] = ptr.clone();
-        return true;
+        self.ptrs[c] = *ptr;
+        true
     }
 
     #[allow(clippy::indexing_slicing)]
     fn replace(&mut self, ptr: &TriePtr) -> bool {
         let c = ptr.chr() as usize;
         if !self.ptrs[c].is_empty() && self.ptrs[c].chr() == ptr.chr() {
-            self.ptrs[c] = ptr.clone();
-            return true;
+            self.ptrs[c] = *ptr;
+            true
         } else {
-            return false;
+            false
         }
     }
 
@@ -1196,8 +1192,7 @@ impl TrieNode for TrieLeaf {
 
         if l_leaf_data != (MARF_VALUE_ENCODED_SIZE as usize) {
             return Err(Error::CorruptionError(format!(
-                "Leaf: read only {} out of {} bytes",
-                l_leaf_data, MARF_VALUE_ENCODED_SIZE
+                "Leaf: read only {l_leaf_data} out of {MARF_VALUE_ENCODED_SIZE} bytes"
             )));
         }
 

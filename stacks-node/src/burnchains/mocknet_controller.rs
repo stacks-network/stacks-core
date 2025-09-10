@@ -193,7 +193,7 @@ impl BurnchainController for MocknetController {
                         txid: payload.txid,
                         vtxindex: payload.vtxindex,
                         block_height: next_block_header.block_height,
-                        burn_header_hash: next_block_header.block_hash,
+                        burn_header_hash: next_block_header.block_hash.clone(),
                     })
                 }
                 BlockstackOperationType::LeaderBlockCommit(payload) => {
@@ -219,41 +219,41 @@ impl BurnchainController for MocknetController {
                         } else {
                             BURN_BLOCK_MINED_AT_MODULUS - 1
                         } as u8,
-                        burn_header_hash: next_block_header.block_hash,
+                        burn_header_hash: next_block_header.block_hash.clone(),
                     })
                 }
                 BlockstackOperationType::PreStx(payload) => {
                     BlockstackOperationType::PreStx(PreStxOp {
                         block_height: next_block_header.block_height,
-                        burn_header_hash: next_block_header.block_hash,
+                        burn_header_hash: next_block_header.block_hash.clone(),
                         ..payload
                     })
                 }
                 BlockstackOperationType::TransferStx(payload) => {
                     BlockstackOperationType::TransferStx(TransferStxOp {
                         block_height: next_block_header.block_height,
-                        burn_header_hash: next_block_header.block_hash,
+                        burn_header_hash: next_block_header.block_hash.clone(),
                         ..payload
                     })
                 }
                 BlockstackOperationType::StackStx(payload) => {
                     BlockstackOperationType::StackStx(StackStxOp {
                         block_height: next_block_header.block_height,
-                        burn_header_hash: next_block_header.block_hash,
+                        burn_header_hash: next_block_header.block_hash.clone(),
                         ..payload
                     })
                 }
                 BlockstackOperationType::DelegateStx(payload) => {
                     BlockstackOperationType::DelegateStx(DelegateStxOp {
                         block_height: next_block_header.block_height,
-                        burn_header_hash: next_block_header.block_hash,
+                        burn_header_hash: next_block_header.block_hash.clone(),
                         ..payload
                     })
                 }
                 BlockstackOperationType::VoteForAggregateKey(payload) => {
                     BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
                         block_height: next_block_header.block_height,
-                        burn_header_hash: next_block_header.block_hash,
+                        burn_header_hash: next_block_header.block_hash.clone(),
                         ..payload
                     })
                 }

@@ -557,7 +557,7 @@ impl Node {
                 .expect("FATAL: failed to read sortition DB")
                 .expect("FATAL: no epoch defined");
 
-        let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
+        let key_reg_op = self.generate_leader_key_register_op(vrf_pk, consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
         let key_txid = burnchain_controller
             .submit_operation(cur_epoch.epoch_id, key_reg_op, &mut op_signer)
@@ -979,7 +979,7 @@ impl Node {
     fn generate_leader_key_register_op(
         &mut self,
         vrf_public_key: VRFPublicKey,
-        consensus_hash: &ConsensusHash,
+        consensus_hash: ConsensusHash,
     ) -> BlockstackOperationType {
         let mut txid_bytes = [0u8; 32];
         let mut rng = rand::thread_rng();
@@ -989,7 +989,7 @@ impl Node {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
-            consensus_hash: *consensus_hash,
+            consensus_hash,
             vtxindex: 1,
             txid,
             block_height: 0,

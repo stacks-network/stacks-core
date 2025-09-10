@@ -1773,7 +1773,7 @@ impl PeerNetwork {
                     network_state,
                     network,
                     data_url.clone(),
-                    addr.clone(),
+                    addr,
                     Some(request.clone()),
                 ) {
                     Ok(event_id) => Ok(event_id),
@@ -1791,9 +1791,7 @@ impl PeerNetwork {
                             )))
                         }
                     }
-                    Err(e) => {
-                        return Err(e);
-                    }
+                    Err(e) => Err(e),
                 }
             })
         })

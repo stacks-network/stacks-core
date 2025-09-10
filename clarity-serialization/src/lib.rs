@@ -24,13 +24,18 @@ pub use stacks_common::{
     impl_byte_array_serde, types as stacks_types, util,
 };
 
+pub mod diagnostic;
 pub mod errors;
+pub mod execution_cost;
 pub mod representations;
+pub mod token;
 pub mod types;
 
-pub use errors::CodecError;
+pub use errors::Error;
 pub use representations::{ClarityName, ContractName};
 pub use types::Value;
+
+pub const MAX_CALL_STACK_DEPTH: usize = 64;
 
 #[cfg(test)]
 pub mod tests;

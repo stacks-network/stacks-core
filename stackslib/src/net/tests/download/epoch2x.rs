@@ -684,7 +684,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                 let mut make_stacking_tenure = |miner: &mut TestMiner,
                                                 sortdb: &mut SortitionDB,
                                                 chainstate: &mut StacksChainState,
-                                                vrfproof: VRFProof,
+                                                vrfproof: &VRFProof,
                                                 parent_opt: Option<&StacksBlock>,
                                                 microblock_parent_opt: Option<
                     &StacksMicroblockHeader,
@@ -775,7 +775,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                         &parent_tip,
                         vrfproof,
                         tip.total_burn,
-                        mblock_pubkey_hash_bytes,
+                        &mblock_pubkey_hash_bytes,
                     )
                     .unwrap();
                     builder.set_microblock_privkey(mblock_privkey);
@@ -1394,7 +1394,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
                                             .burn
                                             + 1000,
                                         vrf_proof,
-                                        Hash160([i as u8; 20]),
+                                        &Hash160([i as u8; 20]),
                                         &coinbase_tx,
                                         BlockBuilderSettings::max_value(),
                                         None,

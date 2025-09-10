@@ -21,17 +21,15 @@ This crate provides the core components for working with Clarity data structures
 This example demonstrates how to construct a complex Clarity `(tuple)` and serialize it to its hexadecimal string representation, which is suitable for use as a transaction argument.
 
 ```rust
-use clarity_serialization::types::{Value, TupleData, PrincipalData};
+use clarity_serialization::types::{PrincipalData, TupleData, Value};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Construct the individual values that will go into our tuple.
     let id = Value::UInt(101);
-    let owner = Value::Principal(
-        PrincipalData::parse("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G")?
-    );
-    let metadata = Value::some(
-        Value::buff_from(vec![0xde, 0xad, 0xbe, 0xef])?
-    )?;
+    let owner = Value::Principal(PrincipalData::parse(
+        "SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G",
+    )?);
+    let metadata = Value::some(Value::buff_from(vec![0xde, 0xad, 0xbe, 0xef])?)?;
 
     // 2. Create a vec of name-value pairs for the tuple.
     let tuple_fields = vec![
@@ -44,7 +42,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let my_tuple = Value::from(TupleData::from_data(tuple_fields)?);
 
     // 4. Serialize the tuple to its consensus-cricital hex string.
-    let hex_string = my_tuple.serialize_to_hex()?;
+    let hex_string = my_tuple
+        .serialize_to_hex()
+        .map_err(|e| format!("Error serializing tuple to hex: {e:?}"))?;
 
     println!("Clarity Tuple: {my_tuple}");
     println!("Serialized Hex: {hex_string}");
@@ -64,7 +64,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 This example shows the reverse process: taking a hex string and deserializing it into a structured `Value` object, while validating it against an expected type.
 
 ```rust
-use clarity_serialization::types::{Value, TypeSignature};
+use clarity_serialization::types::{TypeSignature, Value};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hex_string = "0c000000030269640100000000000000000000000000000065086d657461646174610a0200000004deadbeef056f776e65720514a46ff88886c2ef9762d970b4d2c63678835bd39d";

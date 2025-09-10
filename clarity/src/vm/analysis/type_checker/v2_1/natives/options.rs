@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_serialization::representations::ClarityName;
+use clarity_serialization::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
 use super::{
@@ -22,8 +24,7 @@ use super::{
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
-use crate::vm::representations::{ClarityName, SymbolicExpression};
-use crate::vm::types::TypeSignature;
+use crate::vm::representations::SymbolicExpression;
 
 pub fn check_special_okay(
     checker: &mut TypeChecker,

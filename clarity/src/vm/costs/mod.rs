@@ -14,13 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::{cmp, fmt};
 
+pub use clarity_serialization::errors::CostErrors;
+pub use clarity_serialization::execution_cost::ExecutionCost;
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
 use costs_3::Costs3;
-use hashbrown::HashMap;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
@@ -39,7 +41,6 @@ use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
 use crate::vm::{CallStack, ClarityName, Environment, LocalContext, SymbolicExpression, Value};
-
 pub mod constants;
 pub mod cost_functions;
 #[allow(unused_variables)]
@@ -402,43 +403,6 @@ impl PartialEq for LimitedCostTracker {
             }
             (_, _) => false,
         }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum CostErrors {
-    CostComputationFailed(String),
-    CostOverflow,
-    CostBalanceExceeded(ExecutionCost, ExecutionCost),
-    MemoryBalanceExceeded(u64, u64),
-    CostContractLoadFailure,
-    InterpreterFailure,
-    Expect(String),
-    ExecutionTimeExpired,
-}
-
-impl fmt::Display for CostErrors {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CostErrors::CostComputationFailed(ref s) => write!(f, "Cost computation failed: {s}"),
-            CostErrors::CostOverflow => write!(f, "Cost overflow"),
-            CostErrors::CostBalanceExceeded(ref total, ref limit) => {
-                write!(f, "Cost balance exceeded: total {total}, limit {limit}")
-            }
-            CostErrors::MemoryBalanceExceeded(ref used, ref limit) => {
-                write!(f, "Memory balance exceeded: used {used}, limit {limit}")
-            }
-            CostErrors::CostContractLoadFailure => write!(f, "Failed to load cost contract"),
-            CostErrors::InterpreterFailure => write!(f, "Interpreter failure"),
-            CostErrors::Expect(ref s) => write!(f, "Expectation failed: {s}"),
-            CostErrors::ExecutionTimeExpired => write!(f, "Execution time expired"),
-        }
-    }
-}
-
-impl CostErrors {
-    fn rejectable(&self) -> bool {
-        matches!(self, CostErrors::InterpreterFailure | CostErrors::Expect(_))
     }
 }
 
@@ -1280,22 +1244,6 @@ impl CostTracker for &mut LimitedCostTracker {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, Hash)]
-pub struct ExecutionCost {
-    pub write_length: u64,
-    pub write_count: u64,
-    pub read_length: u64,
-    pub read_count: u64,
-    pub runtime: u64,
-}
-
-impl fmt::Display for ExecutionCost {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{{\"runtime\": {}, \"write_len\": {}, \"write_cnt\": {}, \"read_len\": {}, \"read_cnt\": {}}}",
-               self.runtime, self.write_length, self.write_count, self.read_length, self.read_count)
-    }
-}
-
 pub trait CostOverflowingMath<T> {
     fn cost_overflow_mul(self, other: T) -> Result<T>;
     fn cost_overflow_add(self, other: T) -> Result<T>;
@@ -1315,140 +1263,6 @@ impl CostOverflowingMath<u64> for u64 {
     }
     fn cost_overflow_div(self, other: u64) -> Result<u64> {
         self.checked_div(other).ok_or(CostErrors::CostOverflow)
-    }
-}
-
-impl ExecutionCost {
-    pub const ZERO: Self = Self {
-        runtime: 0,
-        write_length: 0,
-        read_count: 0,
-        write_count: 0,
-        read_length: 0,
-    };
-
-    /// Returns the percentage of self consumed in `numerator`'s largest proportion dimension.
-    pub fn proportion_largest_dimension(&self, numerator: &ExecutionCost) -> u64 {
-        // max() should always return because there are > 0 elements
-        #[allow(clippy::expect_used)]
-        *[
-            numerator.runtime / cmp::max(1, self.runtime / 100),
-            numerator.write_length / cmp::max(1, self.write_length / 100),
-            numerator.write_count / cmp::max(1, self.write_count / 100),
-            numerator.read_length / cmp::max(1, self.read_length / 100),
-            numerator.read_count / cmp::max(1, self.read_count / 100),
-        ]
-        .iter()
-        .max()
-        .expect("BUG: should find maximum")
-    }
-
-    /// Returns the dot product of this execution cost with `resolution`/block_limit
-    /// This provides a scalar value representing the cumulative consumption
-    /// of `self` in the provided block_limit.
-    pub fn proportion_dot_product(&self, block_limit: &ExecutionCost, resolution: u64) -> u64 {
-        [
-            // each field here is calculating `r * self / limit`, using f64
-            //  use MAX(1, block_limit) to guard against divide by zero
-            //  use MIN(1, self/block_limit) to guard against self > block_limit
-            resolution as f64
-                * 1_f64.min(self.runtime as f64 / 1_f64.max(block_limit.runtime as f64)),
-            resolution as f64
-                * 1_f64.min(self.read_count as f64 / 1_f64.max(block_limit.read_count as f64)),
-            resolution as f64
-                * 1_f64.min(self.write_count as f64 / 1_f64.max(block_limit.write_count as f64)),
-            resolution as f64
-                * 1_f64.min(self.read_length as f64 / 1_f64.max(block_limit.read_length as f64)),
-            resolution as f64
-                * 1_f64.min(self.write_length as f64 / 1_f64.max(block_limit.write_length as f64)),
-        ]
-        .iter()
-        .fold(0, |acc, dim| acc.saturating_add(cmp::max(*dim as u64, 1)))
-    }
-
-    pub fn max_value() -> ExecutionCost {
-        Self {
-            runtime: u64::MAX,
-            write_length: u64::MAX,
-            read_count: u64::MAX,
-            write_count: u64::MAX,
-            read_length: u64::MAX,
-        }
-    }
-
-    pub fn runtime(runtime: u64) -> ExecutionCost {
-        Self {
-            runtime,
-            write_length: 0,
-            read_count: 0,
-            write_count: 0,
-            read_length: 0,
-        }
-    }
-
-    pub fn add_runtime(&mut self, runtime: u64) -> Result<()> {
-        self.runtime = self.runtime.cost_overflow_add(runtime)?;
-        Ok(())
-    }
-
-    pub fn add(&mut self, other: &ExecutionCost) -> Result<()> {
-        self.runtime = self.runtime.cost_overflow_add(other.runtime)?;
-        self.read_count = self.read_count.cost_overflow_add(other.read_count)?;
-        self.read_length = self.read_length.cost_overflow_add(other.read_length)?;
-        self.write_length = self.write_length.cost_overflow_add(other.write_length)?;
-        self.write_count = self.write_count.cost_overflow_add(other.write_count)?;
-        Ok(())
-    }
-
-    pub fn sub(&mut self, other: &ExecutionCost) -> Result<()> {
-        self.runtime = self.runtime.cost_overflow_sub(other.runtime)?;
-        self.read_count = self.read_count.cost_overflow_sub(other.read_count)?;
-        self.read_length = self.read_length.cost_overflow_sub(other.read_length)?;
-        self.write_length = self.write_length.cost_overflow_sub(other.write_length)?;
-        self.write_count = self.write_count.cost_overflow_sub(other.write_count)?;
-        Ok(())
-    }
-
-    pub fn multiply(&mut self, times: u64) -> Result<()> {
-        self.runtime = self.runtime.cost_overflow_mul(times)?;
-        self.read_count = self.read_count.cost_overflow_mul(times)?;
-        self.read_length = self.read_length.cost_overflow_mul(times)?;
-        self.write_length = self.write_length.cost_overflow_mul(times)?;
-        self.write_count = self.write_count.cost_overflow_mul(times)?;
-        Ok(())
-    }
-
-    pub fn divide(&mut self, divisor: u64) -> Result<()> {
-        self.runtime = self.runtime.cost_overflow_div(divisor)?;
-        self.read_count = self.read_count.cost_overflow_div(divisor)?;
-        self.read_length = self.read_length.cost_overflow_div(divisor)?;
-        self.write_length = self.write_length.cost_overflow_div(divisor)?;
-        self.write_count = self.write_count.cost_overflow_div(divisor)?;
-        Ok(())
-    }
-
-    /// Returns whether or not this cost exceeds any dimension of the
-    ///  other cost.
-    pub fn exceeds(&self, other: &ExecutionCost) -> bool {
-        self.runtime > other.runtime
-            || self.write_length > other.write_length
-            || self.write_count > other.write_count
-            || self.read_count > other.read_count
-            || self.read_length > other.read_length
-    }
-
-    pub fn max_cost(first: ExecutionCost, second: ExecutionCost) -> ExecutionCost {
-        Self {
-            runtime: first.runtime.max(second.runtime),
-            write_length: first.write_length.max(second.write_length),
-            write_count: first.write_count.max(second.write_count),
-            read_count: first.read_count.max(second.read_count),
-            read_length: first.read_length.max(second.read_length),
-        }
-    }
-
-    pub fn is_zero(&self) -> bool {
-        *self == Self::ZERO
     }
 }
 

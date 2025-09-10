@@ -122,7 +122,7 @@ impl RPCTenureStream {
         }
 
         let parent_block_id = match &block_header.anchored_header {
-            StacksBlockHeaderTypes::Nakamoto(nakamoto) => nakamoto.parent_block_id,
+            StacksBlockHeaderTypes::Nakamoto(nakamoto) => nakamoto.parent_block_id.clone(),
             StacksBlockHeaderTypes::Epoch2(epoch2) => {
                 StacksBlockId::new(&self.consensus_hash, &epoch2.parent_block)
             }
@@ -132,7 +132,7 @@ impl RPCTenureStream {
             block_id: block_header.index_block_hash(),
             header_type: block_header.header_type_name().into(),
             block_hash: block_header.anchored_header.block_hash(),
-            parent_block_id,
+            parent_block_id: parent_block_id.clone(),
             height: block_header.stacks_block_height,
         };
 
@@ -274,7 +274,7 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksRequestHandler {
                     };
 
                 let tenure = RPCTenure {
-                    consensus_hash: header_info.consensus_hash,
+                    consensus_hash: header_info.consensus_hash.clone(),
                     burn_block_height: header_info.burn_header_height.into(),
                     burn_block_hash: header_info.burn_header_hash.to_hex(),
                     stacks_blocks: vec![],
