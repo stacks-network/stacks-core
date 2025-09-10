@@ -67,7 +67,6 @@ use stacks::net::atlas::{
     AtlasConfig, AtlasDB, GetAttachmentResponse, GetAttachmentsInvResponse,
     MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
-use stacks::types::PublicKey;
 use stacks::util_lib::boot::{boot_code_addr, boot_code_id};
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -87,7 +86,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 use super::{ADDR_4, SK_1, SK_2, SK_3};
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-use crate::burnchains::bitcoin_regtest_controller::{self, BitcoinRPCRequest, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::{self, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -9964,51 +9963,4 @@ fn mock_miner_replay() {
 
     miner_channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
-}
-
-#[test]
-#[ignore]
-/// Verify that the config option, `burnchain.max_unspent_utxos`, is respected.
-fn listunspent_max_utxos() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let (mut conf, _miner_account) = neon_integration_test_conf();
-    let prom_port = gen_random_port();
-    let localhost = "127.0.0.1";
-    let prom_bind = format!("{localhost}:{prom_port}");
-    conf.node.prometheus_bind = Some(prom_bind);
-
-    conf.burnchain.max_rbf = 1000000;
-    conf.burnchain.max_unspent_utxos = Some(10);
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
-
-    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-
-    btc_regtest_controller.bootstrap_chain(201);
-
-    eprintln!("Chain bootstrapped...");
-
-    let keychain = Keychain::default(conf.node.seed.clone());
-    let mut op_signer = keychain.generate_op_signer();
-
-    let (_, network_id) = conf.burnchain.get_bitcoin_network();
-    let hash160 = Hash160::from_data(&op_signer.get_public_key().to_bytes());
-    let address = BitcoinAddress::from_bytes_legacy(
-        network_id,
-        LegacyBitcoinAddressType::PublicKeyHash,
-        &hash160.0,
-    )
-    .expect("Public key incorrect");
-
-    let filter_addresses = vec![address.to_string()];
-
-    let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
-    let utxos = res.expect("Failed to get utxos");
-    assert_eq!(utxos.num_utxos(), 10);
 }

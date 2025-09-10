@@ -794,8 +794,7 @@ impl BitcoinRegtestController {
         let filter_addresses = vec![address.to_string()];
 
         let mut utxos = loop {
-            let result = Self::list_unspent(
-                &self.config,
+            let result = self.list_unspent(
                 filter_addresses.clone(),
                 false,
                 total_required,
@@ -831,8 +830,7 @@ impl BitcoinRegtestController {
                     sleep_ms(1000);
                 }
 
-                let result = Self::list_unspent(
-                    &self.config,
+                let result = self.list_unspent(
                     filter_addresses.clone(),
                     false,
                     total_required,
@@ -2251,7 +2249,7 @@ impl BitcoinRegtestController {
     }
 
     pub fn list_unspent(
-        config: &Config,
+        &self,
         addresses: Vec<String>,
         include_unsafe: bool,
         minimum_sum_amount: u64,
@@ -2265,7 +2263,7 @@ impl BitcoinRegtestController {
             jsonrpc: "2.0".to_string(),
         };
 
-        let mut res = BitcoinRPCRequest::send(config, payload)?;
+        let mut res = BitcoinRPCRequest::send(&self.config, payload)?;
         let Some(res) = res.as_object_mut() else {
             return Err(RPCError::Parsing("Failed to get UTXOs".to_string()));
         };
@@ -2287,13 +2285,13 @@ impl BitcoinRegtestController {
                 max_conf.into(),
                 addresses.into(),
                 include_unsafe.into(),
-                json!({ "minimumAmount": minimum_amount, "maximumCount": config.burnchain.max_unspent_utxos }),
+                json!({ "minimumAmount": minimum_amount, "maximumCount": &self.config.burnchain.max_unspent_utxos }),
             ],
             id: "stacks".to_string(),
             jsonrpc: "2.0".to_string(),
         };
 
-        let mut res = BitcoinRPCRequest::send(config, payload)?;
+        let mut res = BitcoinRPCRequest::send(&self.config, payload)?;
         let txids_to_filter = if let Some(utxos_to_exclude) = utxos_to_exclude {
             utxos_to_exclude
                 .utxos
@@ -2816,6 +2814,7 @@ mod tests {
 
     use super::*;
     use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
+    use crate::burnchains::bitcoin_regtest_controller::tests::utils::to_address_legacy;
     use crate::Keychain;
 
     mod utils {
@@ -2871,6 +2870,16 @@ mod tests {
 
         pub fn create_miner2_pubkey() -> Secp256k1PublicKey {
             create_keychain_with_seed(2).get_pub_key()
+        }
+
+        pub fn to_address_legacy(pub_key: &Secp256k1PublicKey) -> BitcoinAddress {
+            let hash160 = Hash160::from_data(&pub_key.to_bytes());
+            BitcoinAddress::from_bytes_legacy(
+                BitcoinNetworkType::Regtest,
+                LegacyBitcoinAddressType::PublicKeyHash,
+                &hash160.0,
+            )
+            .expect("Public key incorrect")
         }
 
         pub fn mine_tx(btc_controller: &BitcoinRegtestController, tx: &Transaction) {
@@ -3271,6 +3280,36 @@ mod tests {
         let wallets = btc_controller.list_wallets().unwrap();
         assert_eq!(1, wallets.len());
         assert_eq!("mywallet".to_owned(), wallets[0]);
+    }
+
+    #[test]
+    #[ignore]
+    fn test_list_unspent_with_max_utxos_config() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
+        let miner_pubkey = utils::create_miner1_pubkey();
+
+        let mut config = utils::create_config();
+        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+
+        config.burnchain.max_rbf = 1000000;
+        config.burnchain.max_unspent_utxos = Some(10);
+
+        let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+        btcd_controller
+            .start_bitcoind()
+            .expect("Failed starting bitcoind");
+
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        btc_controller.bootstrap_chain(201); //produces 100 spendable utxos
+
+        let address = to_address_legacy(&miner_pubkey);
+        let filter_addresses = vec![address.to_string()];
+        let utxos = btc_controller.list_unspent(filter_addresses, false, 1, &None, 0)
+            .expect("Failed to get utxos");
+        assert_eq!(10, utxos.num_utxos());
     }
 
     #[test]
