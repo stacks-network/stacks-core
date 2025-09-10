@@ -794,7 +794,7 @@ impl BitcoinRegtestController {
         let filter_addresses = vec![address.to_string()];
 
         let mut utxos = loop {
-            let result = BitcoinRPCRequest::list_unspent(
+            let result = Self::list_unspent(
                 &self.config,
                 filter_addresses.clone(),
                 false,
@@ -831,7 +831,7 @@ impl BitcoinRegtestController {
                     sleep_ms(1000);
                 }
 
-                let result = BitcoinRPCRequest::list_unspent(
+                let result = Self::list_unspent(
                     &self.config,
                     filter_addresses.clone(),
                     false,
@@ -2248,6 +2248,120 @@ impl BitcoinRegtestController {
                 .import_descriptors(self.get_wallet_name(), &[&descr_req])?;
         }
         Ok(())
+    }
+
+    pub fn list_unspent(
+        config: &Config,
+        addresses: Vec<String>,
+        include_unsafe: bool,
+        minimum_sum_amount: u64,
+        utxos_to_exclude: &Option<UTXOSet>,
+        block_height: u64,
+    ) -> RPCResult<UTXOSet> {
+        let payload = BitcoinRPCRequest {
+            method: "getblockhash".to_string(),
+            params: vec![block_height.into()],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let mut res = BitcoinRPCRequest::send(config, payload)?;
+        let Some(res) = res.as_object_mut() else {
+            return Err(RPCError::Parsing("Failed to get UTXOs".to_string()));
+        };
+        let res = res
+            .get("result")
+            .ok_or(RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
+        let bhh_string: String = serde_json::from_value(res.to_owned())
+            .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
+        let bhh = BurnchainHeaderHash::from_hex(&bhh_string)
+            .map_err(|_| RPCError::Parsing("Failed to get bestblockhash".to_string()))?;
+        let min_conf = 0i64;
+        let max_conf = 9999999i64;
+        let minimum_amount = ParsedUTXO::sat_to_serialized_btc(minimum_sum_amount);
+
+        let payload = BitcoinRPCRequest {
+            method: "listunspent".to_string(),
+            params: vec![
+                min_conf.into(),
+                max_conf.into(),
+                addresses.into(),
+                include_unsafe.into(),
+                json!({ "minimumAmount": minimum_amount, "maximumCount": config.burnchain.max_unspent_utxos }),
+            ],
+            id: "stacks".to_string(),
+            jsonrpc: "2.0".to_string(),
+        };
+
+        let mut res = BitcoinRPCRequest::send(config, payload)?;
+        let txids_to_filter = if let Some(utxos_to_exclude) = utxos_to_exclude {
+            utxos_to_exclude
+                .utxos
+                .iter()
+                .map(|utxo| utxo.txid.clone())
+                .collect::<Vec<_>>()
+        } else {
+            vec![]
+        };
+
+        let mut utxos = vec![];
+
+        match res.as_object_mut() {
+            Some(ref mut object) => match object.get_mut("result") {
+                Some(serde_json::Value::Array(entries)) => {
+                    while let Some(entry) = entries.pop() {
+                        let parsed_utxo: ParsedUTXO = match serde_json::from_value(entry) {
+                            Ok(utxo) => utxo,
+                            Err(err) => {
+                                warn!("Failed parsing UTXO: {err}");
+                                continue;
+                            }
+                        };
+                        let amount = match parsed_utxo.get_sat_amount() {
+                            Some(amount) => amount,
+                            None => continue,
+                        };
+
+                        if amount < minimum_sum_amount {
+                            continue;
+                        }
+
+                        let script_pub_key = match parsed_utxo.get_script_pub_key() {
+                            Some(script_pub_key) => script_pub_key,
+                            None => {
+                                continue;
+                            }
+                        };
+
+                        let txid = match parsed_utxo.get_txid() {
+                            Some(amount) => amount,
+                            None => continue,
+                        };
+
+                        // Exclude UTXOs that we want to filter
+                        if txids_to_filter.contains(&txid) {
+                            continue;
+                        }
+
+                        utxos.push(UTXO {
+                            txid,
+                            vout: parsed_utxo.vout,
+                            script_pub_key,
+                            amount,
+                            confirmations: parsed_utxo.confirmations,
+                        });
+                    }
+                }
+                _ => {
+                    warn!("Failed to get UTXOs");
+                }
+            },
+            _ => {
+                warn!("Failed to get UTXOs");
+            }
+        };
+
+        Ok(UTXOSet { bhh, utxos })
     }
 }
 
