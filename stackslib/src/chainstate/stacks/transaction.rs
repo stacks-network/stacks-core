@@ -1967,7 +1967,7 @@ mod test {
     fn test_transaction_payload_token_transfer(#[case] addr: PrincipalData) {
         let memo = TokenTransferMemo([1u8; 34]);
         let amount = 123u64;
-        let payload = TransactionPayload::TokenTransfer(addr.clone(), amount, memo);
+        let payload = TransactionPayload::TokenTransfer(addr.clone(), amount, memo.clone());
         let expected_bytes = create_token_transfer_bytes(&addr, amount, &memo);
         check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
     }
