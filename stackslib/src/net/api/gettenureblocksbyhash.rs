@@ -129,7 +129,9 @@ impl RPCRequestHandler for RPCNakamotoTenureBlocksByHashRequestHandler {
                     stacks_blocks: vec![],
                 };
 
-                match RPCTenureStream::new(chainstate, header_info.index_block_hash(), tenure) {
+                let index_block_hash = header_info.index_block_hash();
+
+                match RPCTenureStream::new(chainstate, index_block_hash, tenure) {
                     Ok(stream) => Ok(stream),
                     Err(e) => {
                         let msg = format!("Failed to create tenure stream: {e:?}");
