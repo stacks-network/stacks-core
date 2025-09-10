@@ -3720,7 +3720,6 @@ fn test_contract_call_across_clarity_versions() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap(),
                         Some(PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap()),
                         LimitedCostTracker::new_free(),

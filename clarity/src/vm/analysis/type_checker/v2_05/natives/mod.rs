@@ -409,7 +409,7 @@ fn check_contract_call(
                 _ => {
                     return Err(
                         CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
-                    )
+                    );
                 }
             };
 
@@ -778,10 +778,10 @@ impl TypedNativeFunction {
             | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo => {
+            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash => {
                 return Err(CheckErrors::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
-                ))
+                ));
             }
         };
 

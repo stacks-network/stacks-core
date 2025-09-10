@@ -12,6 +12,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Add `stackerdb_timeout_secs` to miner config for limiting duration of StackerDB HTTP requests.
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
 - New endpoint /v3/tenures/blocks/ allowing retrieving the list of stacks blocks from a burn block
+- Creates epoch 3.3 and costs-4 in preparation for a hardfork to activate Clarity 4
+- Adds support for new Clarity 4 builtins (not activated until epoch 3.3):
+  - `contract-hash?`
 
 ### Changed
 
