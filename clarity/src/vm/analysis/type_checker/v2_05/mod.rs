@@ -706,6 +706,13 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         } else if let Some(type_result) = context.lookup_trait_reference_type(name) {
             Ok(TypeSignature::TraitReferenceType(type_result.clone()))
         } else {
+            // Special case where a top-level is being looked up, which must
+            // be undefined. This early error prevents a cost function error
+            // due to `context.depth` being 0.
+            if context.depth == 0 {
+                return Err(CheckErrors::UndefinedVariable(name.to_string()).into());
+            }
+
             runtime_cost(
                 ClarityCostFunction::AnalysisLookupVariableDepth,
                 self,
