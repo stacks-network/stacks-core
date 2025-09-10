@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_serialization::types::PrincipalData;
 use stacks_common::types::StacksEpochId;
 
 use super::errors::InterpreterError;
@@ -39,6 +40,7 @@ define_versioned_named_enum_with_max!(NativeVariables(ClarityVersion) {
     ChainId("chain-id", ClarityVersion::Clarity2, None),
     StacksBlockHeight("stacks-block-height", ClarityVersion::Clarity3, None),
     TenureHeight("tenure-height", ClarityVersion::Clarity3, None),
+    CurrentContract("current-contract", ClarityVersion::Clarity4, None)
 });
 
 pub fn is_reserved_name(name: &str, version: &ClarityVersion) -> bool {
@@ -132,6 +134,10 @@ pub fn lookup_reserved_variable(
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
                 let tenure_height = env.global_context.database.get_tenure_height()?;
                 Ok(Some(Value::UInt(tenure_height as u128)))
+            }
+            NativeVariables::CurrentContract => {
+                let contract = env.contract_context.contract_identifier.clone();
+                Ok(Some(Value::Principal(PrincipalData::Contract(contract))))
             }
         }
     } else {

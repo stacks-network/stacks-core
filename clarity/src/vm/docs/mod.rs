@@ -125,6 +125,15 @@ to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
 };
 
+const CURRENT_CONTRACT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "current-contract",
+    snippet: "current-contract",
+    output_type: "principal",
+    description: "Returns the principal of the current contract.",
+    example:
+        "(print current-contract) ;; Will print out the Stacks address of the current contract",
+};
+
 const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "stacks-block-height",
     snippet: "stacks-block-height",
@@ -2660,6 +2669,7 @@ pub fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> 
         NativeVariables::Mainnet => MAINNET_KEYWORD.clone(),
         NativeVariables::ChainId => CHAINID_KEYWORD.clone(),
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
+        NativeVariables::CurrentContract => CURRENT_CONTRACT_KEYWORD.clone(),
     };
     Some(KeywordAPI {
         name: keyword.name,

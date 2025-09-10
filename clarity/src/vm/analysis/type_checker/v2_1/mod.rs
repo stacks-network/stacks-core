@@ -991,6 +991,7 @@ fn type_reserved_variable(
             Regtest => TypeSignature::BoolType,
             Mainnet => TypeSignature::BoolType,
             ChainId => TypeSignature::UIntType,
+            CurrentContract => TypeSignature::PrincipalType,
         };
         Ok(Some(var_type))
     } else {

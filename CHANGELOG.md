@@ -15,6 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Creates epoch 3.3 and costs-4 in preparation for a hardfork to activate Clarity 4
 - Adds support for new Clarity 4 builtins (not activated until epoch 3.3):
   - `contract-hash?`
+  - `current-contract`
 
 ### Changed
 
