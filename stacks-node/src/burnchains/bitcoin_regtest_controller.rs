@@ -2260,27 +2260,24 @@ impl BitcoinRegtestController {
         minimum_sum_amount: u64,
         utxos_to_exclude: &Option<UTXOSet>,
         block_height: u64,
-    ) -> RPCResult<UTXOSet> {
+    ) -> BitcoinRegtestControllerResult<UTXOSet> {
         let bhh = self
             .rpc_client
-            .get_block_hash(block_height)
-            .expect("TEMPORARY: Failed to get bestblockhash");
-        //todo: add error log?!
-        let min_conf = 0;
-        let max_conf = 9999999;
+            .get_block_hash(block_height)?;
 
-        let result = self
+        const MIN_CONFIRMATIONS: u64 = 0;
+        const MAX_CONFIRMATIONS: u64 = 9_999_999;
+        let unspents = self
             .rpc_client
             .list_unspent(
                 &self.get_wallet_name(),
-                Some(min_conf),
-                Some(max_conf),
+                Some(MIN_CONFIRMATIONS),
+                Some(MAX_CONFIRMATIONS),
                 Some(&[addresses]),
                 Some(include_unsafe),
                 Some(minimum_sum_amount),
                 self.config.burnchain.max_unspent_utxos.clone(),
-            )
-            .expect("TEMPORARY: failed list_unspent!");
+            )?;
 
         let txids_to_filter = if let Some(utxos_to_exclude) = utxos_to_exclude {
             utxos_to_exclude
@@ -2292,7 +2289,7 @@ impl BitcoinRegtestController {
             vec![]
         };
 
-        let utxos = result
+        let utxos = unspents
             .into_iter()
             .filter(|each| !txids_to_filter.contains(&Self::to_bitcoin_tx_hash(&each.txid)))
             .filter(|each| each.amount >= minimum_sum_amount)
