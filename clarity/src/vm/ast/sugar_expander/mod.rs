@@ -14,14 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
+
+use clarity_serialization::representations::ClarityName;
+use clarity_serialization::types::{
+    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
+};
 
 use crate::vm::ast::errors::{ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
-use crate::vm::representations::{ClarityName, PreSymbolicExpressionType, SymbolicExpression};
-use crate::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
-};
+use crate::vm::representations::{PreSymbolicExpressionType, SymbolicExpression};
 use crate::vm::ClarityVersion;
 
 pub struct SugarExpander {

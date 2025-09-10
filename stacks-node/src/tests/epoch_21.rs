@@ -1408,8 +1408,7 @@ fn transition_adds_mining_from_segwit() {
         SortitionDB::get_block_commits_by_block(sortdb.conn(), &tip.sortition_id).unwrap();
     assert_eq!(commits.len(), 1);
 
-    let txid = commits[0].txid;
-    let tx = btc_regtest_controller.get_raw_transaction(&txid);
+    let tx = btc_regtest_controller.get_raw_transaction(&commits[0].txid);
 
     eprintln!("tx = {tx:?}");
     assert_eq!(tx.input[0].witness.len(), 2);

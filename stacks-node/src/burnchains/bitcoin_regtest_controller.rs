@@ -1514,8 +1514,7 @@ impl BitcoinRegtestController {
 
         let txid = Txid::from_bitcoin_tx_hash(&tx.txid());
         let mut txids = previous_txids.to_vec();
-        txids.push(txid);
-
+        txids.push(txid.clone());
         let ongoing_block_commit = OngoingBlockCommit {
             payload,
             utxos,
@@ -1864,7 +1863,7 @@ impl BitcoinRegtestController {
         for utxo in utxos_set.utxos.iter() {
             let input = TxIn {
                 previous_output: OutPoint {
-                    txid: utxo.txid,
+                    txid: utxo.txid.clone(),
                     vout: utxo.vout,
                 },
                 script_sig: Script::new(),
@@ -2301,7 +2300,7 @@ impl BurnchainController for BitcoinRegtestController {
         let burnchain = self.get_burnchain();
         burnchain.connect_db(
             true,
-            self.indexer.get_first_block_header_hash()?,
+            &self.indexer.get_first_block_header_hash()?,
             self.indexer.get_first_block_header_timestamp()?,
             self.indexer.get_stacks_epochs(),
         )?;
@@ -2606,7 +2605,7 @@ impl BitcoinRPCRequest {
             utxos_to_exclude
                 .utxos
                 .iter()
-                .map(|utxo| utxo.txid)
+                .map(|utxo| utxo.txid.clone())
                 .collect::<Vec<_>>()
         } else {
             vec![]
@@ -2856,7 +2855,7 @@ mod tests {
             for utxo in utxos.iter() {
                 let input = TxIn {
                     previous_output: OutPoint {
-                        txid: utxo.txid,
+                        txid: utxo.txid.clone(),
                         vout: utxo.vout,
                     },
                     script_sig: Script::new(),

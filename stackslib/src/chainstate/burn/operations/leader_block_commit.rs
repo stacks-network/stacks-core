@@ -192,7 +192,7 @@ impl LeaderBlockCommitOp {
     /// In Nakamoto, the block header hash is actually the index block hash of the first Nakamoto
     /// block of the last tenure (the "tenure id"). This helper obtains it.
     pub fn last_tenure_id(&self) -> StacksBlockId {
-        StacksBlockId(self.block_header_hash.0.clone())
+        StacksBlockId(self.block_header_hash.0)
     }
 
     pub fn parse_data(data: &[u8]) -> Option<ParsedData> {
@@ -2051,7 +2051,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -2123,7 +2123,7 @@ mod tests {
                 prev_snapshot = snapshot_row;
             }
 
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let mut fixtures = vec![
@@ -2340,7 +2340,7 @@ mod tests {
                     .unwrap(),
                     // miss distance from height 126 was 1, which corresponds to the hash at height
                     // 125 (intended modulus = ((124 % 5) + 1) % 5 = 0, actual = (126 % 5) = 1
-                    intended_sortition: SortitionId(block_125_hash.0.clone()),
+                    intended_sortition: SortitionId(block_125_hash.0),
                 })),
             },
             CheckFixture {
@@ -2584,7 +2584,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -2656,7 +2656,7 @@ mod tests {
                 prev_snapshot = snapshot_row;
             }
 
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let block_height = 124;

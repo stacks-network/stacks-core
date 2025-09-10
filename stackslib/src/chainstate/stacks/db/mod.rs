@@ -395,6 +395,13 @@ impl StacksHeaderInfo {
     pub fn is_nakamoto_block(&self) -> bool {
         matches!(self.anchored_header, StacksBlockHeaderTypes::Nakamoto(_))
     }
+
+    pub fn header_type_name(&self) -> &str {
+        match self.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => "epoch2",
+            StacksBlockHeaderTypes::Nakamoto(_) => "nakamoto",
+        }
+    }
 }
 
 impl FromRow<DBConfig> for DBConfig {
@@ -1322,11 +1329,8 @@ impl StacksChainState {
                     None,
                 );
 
-                let boot_code_smart_contract = StacksTransaction::new(
-                    tx_version.clone(),
-                    boot_code_auth.clone(),
-                    smart_contract,
-                );
+                let boot_code_smart_contract =
+                    StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
 
                 let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::process_transaction_payload(
@@ -1620,7 +1624,7 @@ impl StacksChainState {
             });
 
             let allocations_tx = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),

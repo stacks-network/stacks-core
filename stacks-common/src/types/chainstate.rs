@@ -33,7 +33,7 @@ pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
-#[derive(Default)]
+#[derive(Default, Copy)]
 pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
 impl_array_hexstring_fmt!(TrieHash);

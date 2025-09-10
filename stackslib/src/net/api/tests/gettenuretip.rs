@@ -28,7 +28,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_get_tenure_tip(addr.into(), &ConsensusHash([0x01; 20]));
 
@@ -68,7 +68,7 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing, non-empty Nakamoto tenure
-    let request = StacksHttpRequest::new_get_tenure_tip(addr.clone().into(), &consensus_hash);
+    let request = StacksHttpRequest::new_get_tenure_tip(addr.into(), &consensus_hash);
     requests.push(request);
 
     // query existing epoch2 tenure
@@ -77,13 +77,11 @@ fn test_try_make_response() {
     assert!(all_sortitions[30].sortition);
     let epoch2_consensus_hash = all_sortitions[30].consensus_hash.clone();
 
-    let request =
-        StacksHttpRequest::new_get_tenure_tip(addr.clone().into(), &epoch2_consensus_hash);
+    let request = StacksHttpRequest::new_get_tenure_tip(addr.into(), &epoch2_consensus_hash);
     requests.push(request);
 
     // query non-existant tenure
-    let request =
-        StacksHttpRequest::new_get_tenure_tip(addr.clone().into(), &ConsensusHash([0x01; 20]));
+    let request = StacksHttpRequest::new_get_tenure_tip(addr.into(), &ConsensusHash([0x01; 20]));
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);

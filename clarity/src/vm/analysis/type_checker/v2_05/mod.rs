@@ -42,7 +42,7 @@ use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
 use crate::vm::representations::{depth_traverse, ClarityName, SymbolicExpression};
-use crate::vm::types::signatures::FunctionSignature;
+use crate::vm::types::signatures::{FunctionSignature, TypeSignatureExt as _};
 use crate::vm::types::{
     parse_name_type_pairs, FixedFunction, FunctionArg, FunctionType, PrincipalData,
     QualifiedContractIdentifier, TypeSignature, Value,

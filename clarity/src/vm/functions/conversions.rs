@@ -14,17 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_serialization::types::serialization::SerializationError;
+
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
-    ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
+    ASCIIData, BufferLength, CharType, SequenceData, TypeSignature, TypeSignatureExt as _,
+    UTF8Data, Value,
 };
 use crate::vm::{eval, Environment, LocalContext};
 

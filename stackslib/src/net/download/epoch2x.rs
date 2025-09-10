@@ -1936,7 +1936,7 @@ impl PeerNetwork {
                             let request = requestable.make_request_type(peerhost.clone());
                             match network.connect_or_send_http_request(
                                 requestable.get_url().clone(),
-                                addr.clone(),
+                                *addr,
                                 request,
                             ) {
                                 Ok(handle) => {
