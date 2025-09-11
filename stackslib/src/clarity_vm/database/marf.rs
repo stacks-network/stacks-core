@@ -786,7 +786,7 @@ impl PersistentWritableMarfStore<'_> {
     #[cfg(test)]
     fn do_test_commit(self) {
         let bhh = self.chain_tip.clone();
-        self.commit_to(&bhh).unwrap();
+        self.commit_to_processed_block(&bhh).unwrap();
     }
 }
 
@@ -1122,31 +1122,27 @@ impl<'a> ClarityMarfStoreTransaction for Box<dyn WritableMarfStore + 'a> {
     }
 
     fn drop_current_trie(self) {
-        <dyn WritableMarfStore as BoxedClarityMarfStoreTransaction>::boxed_drop_current_trie(self)
+        BoxedClarityMarfStoreTransaction::boxed_drop_current_trie(self)
     }
 
     fn drop_unconfirmed(self) -> InterpreterResult<()> {
-        <dyn WritableMarfStore as BoxedClarityMarfStoreTransaction>::boxed_drop_unconfirmed(self)
+        BoxedClarityMarfStoreTransaction::boxed_drop_unconfirmed(self)
     }
     fn commit_to_processed_block(self, target: &StacksBlockId) -> InterpreterResult<()> {
-        <dyn WritableMarfStore as BoxedClarityMarfStoreTransaction>::boxed_commit_to_processed_block(
-            self, target,
-        )
+        BoxedClarityMarfStoreTransaction::boxed_commit_to_processed_block(self, target)
     }
 
     fn commit_to_mined_block(self, target: &StacksBlockId) -> InterpreterResult<()> {
-        <dyn WritableMarfStore as BoxedClarityMarfStoreTransaction>::boxed_commit_to_mined_block(
-            self, target,
-        )
+        BoxedClarityMarfStoreTransaction::boxed_commit_to_mined_block(self, target)
     }
 
     fn commit_unconfirmed(self) {
-        <dyn WritableMarfStore as BoxedClarityMarfStoreTransaction>::boxed_commit_unconfirmed(self)
+        BoxedClarityMarfStoreTransaction::boxed_commit_unconfirmed(self)
     }
 
     #[cfg(test)]
     fn test_commit(self) {
-        <dyn WritableMarfStore as BoxedClarityMarfStoreTransaction>::boxed_test_commit(self)
+        BoxedClarityMarfStoreTransaction::boxed_test_commit(self)
     }
 }
 
