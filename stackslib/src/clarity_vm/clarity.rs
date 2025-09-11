@@ -1728,8 +1728,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 stx_balance: STXBalance::zero(),
             };
 
-            let costs_4_contract_tx =
-                StacksTransaction::new(tx_version, boot_code_auth, payload);
+            let costs_4_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let costs_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
