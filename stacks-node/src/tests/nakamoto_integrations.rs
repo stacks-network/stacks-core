@@ -66,15 +66,15 @@ use stacks::chainstate::stacks::miner::{
 };
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
-    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
-    TransactionSpendingCondition, TransactionVersion, MAX_BLOCK_LEN,
+    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
+    TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion, MAX_BLOCK_LEN,
 };
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MAXIMUM_MEMPOOL_TX_CHAINING};
 use stacks::core::test_util::{
-    insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned,
-    make_stacks_transfer_serialized, make_stacks_transfer_tx,
+    insert_tx_in_mempool, make_big_read_count_contract, make_contract_call,
+    make_contract_publish_versioned, make_stacks_transfer_serialized, make_stacks_transfer_tx,
 };
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
@@ -3166,6 +3166,7 @@ fn block_proposal_api_endpoint() {
             tenure_change,
             coinbase,
             1,
+            None,
             None,
         )
         .expect("Failed to build Nakamoto block");
@@ -14243,6 +14244,682 @@ fn test_epoch_3_3_activation() {
     );
 
     assert_eq!(costs_4_boot_contract_exists, Some(true));
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test the effect of a high contract_limit_percentage value on the mempool
+/// walk strategy.
+///
+/// The miner will fill a block with as many large contract calls as it can,
+/// trigger the block limit reached, see that the contract_cost_limit_percentage is
+/// not yet exceeded and then include whatever small contract calls it can before
+/// resorting to stx transfers
+#[test]
+#[ignore]
+fn contract_limit_percentage_mempool_strategy_high_limit() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let num_signers = 30;
+    let nmb_large_tx_senders = 8;
+    let num_senders = 20 + nmb_large_tx_senders;
+    let sender_sks: Vec<_> = (0..num_senders)
+        .map(|_| Secp256k1PrivateKey::random())
+        .collect();
+    let sender_signer_sks: Vec<_> = (0..num_signers)
+        .map(|_| Secp256k1PrivateKey::random())
+        .collect();
+    let sender_signer_addrs: Vec<_> = sender_signer_sks.iter().map(tests::to_addr).collect();
+    let sender_addrs: Vec<_> = sender_sks.iter().map(tests::to_addr).collect();
+    let deployer_sk = sender_sks[0].clone();
+    let deployer_addr = sender_addrs[0].clone();
+    let mut sender_nonces: HashMap<String, u64> = HashMap::new();
+
+    let get_and_increment_nonce =
+        |sender_sk: &Secp256k1PrivateKey, sender_nonces: &mut HashMap<String, u64>| {
+            let nonce = sender_nonces.get(&sender_sk.to_hex()).unwrap_or(&0);
+            let result = *nonce;
+            sender_nonces.insert(sender_sk.to_hex(), result + 1);
+            result
+        };
+    let mut signers = TestSigners::new(sender_signer_sks.clone());
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let small_tx_fee = 180;
+    let large_tx_fee = 10000000000000;
+    let small_deploy_fee = 590200;
+    let large_deploy_fee = 1070200;
+    let send_fee = 180;
+    let send_amt = 100;
+    let amount = large_deploy_fee
+        + small_deploy_fee
+        + small_tx_fee * 2
+        + large_tx_fee * 2
+        + send_fee
+        + send_amt;
+    for sender_addr in sender_addrs {
+        naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
+    }
+    for sender_signer_addr in sender_signer_addrs {
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_signer_addr).to_string(),
+            amount * 2,
+        );
+    }
+    naka_conf.miner.contract_cost_limit_percentage = Some(95);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
+    let stacker_sks: Vec<_> = (0..num_signers)
+        .map(|_| setup_stacker(&mut naka_conf))
+        .collect();
+
+    test_observer::spawn();
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_mined_blocks: mined_blocks,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &stacker_sks,
+        &sender_signer_sks,
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // Create large and smaller contracts that will be called multiple times
+    // Create cheap and expensive contracts that will be called multiple times
+    let small_proportion: usize = 5;
+    let large_proportion: usize = 22;
+    let small_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, small_proportion as u64);
+    let large_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, large_proportion as u64);
+    let expected_big = 100 / large_proportion;
+    let expected_small = (100 - large_proportion * expected_big) / small_proportion;
+
+    let call_large = |sender_sk: &_, sender_nonces: &mut _| {
+        let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
+        let contract_tx = make_contract_call(
+            sender_sk,
+            sender_nonce,
+            large_tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "big-contract",
+            "big-tx",
+            &[],
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce
+    };
+
+    let call_small = |sender_sk: &_, sender_nonces: &mut _| {
+        let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
+        // Every sender does both a small and transfer tx call
+        let contract_tx = make_contract_call(
+            sender_sk,
+            sender_nonce,
+            small_tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "small-contract",
+            "big-tx",
+            &[],
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce
+    };
+
+    info!("----- Mining BTC block -----");
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_count > blocks_before
+            && blocks_processed > blocks_processed_before
+            && commits_submitted.load(Ordering::SeqCst) > commits_before)
+    })
+    .unwrap();
+
+    // First, lets deploy the contract
+    info!("----- Waiting for deploy txs to be mined -----");
+    // Pause mining so we can add both transactions to the mempool at once.
+    fault_injection_stall_miner();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let small_contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        small_deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "small-contract",
+        &small_contract,
+    );
+    submit_tx(&http_origin, &small_contract_tx);
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let large_contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        large_deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "big-contract",
+        &large_contract,
+    );
+    submit_tx(&http_origin, &large_contract_tx);
+    fault_injection_unstall_miner();
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        Ok(cur_sender_nonce > deployer_nonce
+            && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len())
+    })
+    .expect("Failed to publish contracts");
+
+    // Second, lets call the contracts so the miner has an accurate estimate of their costs for subsequent block building
+    info!("----- Mining initial contract calls -----");
+    // Pause mining so we can add both transactions to the mempool at once.
+    fault_injection_stall_miner();
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let _ = call_small(&deployer_sk, &mut sender_nonces);
+    let nonce = call_large(&deployer_sk, &mut sender_nonces);
+
+    fault_injection_unstall_miner();
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(cur_sender_nonce > nonce
+            && mined_after.len() > mined_before.len()
+            && blocks_after.len() > blocks_before.len())
+    })
+    .expect("Failed to mine initial contract calls");
+
+    info!("----- Mining BTC block to reset tenure limits -----");
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(blocks_after.len() > blocks_before.len() && mined_after.len() > mined_before.len())
+    })
+    .unwrap();
+
+    // Pause mining so we can add all our transactions to the mempool at once.
+    fault_injection_stall_miner();
+    info!("----- Submitting contract call txs -----");
+    // Make note of how much we mined prior to the contract call txs
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let recipient = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+    );
+    // Lets also submit a ton of transfers to fill up the rest of the block once we hit the limit
+    for (sender_i, sender_sk) in sender_sks.iter().enumerate() {
+        // Only send a large tx call for the first few senders
+        if sender_i < nmb_large_tx_senders {
+            call_large(sender_sk, &mut sender_nonces);
+        };
+        // Every sender does both a small and transfer tx call
+        call_small(sender_sk, &mut sender_nonces);
+        // Also fill up the mempool with a bunch of transfers
+        let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
+        let transfer_tx = make_stacks_transfer_serialized(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient.clone().into(),
+            send_amt,
+        );
+        submit_tx(&http_origin, &transfer_tx);
+    }
+
+    info!("----- Mining contract call txs -----");
+    fault_injection_unstall_miner();
+    let mut nmb_big = 0;
+    let mut nmb_small = 0;
+    let mut nmb_transfers = 0;
+    wait_for(120, || {
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        let mined_blocks: Vec<_> = mined_after.iter().skip(mined_before.len()).collect();
+        let nmb_txs = mined_blocks
+            .iter()
+            .map(|b| b.tx_events.len())
+            .sum::<usize>();
+        let nmb_mined_blocks = mined_blocks.len();
+        let blocks_after = test_observer::get_blocks();
+        let blocks: Vec<_> = blocks_after.iter().skip(blocks_before.len()).collect();
+        debug!(
+            "Mined a total of {nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
+        );
+        nmb_big = 0;
+        nmb_small = 0;
+        nmb_transfers = 0;
+        if nmb_txs < expected_big + expected_small * 2 {
+            return Ok(false);
+        }
+        for (i, block) in blocks.into_iter().enumerate() {
+            let block: StacksBlockEvent = serde_json::from_value(block.clone()).unwrap();
+            info!("block {i} contains {:?} transactions", block.transactions.len());
+            for tx in block.transactions.iter() {
+                match &tx.payload {
+                    TransactionPayload::ContractCall(TransactionContractCall {
+                        contract_name,
+                        ..
+                    }) => match contract_name.to_string().as_str() {
+                        "small-contract" => {
+                            assert!(nmb_big >= expected_big, "We should not mine small txs before filling the tenure with the large transactions");
+                            nmb_small += 1;
+                        }
+                        "big-contract" => {
+                            assert!(nmb_big < expected_big, "We should not mine more than the expected number of transactions");
+                            nmb_big += 1;
+                        }
+                        _ => panic!("Unexpected contract call to {contract_name}"),
+                    },
+                    TransactionPayload::TokenTransfer(..) => {
+                        assert!(nmb_big >= expected_big && nmb_small >= expected_small, "We should not mine any transfers until we exhaust the initial contract calls");
+                        nmb_transfers += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(nmb_big >= expected_big
+            && nmb_small >= expected_small
+            && nmb_transfers >= expected_small)
+    })
+    .expect("Failed to find the expected contract calls");
+
+    assert_eq!(nmb_big, expected_big);
+    assert_eq!(nmb_small, expected_small);
+    assert_eq!(nmb_transfers, expected_small);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test the effect of a low contract_limit_percentage value on the mempool
+/// walk strategy.
+///
+/// The miner will fill a block with as many large contract calls as it can,
+/// trigger the block limit reached, see that the contract_cost_limit_percentage is
+/// also exceeded and then resort to only including stx transfers (failing to mine
+/// any of the smaller contract limit calls)
+#[test]
+#[ignore]
+fn contract_limit_percentage_mempool_strategy_low_limit() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let num_signers = 30;
+    let nmb_large_tx_senders = 8;
+    let num_senders = 10 + nmb_large_tx_senders;
+    let nmb_small_tx_senders = num_senders / 2;
+    let sender_sks: Vec<_> = (0..num_senders)
+        .map(|_| Secp256k1PrivateKey::random())
+        .collect();
+    let sender_signer_sks: Vec<_> = (0..num_signers)
+        .map(|_| Secp256k1PrivateKey::random())
+        .collect();
+    let sender_signer_addrs: Vec<_> = sender_signer_sks.iter().map(tests::to_addr).collect();
+    let sender_addrs: Vec<_> = sender_sks.iter().map(tests::to_addr).collect();
+    let deployer_sk = sender_sks[0].clone();
+    let deployer_addr = sender_addrs[0].clone();
+    let mut sender_nonces: HashMap<String, u64> = HashMap::new();
+
+    let get_and_increment_nonce =
+        |sender_sk: &Secp256k1PrivateKey, sender_nonces: &mut HashMap<String, u64>| {
+            let nonce = sender_nonces.get(&sender_sk.to_hex()).unwrap_or(&0);
+            let result = *nonce;
+            sender_nonces.insert(sender_sk.to_hex(), result + 1);
+            result
+        };
+    let mut signers = TestSigners::new(sender_signer_sks.clone());
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let small_tx_fee = 180;
+    let large_tx_fee = 10000000000000;
+    let small_deploy_fee = 590200;
+    let large_deploy_fee = 1070200;
+    let send_fee = 180;
+    let send_amt = 100;
+    let amount =
+        large_deploy_fee + small_deploy_fee + small_tx_fee + large_tx_fee * 2 + send_fee + send_amt;
+    for sender_addr in sender_addrs {
+        naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
+    }
+    for sender_signer_addr in sender_signer_addrs {
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_signer_addr).to_string(),
+            amount * 2,
+        );
+    }
+    let limit_percentage = 80;
+    naka_conf.miner.contract_cost_limit_percentage = Some(limit_percentage);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
+    let stacker_sks: Vec<_> = (0..num_signers)
+        .map(|_| setup_stacker(&mut naka_conf))
+        .collect();
+
+    test_observer::spawn();
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_mined_blocks: mined_blocks,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &stacker_sks,
+        &sender_signer_sks,
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // Create cheap and expensive contracts that will be called multiple times
+    let small_proportion: usize = 5;
+    let large_proportion: usize = 22;
+    let small_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, small_proportion as u64);
+    let large_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, large_proportion as u64);
+    let expected_big = 100 / large_proportion;
+
+    let call_large = |sender_sk: &_, sender_nonces: &mut _| {
+        let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
+        let contract_tx = make_contract_call(
+            sender_sk,
+            sender_nonce,
+            large_tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "big-contract",
+            "big-tx",
+            &[],
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce
+    };
+
+    let call_small = |sender_sk: &_, sender_nonces: &mut _| {
+        let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
+        // Every sender does both a small and transfer tx call
+        let contract_tx = make_contract_call(
+            sender_sk,
+            sender_nonce,
+            small_tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "small-contract",
+            "big-tx",
+            &[],
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce
+    };
+    info!("----- Mining BTC block -----");
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_count > blocks_before
+            && blocks_processed > blocks_processed_before
+            && commits_submitted.load(Ordering::SeqCst) > commits_before)
+    })
+    .unwrap();
+
+    // First, lets deploy the contracts
+    info!("----- Waiting for deploy txs to be mined -----");
+    // Pause mining so we can add both transactions to the mempool at once.
+    fault_injection_stall_miner();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let small_contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        small_deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "small-contract",
+        &small_contract,
+    );
+    submit_tx(&http_origin, &small_contract_tx);
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let large_contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        large_deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "big-contract",
+        &large_contract,
+    );
+    submit_tx(&http_origin, &large_contract_tx);
+    fault_injection_unstall_miner();
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        Ok(cur_sender_nonce > deployer_nonce
+            && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len())
+    })
+    .expect("Failed to publish contracts");
+
+    // Second, lets call the contracts so the miner has an accurate estimate of their costs for subsequent block building
+    info!("----- Mining initial contract calls -----");
+    // Pause mining so we can add both transactions to the mempool at once.
+    fault_injection_stall_miner();
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
+    let _ = call_small(&deployer_sk, &mut sender_nonces);
+    let nonce = call_large(&deployer_sk, &mut sender_nonces);
+
+    fault_injection_unstall_miner();
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(cur_sender_nonce > nonce
+            && mined_after.len() > mined_before.len()
+            && blocks_after.len() > blocks_before.len()
+            && get_chain_info(&naka_conf).stacks_tip_height > stacks_height)
+    })
+    .expect("Failed to mine initial contract calls");
+
+    info!("----- Mining BTC block to reset tenure limits -----");
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(blocks_after.len() > blocks_before.len()
+            && mined_after.len() > mined_before.len()
+            && get_chain_info(&naka_conf).stacks_tip_height > stacks_height)
+    })
+    .unwrap();
+
+    // Pause mining so we can add all our transactions to the mempool at once.
+    fault_injection_stall_miner();
+    info!("----- Submitting contract call txs -----");
+    // Make note of how much we mined prior to the contract call txs
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let recipient = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+    );
+    // Lets also submit a ton of transfers to fill up the rest of the block once we hit the limit
+    for (sender_i, sender_sk) in sender_sks.iter().enumerate() {
+        // Only send a large tx call for the first few senders
+        if sender_i < nmb_large_tx_senders {
+            call_large(sender_sk, &mut sender_nonces);
+        };
+        // Only have some transfers blocked by small tx calls to ensure we can mine transfers once the limit is reached
+        if sender_i < nmb_small_tx_senders {
+            call_small(sender_sk, &mut sender_nonces);
+        }
+        // Also fill up the mempool with a bunch of transfers
+        let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
+        let transfer_tx = make_stacks_transfer_serialized(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient.clone().into(),
+            send_amt,
+        );
+        submit_tx(&http_origin, &transfer_tx);
+    }
+
+    info!("----- Mining contract call txs -----");
+    fault_injection_unstall_miner();
+    // We expect at least 4 large contract calls, followed by no small contract calls as we will have switched to only transfers after that point
+    // All transfers that can get mined should be (i.e. any that are not blocked by the unmined large/small contract calls)
+    let mut nmb_big = 0;
+    let mut nmb_transfers = 0;
+    let expected_transfers = num_senders - nmb_small_tx_senders;
+    wait_for(120, || {
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        let mined_blocks: Vec<_> = mined_after.iter().skip(mined_before.len()).collect();
+        let total_nmb_txs = mined_blocks
+            .iter()
+            .map(|b| b.tx_events.len())
+            .sum::<usize>();
+        let nmb_mined_blocks = mined_blocks.len();
+        let blocks_after = test_observer::get_blocks();
+        let blocks: Vec<_> = blocks_after.iter().skip(blocks_before.len()).collect();
+        nmb_big = 0;
+        nmb_transfers = 0;
+        debug!(
+            "Mined a total of {total_nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
+        );
+        if total_nmb_txs < expected_big + expected_transfers {
+            return Ok(false);
+        }
+        for (i, block) in blocks.into_iter().enumerate() {
+            let block: StacksBlockEvent = serde_json::from_value(block.clone()).unwrap();
+            info!("block {i} contains {:?} transactions", block.transactions.len());
+            for tx in block.transactions.iter() {
+                match &tx.payload {
+                    TransactionPayload::ContractCall(TransactionContractCall {
+                        contract_name,
+                        ..
+                    }) => match contract_name.to_string().as_str() {
+                        "small-contract" => {
+                            panic!("We expected no small contract calls to get mined");
+                        }
+                        "big-contract" => {
+                            nmb_big += 1;
+                        }
+                        _ => panic!("Unexpected contract call to {contract_name}"),
+                    },
+                    TransactionPayload::TokenTransfer(..) => {
+                        assert!(nmb_big >= expected_big, "We should only mine token transfers after mining all the contract calls");
+                        nmb_transfers += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(nmb_big >= expected_big && nmb_transfers >= expected_transfers)
+    })
+    .expect("Failed to find the expected contract calls");
+
+    assert_eq!(nmb_big, expected_big);
+    assert_eq!(nmb_transfers, expected_transfers);
 
     coord_channel
         .lock()
