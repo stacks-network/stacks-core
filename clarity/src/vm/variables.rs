@@ -136,8 +136,8 @@ pub fn lookup_reserved_variable(
             }
             NativeVariables::BlockTime => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
-                let block_time = 1234;
-                Ok(Some(Value::UInt(block_time as u128)))
+                let block_time = env.global_context.database.get_current_block_time()?;
+                Ok(Some(Value::UInt(u128::from(block_time))))
             }
         }
     } else {

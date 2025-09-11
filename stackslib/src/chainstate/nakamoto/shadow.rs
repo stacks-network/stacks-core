@@ -414,6 +414,7 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            None,
         )
     }
 }

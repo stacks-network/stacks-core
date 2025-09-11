@@ -1177,15 +1177,21 @@ fn test_block_time_in_expressions() {
 
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
 
-    // Test comparison: 0 >= 0 should be true
+    // Test comparison: 1610645304 >= 0 should be true
     let eval_result = env.eval_read_only(&contract_identifier, "(time-comparison u0)");
+    info!("time-comparison result: {:?}", eval_result);
     assert_eq!(Ok(Value::Bool(true)), eval_result);
 
-    // Test arithmetic: 0 + 100 = 100
+    // Test arithmetic: 1610645304 + 100 = 1610645404
     let eval_result = env.eval_read_only(&contract_identifier, "(time-arithmetic)");
-    assert_eq!(Ok(Value::UInt(100)), eval_result);
+    info!("time-arithmetic result: {:?}", eval_result);
+    assert_eq!(Ok(Value::UInt(1610645404)), eval_result);
 
-    // Test in response: (ok 0)
+    // Test in response: (ok 1610645304)
     let eval_result = env.eval_read_only(&contract_identifier, "(time-in-response)");
-    assert_eq!(Ok(Value::okay(Value::UInt(0)).unwrap()), eval_result);
+    info!("time-in-response result: {:?}", eval_result);
+    assert_eq!(
+        Ok(Value::okay(Value::UInt(1610645304)).unwrap()),
+        eval_result
+    );
 }

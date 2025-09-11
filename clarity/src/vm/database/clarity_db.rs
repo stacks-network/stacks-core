@@ -1001,6 +1001,12 @@ impl ClarityDatabase<'_> {
         self.store.get_current_block_height()
     }
 
+    /// This is the timestamp for the block we are currently constructing.
+    /// It comes from the MARF.
+    pub fn get_current_block_time(&mut self) -> Result<u64> {
+        self.store.get_current_block_time()
+    }
+
     /// Return the height for PoX v1 -> v2 auto unlocks
     ///   from the burn state db
     pub fn get_v1_unlock_height(&self) -> u32 {

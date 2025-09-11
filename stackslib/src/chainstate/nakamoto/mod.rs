@@ -3431,6 +3431,7 @@ impl NakamotoChainState {
             &index_block_hash,
             &marf_keys,
             &marf_values,
+            Some(new_tip.timestamp),
         )?;
         test_debug!("Headers index_indexed_all finished {parent_hash}-{index_block_hash}");
 
@@ -3800,6 +3801,7 @@ impl NakamotoChainState {
         block_bitvec: &BitVec<4000>,
         tenure_block_commit: &LeaderBlockCommitOp,
         active_reward_set: &RewardSet,
+        timestamp: Option<u64>,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         // this block's bitvec header must match the miner's block commit punishments
         Self::check_pox_bitvector(block_bitvec, tenure_block_commit, active_reward_set)?;
@@ -3817,6 +3819,7 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            timestamp,
         )
     }
 
@@ -3915,6 +3918,7 @@ impl NakamotoChainState {
             block_bitvec,
             &tenure_block_commit,
             active_reward_set,
+            Some(block.header.timestamp),
         )
     }
 
@@ -3961,6 +3965,7 @@ impl NakamotoChainState {
         new_tenure: bool,
         coinbase_height: u64,
         tenure_extend: bool,
+        timestamp: Option<u64>,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let parent_index_hash = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
         let parent_sortition_id = sortition_dbconn
@@ -4018,6 +4023,7 @@ impl NakamotoChainState {
             parent_header_hash,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
+            timestamp,
         );
 
         // now that we have access to the ClarityVM, we can account for reward deductions from

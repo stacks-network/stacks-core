@@ -384,6 +384,7 @@ impl NakamotoBlockBuilder {
         &mut self,
         burn_dbconn: &'a SortitionHandleConn,
         info: &'b mut MinerTenureInfo<'a>,
+        timestamp: Option<u64>,
     ) -> Result<ClarityTx<'b, 'b>, Error> {
         let Some(block_commit) = info.tenure_block_commit_opt.as_ref() else {
             return Err(Error::InvalidStacksBlock(
@@ -412,6 +413,7 @@ impl NakamotoBlockBuilder {
             &self.header.pox_treatment,
             block_commit,
             &info.active_reward_set,
+            timestamp,
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
         Ok(clarity_tx)
@@ -541,7 +543,11 @@ impl NakamotoBlockBuilder {
         let mut miner_tenure_info =
             builder.load_tenure_info(&mut chainstate, burn_dbconn, tenure_info.cause())?;
         let burn_chain_height = miner_tenure_info.burn_tip_height;
-        let mut tenure_tx = builder.tenure_begin(burn_dbconn, &mut miner_tenure_info)?;
+        let mut tenure_tx = builder.tenure_begin(
+            burn_dbconn,
+            &mut miner_tenure_info,
+            Some(builder.header.timestamp),
+        )?;
 
         let tenure_budget = tenure_tx
             .block_limit()

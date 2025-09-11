@@ -171,6 +171,20 @@ impl From<u32> for MARFValue {
     }
 }
 
+impl From<u64> for MARFValue {
+    fn from(value: u64) -> MARFValue {
+        let h = value.to_le_bytes();
+        let mut d = [0u8; MARF_VALUE_ENCODED_SIZE as usize];
+        if h.len() > MARF_VALUE_ENCODED_SIZE as usize {
+            panic!("Cannot convert a u64 into a MARF Value.");
+        }
+        d.get_mut(..h.len())
+            .expect("Cannot convert a u64 into a MARF Value")
+            .copy_from_slice(&h);
+        MARFValue(d)
+    }
+}
+
 impl<T: MarfTrieId> From<T> for MARFValue {
     fn from(bhh: T) -> MARFValue {
         let h = bhh.to_bytes();
@@ -198,6 +212,22 @@ impl From<MARFValue> for u32 {
             }
         }
         u32::from_le_bytes(d)
+    }
+}
+
+impl From<MARFValue> for u64 {
+    fn from(m: MARFValue) -> u64 {
+        let h = m.0;
+        let mut d = [0u8; 8];
+
+        d.copy_from_slice(&h[..8]);
+
+        for h_i in &h[8..] {
+            if *h_i != 0 {
+                panic!("Failed to convert MARF value into u64: data stored after 8th byte");
+            }
+        }
+        u64::from_le_bytes(d)
     }
 }
 

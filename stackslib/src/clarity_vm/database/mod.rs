@@ -1268,6 +1268,10 @@ impl ClarityBackingStore for MemoryBackingStore {
         0
     }
 
+    fn get_current_block_time(&mut self) -> InterpreterResult<u64> {
+        Ok(1610645304)
+    }
+
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         Some(&handle_contract_call_special_cases)
     }

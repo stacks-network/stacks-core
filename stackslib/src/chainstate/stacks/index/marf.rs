@@ -35,6 +35,7 @@ use crate::util_lib::db::Error as db_error;
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
 pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
+pub const OWN_BLOCK_TIME_KEY: &str = "__MARF_BLOCK_TIME_SELF";
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF<T: MarfTrieId> {
@@ -51,6 +52,7 @@ pub struct MarfTransaction<'a, T: MarfTrieId> {
 struct WriteChainTip<T> {
     block_hash: T,
     height: u32,
+    time: Option<u64>,
 }
 
 /// Options for opening a MARF
@@ -331,6 +333,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         self.open_chain_tip.as_ref().map(|tip| tip.height)
     }
 
+    pub fn get_open_chain_tip_time(&self) -> Option<u64> {
+        self.open_chain_tip.as_ref().map(|tip| tip.time).flatten()
+    }
+
     pub fn get_block_height_of(
         &mut self,
         bhh: &T,
@@ -340,6 +346,18 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             return Ok(self.get_open_chain_tip_height());
         } else {
             MARF::get_block_height_miner_tip(&mut self.storage, bhh, current_block_hash)
+        }
+    }
+
+    pub fn get_block_time_of(
+        &mut self,
+        bhh: &T,
+        current_block_hash: &T,
+    ) -> Result<Option<u64>, Error> {
+        if Some(bhh) == self.get_open_chain_tip() {
+            return Ok(self.get_open_chain_tip_time());
+        } else {
+            MARF::get_block_time_miner_tip(&mut self.storage, current_block_hash)
         }
     }
 
@@ -379,7 +397,12 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
     /// associated block's new state.  Call commit() or commit_to() to persist the changes.
     /// Fails if the block already exists.
     /// Storage will point to new chain tip on success.
-    pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
+    pub fn begin(
+        &mut self,
+        chain_tip: &T,
+        next_chain_tip: &T,
+        timestamp: Option<u64>,
+    ) -> Result<(), Error> {
         if self.storage.readonly() {
             return Err(Error::ReadOnlyError);
         }
@@ -393,7 +416,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
 
         let block_height = self.inner_get_extension_height(chain_tip, next_chain_tip)?;
         MARF::extend_trie(&mut self.storage, next_chain_tip)?;
-        self.inner_setup_extension(chain_tip, next_chain_tip, block_height, true)
+        self.inner_setup_extension(chain_tip, next_chain_tip, block_height, true, timestamp)
     }
 
     /// Set up the trie extension we're making.
@@ -438,11 +461,13 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         next_chain_tip: &T,
         block_height: u32,
         new_extension: bool,
+        timestamp: Option<u64>,
     ) -> Result<(), Error> {
         self.storage.open_block(next_chain_tip)?;
         self.open_chain_tip.replace(WriteChainTip {
             block_hash: next_chain_tip.clone(),
             height: block_height,
+            time: timestamp,
         });
 
         if new_extension {
@@ -450,6 +475,11 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
                 .inspect_err(|_e| {
                     self.open_chain_tip.take();
                 })?;
+            if let Some(ts) = timestamp {
+                self.set_block_time(ts).inspect_err(|_e| {
+                    self.open_chain_tip.take();
+                })?;
+            }
         }
 
         debug!("Opened {chain_tip} to {next_chain_tip}");
@@ -518,6 +548,21 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
         Ok(())
     }
 
+    pub fn set_block_time(&mut self, time: u64) -> Result<(), Error> {
+        if self.storage.readonly() {
+            return Err(Error::ReadOnlyError);
+        }
+        let mut keys = vec![];
+        let mut values = vec![];
+
+        debug!("Set {} = {}", OWN_BLOCK_TIME_KEY, time);
+        keys.push(OWN_BLOCK_TIME_KEY.to_string());
+        values.push(MARFValue::from(time));
+
+        self.insert_batch(&keys, values)?;
+        Ok(())
+    }
+
     /// Insert a batch of key/value pairs.  More efficient than inserting them individually, since
     /// the trie root hash will only be calculated once (which is an O(log B) operation).
     pub fn insert_batch(&mut self, keys: &[String], values: Vec<MARFValue>) -> Result<(), Error> {
@@ -568,7 +613,7 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             MARF::root_copy(&mut self.storage, chain_tip)?;
         }
 
-        self.inner_setup_extension(chain_tip, &unconfirmed_tip, block_height, created)?;
+        self.inner_setup_extension(chain_tip, &unconfirmed_tip, block_height, created, None)?;
         Ok(unconfirmed_tip)
     }
 
@@ -625,6 +670,7 @@ impl<T: MarfTrieId> MARF<T> {
             open_chain_tip: Some(WriteChainTip {
                 block_hash: opened_to.clone(),
                 height: 0,
+                time: None,
             }),
         }
     }
@@ -632,7 +678,7 @@ impl<T: MarfTrieId> MARF<T> {
     #[cfg(test)]
     pub fn begin(&mut self, chain_tip: &T, next_chain_tip: &T) -> Result<(), Error> {
         let mut tx = self.begin_tx()?;
-        tx.begin(chain_tip, next_chain_tip)?;
+        tx.begin(chain_tip, next_chain_tip, None)?;
         tx.commit_tx();
         Ok(())
     }
@@ -1259,6 +1305,14 @@ impl<T: MarfTrieId> MARF<T> {
         Ok(marf_value.map(u32::from))
     }
 
+    pub fn get_block_time_miner_tip(
+        storage: &mut TrieStorageConnection<T>,
+        current_block_hash: &T,
+    ) -> Result<Option<u64>, Error> {
+        let marf_value = MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_TIME_KEY)?;
+        Ok(marf_value.map(u64::from))
+    }
+
     pub fn get_block_height(
         storage: &mut TrieStorageConnection<T>,
         block_hash: &T,
@@ -1576,6 +1630,19 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
+    // Comes from the marf.
+    pub fn get_block_time_of(
+        &mut self,
+        bhh: &T,
+        current_block_hash: &T,
+    ) -> Result<Option<u64>, Error> {
+        if Some(bhh) == self.get_open_chain_tip() {
+            return Ok(self.get_open_chain_tip_time());
+        } else {
+            MARF::get_block_time_miner_tip(&mut self.storage.connection(), current_block_hash)
+        }
+    }
+
     /// Get open chain tip
     pub fn get_open_chain_tip(&self) -> Option<&T> {
         self.open_chain_tip.as_ref().map(|x| &x.block_hash)
@@ -1584,6 +1651,11 @@ impl<T: MarfTrieId> MARF<T> {
     /// Get open chain tip block height
     pub fn get_open_chain_tip_height(&self) -> Option<u32> {
         self.open_chain_tip.as_ref().map(|x| x.height)
+    }
+
+    /// Get open chain tip block time
+    pub fn get_open_chain_tip_time(&self) -> Option<u64> {
+        self.open_chain_tip.as_ref().map(|x| x.time).flatten()
     }
 
     /// Access internal storage

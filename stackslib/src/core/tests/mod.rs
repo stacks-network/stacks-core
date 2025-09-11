@@ -110,6 +110,7 @@ pub fn make_block(
         &parent.1,
         &block_consensus,
         &block_hash,
+        None,
     );
 
     let new_tip_info = StacksHeaderInfo {
@@ -136,6 +137,7 @@ pub fn make_block(
             &new_index_hash,
             &[],
             &[],
+            None,
         )
         .unwrap();
 

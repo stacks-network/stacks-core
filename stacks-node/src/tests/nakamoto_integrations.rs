@@ -24,7 +24,6 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_addr;
-use clarity::consts::PEER_VERSION_EPOCH_3_3;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
@@ -222,6 +221,92 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 251,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_2
+        },
+    ];
+    pub static ref NAKAMOTO_INTEGRATION_3_3_EPOCHS: [StacksEpoch; 12] = [
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+            network_epoch: PEER_VERSION_EPOCH_1_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: 2,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 3,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch22,
+            start_height: 3,
+            end_height: 4,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_2
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch23,
+            start_height: 4,
+            end_height: 5,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_3
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch24,
+            start_height: 5,
+            end_height: 201,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_4
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch25,
+            start_height: 201,
+            end_height: 231,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_5
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch30,
+            start_height: 231,
+            end_height: 232,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch31,
+            start_height: 232,
+            end_height: 233,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch32,
+            start_height: 233,
+            end_height: 234,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_2
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch33,
+            start_height: 234,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_2
@@ -3177,7 +3262,7 @@ fn block_proposal_api_endpoint() {
             .unwrap();
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder
-            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+            .tenure_begin(&burn_dbconn, &mut miner_tenure_info, None)
             .unwrap();
 
         let tx = make_stacks_transfer_serialized(
@@ -5685,7 +5770,9 @@ fn check_block_heights() {
         contract0_name,
         "get-heights",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let preheights = heights0_value.expect_tuple().unwrap();
     info!("Heights from pre-epoch 3.0: {preheights}");
 
@@ -5708,7 +5795,9 @@ fn check_block_heights() {
         contract0_name,
         "get-heights",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let heights0 = heights0_value.expect_tuple().unwrap();
     info!("Heights from epoch 3.0 start: {heights0}");
     assert_eq!(
@@ -5779,7 +5868,9 @@ fn check_block_heights() {
             contract1_name,
             "get-heights",
             vec![],
-        );
+        )
+        .result()
+        .unwrap();
         let heights1 = heights1_value.expect_tuple().unwrap();
         info!("Heights from Clarity 1: {heights1}");
 
@@ -5789,7 +5880,9 @@ fn check_block_heights() {
             contract3_name,
             "get-heights",
             vec![],
-        );
+        )
+        .result()
+        .unwrap();
         let heights3 = heights3_value.expect_tuple().unwrap();
         info!("Heights from Clarity 3: {heights3}");
 
@@ -5889,7 +5982,9 @@ fn check_block_heights() {
                 contract1_name,
                 "get-heights",
                 vec![],
-            );
+            )
+            .result()
+            .unwrap();
             let heights1 = heights1_value.expect_tuple().unwrap();
             info!("Heights from Clarity 1: {heights1}");
 
@@ -5899,7 +5994,9 @@ fn check_block_heights() {
                 contract3_name,
                 "get-heights",
                 vec![],
-            );
+            )
+            .result()
+            .unwrap();
             let heights3 = heights3_value.expect_tuple().unwrap();
             info!("Heights from Clarity 3: {heights3}");
 
@@ -6439,7 +6536,9 @@ fn clarity_burn_state() {
                 contract_name,
                 "foo",
                 vec![&Value::UInt(burn_block_height)],
-            );
+            )
+            .result()
+            .unwrap();
             result.expect_result_ok().expect("Read-only call failed");
 
             // Pause mining to prevent the stacks block from being mined before the tenure change is processed
@@ -6529,7 +6628,9 @@ fn clarity_burn_state() {
                 contract_name,
                 "foo",
                 vec![&expected_height],
-            );
+            )
+            .result()
+            .unwrap();
             info!("Read-only result: {result:?}");
             result.expect_result_ok().expect("Read-only call failed");
 
@@ -7509,7 +7610,9 @@ fn get_block_times(
         contract0_name,
         "get-time",
         vec![&clarity::vm::Value::UInt(tenure_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let time0 = time0_value
         .expect_optional()
         .unwrap()
@@ -7523,7 +7626,9 @@ fn get_block_times(
         contract0_name,
         "get-last-time",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let time0_now = time_now0_value
         .expect_optional()
         .unwrap()
@@ -7537,7 +7642,9 @@ fn get_block_times(
         contract1_name,
         "get-time",
         vec![&clarity::vm::Value::UInt(tenure_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let time1 = time1_value
         .expect_optional()
         .unwrap()
@@ -7551,7 +7658,9 @@ fn get_block_times(
         contract1_name,
         "get-last-time",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let time1_now = time1_now_value
         .expect_optional()
         .unwrap()
@@ -7565,7 +7674,9 @@ fn get_block_times(
         contract3_name,
         "get-tenure-time",
         vec![&clarity::vm::Value::UInt(block_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let time3_tenure = time3_tenure_value
         .expect_optional()
         .unwrap()
@@ -7579,7 +7690,9 @@ fn get_block_times(
         contract3_name,
         "get-block-time",
         vec![&clarity::vm::Value::UInt(block_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let time3_block = time3_block_value
         .expect_optional()
         .unwrap()
@@ -7593,7 +7706,9 @@ fn get_block_times(
         contract3_name,
         "get-last-tenure-time",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let time3_now_tenure = time3_now_tenure_value
         .expect_optional()
         .unwrap()
@@ -7737,7 +7852,9 @@ fn check_block_times() {
         contract0_name,
         "get-time",
         vec![&clarity::vm::Value::UInt(1)],
-    );
+    )
+    .result()
+    .unwrap();
     let time0 = time0_value
         .expect_optional()
         .unwrap()
@@ -8093,7 +8210,9 @@ fn check_block_info() {
             contract_name,
             "get-block-info",
             vec![&clarity::vm::Value::UInt(query_height)],
-        );
+        )
+        .result()
+        .unwrap();
         result.expect_tuple().unwrap().data_map
     };
 
@@ -8104,7 +8223,9 @@ fn check_block_info() {
             contract3_name,
             "get-tenure-info",
             vec![&clarity::vm::Value::UInt(query_height)],
-        );
+        )
+        .result()
+        .unwrap();
         result.expect_tuple().unwrap().data_map
     };
 
@@ -8753,7 +8874,9 @@ fn check_block_info_rewards() {
             contract_name,
             "get-block-info",
             vec![&clarity::vm::Value::UInt(query_height)],
-        );
+        )
+        .result()
+        .unwrap();
         result.expect_tuple().unwrap().data_map
     };
 
@@ -8949,7 +9072,9 @@ fn check_block_info_rewards() {
         contract3_name,
         "get-tenure-info",
         vec![&clarity::vm::Value::UInt(mature_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let tuple3_tenure = result3_tenure.expect_tuple().unwrap().data_map;
     assert_eq!(tuple3_tenure["block-reward"], tuple0["block-reward"]);
 
@@ -8976,7 +9101,9 @@ fn check_block_info_rewards() {
         contract3_name,
         "get-tenure-info",
         vec![&clarity::vm::Value::UInt(last_nakamoto_block)],
-    );
+    )
+    .result()
+    .unwrap();
     let tuple3_tenure = result3_tenure.expect_tuple().unwrap().data_map;
     assert_eq!(tuple3_tenure["block-reward"], tuple0["block-reward"]);
 
@@ -14108,19 +14235,7 @@ fn test_epoch_3_3_activation() {
 
     // Add epoch 3.3 to the configuration because it is not yet added to the
     // default epoch list for integration tests.
-    naka_conf.burnchain.epochs.as_mut().unwrap()[StacksEpochId::Epoch32].end_height = 261;
-    naka_conf
-        .burnchain
-        .epochs
-        .as_mut()
-        .unwrap()
-        .push(StacksEpoch {
-            epoch_id: StacksEpochId::Epoch33,
-            start_height: 261,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_3,
-        });
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -14284,7 +14399,11 @@ fn check_block_time_keyword() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-    let recipient = PrincipalData::from(StacksAddress::burn_address(false));
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -14352,7 +14471,7 @@ fn check_block_time_keyword() {
     );
 
     let info = get_chain_info_result(&naka_conf).unwrap();
-    let mut last_stacks_block_height = info.stacks_tip_height as u128;
+    let last_stacks_block_height = info.stacks_tip_height as u128;
 
     next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
 
@@ -14364,19 +14483,21 @@ fn check_block_time_keyword() {
 (define-read-only (get-current-time)
   block-time
 )
+(define-read-only (get-ihh (height uint)) (get-stacks-block-info? id-header-hash height))
+(define-read-only (get-time (height uint)) (get-stacks-block-info? time height))
+(define-read-only (get-height) stacks-block-height)
 (define-read-only (get-previous-time (height uint))
-  (let ((prev-time (at-block (unwrap-panic (get-stacks-block-info? id-header-hash height))
-      block-time
-    )))
-    (asserts!
-      (is-eq prev-time (unwrap-panic (get-stacks-block-info? time height)))
-      (err u100)
-    )
-    (ok prev-time)
-  )
+  (ok (at-block (unwrap! (get-stacks-block-info? id-header-hash height) (err u100))
+    block-time
+  ))
 )
 (define-public (get-current-time-call)
   (ok block-time)
+)
+(define-public (get-previous-time-call (height uint))
+  (ok (at-block (unwrap! (get-stacks-block-info? id-header-hash height) (err u100))
+    block-time
+  ))
 )
 "#;
 
@@ -14401,22 +14522,124 @@ fn check_block_time_keyword() {
     })
     .expect("Timed out waiting for contracts to publish");
 
-    let deploy_time_value = get_constant(&naka_conf, sender_addr, contract_name, "deploy-time");
-    let deploy_height = get_constant(&naka_conf, sender_addr, contract_name, "deploy-height");
-    info!("Deploy time: {deploy_time_value}");
-    info!("Deploy height: {deploy_height}");
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        .unwrap();
+
+    let deploy_time_value = get_constant(&naka_conf, &sender_addr, contract_name, "deploy-time");
+    let deploy_time = deploy_time_value.clone().expect_u128().unwrap();
+    let deploy_height = get_constant(&naka_conf, &sender_addr, contract_name, "deploy-height");
 
     let current_time_value = call_read_only(
-        naka_conf,
-        sender_addr,
+        &naka_conf,
+        &sender_addr,
         contract_name,
         "get-current-time",
         vec![],
+    )
+    .result()
+    .unwrap();
+    info!("Current time: {current_time_value}");
+    let current_time = current_time_value.expect_u128().unwrap();
+    assert!(
+        current_time > deploy_time,
+        "block-time should be greater than the time at deployment"
     );
+
+    let previous_time_result = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract_name,
+        "get-previous-time",
+        vec![&deploy_height],
+    )
+    .result()
+    .unwrap();
+    let previous_time_value = previous_time_result.expect_result_ok().unwrap();
+    info!("Previous time: {previous_time_value}");
     assert_eq!(
-        deploy_time_value, current_time_value,
-        "block-time should be the same as at deployment"
+        previous_time_value, deploy_time_value,
+        "get-previous-time should be the same as at deployment"
     );
+
+    test_observer::clear();
+
+    let last_time_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "get-current-time-call",
+        &[],
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &last_time_tx);
+
+    let prev_time_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "get-previous-time-call",
+        &[deploy_height],
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &prev_time_tx);
+
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        Ok(cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contract calls");
+
+    let blocks = test_observer::get_blocks();
+    info!("Blocks: {:?}", blocks);
+    for block in blocks.iter() {
+        for tx in block.get("transactions").unwrap().as_array().unwrap() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                let time = parsed.expect_result_ok().unwrap().expect_u128().unwrap();
+                match contract_call.function_name.as_str() {
+                    "get-current-time-call" => {
+                        info!("Current time: {}", time);
+                        assert!(time > current_time, "block-time should have advanced");
+                    }
+                    "get-previous-time-call" => {
+                        info!("Previous time: {}", time);
+                        assert_eq!(
+                            time, deploy_time,
+                            "block-time should be the same as at deployment"
+                        );
+                    }
+                    _ => panic!("Unexpected contract call"),
+                }
+            }
+        }
+    }
+
+    // Attempting to get block time for an pre-3.3 block should cause an error
+    let err = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract_name,
+        "get-previous-time",
+        vec![&Value::UInt(1)],
+    )
+    .result()
+    .expect_err("Expected error, got ");
+    info!("Invalid time: {err}");
+    assert!(err.starts_with("BlockTimeNotFound"));
 
     coord_channel
         .lock()
