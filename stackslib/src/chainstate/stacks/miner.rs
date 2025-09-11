@@ -845,32 +845,30 @@ impl<'a> StacksMicroblockBuilder<'a> {
         };
 
         let (header_reader, _) = chainstate.reopen()?;
-        let (
-            anchored_consensus_hash,
-            anchored_block_hash,
-            anchored_block_height
-        ) = if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
-            let header_info = StacksChainState::get_stacks_block_header_info_by_index_block_hash(
-                chainstate.db(),
-                &unconfirmed.confirmed_chain_tip,
-            )?
-            .ok_or_else(|| {
-                warn!(
-                    "No such confirmed block {}",
-                    &unconfirmed.confirmed_chain_tip
-                );
-                Error::NoSuchBlockError
-            })?;
-            (
-                header_info.consensus_hash,
-                header_info.anchored_header.block_hash(),
-                header_info.stacks_block_height
-            )
-        } else {
-            // unconfirmed state needs to be initialized
-            debug!("Unconfirmed chainstate not initialized");
-            return Err(Error::NoSuchBlockError)?;
-        };
+        let (anchored_consensus_hash, anchored_block_hash, anchored_block_height) =
+            if let Some(unconfirmed) = chainstate.unconfirmed_state.as_ref() {
+                let header_info =
+                    StacksChainState::get_stacks_block_header_info_by_index_block_hash(
+                        chainstate.db(),
+                        &unconfirmed.confirmed_chain_tip,
+                    )?
+                    .ok_or_else(|| {
+                        warn!(
+                            "No such confirmed block {}",
+                            &unconfirmed.confirmed_chain_tip
+                        );
+                        Error::NoSuchBlockError
+                    })?;
+                (
+                    header_info.consensus_hash,
+                    header_info.anchored_header.block_hash(),
+                    header_info.stacks_block_height,
+                )
+            } else {
+                // unconfirmed state needs to be initialized
+                debug!("Unconfirmed chainstate not initialized");
+                return Err(Error::NoSuchBlockError)?;
+            };
 
         let mut clarity_tx = chainstate.begin_unconfirmed(burn_dbconn).ok_or_else(|| {
             warn!(

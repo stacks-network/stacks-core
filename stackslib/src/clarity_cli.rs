@@ -1384,10 +1384,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &placeholder_context)
-                            .eval_read_only(
-                                &evalInput.contract_identifier,
-                                &evalInput.content,
-                            )
+                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                     });
                 (header_db, marf, result_and_cost)
             });
@@ -1452,10 +1449,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &placeholder_context)
-                            .eval_read_only(
-                                &evalInput.contract_identifier,
-                                &evalInput.content,
-                            )
+                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
                     },
                 );
                 let (result, cost) = result_and_cost;
