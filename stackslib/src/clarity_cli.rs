@@ -2581,4 +2581,110 @@ mod test {
         );
         assert!(result_json["error"]["initialization"] != json!(null));
     }
+
+    #[test]
+    fn test_eval_clarity3_contract_passes_with_clarity3_flag() {
+        // Arrange
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        invoke_command("test", &["initialize".to_string(), db_name.clone()]);
+
+        // Launch minimal contract at target for eval context.
+        let launch_src = format!(
+            "/tmp/version-flag-eval-launch-{}.clar",
+            rand::thread_rng().gen::<i32>()
+        );
+        fs::write(&launch_src, "(define-read-only (dummy) true)").unwrap();
+        let _ = invoke_command(
+            "test",
+            &[
+                "launch".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tenure".to_string(),
+                launch_src,
+                db_name.clone(),
+            ],
+        );
+
+        // Use a Clarity3-only native expression.
+        let clar_path = format!(
+            "/tmp/version-flag-eval-c3-{}.clar",
+            rand::thread_rng().gen::<i32>()
+        );
+        fs::write(&clar_path, "(get-tenure-info? time u1)").unwrap();
+
+        // Act
+        let invoked = invoke_command(
+            "test",
+            &[
+                "eval".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tenure".to_string(),
+                clar_path,
+                db_name,
+                "--clarity_version".to_string(),
+                "clarity3".to_string(),
+            ],
+        );
+
+        // Assert
+        let exit_code = invoked.0;
+        let result_json = invoked.1.unwrap();
+        assert_eq!(
+            exit_code, 0,
+            "expected eval to pass under Clarity 3, got: {}",
+            result_json
+        );
+        assert!(result_json["success"].as_bool().unwrap());
+    }
+
+    #[test]
+    fn test_eval_clarity3_contract_fails_with_clarity2_flag() {
+        // Arrange
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        invoke_command("test", &["initialize".to_string(), db_name.clone()]);
+
+        // Launch minimal contract at target for eval context.
+        let launch_src = format!(
+            "/tmp/version-flag-eval-launch-{}.clar",
+            rand::thread_rng().gen::<i32>()
+        );
+        fs::write(&launch_src, "(define-read-only (dummy) true)").unwrap();
+        let _ = invoke_command(
+            "test",
+            &[
+                "launch".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tenure".to_string(),
+                launch_src,
+                db_name.clone(),
+            ],
+        );
+
+        // Use a Clarity3-only native expression.
+        let clar_path = format!(
+            "/tmp/version-flag-eval-c2-{}.clar",
+            rand::thread_rng().gen::<i32>()
+        );
+        fs::write(&clar_path, "(get-tenure-info? time u1)").unwrap();
+
+        // Act
+        let invoked = invoke_command(
+            "test",
+            &[
+                "eval".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tenure".to_string(),
+                clar_path,
+                db_name,
+                "--clarity_version".to_string(),
+                "clarity2".to_string(),
+            ],
+        );
+
+        // Assert
+        let exit_code = invoked.0;
+        let result_json = invoked.1.unwrap();
+        assert_eq!(
+            exit_code, 1,
+            "expected eval to fail under Clarity 2, got: {}",
+            result_json
+        );
+        assert!(result_json["error"]["runtime"] != json!(null));
+    }
 }
