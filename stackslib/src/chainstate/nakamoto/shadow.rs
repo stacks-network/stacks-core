@@ -728,6 +728,7 @@ impl NakamotoBlockBuilder {
             Some(&coinbase_tx),
             1,
             None,
+            None,
         )?;
 
         let mut block_txs = vec![tenure_change_tx, coinbase_tx];

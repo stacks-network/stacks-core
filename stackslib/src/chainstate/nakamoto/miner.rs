@@ -38,6 +38,7 @@ use crate::chainstate::stacks::miner::{
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::ClarityInstance;
+use crate::config::DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE;
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -90,6 +91,9 @@ pub struct NakamotoBlockBuilder {
     pub header: NakamotoBlockHeader,
     /// Optional soft limit for this block's budget usage
     soft_limit: Option<ExecutionCost>,
+    /// Percentage of a block's budget that may be consumed by
+    /// contract calls before reverting to stx transfers/boot contract calls only
+    contract_limit_percentage: Option<u8>,
 }
 
 pub struct MinerTenureInfo<'a> {
@@ -142,6 +146,7 @@ impl NakamotoBlockBuilder {
             txs: vec![],
             header: NakamotoBlockHeader::genesis(),
             soft_limit: None,
+            contract_limit_percentage: None,
         }
     }
 
@@ -171,6 +176,7 @@ impl NakamotoBlockBuilder {
         coinbase: Option<&StacksTransaction>,
         bitvec_len: u16,
         soft_limit: Option<ExecutionCost>,
+        contract_limit_percentage: Option<u8>,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -211,6 +217,7 @@ impl NakamotoBlockBuilder {
                     .unwrap_or(0),
             ),
             soft_limit,
+            contract_limit_percentage,
         })
     }
 
@@ -572,6 +579,7 @@ impl NakamotoBlockBuilder {
             tenure_info.coinbase_tx(),
             signer_bitvec_len,
             None,
+            settings.mempool_settings.contract_cost_limit_percentage,
         )?;
 
         let ts_start = get_epoch_time_ms();
@@ -750,7 +758,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-
             let (_fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx,
                 tx,
@@ -760,7 +767,13 @@ impl BlockBuilder for NakamotoBlockBuilder {
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    return parse_process_transaction_error(clarity_tx, tx, e);
+                    return parse_process_transaction_error(
+                        clarity_tx,
+                        tx,
+                        e,
+                        self.contract_limit_percentage
+                            .unwrap_or(DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE),
+                    );
                 }
             };
 
@@ -779,7 +792,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                   "origin" => %tx.origin_address(),
                   "soft_limit_reached" => soft_limit_reached,
                   "cost_after" => %cost_after,
-                  "cost_before" => %cost_before,
+                  "cost_before" => %cost_before
             );
 
             // save
@@ -796,6 +809,7 @@ fn parse_process_transaction_error(
     clarity_tx: &mut ClarityTx,
     tx: &StacksTransaction,
     e: Error,
+    contract_limit_percentage: u8,
 ) -> TransactionResult {
     let (is_problematic, e) = TransactionResult::is_problematic(tx, e, clarity_tx.get_epoch());
     if is_problematic {
@@ -804,14 +818,13 @@ fn parse_process_transaction_error(
         match e {
             Error::CostOverflowError(cost_before, cost_after, total_budget) => {
                 clarity_tx.reset_cost(cost_before.clone());
-                if total_budget.proportion_largest_dimension(&cost_before)
-                    < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
-                {
+                let cost_so_far_percentage =
+                    total_budget.proportion_largest_dimension(&cost_before);
+                if cost_so_far_percentage < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
                     warn!(
-                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
+                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
                             tx.txid(),
-                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
-                            &total_budget
+                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                     );
                     let mut measured_cost = cost_after;
                     let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
@@ -821,6 +834,13 @@ fn parse_process_transaction_error(
                         None
                     };
                     TransactionResult::error(tx, Error::TransactionTooBigError(measured_cost))
+                } else if cost_so_far_percentage < contract_limit_percentage.into() {
+                    warn!(
+                        "Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget currently consumed. Skipping tx for this block.", tx.txid();
+                        "contract_limit_percentage" => contract_limit_percentage,
+                        "total_budget" => %total_budget
+                    );
+                    TransactionResult::skipped_due_to_error(tx, Error::BlockCostLimitError)
                 } else {
                     warn!(
                         "Transaction {} reached block cost {cost_after}; budget was {total_budget}",
