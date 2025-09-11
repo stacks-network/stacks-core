@@ -1585,16 +1585,6 @@ pub struct BurnchainConfig {
     /// @notes:
     ///   - Primarily relevant for miners interacting with multi-wallet Bitcoin nodes.
     pub wallet_name: String,
-    /// Override for the burnchain height activating stricter AST size checks
-    /// pre-epoch 3.0 for testing purposes.
-    ///
-    /// Used pre-epoch 3.0 to control activation before it became standard (at burn
-    /// height `752000`). Ignored in standard production builds as the underlying
-    /// mechanism is disabled unless the `testing` feature is active.
-    /// ---
-    /// @default: `None`
-    /// @deprecated: This setting is ignored in Epoch 3.0+.
-    pub ast_precheck_size_height: Option<u64>,
     /// Fault injection setting for testing. Introduces an artificial delay (in
     /// milliseconds) before processing each burnchain block download. Simulates a
     /// slow burnchain connection.
@@ -1661,7 +1651,6 @@ impl BurnchainConfig {
             sunset_start: None,
             sunset_end: None,
             wallet_name: "".to_string(),
-            ast_precheck_size_height: None,
             fault_injection_burnchain_block_delay: 0,
             max_unspent_utxos: Some(1024),
         }
@@ -1757,7 +1746,6 @@ pub struct BurnchainConfigFile {
     pub sunset_start: Option<u32>,
     pub sunset_end: Option<u32>,
     pub wallet_name: Option<String>,
-    pub ast_precheck_size_height: Option<u64>,
     pub fault_injection_burnchain_block_delay: Option<u64>,
     pub max_unspent_utxos: Option<u64>,
 }
@@ -1881,7 +1869,6 @@ impl BurnchainConfigFile {
                 .or(default_burnchain_config.first_burn_block_hash.clone()),
             // will be overwritten below
             epochs: default_burnchain_config.epochs,
-            ast_precheck_size_height: self.ast_precheck_size_height,
             pox_2_activation: self
                 .pox_2_activation
                 .or(default_burnchain_config.pox_2_activation),

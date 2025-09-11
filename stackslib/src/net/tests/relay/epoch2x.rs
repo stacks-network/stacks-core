@@ -2673,7 +2673,7 @@ fn test_static_problematic_tests() {
         StacksEpochId::Epoch2_05,
         &tx_edge
     )
-    .is_err());
+    .is_ok());
     assert!(Relayer::static_check_problematic_relayed_tx(
         false,
         StacksEpochId::Epoch2_05,

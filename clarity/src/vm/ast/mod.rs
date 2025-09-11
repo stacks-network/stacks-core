@@ -310,38 +310,12 @@ mod test {
             "} ".repeat(stack_limit + 1)
         );
 
-        // for deep lists, a test like this works:
-        //   it can assert a limit, that you can also verify
-        //   by disabling `VaryStackDepthChecker` and arbitrarily bumping up the parser lexer limits
-        //   and see that it produces the same result
         let exceeds_stack_depth_list = format!(
             "{}u1 {}",
             "(list ".repeat(stack_limit + 1),
             ")".repeat(stack_limit + 1)
         );
 
-        // with old rules, this is just ExpressionStackDepthTooDeep
-        let mut cost_track = UnitTestTracker::new();
-        let err = build_ast(
-            &QualifiedContractIdentifier::transient(),
-            &exceeds_stack_depth_list,
-            &mut cost_track,
-            clarity_version,
-            StacksEpochId::Epoch2_05,
-        )
-        .expect_err("Contract should error in parsing");
-
-        let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
-        let expected_list_cost_state = UnitTestTracker {
-            invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
-            invocation_count: 1,
-            cost_addition_count: 1,
-        };
-
-        assert_eq!(&expected_err, &err.err);
-        assert_eq!(expected_list_cost_state, cost_track);
-
-        // with new rules, this is now VaryExpressionStackDepthTooDeep
         let mut cost_track = UnitTestTracker::new();
         let err = build_ast(
             &QualifiedContractIdentifier::transient(),
@@ -362,9 +336,6 @@ mod test {
         assert_eq!(&expected_err, &err.err);
         assert_eq!(expected_list_cost_state, cost_track);
 
-        // you cannot do the same for tuples!
-        // this actually won't even error without
-        //  the VaryStackDepthChecker changes.
         let mut cost_track = UnitTestTracker::new();
         let err = build_ast(
             &QualifiedContractIdentifier::transient(),

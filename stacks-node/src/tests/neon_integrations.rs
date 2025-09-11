@@ -7778,9 +7778,6 @@ fn test_problematic_txs_are_not_stored() {
     ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
-    // take effect immediately
-    conf.burnchain.ast_precheck_size_height = Some(0);
-
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
@@ -7936,7 +7933,6 @@ fn spawn_follower_node(
 
     conf.initial_balances = initial_conf.initial_balances.clone();
     conf.burnchain.epochs = initial_conf.burnchain.epochs.clone();
-    conf.burnchain.ast_precheck_size_height = initial_conf.burnchain.ast_precheck_size_height;
 
     conf.connection_options.inv_sync_interval = 3;
 
@@ -8019,9 +8015,6 @@ fn test_problematic_blocks_are_not_mined() {
         },
     ]));
     conf.burnchain.pox_2_activation = Some(10_003);
-
-    // AST precheck becomes default at burn height
-    conf.burnchain.ast_precheck_size_height = Some(210);
 
     test_observer::spawn();
     test_observer::register_any(&mut conf);
@@ -8342,9 +8335,6 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
-    // AST precheck becomes default at burn height
-    conf.burnchain.ast_precheck_size_height = Some(210);
-
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
@@ -8474,17 +8464,15 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
     btc_regtest_controller.build_next_block(1);
 
     // wait for runloop to advance
-    loop {
-        sleep_ms(1_000);
+    wait_for(30, || {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let new_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        if new_tip.block_height > tip.block_height {
-            break;
-        }
-    }
+        Ok(new_tip.block_height > tip.block_height)
+    })
+    .expect("Runloop failed to advance");
 
     // add another bad tx to the mempool.
-    // because the miner is now non-conformant, it should mine this tx.
+    // TODO: Forcibly mine a bad transaction to simulate a bad miner?
     debug!("Submit problematic tx_high transaction {tx_high_txid}");
     std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "1");
     submit_tx(&http_origin, &tx_high);
