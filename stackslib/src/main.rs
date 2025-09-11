@@ -423,7 +423,7 @@ fn main() {
             .unwrap();
 
         println!("Verified: {:#?}", tx.verify());
-       let address = tx.auth.origin().get_address(tx.is_mainnet())
+        let address = tx.auth.origin().get_address(tx.is_mainnet());
         println!("Address: {}", address);
 
         println!("{:#?}", &tx);
