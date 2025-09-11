@@ -1196,7 +1196,9 @@ impl TypedNativeFunction {
                     TO_ASCII_RESPONSE_STRING.clone(),
                     TypeSignature::UIntType,
                 )
-                .expect("BUG: Legal Clarity response type marked invalid"),
+                .map_err(|_| {
+                    CheckErrors::Expects("FATAL: Legal Clarity response type marked invalid".into())
+                })?,
             ))),
         };
 
