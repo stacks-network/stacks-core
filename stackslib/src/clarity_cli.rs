@@ -2483,4 +2483,102 @@ mod test {
         assert_eq!(result_json["message"], "Checks failed.");
         assert!(result_json["error"]["analysis"] != json!(null));
     }
+
+    #[test]
+    fn test_launch_clarity3_contract_passes_with_clarity3_flag() {
+        // Arrange
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        invoke_command("test", &["initialize".to_string(), db_name.clone()]);
+
+        let clar_path = format!(
+            "/tmp/version-flag-launch-c3-{}.clar",
+            rand::thread_rng().gen::<i32>()
+        );
+        fs::write(
+            &clar_path,
+            // Valid only in Clarity 3.
+            r#"
+(define-read-only (get-tenure-info (h uint))
+  (ok
+    {
+      tenure-time: (get-tenure-info? time h),
+      tenure-miner-address: (get-tenure-info? miner-address h),
+    })
+)
+"#,
+        )
+        .unwrap();
+
+        // Act
+        let invoked = invoke_command(
+            "test",
+            &[
+                "launch".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tenure".to_string(),
+                clar_path,
+                db_name,
+                "--clarity_version".to_string(),
+                "clarity3".to_string(),
+            ],
+        );
+
+        // Assert
+        let exit_code = invoked.0;
+        let result_json = invoked.1.unwrap();
+        assert_eq!(
+            exit_code, 0,
+            "expected launch to pass under Clarity 3, got: {}",
+            result_json
+        );
+        assert_eq!(result_json["message"], "Contract initialized!");
+    }
+
+    #[test]
+    fn test_launch_clarity3_contract_fails_with_clarity2_flag() {
+        // Arrange
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        invoke_command("test", &["initialize".to_string(), db_name.clone()]);
+
+        let clar_path = format!(
+            "/tmp/version-flag-launch-c2-{}.clar",
+            rand::thread_rng().gen::<i32>()
+        );
+        fs::write(
+            &clar_path,
+            // Valid only in Clarity 3, should fail in 2.
+            r#"
+(define-read-only (get-tenure-info (h uint))
+  (ok
+    {
+      tenure-time: (get-tenure-info? time h),
+      tenure-miner-address: (get-tenure-info? miner-address h),
+    })
+)
+"#,
+        )
+        .unwrap();
+
+        // Act
+        let invoked = invoke_command(
+            "test",
+            &[
+                "launch".to_string(),
+                "S1G2081040G2081040G2081040G208105NK8PE5.tenure".to_string(),
+                clar_path,
+                db_name,
+                "--clarity_version".to_string(),
+                "clarity2".to_string(),
+            ],
+        );
+
+        // Assert
+        let exit_code = invoked.0;
+        let result_json = invoked.1.unwrap();
+        assert_eq!(
+            exit_code, 1,
+            "expected launch to fail under Clarity 2, got: {}",
+            result_json
+        );
+        assert!(result_json["error"]["initialization"] != json!(null));
+    }
 }
