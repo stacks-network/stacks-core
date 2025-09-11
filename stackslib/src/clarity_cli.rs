@@ -45,7 +45,7 @@ use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::clarity::vm::analysis::errors::CheckError;
 use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use crate::clarity::vm::ast::{build_ast_with_rules, ASTRules};
+use crate::clarity::vm::ast::build_ast;
 use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
 use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
@@ -150,13 +150,12 @@ fn parse(
     source_code: &str,
     clarity_version: ClarityVersion,
 ) -> Result<Vec<SymbolicExpression>, Error> {
-    let ast = build_ast_with_rules(
+    let ast = build_ast(
         contract_identifier,
         source_code,
         &mut (),
         clarity_version,
         DEFAULT_CLI_EPOCH,
-        ASTRules::PrecheckSize,
     )
     .map_err(RuntimeErrorType::ASTError)?;
     Ok(ast.expressions)
@@ -455,13 +454,12 @@ pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Opti
         DEFAULT_CLI_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = ast::build_ast_with_rules(
+        let parsed = ast::build_ast(
             &contract_id,
             program,
             &mut (),
             clarity_version,
             DEFAULT_CLI_EPOCH,
-            ASTRules::Typical,
         )?
         .expressions;
         eval_all(&parsed, &mut contract_context, g, None)
@@ -925,7 +923,6 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                         ClarityVersion::Clarity2,
                         contract_content,
                         None,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
             }
@@ -1278,7 +1275,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let mut ast = match parse(&contract_id, &content, ClarityVersion::Clarity2) {
                     Ok(val) => val,
                     Err(error) => {
-                        println!("Parse error:\n{}", error);
+                        println!("Parse error:\n{error}");
                         continue;
                     }
                 };
@@ -1286,19 +1283,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                     Ok(_) => (),
                     Err((error, _)) => {
-                        println!("Type check error:\n{}", error);
+                        println!("Type check error:\n{error}");
                         continue;
                     }
                 }
 
-                let eval_result =
-                    match exec_env.eval_raw_with_rules(&content, ASTRules::PrecheckSize) {
-                        Ok(val) => val,
-                        Err(error) => {
-                            println!("Execution error:\n{}", error);
-                            continue;
-                        }
-                    };
+                let eval_result = match exec_env.eval_raw(&content) {
+                    Ok(val) => val,
+                    Err(error) => {
+                        println!("Execution error:\n{error}");
+                        continue;
+                    }
+                };
 
                 println!("{}", eval_result);
             }
@@ -1336,7 +1332,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 Ok(_) => {
                     let result = vm_env
                         .get_exec_environment(None, None, &placeholder_context)
-                        .eval_raw_with_rules(&content, ASTRules::PrecheckSize);
+                        .eval_raw(&content);
                     match result {
                         Ok(x) => (
                             0,
@@ -1388,10 +1384,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &placeholder_context)
-                            .eval_read_only_with_rules(
+                            .eval_read_only(
                                 &evalInput.contract_identifier,
                                 &evalInput.content,
-                                ASTRules::PrecheckSize,
                             )
                     });
                 (header_db, marf, result_and_cost)
@@ -1457,10 +1452,9 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &placeholder_context)
-                            .eval_read_only_with_rules(
+                            .eval_read_only(
                                 &evalInput.contract_identifier,
                                 &evalInput.content,
-                                ASTRules::PrecheckSize,
                             )
                     },
                 );
@@ -1540,11 +1534,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &placeholder_context)
-                            .eval_read_only_with_rules(
-                                &contract_identifier,
-                                &content,
-                                ASTRules::PrecheckSize,
-                            )
+                            .eval_read_only(&contract_identifier, &content)
                     });
                 (marf, result_and_cost)
             });
@@ -1662,7 +1652,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                                         ClarityVersion::Clarity2,
                                         &contract_content,
                                         None,
-                                        ASTRules::PrecheckSize,
                                     )
                                 },
                             );

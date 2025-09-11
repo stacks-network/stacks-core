@@ -434,22 +434,6 @@ impl FromRow<VoteForAggregateKeyOp> for VoteForAggregateKeyOp {
     }
 }
 
-impl FromColumn<ASTRules> for ASTRules {
-    fn from_column(row: &Row, column_name: &str) -> Result<ASTRules, db_error> {
-        let x: u8 = row.get_unwrap(column_name);
-        let ast_rules = ASTRules::from_u8(x).ok_or(db_error::ParseError)?;
-        Ok(ast_rules)
-    }
-}
-
-impl FromRow<(ASTRules, u64)> for (ASTRules, u64) {
-    fn from_row(row: &Row) -> Result<(ASTRules, u64), db_error> {
-        let ast_rules = ASTRules::from_column(row, "ast_rule_id")?;
-        let height = u64::from_column(row, "block_height")?;
-        Ok((ast_rules, height))
-    }
-}
-
 struct AcceptedStacksBlockHeader {
     pub tip_consensus_hash: ConsensusHash, // PoX tip
     pub consensus_hash: ConsensusHash,     // stacks block consensus hash
@@ -3477,53 +3461,6 @@ impl SortitionDB {
             tx.commit()?;
         }
         Ok(())
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    pub fn override_ast_rule_height(
-        tx: &mut DBTx<'_>,
-        ast_rules: ASTRules,
-        height: u64,
-    ) -> Result<(), db_error> {
-        let rules = params![u64_to_sql(height)?, (ast_rules as u8)];
-
-        tx.execute(
-            "UPDATE ast_rule_heights SET block_height = ?1 WHERE ast_rule_id = ?2",
-            rules,
-        )?;
-        Ok(())
-    }
-
-    #[cfg(not(any(test, feature = "testing")))]
-    pub fn override_ast_rule_height<'a>(
-        _tx: &mut DBTx<'a>,
-        _ast_rules: ASTRules,
-        _height: u64,
-    ) -> Result<(), db_error> {
-        Ok(())
-    }
-
-    /// What's the default AST rules at the given block height?
-    pub fn get_ast_rules(conn: &DBConn, height: u64) -> Result<ASTRules, db_error> {
-        let ast_rule_sets: Vec<(ASTRules, u64)> = query_rows(
-            conn,
-            "SELECT * FROM ast_rule_heights ORDER BY block_height ASC",
-            NO_PARAMS,
-        )?;
-
-        assert!(!ast_rule_sets.is_empty());
-        let first_rules = ast_rule_sets.first().unwrap();
-        let mut last_height = first_rules.1;
-        let mut last_rules = first_rules.0;
-        for (ast_rules, ast_rule_height) in ast_rule_sets.into_iter() {
-            if last_height <= height && height < ast_rule_height {
-                return Ok(last_rules);
-            }
-            last_height = ast_rule_height;
-            last_rules = ast_rules;
-        }
-
-        return Ok(last_rules);
     }
 
     /// Store a pre-processed reward set.
@@ -10589,56 +10526,6 @@ pub mod tests {
         )
         .unwrap();
         assert_eq!(ancestors, vec![BurnchainHeaderHash([0xfe; 32])]);
-    }
-
-    #[test]
-    fn test_get_set_ast_rules() {
-        let block_height = 123;
-        let first_burn_hash = BurnchainHeaderHash::from_hex(
-            "0000000000000000000000000000000000000000000000000000000000000000",
-        )
-        .unwrap();
-        let mut db = SortitionDB::connect_test(block_height, &first_burn_hash).unwrap();
-
-        assert_eq!(
-            SortitionDB::get_ast_rules(db.conn(), 0).unwrap(),
-            ASTRules::Typical
-        );
-        assert_eq!(
-            SortitionDB::get_ast_rules(db.conn(), 1).unwrap(),
-            ASTRules::Typical
-        );
-        assert_eq!(
-            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE - 1).unwrap(),
-            ASTRules::Typical
-        );
-        assert_eq!(
-            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE).unwrap(),
-            ASTRules::PrecheckSize
-        );
-        assert_eq!(
-            SortitionDB::get_ast_rules(db.conn(), AST_RULES_PRECHECK_SIZE + 1).unwrap(),
-            ASTRules::PrecheckSize
-        );
-
-        {
-            let mut tx = db.tx_begin().unwrap();
-            SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 1).unwrap();
-            tx.commit().unwrap();
-        }
-
-        assert_eq!(
-            SortitionDB::get_ast_rules(db.conn(), 0).unwrap(),
-            ASTRules::Typical
-        );
-        assert_eq!(
-            SortitionDB::get_ast_rules(db.conn(), 1).unwrap(),
-            ASTRules::PrecheckSize
-        );
-        assert_eq!(
-            SortitionDB::get_ast_rules(db.conn(), 2).unwrap(),
-            ASTRules::PrecheckSize
-        );
     }
 
     #[test]

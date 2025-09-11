@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::functions::NativeFunctions;
@@ -58,10 +57,7 @@ fn setup_tracked_cost_test(
         QualifiedContractIdentifier::new(p1_principal.clone(), "contract-other".into());
     let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
 
-    let burn_state_db = UnitTestBurnStateDB {
-        epoch_id: epoch,
-        ast_rules: ASTRules::PrecheckSize,
-    };
+    let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
     clarity_instance
         .begin_test_genesis_block(
             &StacksBlockId::sentinel(),
@@ -104,12 +100,7 @@ fn setup_tracked_cost_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(
-                    &trait_contract_id,
-                    version,
-                    contract_trait,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&trait_contract_id, version, contract_trait)
                 .unwrap();
             conn.initialize_smart_contract(
                 &trait_contract_id,
@@ -138,12 +129,7 @@ fn setup_tracked_cost_test(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(
-                    &other_contract_id,
-                    version,
-                    contract_other,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&other_contract_id, version, contract_other)
                 .unwrap();
             conn.initialize_smart_contract(
                 &other_contract_id,
@@ -199,10 +185,7 @@ fn test_tracked_costs(
         ContractName::try_from(format!("self-{prog_id}")).unwrap(),
     );
 
-    let burn_state_db = UnitTestBurnStateDB {
-        epoch_id: epoch,
-        ast_rules: ASTRules::PrecheckSize,
-    };
+    let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
 
     {
         let mut conn = clarity_instance.begin_block(
@@ -214,12 +197,7 @@ fn test_tracked_costs(
 
         conn.as_transaction(|conn| {
             let (ct_ast, ct_analysis) = conn
-                .analyze_smart_contract(
-                    &self_contract_id,
-                    version,
-                    &contract_self,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&self_contract_id, version, &contract_self)
                 .unwrap();
             conn.initialize_smart_contract(
                 &self_contract_id,

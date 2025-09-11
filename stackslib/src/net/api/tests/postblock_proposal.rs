@@ -22,7 +22,6 @@ use std::sync::{Arc, Condvar, Mutex};
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::types::chainstate::{BlockHeaderHash, StacksBlockId, StacksPrivateKey};
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StandardPrincipalData;
 use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
@@ -294,7 +293,6 @@ fn test_try_make_response() {
                         &tx,
                         tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        ASTRules::PrecheckSize,
                         None,
                     );
                     let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
@@ -546,7 +544,6 @@ fn replay_validation_test(
                             &tx,
                             tx.tx_len(),
                             &BlockLimitFunction::NO_LIMIT_HIT,
-                            ASTRules::PrecheckSize,
                             None,
                         );
                     }

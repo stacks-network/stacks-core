@@ -2239,7 +2239,6 @@ pub mod test {
 
     use clarity::types::sqlite::NO_PARAMS;
     use clarity::vm::ast::parser::v1::CONTRACT_MAX_NAME_LENGTH;
-    use clarity::vm::ast::ASTRules;
     use clarity::vm::costs::ExecutionCost;
     use clarity::vm::database::STXBalance;
     use clarity::vm::types::*;
@@ -3073,7 +3072,6 @@ pub mod test {
                             clarity,
                             &boot_code_smart_contract,
                             &boot_code_account,
-                            ASTRules::PrecheckSize,
                             None,
                         )
                         .unwrap()

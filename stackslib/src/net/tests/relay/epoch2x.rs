@@ -17,7 +17,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
@@ -2620,8 +2619,7 @@ pub fn make_contract_tx(
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
     tx_signer.sign_origin(sender).unwrap();
 
-    let tx_contract_signed = tx_signer.get_tx().unwrap();
-    tx_contract_signed
+    tx_signer.get_tx().unwrap()
 }
 
 #[test]
@@ -2633,7 +2631,7 @@ fn test_static_problematic_tests() {
     let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
-    let tx_edge_body = format!("{}u1 {}", tx_edge_body_start, tx_edge_body_end);
+    let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");
 
     let tx_edge = make_contract_tx(
         &spender_sk_1,
@@ -2647,7 +2645,7 @@ fn test_static_problematic_tests() {
     let exceeds_repeat_factor = edge_repeat_factor + 1;
     let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
     let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-    let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
+    let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");
 
     let tx_exceeds = make_contract_tx(
         &spender_sk_2,
@@ -2661,7 +2659,7 @@ fn test_static_problematic_tests() {
     let high_repeat_factor = 128 * 1024;
     let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
     let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
-    let tx_high_body = format!("{}u1 {}", tx_high_body_start, tx_high_body_end);
+    let tx_high_body = format!("{tx_high_body_start}u1 {tx_high_body_end}");
 
     let tx_high = make_contract_tx(
         &spender_sk_3,
@@ -2673,44 +2671,19 @@ fn test_static_problematic_tests() {
     assert!(Relayer::static_check_problematic_relayed_tx(
         false,
         StacksEpochId::Epoch2_05,
-        &tx_edge,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_exceeds,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_high,
-        ASTRules::Typical
-    )
-    .is_ok());
-
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_edge,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_exceeds,
-        ASTRules::PrecheckSize
+        &tx_edge
     )
     .is_err());
     assert!(Relayer::static_check_problematic_relayed_tx(
         false,
         StacksEpochId::Epoch2_05,
-        &tx_high,
-        ASTRules::PrecheckSize
+        &tx_exceeds
+    )
+    .is_err());
+    assert!(Relayer::static_check_problematic_relayed_tx(
+        false,
+        StacksEpochId::Epoch2_05,
+        &tx_high
     )
     .is_err());
 }
@@ -2753,16 +2726,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
     // activate new AST rules right away
     let mut peer = TestPeer::new(peer_config);
-    let mut sortdb = peer.sortdb.take().unwrap();
-    {
-        let mut tx = sortdb
-            .tx_begin()
-            .expect("FATAL: failed to begin tx on sortition DB");
-        SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 1)
-            .expect("FATAL: failed to override AST PrecheckSize rule height");
-        tx.commit()
-            .expect("FATAL: failed to commit sortition DB transaction");
-    }
+    let sortdb = peer.sortdb.take().unwrap();
     peer.sortdb = Some(sortdb);
 
     let chainstate_path = peer.chainstate_path.clone();

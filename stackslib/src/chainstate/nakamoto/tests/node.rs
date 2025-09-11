@@ -990,8 +990,6 @@ impl TestStacksNode {
         burn_dbconn: &SortitionHandleConn,
         txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), ChainstateError> {
-        use clarity::vm::ast::ASTRules;
-
         debug!("Build Nakamoto block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
@@ -1015,7 +1013,6 @@ impl TestStacksNode {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             ) {
                 TransactionResult::Success(..) => {

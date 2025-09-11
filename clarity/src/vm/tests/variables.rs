@@ -23,7 +23,7 @@ use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
     analysis::type_checker::v2_1::tests::contracts::type_check_version,
-    ast::{parse, ASTRules},
+    ast::parse,
     database::MemoryBackingStore,
     errors::{CheckErrors, Error},
     tests::{tl_env_factory, TopLevelMemoryEnvironmentGenerator},
@@ -70,7 +70,6 @@ fn test_block_height(
         version,
         contract,
         None,
-        ASTRules::PrecheckSize,
     );
 
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -128,7 +127,6 @@ fn test_stacks_block_height(
         version,
         contract,
         None,
-        ASTRules::PrecheckSize,
     );
 
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -188,7 +186,6 @@ fn test_tenure_height(
         version,
         contract,
         None,
-        ASTRules::PrecheckSize,
     );
 
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -267,7 +264,6 @@ fn expect_contract_error(
         version,
         contract,
         None,
-        ASTRules::PrecheckSize,
     );
 
     for (when, err_condition, expected_error) in expected_errors {

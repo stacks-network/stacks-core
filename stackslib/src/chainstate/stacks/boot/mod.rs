@@ -20,7 +20,6 @@ use std::sync::LazyLock;
 
 use clarity::types::Address;
 use clarity::vm::analysis::CheckErrors;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
@@ -390,14 +389,13 @@ impl StacksChainState {
                 None,
                 LimitedCostTracker::new_free(),
                 |vm_env| {
-                    vm_env.eval_read_only_with_rules(
+                    vm_env.eval_read_only(
                         &pox_contract,
                         &format!(r#"
                             (unwrap-panic (map-get? stacking-state {{ stacker: '{unlocked_principal} }}))
                             "#,
                                  unlocked_principal = Value::Principal(principal.clone())
                         ),
-                        ASTRules::PrecheckSize,
                     )
                 })
             .expect("FATAL: failed to query unlocked principal");
@@ -440,7 +438,7 @@ impl StacksChainState {
                 None,
                 LimitedCostTracker::new_free(),
                 |vm_env| {
-                    vm_env.eval_read_only_with_rules(
+                    vm_env.eval_read_only(
                         &pox_contract,
                         &format!(
                             r#"
@@ -468,7 +466,6 @@ impl StacksChainState {
                             cycle_to_unlock = Value::UInt(cycle_number.into()),
                             pox_addr = user_pox_addr
                         ),
-                        ASTRules::PrecheckSize,
                     )
                 },
             )
@@ -641,7 +638,6 @@ impl StacksChainState {
                 &iconn,
                 &boot::boot_code_id(boot_contract_name, self.mainnet),
                 code,
-                ASTRules::PrecheckSize,
             )
             .map_err(Error::ClarityError)
     }

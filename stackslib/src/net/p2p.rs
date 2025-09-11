@@ -20,7 +20,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::JoinHandle;
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::types::QualifiedContractIdentifier;
 use mio::net as mio_net;
 use rand::prelude::*;
@@ -467,7 +466,6 @@ pub struct PeerNetwork {
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
     pub chain_view_stable_consensus_hash: ConsensusHash,
-    pub ast_rules: ASTRules,
 
     /// Current Stacks tip -- the highest block's consensus hash, block hash, and height
     pub stacks_tip: StacksTipInfo,
@@ -688,7 +686,6 @@ impl PeerNetwork {
             local_peer,
             chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
-            ast_rules: ASTRules::Typical,
             last_anchor_block_hash: BlockHeaderHash([0x00; 32]),
             last_anchor_block_txid: Txid([0x00; 32]),
             burnchain_tip: BlockSnapshot::initial(
@@ -4886,9 +4883,6 @@ impl PeerNetwork {
                     .saturating_sub(self.burnchain.first_block_height),
                 ibd,
             );
-
-            // update tx validation information
-            self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), canonical_sn.block_height)?;
 
             // update last anchor data
             let ih = sortdb.index_handle(&canonical_sn.sortition_id);
