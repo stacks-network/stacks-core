@@ -108,6 +108,8 @@ const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
 const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 40_000;
 /// Default percentage of the remaining tenure cost limit to consume each block
 const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
+/// Default percentage of the block limit to consume by non-boot contract calls
+pub const DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE: u8 = 95;
 /// Default number of seconds to wait in-between polling the sortition DB to
 /// see if we need to extend the ongoing tenure (e.g. because the current
 /// sortition is empty or invalid).
@@ -1140,6 +1142,7 @@ impl Config {
                 filter_origins: miner_config.filter_origins,
                 tenure_cost_limit_per_block_percentage: miner_config
                     .tenure_cost_limit_per_block_percentage,
+                contract_cost_limit_percentage: miner_config.contract_cost_limit_percentage,
             },
             miner_status,
             confirm_microblocks: false,
@@ -1186,6 +1189,7 @@ impl Config {
                 filter_origins: miner_config.filter_origins,
                 tenure_cost_limit_per_block_percentage: miner_config
                     .tenure_cost_limit_per_block_percentage,
+                contract_cost_limit_percentage: miner_config.contract_cost_limit_percentage,
             },
             miner_status,
             confirm_microblocks: true,
@@ -2936,6 +2940,30 @@ pub struct MinerConfig {
     ///   - Setting to 100 effectively disables this per-block limit, allowing a block to use the
     ///     entire remaining tenure budget.
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
+    /// The percentage of a block’s execution cost limit at which the miner changes
+    /// transaction selection behavior for non-boot contract calls.
+    ///
+    /// When the total cost of included transactions in the current block reaches this
+    /// percentage of the block’s maximum execution cost (Clarity cost), and the next
+    /// available **non-bootcode** contract call in the mempool would cause a
+    /// `BlockTooBigError`, the miner will stop attempting to include additional
+    /// non-boot contract calls. Instead, it will consider only STX transfers and
+    /// boot contract calls for the remainder of the block budget.
+    ///
+    /// This allows miners to avoid repeatedly attempting to fit large non-boot
+    /// contract calls late in block assembly when space is tight, improving block
+    /// packing efficiency and ensuring other transaction types are not starved.
+    ///
+    /// ---
+    /// @default: [`DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE`]
+    /// @units: percent
+    /// @notes:
+    ///   - Values: 0–100.
+    ///   - Setting to 100 effectively disables this behavior, allowing miners to
+    ///     attempt non-boot contract calls until the block is full.
+    ///   - This setting only affects **non-boot** contract calls; boot contract calls
+    ///     and STX transfers are unaffected.
+    pub contract_cost_limit_percentage: Option<u8>,
     /// Duration to wait in-between polling the sortition DB to see if we need to
     /// extend the ongoing tenure (e.g. because the current sortition is empty or invalid).
     ///
@@ -3076,6 +3104,7 @@ impl Default for MinerConfig {
             tenure_cost_limit_per_block_percentage: Some(
                 DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE,
             ),
+            contract_cost_limit_percentage: Some(DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE),
             tenure_extend_poll_timeout: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_extend_wait_timeout: Duration::from_millis(DEFAULT_TENURE_EXTEND_WAIT_MS),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
@@ -4013,6 +4042,7 @@ pub struct MinerConfigFile {
     pub subsequent_rejection_pause_ms: Option<u64>,
     pub block_commit_delay_ms: Option<u64>,
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
+    pub contract_cost_limit_percentage: Option<u8>,
     pub tenure_extend_poll_secs: Option<u64>,
     pub tenure_extend_wait_timeout_ms: Option<u64>,
     pub tenure_timeout_secs: Option<u64>,
@@ -4055,6 +4085,20 @@ impl MinerConfigFile {
             } else {
                 miner_default_config.tenure_cost_limit_per_block_percentage
             };
+
+        let contract_cost_limit_percentage = if let Some(percentage) =
+            self.contract_cost_limit_percentage
+        {
+            if percentage <= 100 {
+                Some(percentage)
+            } else {
+                return Err(
+                    "miner.contract_cost_limit_percentage must be between 0 and 100".to_string(),
+                );
+            }
+        } else {
+            miner_default_config.contract_cost_limit_percentage
+        };
 
         let nonce_cache_size = self
             .nonce_cache_size
@@ -4173,6 +4217,7 @@ impl MinerConfigFile {
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
             block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
             tenure_cost_limit_per_block_percentage,
+            contract_cost_limit_percentage,
             tenure_extend_poll_timeout: self.tenure_extend_poll_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_poll_timeout),
             tenure_extend_wait_timeout: self.tenure_extend_wait_timeout_ms.map(Duration::from_millis).unwrap_or(miner_default_config.tenure_extend_wait_timeout),
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),

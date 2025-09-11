@@ -3891,40 +3891,47 @@ fn tx_replay_btc_on_stx_invalidation() {
         .expect("Timed out waiting for tx replay set to be updated");
 
     info!("---- Waiting for tx replay set to be cleared ----");
-
-    let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
-
+    test_observer::clear();
     fault_injection_unstall_miner();
-
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
 
-    // Ensure that only one block was mined
-    wait_for(30, || {
-        let new_tip = get_chain_info(&conf).stacks_tip_height;
-        Ok(new_tip == stacks_height_before + 1)
-    })
-    .expect("Timed out waiting for block to advance by 1");
+    let mut found_block = false;
+    // Ensure that we don't mine any of the replay transactions in a sufficient amount of elapsed time
+    let _ = wait_for(30, || {
+        let blocks = test_observer::get_blocks();
+        for block in blocks {
+            let block: StacksBlockEvent =
+                serde_json::from_value(block).expect("Failed to parse block");
+            for tx in block.transactions {
+                match tx.payload {
+                    TransactionPayload::TenureChange(TenureChangePayload {
+                        cause: TenureChangeCause::BlockFound,
+                        ..
+                    })
+                    | TransactionPayload::Coinbase(..) => {
+                        found_block = true;
+                    }
+                    TransactionPayload::TenureChange(TenureChangePayload {
+                        cause: TenureChangeCause::Extended,
+                        ..
+                    }) => {
+                        continue;
+                    }
+                    _ => {
+                        panic!("We should not see any transactions mined beyond tenure change or coinbase txs");
+                    }
+                }
+            }
+        }
+        Ok(false)
+    });
 
+    assert!(found_block, "Failed to mine the tenure change block");
+    // Ensure that in the 30 seconds, the nonce did not increase. This also asserts that no tx replays were mined.
     let account = get_account(&_http_origin, &recipient_addr);
     assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
-
-    let blocks = test_observer::get_blocks();
-    let block: StacksBlockEvent =
-        serde_json::from_value(blocks.last().unwrap().clone()).expect("Failed to parse block");
-    assert_eq!(block.transactions.len(), 2);
-    assert!(matches!(
-        block.transactions[0].payload,
-        TransactionPayload::TenureChange(TenureChangePayload {
-            cause: TenureChangeCause::BlockFound,
-            ..
-        })
-    ));
-    assert!(matches!(
-        block.transactions[1].payload,
-        TransactionPayload::Coinbase(..)
-    ));
 
     signer_test.shutdown();
 }
@@ -5466,7 +5473,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     signer_test
         .wait_for_signer_state_check(60, |state| {
             let tx_replay_set = state.get_tx_replay_set();
-            Ok(tx_replay_set.is_none())
+            Ok(tx_replay_set.is_none() && get_account(&http_origin, &sender1_addr).nonce >= 3)
         })
         .expect("Timed out waiting for tx replay set to be cleared");
 
@@ -6539,6 +6546,8 @@ fn tx_replay_budget_exceeded_tenure_extend() {
 
     signer_test.wait_for_replay_set_eq(30, vec![txid1, txid2.clone()]);
 
+    // Clear the test observer so we know that if we see txid1 and txid2 again, that it means they were remined
+    test_observer::clear();
     fault_injection_unstall_miner();
 
     info!("---- Waiting for replay set to be cleared ----");
@@ -6547,25 +6556,25 @@ fn tx_replay_budget_exceeded_tenure_extend() {
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
-
-    let blocks = test_observer::get_blocks();
     let mut found_block: Option<StacksBlockEvent> = None;
-    // To reduce flakiness, we're just looking for the block containing `txid2`,
-    // which may or may not be the last block.
-    let last_blocks = blocks.iter().rev().take(3).collect::<Vec<_>>();
-    for block in last_blocks {
-        let block: StacksBlockEvent =
-            serde_json::from_value(block.clone()).expect("Failed to parse block");
-        if block
-            .transactions
-            .iter()
-            .find(|tx| tx.txid().to_hex() == txid2)
-            .is_some()
-        {
-            found_block = Some(block);
-            break;
+    wait_for(60, || {
+        let blocks = test_observer::get_blocks();
+        for block in blocks {
+            let block: StacksBlockEvent =
+                serde_json::from_value(block.clone()).expect("Failed to parse block");
+            if block
+                .transactions
+                .iter()
+                .find(|tx| tx.txid().to_hex() == txid2)
+                .is_some()
+            {
+                found_block = Some(block);
+                return Ok(true);
+            }
         }
-    }
+        Ok(false)
+    })
+    .expect("Failed to mine the replay txs");
     let block = found_block.expect("Failed to find block with txid2");
     assert_eq!(block.transactions.len(), 2);
     assert!(matches!(
