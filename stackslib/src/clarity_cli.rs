@@ -1208,8 +1208,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     );
 
                     let result = at_chaintip(&argv[2], marf_kv, |mut marf| {
-                        let result =
-                            run_analysis(&contract_id, &mut ast, &header_db, &mut marf, false, clarity_version);
+                        let result = run_analysis(
+                            &contract_id,
+                            &mut ast,
+                            &header_db,
+                            &mut marf,
+                            false,
+                            clarity_version,
+                        );
                         (marf, result)
                     });
                     result
@@ -1272,10 +1278,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 marf.as_clarity_db(),
                 DEFAULT_CLI_EPOCH,
             );
-            let placeholder_context = ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                clarity_version
-            );
+            let placeholder_context =
+                ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
             let mut exec_env = vm_env.get_exec_environment(None, None, &placeholder_context);
             let mut analysis_marf = MemoryBackingStore::new();
 
@@ -1357,10 +1361,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let contract_id = QualifiedContractIdentifier::transient();
-            let placeholder_context = ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                clarity_version
-            );
+            let placeholder_context =
+                ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
 
             let mut ast = friendly_expect(
                 parse(&contract_id, &content, clarity_version),
@@ -1422,10 +1424,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let placeholder_context = ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                clarity_version
-            );
+            let placeholder_context =
+                ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
 
             let (_, _, result_and_cost) = in_block(header_db, marf_kv, |header_db, mut marf| {
                 let result_and_cost =
@@ -1484,10 +1484,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let mainnet = header_db.is_mainnet();
-            let placeholder_context = ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                clarity_version
-            );
+            let placeholder_context =
+                ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
             let mut coverage = if coverage_folder.is_some() {
                 Some(CoverageReporter::new())
             } else {
@@ -1573,10 +1571,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 "Failed to open VM database.",
             );
             let mainnet = header_db.is_mainnet();
-            let placeholder_context = ContractContext::new(
-                QualifiedContractIdentifier::transient(),
-                clarity_version
-            );
+            let placeholder_context =
+                ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
             let result_and_cost = at_block(chain_tip, marf_kv, |mut marf| {
                 let result_and_cost =
                     with_env_costs(mainnet, &header_db, &mut marf, None, |vm_env| {
@@ -1646,11 +1642,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             );
 
             let mut ast = friendly_expect(
-                parse(
-                    &contract_identifier,
-                    &contract_content,
-                    clarity_version
-                ),
+                parse(&contract_identifier, &contract_content, clarity_version),
                 "Failed to parse program.",
             );
 
@@ -1684,8 +1676,14 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             };
             let (_, _, analysis_result_and_cost) =
                 in_block(header_db, marf_kv, |header_db, mut marf| {
-                    let analysis_result =
-                        run_analysis(&contract_identifier, &mut ast, &header_db, &mut marf, true, clarity_version);
+                    let analysis_result = run_analysis(
+                        &contract_identifier,
+                        &mut ast,
+                        &header_db,
+                        &mut marf,
+                        true,
+                        clarity_version,
+                    );
                     match analysis_result {
                         Err(e) => (header_db, marf, Err(e)),
                         Ok(analysis) => {
