@@ -1758,16 +1758,13 @@ impl PeerNetwork {
         }
     }
 
-    /// Determine at which reward cycle to begin scanning inventories
-    pub(crate) fn get_block_scan_start(&self, sortdb: &SortitionDB) -> u64 {
-        // see if the stacks tip affirmation map and heaviest affirmation map diverge.  If so, then
-        // start scaning at the reward cycle just before that.
-        let am_rescan_rc = self
-            .stacks_tip_affirmation_map
-            .find_inv_search(&self.heaviest_affirmation_map);
-
-        // affirmation maps are compatible, so just resume scanning off of wherever we are at the
-        // tip.
+    /// Determine at which reward cycle to begin scanning inventories for this particular neighbor.
+    pub(crate) fn get_block_scan_start(
+        &self,
+        sortdb: &SortitionDB,
+        peer_block_reward_cycle: u64,
+    ) -> u64 {
+        // Resume scanning off of wherever we are at the tip.
         // NOTE: This code path only works in Stacks 2.x, but that's okay because this whole state
         // machine is only used in Stacks 2.x
         let (consensus_hash, _) = SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())
@@ -1786,18 +1783,16 @@ impl PeerNetwork {
             .block_height_to_reward_cycle(stacks_tip_burn_block_height)
             .unwrap_or(0);
 
-        let start_reward_cycle =
-            stacks_tip_rc.saturating_sub(self.connection_opts.inv_reward_cycles);
+        // NOTE: include the last full reward cycle
+        let inv_rescan_rc =
+            stacks_tip_rc.saturating_sub(cmp::max(1, self.connection_opts.inv_reward_cycles));
 
-        let rescan_rc = cmp::min(am_rescan_rc, start_reward_cycle);
+        let rescan_rc = std::cmp::min(inv_rescan_rc, peer_block_reward_cycle);
 
-        test_debug!(
-            "begin blocks inv scan at {} = min({},{}) stacks_tip_am={} heaviest_am={}",
-            rescan_rc,
-            am_rescan_rc,
-            start_reward_cycle,
-            &self.stacks_tip_affirmation_map,
-            &self.heaviest_affirmation_map
+        test_debug!("begin blocks inv scan at {rescan_rc}";
+            "stacks_tip_rc" => stacks_tip_rc,
+            "peer_block_rc" => peer_block_reward_cycle,
+            "inv_rescan_rc" => inv_rescan_rc,
         );
         rescan_rc
     }
@@ -1817,8 +1812,7 @@ impl PeerNetwork {
             Some(x) => x,
             None => {
                 // proceed to block scan
-                let scan_start_rc = self.get_block_scan_start(sortdb);
-
+                let scan_start_rc = self.get_block_scan_start(sortdb, stats.block_reward_cycle);
                 debug!("{:?}: cannot make any more GetPoxInv requests for {:?}; proceeding to block inventory scan at reward cycle {}", &self.local_peer, nk, scan_start_rc);
                 stats.reset_block_scan(scan_start_rc);
                 return Ok(());
@@ -1877,7 +1871,7 @@ impl PeerNetwork {
                 // proceed with block scan.
                 // If we're in IBD, then this is an always-allowed peer and we should
                 // react to divergences by deepening our rescan.
-                let scan_start_rc = self.get_block_scan_start(sortdb);
+                let scan_start_rc = self.get_block_scan_start(sortdb, stats.block_reward_cycle);
                 debug!(
                     "{:?}: proceeding to block inventory scan for {:?} (diverged) at reward cycle {} (ibd={})",
                     &self.local_peer, nk, scan_start_rc, ibd
@@ -1978,7 +1972,7 @@ impl PeerNetwork {
             }
 
             // proceed to block scan.
-            let scan_start = self.get_block_scan_start(sortdb);
+            let scan_start = self.get_block_scan_start(sortdb, stats.block_reward_cycle);
             debug!(
                 "{:?}: proceeding to block inventory scan for {:?} at reward cycle {}",
                 &self.local_peer, nk, scan_start
@@ -2360,11 +2354,21 @@ impl PeerNetwork {
                 let broken_peers = inv_state.get_broken_peers();
                 let dead_peers = inv_state.get_dead_peers();
 
+                let local_rc = network.burnchain.block_height_to_reward_cycle(network.stacks_tip.burnchain_height).unwrap_or(0);
+
+                // find peer with lowest block_reward_cycle
+                let lowest_block_reward_cycle = inv_state
+                    .block_stats
+                    .iter()
+                    .map(|(_nk, stats)| stats.block_reward_cycle)
+                    .fold(local_rc, |min_block_reward_cycle, rc| cmp::min(rc, min_block_reward_cycle));
+
                 // hint to downloader as to where to begin scanning next time
                 inv_state.block_sortition_start = ibd_diverged_height
                     .unwrap_or(network.burnchain.reward_cycle_to_block_height(
                         network.get_block_scan_start(
                             sortdb,
+                            lowest_block_reward_cycle
                         ),
                     ))
                     .saturating_sub(sortdb.first_block_height);
@@ -2583,7 +2587,7 @@ impl PeerNetwork {
             .inspect_err(|e| debug!("Failed to load tip sortition snapshot: {e:?}"))?;
 
         let getblocksinv = GetBlocksInv {
-            consensus_hash: ancestor_sn.consensus_hash,
+            consensus_hash: ancestor_sn.consensus_hash.clone(),
             num_blocks: cmp::min(
                 tip_sn.block_height.saturating_sub(ancestor_sn.block_height) + 1,
                 self.burnchain.pox_constants.reward_cycle_length as u64,

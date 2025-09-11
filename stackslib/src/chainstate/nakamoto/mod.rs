@@ -971,7 +971,7 @@ impl NakamotoBlockHeader {
             chain_length: 0,
             burn_spent: 0,
             consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
-            parent_block_id: StacksBlockId(BOOT_BLOCK_HASH.0.clone()),
+            parent_block_id: StacksBlockId(BOOT_BLOCK_HASH.0),
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
             timestamp: get_epoch_time_secs(),
@@ -1822,7 +1822,7 @@ impl NakamotoChainState {
                     ));
                 }
             }
-            tenure_change.burn_view_consensus_hash
+            tenure_change.burn_view_consensus_hash.clone()
         } else {
             parent_header_info.burn_view.clone().ok_or_else(|| {
                 warn!(
@@ -2171,10 +2171,10 @@ impl NakamotoChainState {
                 &receipt.header.clone(),
                 tx_receipts,
                 &parent_block_id,
-                next_ready_block_snapshot.winning_block_txid,
+                &next_ready_block_snapshot.winning_block_txid,
                 &receipt.matured_rewards,
                 receipt.matured_rewards_info.as_ref(),
-                receipt.parent_burn_block_hash,
+                &receipt.parent_burn_block_hash,
                 receipt.parent_burn_block_height,
                 receipt.parent_burn_block_timestamp,
                 &receipt.anchored_block_cost,
@@ -2208,7 +2208,7 @@ impl NakamotoChainState {
         block: &NakamotoBlock,
     ) -> Result<Option<u64>, ChainstateError> {
         let burn_view_ch = if let Some(tenure_payload) = block.get_tenure_tx_payload() {
-            tenure_payload.burn_view_consensus_hash
+            &tenure_payload.burn_view_consensus_hash
         } else {
             // if there's no new tenure for this block, the burn total should be the same as its parent
             let parent_burns_opt =
@@ -2217,7 +2217,7 @@ impl NakamotoChainState {
             return Ok(parent_burns_opt);
         };
         let burn_view_sn =
-            SortitionDB::get_block_snapshot_consensus(sort_handle.sqlite(), &burn_view_ch)?
+            SortitionDB::get_block_snapshot_consensus(sort_handle.sqlite(), burn_view_ch)?
                 .ok_or_else(|| {
                     warn!("Could not load expected burns -- no such burn view";
                           "burn_view_consensus_hash" => %burn_view_ch
@@ -3609,7 +3609,7 @@ impl NakamotoChainState {
     /// Get index_block_hash and transaction payload hex by txid from the transactions table
     pub fn get_tx_info_from_txid(
         conn: &Connection,
-        txid: Txid,
+        txid: &Txid,
     ) -> Result<Option<(StacksBlockId, String, String)>, ChainstateError> {
         let sql = "SELECT index_block_hash, tx_hex, result FROM transactions WHERE txid = ?";
         let args = params![txid];
@@ -3790,10 +3790,10 @@ impl NakamotoChainState {
         sortition_dbconn: &'b dyn SortitionDBRef,
         first_block_height: u64,
         pox_constants: &PoxConstants,
-        parent_consensus_hash: ConsensusHash,
-        parent_header_hash: BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
         parent_burn_height: u32,
-        burn_header_hash: BurnchainHeaderHash,
+        burn_header_hash: &BurnchainHeaderHash,
         burn_header_height: u32,
         new_tenure: bool,
         coinbase_height: u64,
@@ -3873,10 +3873,10 @@ impl NakamotoChainState {
         first_block_height: u64,
         pox_constants: &PoxConstants,
         parent_chain_tip: &StacksHeaderInfo,
-        parent_consensus_hash: ConsensusHash,
-        parent_header_hash: BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
         parent_burn_height: u32,
-        tenure_block_snapshot: BlockSnapshot,
+        tenure_block_snapshot: &BlockSnapshot,
         block: &NakamotoBlock,
         new_tenure: bool,
         coinbase_height: u64,
@@ -3884,7 +3884,7 @@ impl NakamotoChainState {
         block_bitvec: &BitVec<4000>,
         active_reward_set: &RewardSet,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
-        let burn_header_hash = tenure_block_snapshot.burn_header_hash.clone();
+        let burn_header_hash = &tenure_block_snapshot.burn_header_hash;
         let burn_header_height =
             u32::try_from(tenure_block_snapshot.block_height).map_err(|_| {
                 ChainstateError::InvalidStacksBlock(
@@ -3996,21 +3996,21 @@ impl NakamotoChainState {
         sortition_dbconn: &'b dyn SortitionDBRef,
         first_block_height: u64,
         pox_constants: &PoxConstants,
-        parent_consensus_hash: ConsensusHash,
-        parent_header_hash: BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
         parent_burn_height: u32,
-        burn_header_hash: BurnchainHeaderHash,
+        burn_header_hash: &BurnchainHeaderHash,
         burn_header_height: u32,
         new_tenure: bool,
         coinbase_height: u64,
         tenure_extend: bool,
         ephemeral: bool,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
-        let parent_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
+        let parent_index_hash = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
         let parent_sortition_id = sortition_dbconn
-            .get_sortition_id_from_consensus_hash(&parent_consensus_hash)
+            .get_sortition_id_from_consensus_hash(parent_consensus_hash)
             .expect("Failed to get parent SortitionID from ConsensusHash");
-        let tip_index_hash = StacksBlockId::new(&parent_consensus_hash, &parent_header_hash);
+        let tip_index_hash = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
 
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let matured_rewards_schedule_opt = if new_tenure {
@@ -4028,10 +4028,10 @@ impl NakamotoChainState {
             if new_tenure {
                 NakamotoChainState::get_stacks_on_burnchain_operations(
                     chainstate_tx.as_tx(),
-                    &parent_consensus_hash,
-                    &parent_header_hash,
+                    parent_consensus_hash,
+                    parent_header_hash,
                     sortition_dbconn.sqlite_conn(),
-                    &burn_header_hash,
+                    burn_header_hash,
                     burn_header_height.into(),
                 )?
             } else {
@@ -4615,10 +4615,10 @@ impl NakamotoChainState {
                 burn_dbconn,
                 first_block_height,
                 pox_constants,
-                parent_ch,
-                parent_block_hash,
+                &parent_ch,
+                &parent_block_hash,
                 parent_chain_tip.burn_header_height,
-                tenure_block_snapshot,
+                &tenure_block_snapshot,
                 new_tenure,
                 coinbase_height,
                 tenure_extend,
@@ -4632,10 +4632,10 @@ impl NakamotoChainState {
                 first_block_height,
                 pox_constants,
                 parent_chain_tip,
-                parent_ch,
-                parent_block_hash,
+                &parent_ch,
+                &parent_block_hash,
                 parent_chain_tip.burn_header_height,
-                tenure_block_snapshot,
+                &tenure_block_snapshot,
                 block,
                 new_tenure,
                 coinbase_height,
@@ -5031,8 +5031,8 @@ impl NakamotoChainState {
         }
 
         let miners_db_info = MinersDBInformation {
-            signer_0_sortition: sns[0].consensus_hash,
-            signer_1_sortition: sns[1].consensus_hash,
+            signer_0_sortition: sns[0].consensus_hash.clone(),
+            signer_1_sortition: sns[1].consensus_hash.clone(),
             latest_winner: latest_winner_idx,
         };
 

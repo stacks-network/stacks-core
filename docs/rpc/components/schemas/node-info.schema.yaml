@@ -88,21 +88,6 @@ properties:
   node_public_key_hash:
     type: [string, "null"]
     description: The HASH160 of the node's public key.
-  affirmations:
-    type: [object, "null"]
-    properties:
-      heaviest:
-        type: string
-        description: Encoded affirmation map string.
-      stacks_tip:
-        type: string
-        description: Encoded affirmation map string.
-      sortition_tip:
-        type: string
-        description: Encoded affirmation map string.
-      tentative_best:
-        type: string
-        description: Encoded affirmation map string.
   last_pox_anchor:
     type: [object, "null"]
     properties:

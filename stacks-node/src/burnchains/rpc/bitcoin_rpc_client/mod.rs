@@ -268,7 +268,7 @@ fn convert_sat_to_btc_string(amount: u64) -> String {
 }
 
 /// Represents an error message returned when importing descriptors fails.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct ImportDescriptorsErrorMessage {
     /// Numeric error code identifying the type of error.
     pub code: i64,
@@ -407,7 +407,7 @@ impl BitcoinRpcClient {
 
         let rpc_timeout = Duration::from_secs(timeout);
 
-        let endpoint = RpcTransport::new(rpc_url, rpc_auth.clone(), Some(rpc_timeout.clone()))?;
+        let endpoint = RpcTransport::new(rpc_url, rpc_auth.clone(), Some(rpc_timeout))?;
 
         Ok(Self {
             client_id,

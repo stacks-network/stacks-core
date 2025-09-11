@@ -32,7 +32,7 @@ use crate::util::uint::Uint256;
 
 /// A block header, which contains all the block's information except
 /// the actual transactions
-#[derive(Copy, PartialEq, Eq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct BlockHeader {
     /// The protocol version. Should always be 1.
     pub version: u32,

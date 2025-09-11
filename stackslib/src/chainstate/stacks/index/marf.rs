@@ -740,7 +740,7 @@ impl<T: MarfTrieId> MARF<T> {
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
         let child_disk_ptr = storage.last_ptr()?;
         let child_ptr = TriePtr::new(child_ptr.id(), chr, child_disk_ptr);
-        storage.write_nodetype(child_disk_ptr, &child_node, child_hash.clone())?;
+        storage.write_nodetype(child_disk_ptr, &child_node, child_hash)?;
 
         trace!(
             "Copied child 0x{:02x} to {:?}: ptr={:?} child={:?}",

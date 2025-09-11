@@ -90,6 +90,7 @@ mod getstackerdbchunk;
 mod getstackerdbmetadata;
 mod getstxtransfercost;
 mod gettenure;
+mod gettenureblocks;
 mod gettenureinfo;
 mod gettenuretip;
 mod gettransaction;
@@ -514,7 +515,7 @@ impl<'a> TestRPC<'a> {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    microblock_pubkeyhash,
+                    &microblock_pubkeyhash,
                 )
                 .unwrap();
                 let (anchored_block, anchored_block_size, anchored_block_cost) =
@@ -660,7 +661,7 @@ impl<'a> TestRPC<'a> {
                     &consensus_hash,
                     &stacks_block.block_hash(),
                     true,
-                    txid.clone(),
+                    &txid,
                     tx_bytes,
                     tx_fee,
                     stacks_block.header.total_work.work,
@@ -684,12 +685,7 @@ impl<'a> TestRPC<'a> {
         let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
         let _ = peer_1
             .network
-            .refresh_burnchain_view(
-                &peer_1_indexer,
-                &peer_1_sortdb,
-                &mut peer_1_stacks_node.chainstate,
-                false,
-            )
+            .refresh_burnchain_view(&peer_1_sortdb, &mut peer_1_stacks_node.chainstate, false)
             .unwrap();
         peer_1.sortdb = Some(peer_1_sortdb);
         peer_1.stacks_node = Some(peer_1_stacks_node);
@@ -698,12 +694,7 @@ impl<'a> TestRPC<'a> {
         let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
         let _ = peer_2
             .network
-            .refresh_burnchain_view(
-                &peer_2_indexer,
-                &peer_2_sortdb,
-                &mut peer_2_stacks_node.chainstate,
-                false,
-            )
+            .refresh_burnchain_view(&peer_2_sortdb, &mut peer_2_stacks_node.chainstate, false)
             .unwrap();
         peer_2.sortdb = Some(peer_2_sortdb);
         peer_2.stacks_node = Some(peer_2_stacks_node);
@@ -793,7 +784,7 @@ impl<'a> TestRPC<'a> {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    microblock_pubkeyhash,
+                    &microblock_pubkeyhash,
                 )
                 .unwrap();
                 let (anchored_block, anchored_block_size, anchored_block_cost) =
@@ -1177,12 +1168,7 @@ impl<'a> TestRPC<'a> {
 
             let _ = peer_2
                 .network
-                .refresh_burnchain_view(
-                    &peer_2_indexer,
-                    &peer_2_sortdb,
-                    &mut peer_2_stacks_node.chainstate,
-                    false,
-                )
+                .refresh_burnchain_view(&peer_2_sortdb, &mut peer_2_stacks_node.chainstate, false)
                 .unwrap();
 
             if unconfirmed_state {
@@ -1228,12 +1214,7 @@ impl<'a> TestRPC<'a> {
 
             let _ = peer_1
                 .network
-                .refresh_burnchain_view(
-                    &peer_1_indexer,
-                    &peer_1_sortdb,
-                    &mut peer_1_stacks_node.chainstate,
-                    false,
-                )
+                .refresh_burnchain_view(&peer_1_sortdb, &mut peer_1_stacks_node.chainstate, false)
                 .unwrap();
 
             if unconfirmed_state {
@@ -1346,7 +1327,7 @@ fn prefixed_opt_hex_serialization() {
     ];
 
     for test in tests_32b.iter() {
-        let inp = test.clone().map(BurnchainHeaderHash);
+        let inp = (*test).map(BurnchainHeaderHash);
         let mut out_buff = Vec::new();
         let mut serializer = serde_json::Serializer::new(&mut out_buff);
         prefix_opt_hex::serialize(&inp, &mut serializer).unwrap();
@@ -1410,7 +1391,7 @@ fn prefixed_hex_serialization() {
     ];
 
     for test in tests_32b.iter() {
-        let inp = BurnchainHeaderHash(test.clone());
+        let inp = BurnchainHeaderHash(*test);
         let mut out_buff = Vec::new();
         let mut serializer = serde_json::Serializer::new(&mut out_buff);
         prefix_hex::serialize(&inp, &mut serializer).unwrap();

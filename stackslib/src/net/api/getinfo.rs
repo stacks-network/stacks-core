@@ -22,7 +22,6 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{Hash160, Sha256Sum};
 
-use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::Txid;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::net::http::{
@@ -44,15 +43,6 @@ impl RPCPeerInfoRequestHandler {
         Self {}
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RPCAffirmationData {
-    pub heaviest: AffirmationMap,
-    pub stacks_tip: AffirmationMap,
-    pub sortition_tip: AffirmationMap,
-    pub tentative_best: AffirmationMap,
-}
-
 /// Information about the last PoX anchor block
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RPCLastPoxAnchorData {
@@ -86,9 +76,6 @@ pub struct RPCPeerInfoData {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_public_key_hash: Option<Hash160>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub affirmations: Option<RPCAffirmationData>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_pox_anchor: Option<RPCLastPoxAnchorData>,
@@ -146,12 +133,6 @@ impl RPCPeerInfoData {
             genesis_chainstate_hash: genesis_chainstate_hash.clone(),
             node_public_key: Some(public_key_buf),
             node_public_key_hash: Some(public_key_hash),
-            affirmations: Some(RPCAffirmationData {
-                heaviest: network.heaviest_affirmation_map.clone(),
-                stacks_tip: network.stacks_tip_affirmation_map.clone(),
-                sortition_tip: network.sortition_tip_affirmation_map.clone(),
-                tentative_best: network.tentative_best_affirmation_map.clone(),
-            }),
             last_pox_anchor: Some(RPCLastPoxAnchorData {
                 anchor_block_hash: network.last_anchor_block_hash.clone(),
                 anchor_block_txid: network.last_anchor_block_txid.clone(),
@@ -219,7 +200,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
                 Ok(RPCPeerInfoData::from_network(
                     network,
                     chainstate,
-                    rpc_args.exit_at_block_height.clone(),
+                    rpc_args.exit_at_block_height,
                     &rpc_args.genesis_chainstate_hash,
                     coinbase_height,
                     ibd,

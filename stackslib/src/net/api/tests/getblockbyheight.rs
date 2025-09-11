@@ -26,7 +26,7 @@ use crate::net::{ProtocolFamily, TipRequest};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     // NOTE: MARF enforces the height to be a u32 value
     let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
@@ -74,7 +74,7 @@ fn test_try_make_response() {
     let test_observer = TestEventObserver::new();
     let rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
-    let nakamoto_chain_tip_height = rpc_test.tip_height.clone();
+    let nakamoto_chain_tip_height = rpc_test.tip_height;
     let canonical_tip = rpc_test.canonical_tip.clone();
     let consensus_hash = rpc_test.consensus_hash.clone();
 
@@ -100,7 +100,7 @@ fn test_try_make_response() {
     let request = StacksHttpRequest::new_get_nakamoto_block_by_height(
         addr.into(),
         nakamoto_chain_tip_height,
-        TipRequest::SpecificTip(rpc_test.canonical_tip),
+        TipRequest::SpecificTip(rpc_test.canonical_tip.clone()),
     );
     requests.push(request);
 

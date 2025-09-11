@@ -224,7 +224,7 @@ impl BitcoinBlockParser {
     pub fn new(network_id: BitcoinNetworkType, magic_bytes: MagicBytes) -> BitcoinBlockParser {
         BitcoinBlockParser {
             network_id,
-            magic_bytes: magic_bytes.clone(),
+            magic_bytes,
         }
     }
 

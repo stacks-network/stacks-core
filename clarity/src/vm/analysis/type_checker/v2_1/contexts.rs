@@ -14,9 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
-
-use hashbrown::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
 use crate::vm::analysis::type_checker::is_reserved_word;
@@ -42,10 +40,12 @@ impl TraitContext {
     pub fn new(clarity_version: ClarityVersion) -> TraitContext {
         match clarity_version {
             ClarityVersion::Clarity1 => Self::Clarity1(HashMap::new()),
-            ClarityVersion::Clarity2 | ClarityVersion::Clarity3 => Self::Clarity2 {
-                defined: HashSet::new(),
-                all: HashMap::new(),
-            },
+            ClarityVersion::Clarity2 | ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => {
+                Self::Clarity2 {
+                    defined: HashSet::new(),
+                    all: HashMap::new(),
+                }
+            }
         }
     }
 

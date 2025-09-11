@@ -24,6 +24,7 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_addr;
+use clarity::consts::PEER_VERSION_EPOCH_3_3;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
@@ -55,7 +56,8 @@ use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
-    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME, SIP_031_TESTNET_ADDR,
+    COSTS_4_NAME, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    SIP_031_TESTNET_ADDR,
 };
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
@@ -3650,7 +3652,7 @@ fn vote_for_aggregate_key_burn_op() {
 
     let stacker_pk = StacksPublicKey::from_private(&stacker_sk);
     let signer_key: StacksPublicKeyBuffer = stacker_pk.to_bytes_compressed().as_slice().into();
-    let aggregate_key = signer_key;
+    let aggregate_key = signer_key.clone();
 
     let vote_for_aggregate_key_op =
         BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
@@ -3659,7 +3661,7 @@ fn vote_for_aggregate_key_burn_op() {
             sender: signer_addr,
             round: 0,
             reward_cycle,
-            aggregate_key,
+            aggregate_key: aggregate_key.clone(),
             // to be filled in
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -4957,7 +4959,7 @@ fn burn_ops_integration_test() {
         reward_addr: pox_addr,
         stacked_ustx: min_stx.into(),
         num_cycles: lock_period,
-        signer_key: Some(signer_key_arg_1),
+        signer_key: Some(signer_key_arg_1.clone()),
         max_amount: Some(u128::MAX),
         auth_id: Some(auth_id),
         // to be filled in
@@ -6918,7 +6920,7 @@ fn signer_chainstate() {
         version: 1,
         chain_length: last_tenure_header.chain_length,
         burn_spent: last_tenure_header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: last_tenure_header.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -6962,8 +6964,8 @@ fn signer_chainstate() {
         version: 1,
         chain_length: last_tenure_header.chain_length,
         burn_spent: last_tenure_header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
-        parent_block_id: last_tenure_header.parent_block_id,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
+        parent_block_id: last_tenure_header.parent_block_id.clone(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
         timestamp: last_tenure_header.timestamp + 1,
@@ -7016,7 +7018,7 @@ fn signer_chainstate() {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
         burn_spent: reorg_to_block.header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -7047,9 +7049,9 @@ fn signer_chainstate() {
                 post_condition_mode: TransactionPostConditionMode::Allow,
                 post_conditions: vec![],
                 payload: TransactionPayload::TenureChange(TenureChangePayload {
-                    tenure_consensus_hash: sibling_block_header.consensus_hash,
-                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash,
-                    burn_view_consensus_hash: sibling_block_header.consensus_hash,
+                    tenure_consensus_hash: sibling_block_header.consensus_hash.clone(),
+                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash.clone(),
+                    burn_view_consensus_hash: sibling_block_header.consensus_hash.clone(),
                     previous_tenure_end: reorg_to_block.block_id(),
                     previous_tenure_blocks: 1,
                     cause: stacks::chainstate::stacks::TenureChangeCause::BlockFound,
@@ -7073,12 +7075,13 @@ fn signer_chainstate() {
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
     // make the sortition_view *think* that our block commit pointed at this old tenure
-    sortitions_view.cur_sortition.data.parent_tenure_id = reorg_to_block.header.consensus_hash;
+    sortitions_view.cur_sortition.data.parent_tenure_id =
+        reorg_to_block.header.consensus_hash.clone();
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
         burn_spent: reorg_to_block.header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -7109,9 +7112,9 @@ fn signer_chainstate() {
                 post_condition_mode: TransactionPostConditionMode::Allow,
                 post_conditions: vec![],
                 payload: TransactionPayload::TenureChange(TenureChangePayload {
-                    tenure_consensus_hash: sibling_block_header.consensus_hash,
-                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash,
-                    burn_view_consensus_hash: sibling_block_header.consensus_hash,
+                    tenure_consensus_hash: sibling_block_header.consensus_hash.clone(),
+                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash.clone(),
+                    burn_view_consensus_hash: sibling_block_header.consensus_hash.clone(),
                     previous_tenure_end: reorg_to_block.block_id(),
                     previous_tenure_blocks: 1,
                     cause: stacks::chainstate::stacks::TenureChangeCause::BlockFound,
@@ -10133,7 +10136,7 @@ fn test_shadow_recovery() {
             break;
         }
 
-        let header = header.anchored_header.as_stacks_nakamoto().clone().unwrap();
+        let header = header.anchored_header.as_stacks_nakamoto().unwrap();
 
         if header.is_shadow_block() {
             assert!(shadow_ids.contains(&header.block_id()));
@@ -10153,7 +10156,7 @@ fn test_shadow_recovery() {
             has_epoch_3_failure = true;
         }
 
-        cursor = header.parent_block_id;
+        cursor = header.parent_block_id.clone();
     }
 
     assert!(has_epoch_3_recovery);
@@ -10747,7 +10750,7 @@ fn consensus_hash_event_dispatcher() {
     let burn_block = burn_blocks.last().unwrap();
     assert_eq!(burn_block.consensus_hash, tip.consensus_hash);
 
-    let parent_burn_block_hash = parent_burn_block.burn_block_hash;
+    let parent_burn_block_hash = parent_burn_block.burn_block_hash.clone();
 
     assert_eq!(burn_block.parent_burn_block_hash, parent_burn_block_hash);
 
@@ -12287,12 +12290,12 @@ fn v3_transaction_api_endpoint() {
     let last_block_event = block_events.last().unwrap();
 
     let first_transaction = match last_block_event.tx_events.first().unwrap() {
-        TransactionEvent::Success(first_transaction) => Some(first_transaction.txid),
+        TransactionEvent::Success(first_transaction) => Some(first_transaction.txid.clone()),
         _ => None,
     }
     .unwrap();
 
-    let response_json = get_v3_transaction(first_transaction);
+    let response_json = get_v3_transaction(first_transaction.clone());
 
     assert_eq!(
         response_json
@@ -13686,7 +13689,6 @@ fn test_sip_031_last_phase_out_of_epoch() {
                 conn.with_readonly_clarity_env(
                     naka_conf.is_mainnet(),
                     naka_conf.burnchain.chain_id,
-                    ClarityVersion::Clarity3,
                     PrincipalData::Standard(StandardPrincipalData::transient()),
                     None,
                     LimitedCostTracker::new_free(),
@@ -14077,6 +14079,170 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     );
 
     set_test_sip_031_emission_schedule(None);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test Epoch 3.3 activation
+///
+/// - check epoch 3.3 is active
+/// - check costs-4 was deployed
+#[test]
+#[ignore]
+#[serial]
+fn test_epoch_3_3_activation() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.node.pox_sync_sample_secs = 180;
+    naka_conf.burnchain.max_rbf = 10_000_000;
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs.as_mut().unwrap()[StacksEpochId::Epoch32].end_height = 261;
+    naka_conf
+        .burnchain
+        .epochs
+        .as_mut()
+        .unwrap()
+        .push(StacksEpoch {
+            epoch_id: StacksEpochId::Epoch33,
+            start_height: 261,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_3,
+        });
+
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    // check for Epoch 3.3 in clarity db
+    let latest_stacks_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
+
+    let epoch_version = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version().unwrap()),
+    );
+
+    assert_eq!(epoch_version, Some(StacksEpochId::Epoch33));
+
+    // check if costs-4 boot contract has been deployed
+    let costs_4_boot_contract_exists = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.has_contract(&boot_code_id(COSTS_4_NAME, naka_conf.is_mainnet()))
+            })
+        },
+    );
+
+    assert_eq!(costs_4_boot_contract_exists, Some(true));
 
     coord_channel
         .lock()

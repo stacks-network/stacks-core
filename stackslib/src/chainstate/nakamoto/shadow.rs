@@ -367,10 +367,10 @@ impl NakamotoChainState {
         sortition_dbconn: &'b dyn SortitionDBRef,
         first_block_height: u64,
         pox_constants: &PoxConstants,
-        parent_consensus_hash: ConsensusHash,
-        parent_header_hash: BlockHeaderHash,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
         parent_burn_height: u32,
-        tenure_block_snapshot: BlockSnapshot,
+        tenure_block_snapshot: &BlockSnapshot,
         new_tenure: bool,
         coinbase_height: u64,
         tenure_extend: bool,
@@ -409,7 +409,7 @@ impl NakamotoChainState {
             parent_consensus_hash,
             parent_header_hash,
             parent_burn_height,
-            burn_header_hash.clone(),
+            burn_header_hash,
             burn_header_height,
             new_tenure,
             coinbase_height,
@@ -462,10 +462,10 @@ impl NakamotoBlockBuilder {
             burn_dbconn,
             burn_dbconn.context.first_block_height,
             &burn_dbconn.context.pox_constants,
-            info.parent_consensus_hash,
-            info.parent_header_hash,
+            &info.parent_consensus_hash,
+            &info.parent_header_hash,
             info.parent_burn_block_height,
-            tenure_snapshot,
+            &tenure_snapshot,
             info.cause == Some(TenureChangeCause::BlockFound),
             info.coinbase_height,
             info.cause == Some(TenureChangeCause::Extended),
@@ -594,8 +594,8 @@ impl NakamotoBlockBuilder {
     pub fn make_shadow_tenure(
         chainstate: &mut StacksChainState,
         sortdb: &SortitionDB,
-        naka_tip_id: StacksBlockId,
-        tenure_id_consensus_hash: ConsensusHash,
+        naka_tip_id: &StacksBlockId,
+        tenure_id_consensus_hash: &ConsensusHash,
         mut txs: Vec<StacksTransaction>,
     ) -> Result<NakamotoBlock, Error> {
         let mainnet = chainstate.config().mainnet;
@@ -661,9 +661,9 @@ impl NakamotoBlockBuilder {
         // tenure change payload (BlockFound)
         let tenure_change_payload = TenureChangePayload {
             tenure_consensus_hash: tenure_id_consensus_hash.clone(),
-            prev_tenure_consensus_hash: naka_tip_header.consensus_hash,
+            prev_tenure_consensus_hash: naka_tip_header.consensus_hash.clone(),
             burn_view_consensus_hash: tenure_id_consensus_hash.clone(),
-            previous_tenure_end: naka_tip_id,
+            previous_tenure_end: naka_tip_id.clone(),
             previous_tenure_blocks: (naka_tip_header.anchored_header.height() + 1
                 - naka_tip_tenure_start_header.anchored_header.height())
                 as u32,
@@ -674,7 +674,7 @@ impl NakamotoBlockBuilder {
         // tenure-change tx
         let tenure_change_tx = {
             let mut tx_tenure_change = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 miner_tx_auth.clone(),
                 TransactionPayload::TenureChange(tenure_change_payload),
             );
@@ -693,7 +693,7 @@ impl NakamotoBlockBuilder {
         // coinbase tx
         let coinbase_tx = {
             let mut tx_coinbase = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 miner_tx_auth,
                 TransactionPayload::Coinbase(coinbase_payload, Some(recipient), Some(vrf_proof)),
             );
@@ -995,8 +995,8 @@ pub fn shadow_chainstate_repair(
         let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
             chain_state,
             sort_db,
-            chain_tip.clone(),
-            sn.consensus_hash,
+            &chain_tip,
+            &sn.consensus_hash,
             vec![],
         )?;
 

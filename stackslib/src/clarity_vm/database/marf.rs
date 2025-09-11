@@ -786,7 +786,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
 
-        let result = Ok(self.chain_tip);
+        let result = Ok(self.chain_tip.clone());
         self.chain_tip = bhh;
 
         result
@@ -1012,7 +1012,7 @@ impl PersistentWritableMarfStore<'_> {
     #[cfg(test)]
     fn do_test_commit(self) {
         let bhh = self.chain_tip.clone();
-        self.commit_to_processed_block(&bhh).unwrap();
+        self.commit_to(&bhh).unwrap();
     }
 }
 
@@ -1037,7 +1037,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
 
-        let result = Ok(self.chain_tip);
+        let result = Ok(self.chain_tip.clone());
         self.chain_tip = bhh;
 
         result
