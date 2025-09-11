@@ -263,6 +263,7 @@ mod tests {
             &StacksBlockId([1 as u8; 32]),
             &TEST_HEADER_DB,
             &TEST_BURN_STATE_DB,
+            None,
         );
 
         clarity_conn.as_transaction(|clarity_tx| {

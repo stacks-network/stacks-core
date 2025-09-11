@@ -107,6 +107,7 @@ impl ClarityTestSim {
             let mut store = marf.begin(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId(test_sim_height_to_hash(0, 0)),
+                None,
             );
 
             let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
@@ -144,6 +145,7 @@ impl ClarityTestSim {
             let mut store = self.marf.begin(
                 &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
                 &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
+                None,
             );
 
             self.block_height += 1;
@@ -196,6 +198,7 @@ impl ClarityTestSim {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
+            None,
         );
 
         self.block_height += 1;
@@ -271,6 +274,7 @@ impl ClarityTestSim {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(parent_height + 1, self.fork + 1)),
+            None,
         );
 
         let r = {
