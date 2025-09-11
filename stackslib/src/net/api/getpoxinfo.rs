@@ -17,7 +17,6 @@
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::types::{PrincipalData, StandardPrincipalData};
-use clarity::vm::ClarityVersion;
 use regex::{Captures, Regex};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
@@ -191,7 +190,6 @@ impl RPCPoxInfoData {
                     clarity_tx.with_readonly_clarity_env(
                         mainnet,
                         chain_id,
-                        ClarityVersion::Clarity2,
                         sender,
                         None,
                         cost_track,

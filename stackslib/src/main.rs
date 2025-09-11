@@ -141,14 +141,14 @@ impl P2PSession {
     /// Returns the session handle on success.
     /// Returns error text on failure.
     pub fn begin(peer_addr: SocketAddr, data_port: u16) -> Result<Self, String> {
-        let mut data_addr = peer_addr.clone();
+        let mut data_addr = peer_addr;
         data_addr.set_port(data_port);
 
         // get /v2/info
         let peer_info = send_http_request(
             &format!("{}", data_addr.ip()),
             data_addr.port(),
-            StacksHttpRequest::new_getinfo(PeerHost::from(data_addr.clone()), None)
+            StacksHttpRequest::new_getinfo(PeerHost::from(data_addr), None)
                 .with_header("Connection".to_string(), "close".to_string()),
             Duration::from_secs(60),
         )
@@ -162,7 +162,7 @@ impl P2PSession {
             &format!("{}", data_addr.ip()),
             data_addr.port(),
             StacksHttpRequest::new_get_sortition_consensus(
-                PeerHost::from(data_addr.clone()),
+                PeerHost::from(data_addr),
                 &peer_info.pox_consensus,
             )
             .with_header("Connection".to_string(), "close".to_string()),
@@ -178,7 +178,7 @@ impl P2PSession {
             &format!("{}", data_addr.ip()),
             data_addr.port(),
             StacksHttpRequest::new_get_sortition_consensus(
-                PeerHost::from(data_addr.clone()),
+                PeerHost::from(data_addr),
                 &peer_info.stable_pox_consensus,
             )
             .with_header("Connection".to_string(), "close".to_string()),
@@ -1184,8 +1184,8 @@ check if the associated microblocks can be downloaded
         let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
             &mut chain_state,
             &sort_db,
-            chain_tip,
-            header.consensus_hash,
+            &chain_tip,
+            &header.consensus_hash,
             txs,
         )
         .unwrap();
@@ -1339,7 +1339,7 @@ check if the associated microblocks can be downloaded
 
         let burnchain = Burnchain::regtest(burnchain_db_path);
         let first_burnchain_block_height = burnchain.first_block_height;
-        let first_burnchain_block_hash = burnchain.first_block_hash;
+        let first_burnchain_block_hash = &burnchain.first_block_hash;
         let epochs = StacksEpoch::all(first_burnchain_block_height, u64::MAX, u64::MAX);
         let (mut new_sortition_db, _) = burnchain
             .connect_db(
@@ -1355,7 +1355,7 @@ check if the associated microblocks can be downloaded
         let mut boot_data = ChainStateBootData {
             initial_balances,
             post_flight_callback: None,
-            first_burnchain_block_hash,
+            first_burnchain_block_hash: first_burnchain_block_hash.clone(),
             first_burnchain_block_height: first_burnchain_block_height as u32,
             first_burnchain_block_timestamp: 0,
             pox_constants: PoxConstants::regtest_default(),
@@ -1429,7 +1429,7 @@ check if the associated microblocks can be downloaded
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
                 true,
-                first_burnchain_block_hash,
+                &first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
                 epochs,
             )
@@ -1602,6 +1602,11 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "dump-consts" {
         dump_consts();
+    }
+
+    if argv[1] == "contract-hash" {
+        cli::command_contract_hash(&argv[1..], common_opts.config.as_ref());
+        process::exit(0);
     }
 
     if argv.len() < 4 {
@@ -1823,8 +1828,8 @@ simulating a miner.
         &mut mempool_db,
         &parent_header,
         chain_tip.total_burn,
-        VRFProof::empty(),
-        Hash160([0; 20]),
+        &VRFProof::empty(),
+        &Hash160([0; 20]),
         &coinbase_tx,
         settings,
         None,
@@ -2057,7 +2062,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     println!("---------------");
     println!("height,burn_header_hash,winner_epoch2,winner_epoch3");
     for ((height, bhh), winner) in wins_epoch2.iter() {
-        let Some(epoch3_winner) = wins_epoch3.get(&(*height, *bhh)) else {
+        let Some(epoch3_winner) = wins_epoch3.get(&(*height, bhh.clone())) else {
             continue;
         };
         if epoch3_winner != winner {

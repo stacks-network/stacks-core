@@ -200,7 +200,7 @@ impl RPCRequestHandler for RPCPeerInfoRequestHandler {
                 Ok(RPCPeerInfoData::from_network(
                     network,
                     chainstate,
-                    rpc_args.exit_at_block_height.clone(),
+                    rpc_args.exit_at_block_height,
                     &rpc_args.genesis_chainstate_hash,
                     coinbase_height,
                     ibd,

@@ -1238,10 +1238,10 @@ impl BlockResponse {
     }
 
     /// Get the signer signature hash from the block response
-    pub fn get_signer_signature_hash(&self) -> Sha512Trunc256Sum {
+    pub fn get_signer_signature_hash(&self) -> &Sha512Trunc256Sum {
         match self {
-            BlockResponse::Accepted(accepted) => accepted.signer_signature_hash,
-            BlockResponse::Rejected(rejection) => rejection.signer_signature_hash,
+            BlockResponse::Accepted(accepted) => &accepted.signer_signature_hash,
+            BlockResponse::Rejected(rejection) => &rejection.signer_signature_hash,
         }
     }
 

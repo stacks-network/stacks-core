@@ -39,11 +39,11 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME,
-    POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME,
-    SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY,
-    SIGNERS_VOTING_NAME, SIP_031_NAME,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE,
+    POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE,
+    POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME,
+    SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -871,8 +871,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             let boot_code_address = boot_code_addr(self.mainnet);
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-            let costs_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let costs_2_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -889,23 +888,20 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
                 // initialize with a synthetic transaction
                 debug!("Instantiate .costs-2 contract");
-                let receipt = StacksChainState::process_transaction_payload(
+                StacksChainState::process_transaction_payload(
                     tx_conn,
                     &costs_2_contract_tx,
                     &boot_code_account,
                     None,
                 )
-                .expect("FATAL: Failed to process PoX 2 contract initialization");
-
-                receipt
+                .expect("FATAL: Failed to process PoX 2 contract initialization")
             });
 
             if initialization_receipt.result != Value::okay_true()
                 || initialization_receipt.post_condition_aborted
             {
                 panic!(
-                    "FATAL: Failure processing Costs 2 contract initialization: {:#?}",
-                    &initialization_receipt
+                    "FATAL: Failure processing Costs 2 contract initialization: {initialization_receipt:#?}"
                 );
             }
 
@@ -983,7 +979,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let pox_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             // upgrade epoch before starting transaction-processing, since .pox-2 needs clarity2
             // features
@@ -1057,8 +1053,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 None,
             );
 
-            let costs_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let costs_3_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let costs_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1089,8 +1084,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 || costs_3_initialization_receipt.post_condition_aborted
             {
                 panic!(
-                    "FATAL: Failure processing Costs 3 contract initialization: {:#?}",
-                    &costs_3_initialization_receipt
+                    "FATAL: Failure processing Costs 3 contract initialization: {costs_3_initialization_receipt:#?}"
                 );
             }
 
@@ -1238,8 +1232,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 Some(ClarityVersion::Clarity2),
             );
 
-            let pox_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let pox_3_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let pox_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1357,7 +1350,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let pox_4_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             let pox_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1416,7 +1409,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             let signers_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1462,7 +1455,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     );
 
                     let signers_contract_tx =
-                        StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                        StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
                     let signers_db_receipt = self.as_transaction(|tx_conn| {
                         // initialize with a synthetic transaction
@@ -1501,8 +1494,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 Some(ClarityVersion::Clarity2),
             );
 
-            let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let signers_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1633,8 +1625,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 Some(ClarityVersion::Clarity3),
             );
 
-            let sip_031_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let sip_031_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let mut sip_031_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1687,6 +1678,95 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
             debug!("Epoch 3.2 initialized");
             (old_cost_tracker, Ok(receipts))
+        })
+    }
+
+    pub fn initialize_epoch_3_3(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+
+            let mainnet = self.mainnet;
+            self.epoch = StacksEpochId::Epoch33;
+
+            /////////////////// .costs-4 ////////////////////////
+            let cost_4_code = BOOT_CODE_COSTS_4;
+
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_4_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(cost_4_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
+
+            // get the boot code account information
+            //  for processing the costs-4 contract initialization
+            let tx_version = if mainnet {
+                TransactionVersion::Mainnet
+            } else {
+                TransactionVersion::Testnet
+            };
+
+            let boot_code_address = boot_code_addr(mainnet);
+
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+
+            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+                db.get_account_nonce(&boot_code_address.clone().into())
+                    .expect("FATAL: Failed to boot account nonce")
+            });
+
+            let boot_code_account = StacksAccount {
+                principal: PrincipalData::Standard(boot_code_address.into()),
+                nonce: boot_code_nonce,
+                stx_balance: STXBalance::zero(),
+            };
+
+            let costs_4_contract_tx =
+                StacksTransaction::new(tx_version, boot_code_auth, payload);
+
+            let costs_4_initialization_receipt = self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch33)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 3.3 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch33;
+
+                // initialize with a synthetic transaction
+                info!("Instantiate .costs-4 contract");
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &costs_4_contract_tx,
+                    &boot_code_account,
+                    None,
+                )
+                .expect("FATAL: Failed to process costs-4 contract initialization");
+
+                receipt
+            });
+
+            if costs_4_initialization_receipt.result != Value::okay_true()
+                || costs_4_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing Costs 4 contract initialization: {:#?}",
+                    &costs_4_initialization_receipt
+                );
+            }
+
+            info!("Epoch 3.3 initialized");
+            (old_cost_tracker, Ok(vec![]))
         })
     }
 

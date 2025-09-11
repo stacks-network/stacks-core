@@ -1070,7 +1070,7 @@ impl StacksChainState {
                         addr,
                         u128::from(*amount),
                         &BuffData {
-                            data: Vec::from(memo.0.clone()),
+                            data: Vec::from(memo.0),
                         },
                     )
                     .map_err(Error::ClarityError)?;
@@ -8538,6 +8538,7 @@ pub mod test {
                     StacksEpochId::Epoch30 => self.get_stacks_epoch(7),
                     StacksEpochId::Epoch31 => self.get_stacks_epoch(8),
                     StacksEpochId::Epoch32 => self.get_stacks_epoch(9),
+                    StacksEpochId::Epoch33 => self.get_stacks_epoch(10),
                 }
             }
             fn get_pox_payout_addrs(

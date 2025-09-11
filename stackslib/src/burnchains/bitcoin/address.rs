@@ -227,7 +227,7 @@ impl LegacyBitcoinAddress {
         Ok(LegacyBitcoinAddress {
             network_id,
             addrtype,
-            bytes: Hash160(payload_bytes.clone()),
+            bytes: Hash160(*payload_bytes),
         })
     }
 }

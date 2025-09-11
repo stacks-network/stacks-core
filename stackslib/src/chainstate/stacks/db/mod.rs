@@ -291,7 +291,8 @@ impl DBConfig {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => (3..=11).contains(&version_u32),
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => (3..=11).contains(&version_u32),
         }
     }
 }
@@ -393,6 +394,13 @@ impl StacksHeaderInfo {
 
     pub fn is_nakamoto_block(&self) -> bool {
         matches!(self.anchored_header, StacksBlockHeaderTypes::Nakamoto(_))
+    }
+
+    pub fn header_type_name(&self) -> &str {
+        match self.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => "epoch2",
+            StacksBlockHeaderTypes::Nakamoto(_) => "nakamoto",
+        }
     }
 }
 
@@ -1321,11 +1329,8 @@ impl StacksChainState {
                     None,
                 );
 
-                let boot_code_smart_contract = StacksTransaction::new(
-                    tx_version.clone(),
-                    boot_code_auth.clone(),
-                    smart_contract,
-                );
+                let boot_code_smart_contract =
+                    StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
 
                 let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::process_transaction_payload(
@@ -1618,7 +1623,7 @@ impl StacksChainState {
             });
 
             let allocations_tx = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),
@@ -2005,7 +2010,6 @@ impl StacksChainState {
         let result = conn.with_readonly_clarity_env(
             self.mainnet,
             self.chain_id,
-            ClarityVersion::latest(),
             contract.clone().into(),
             None,
             LimitedCostTracker::Free,

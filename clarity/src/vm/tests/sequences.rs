@@ -1125,7 +1125,7 @@ fn test_simple_folds_string() {
         "(define-private (get-slice (x (string-ascii 1)) (acc (tuple (limit uint) (cursor uint) (data (string-ascii 10)))))
             (if (< (get cursor acc) (get limit acc))
                 (let ((data (default-to (get data acc) (as-max-len? (concat (get data acc) x) u10))))
-                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data))) 
+                    (tuple (limit (get limit acc)) (cursor (+ u1 (get cursor acc))) (data data)))
                 acc))
         (get data (fold get-slice \"0123456789\" (tuple (limit u5) (cursor u0) (data \"\"))))"];
 
@@ -1159,6 +1159,8 @@ fn test_buff_len() {
 
 #[apply(test_clarity_versions)]
 fn test_construct_bad_list(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    use crate::vm::types::TypeSignatureExt as _;
+
     let test1 = "(list 1 2 3 true)";
     assert_eq!(
         execute(test1).unwrap_err(),

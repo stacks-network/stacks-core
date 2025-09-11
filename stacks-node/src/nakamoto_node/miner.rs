@@ -820,7 +820,7 @@ impl BlockMinerThread {
         self.globals.coord().announce_new_stacks_block();
 
         self.last_block_mined = Some((
-            new_block.header.consensus_hash,
+            new_block.header.consensus_hash.clone(),
             new_block.header.block_hash(),
         ));
         self.mined_blocks += 1;
@@ -1478,7 +1478,10 @@ impl BlockMinerThread {
                     // If the parent block is in the same tenure, then we should
                     // pretend that we mined it.
                     self.last_block_mined = Some((
-                        parent_block_info.stacks_parent_header.consensus_hash,
+                        parent_block_info
+                            .stacks_parent_header
+                            .consensus_hash
+                            .clone(),
                         parent_block_info
                             .stacks_parent_header
                             .anchored_header
@@ -1654,7 +1657,7 @@ impl BlockMinerThread {
                 }
                 ParentTenureInfo {
                     parent_tenure_blocks: self.mined_blocks,
-                    parent_tenure_consensus_hash: self.burn_election_block.consensus_hash,
+                    parent_tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
                 }
             }
         };
@@ -1704,10 +1707,10 @@ impl BlockMinerThread {
 
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let mut payload = TenureChangePayload {
-            tenure_consensus_hash: self.burn_election_block.consensus_hash,
-            prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash,
-            burn_view_consensus_hash: self.burn_election_block.consensus_hash,
-            previous_tenure_end: parent_block_id,
+            tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
+            prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash.clone(),
+            burn_view_consensus_hash: self.burn_election_block.consensus_hash.clone(),
+            previous_tenure_end: parent_block_id.clone(),
             previous_tenure_blocks: u32::try_from(parent_tenure_info.parent_tenure_blocks)
                 .expect("FATAL: more than u32 blocks in a tenure"),
             cause: TenureChangeCause::BlockFound,
@@ -1738,7 +1741,7 @@ impl BlockMinerThread {
 
                 // NOTE: this switches payload.cause to TenureChangeCause::Extend
                 payload = payload.extend(
-                    *burn_view_consensus_hash,
+                    burn_view_consensus_hash.clone(),
                     parent_block_id,
                     num_blocks_so_far,
                 );
@@ -1780,7 +1783,7 @@ impl BlockMinerThread {
     fn tenure_extend_reset(&mut self) {
         self.tenure_change_time = Instant::now();
         self.reason = MinerReason::Extended {
-            burn_view_consensus_hash: self.burn_block.consensus_hash,
+            burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
         };
         self.mined_blocks = 0;
     }
@@ -1873,7 +1876,7 @@ impl ParentStacksBlockInfo {
             } else {
                 1
             };
-            let parent_tenure_consensus_hash = parent_tenure_header.consensus_hash;
+            let parent_tenure_consensus_hash = parent_tenure_header.consensus_hash.clone();
             Some(ParentTenureInfo {
                 parent_tenure_blocks,
                 parent_tenure_consensus_hash,

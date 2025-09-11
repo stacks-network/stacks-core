@@ -321,7 +321,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
 
-        let result = Ok(self.chain_tip);
+        let result = Ok(self.chain_tip.clone());
         self.chain_tip = bhh;
 
         result
@@ -600,7 +600,7 @@ impl WritableMarfStore<'_> {
         //    _if_ for some reason, we do want to be able to access that mined chain state in the future,
         //    we should probably commit the data to a different table which does not have uniqueness constraints.
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), &self.chain_tip)?;
-        let _ = self.marf.commit_mined(will_move_to).map_err(|e| {
+        self.marf.commit_mined(will_move_to).map_err(|e| {
             error!(
                 "Failed to commit to mined MARF block {}: {:?}",
                 &will_move_to, &e
@@ -636,7 +636,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
 
-        let result = Ok(self.chain_tip);
+        let result = Ok(self.chain_tip.clone());
         self.chain_tip = bhh;
 
         result

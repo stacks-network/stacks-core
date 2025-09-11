@@ -45,7 +45,7 @@ use crate::net::{Error as NetError, ProtocolFamily};
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_mempool_query(
         addr.into(),
@@ -88,8 +88,7 @@ fn test_try_make_response() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
 
     let test_rpc = TestRPC::setup(function_name!());
-    let mempool_txids = test_rpc.mempool_txids.clone();
-    let mempool_txids: HashSet<_> = mempool_txids.iter().copied().collect();
+    let mempool_txids: HashSet<_> = test_rpc.mempool_txids.iter().cloned().collect();
 
     let sync_data = test_rpc
         .peer_1
@@ -165,7 +164,7 @@ fn test_stream_mempool_txs() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            &txid,
             tx_bytes,
             tx_fee,
             block_height,

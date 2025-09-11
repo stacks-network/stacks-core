@@ -21,6 +21,7 @@ use std::time::Instant;
 use std::{fs, process};
 
 use clarity::types::chainstate::SortitionId;
+use clarity::util::hash::{to_hex, Sha512Trunc256Sum};
 use db::blocks::DummyEventDispatcher;
 use db::ChainstateTx;
 use regex::Regex;
@@ -471,8 +472,8 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
                 &mut mempool_db,
                 &parent_stacks_header,
                 chain_tip.total_burn,
-                VRFProof::empty(),
-                Hash160([0; 20]),
+                &VRFProof::empty(),
+                &Hash160([0; 20]),
                 &coinbase_tx,
                 settings,
                 None,
@@ -545,6 +546,28 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     };
 
     process::exit(code);
+}
+
+/// Compute the contract hash for a given contract
+///
+/// Arguments:
+///  - `argv`: Args in CLI format: `<command-name> [args...]`
+pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
+    let print_help_and_exit = || -> ! {
+        let n = &argv[0];
+        eprintln!("Usage:");
+        eprintln!("  {n} <path-to-contract>");
+        process::exit(1);
+    };
+
+    // Process CLI args
+    let contract_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
+    let contract_source = fs::read_to_string(contract_path)
+        .unwrap_or_else(|e| panic!("Failed to read contract file {contract_path:?}: {e}"));
+
+    let hash = Sha512Trunc256Sum::from_data(contract_source.as_bytes());
+    let hex_string = to_hex(hash.as_bytes());
+    println!("Contract hash for {contract_path}:\n{hex_string}");
 }
 
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
@@ -1033,9 +1056,9 @@ fn replay_block_nakamoto(
                 ));
             }
         }
-        tenure_change.burn_view_consensus_hash
+        &tenure_change.burn_view_consensus_hash
     } else {
-        parent_header_info.burn_view.clone().ok_or_else(|| {
+        parent_header_info.burn_view.as_ref().ok_or_else(|| {
                 warn!(
                     "Cannot process Nakamoto block: parent block does not have a burnchain view and current block has no tenure tx";
                     "consensus_hash" => %block.header.consensus_hash,
@@ -1047,7 +1070,7 @@ fn replay_block_nakamoto(
             })?
     };
     let Some(burnchain_view_sn) =
-        SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &burnchain_view)?
+        SortitionDB::get_block_snapshot_consensus(sort_db.conn(), burnchain_view)?
     else {
         // This should be checked already during block acceptance and parent block processing
         //   - The check for expected burns returns `NoSuchBlockError` if the burnchain view

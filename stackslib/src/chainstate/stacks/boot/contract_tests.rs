@@ -521,7 +521,7 @@ impl HeadersDB for TestSimHeadersDB {
         } else if self.get_burn_block_height_for_block(id_bhh).is_none() {
             None
         } else {
-            Some(BurnchainHeaderHash(id_bhh.0.clone()))
+            Some(BurnchainHeaderHash(id_bhh.0))
         }
     }
 
@@ -556,7 +556,7 @@ impl HeadersDB for TestSimHeadersDB {
             if self.get_burn_block_height_for_block(id_bhh).is_none() {
                 return None;
             }
-            Some(BlockHeaderHash(id_bhh.0.clone()))
+            Some(BlockHeaderHash(id_bhh.0))
         }
     }
 

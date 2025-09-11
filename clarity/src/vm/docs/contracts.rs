@@ -1,6 +1,5 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use hashbrown::{HashMap, HashSet};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 

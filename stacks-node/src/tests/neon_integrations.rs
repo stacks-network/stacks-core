@@ -2655,7 +2655,7 @@ fn stack_stx_burn_op_test() {
         reward_addr: pox_addr.clone(),
         stacked_ustx: 10000000000000,
         num_cycles: 6,
-        signer_key: Some(signer_key),
+        signer_key: Some(signer_key.clone()),
         max_amount: Some(u128::MAX),
         auth_id: Some(auth_id),
         // to be filled in
@@ -3042,7 +3042,7 @@ fn vote_for_aggregate_key_burn_op_test() {
             sender: spender_stx_addr.clone(),
             round: 0,
             reward_cycle,
-            aggregate_key,
+            aggregate_key: aggregate_key.clone(),
             // to be filled in
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -6413,9 +6413,9 @@ fn wait_for_mined(
         let ibh = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
 
         if let Some(last_ibh) = index_block_hashes.last() {
-            if *last_ibh != ibh {
-                index_block_hashes.push(ibh);
+            if last_ibh != &ibh {
                 eprintln!("Tip is now {ibh}");
+                index_block_hashes.push(ibh);
             }
         }
 
@@ -7051,7 +7051,7 @@ fn atlas_stress_integration_test() {
             )
             .unwrap();
             if !indexes.is_empty() {
-                attachment_indexes.insert(*ibh, indexes.clone());
+                attachment_indexes.insert(ibh.clone(), indexes.clone());
             }
 
             for index in indexes.iter() {
@@ -7063,7 +7063,7 @@ fn atlas_stress_integration_test() {
                 .unwrap();
                 if !hashes.is_empty() {
                     assert_eq!(hashes.len(), 1);
-                    attachment_hashes.insert((*ibh, *index), hashes.pop());
+                    attachment_hashes.insert((ibh.clone(), *index), hashes.pop());
                 }
             }
         }
@@ -7119,7 +7119,7 @@ fn atlas_stress_integration_test() {
                 continue;
             }
             let content_hash = attachment_hashes
-                .get(&(*ibh, *attachment))
+                .get(&(ibh.clone(), *attachment))
                 .cloned()
                 .unwrap()
                 .unwrap();
@@ -7434,7 +7434,7 @@ fn use_latest_tip_integration_test() {
                 .sortdb_ref()
                 .index_handle_at_block(&chainstate, &tip_hash)
                 .unwrap(),
-            tip_hash,
+            tip_hash.clone(),
         )
         .unwrap();
 

@@ -2802,7 +2802,7 @@ fn process_new_blocks_rejects_problematic_asts() {
                 &parent_tip,
                 vrf_proof,
                 tip.total_burn,
-                Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                &Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
             )
             .unwrap();
 
@@ -2865,9 +2865,9 @@ fn process_new_blocks_rejects_problematic_asts() {
             let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                 &burnchain,
                 &parent_tip,
-                vrf_proof.clone(),
+                vrf_proof,
                 tip.total_burn,
-                Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                &Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
             )
             .unwrap();
 
@@ -2892,7 +2892,7 @@ fn process_new_blocks_rejects_problematic_asts() {
                 &parent_tip,
                 vrf_proof,
                 tip.total_burn,
-                Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                &Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
             )
             .unwrap();
             let bad_block = StacksBlockBuilder::make_anchored_block_from_txs(
@@ -3141,7 +3141,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
          chainstate: &mut StacksChainState,
-         vrfproof: VRFProof,
+         vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3195,7 +3195,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
                 &parent_tip,
                 vrfproof,
                 tip.total_burn,
-                Hash160(mblock_pubkey_hash_bytes),
+                &Hash160(mblock_pubkey_hash_bytes),
             )
             .unwrap();
 
@@ -3317,7 +3317,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
          chainstate: &mut StacksChainState,
-         vrfproof: VRFProof,
+         vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3373,7 +3373,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
                 &parent_tip,
                 vrfproof,
                 tip.total_burn,
-                Hash160(mblock_pubkey_hash_bytes),
+                &Hash160(mblock_pubkey_hash_bytes),
             )
             .unwrap();
 
@@ -3499,7 +3499,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
          chainstate: &mut StacksChainState,
-         vrfproof: VRFProof,
+         vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3563,7 +3563,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
                 &parent_tip,
                 vrfproof,
                 tip.total_burn,
-                Hash160(mblock_pubkey_hash_bytes),
+                &Hash160(mblock_pubkey_hash_bytes),
             )
             .unwrap();
 

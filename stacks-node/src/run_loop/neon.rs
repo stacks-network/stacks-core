@@ -610,7 +610,7 @@ impl RunLoop {
         let mut boot_data = ChainStateBootData {
             initial_balances,
             post_flight_callback: None,
-            first_burnchain_block_hash: burnchain_config.first_block_hash,
+            first_burnchain_block_hash: burnchain_config.first_block_hash.clone(),
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,
             pox_constants: burnchain_config.pox_constants.clone(),

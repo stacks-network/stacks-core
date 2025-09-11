@@ -35,7 +35,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    TypeSignature, TypeSignatureExt as _, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
 use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
@@ -47,7 +47,7 @@ pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, Contract
     mem_run_analysis(
         exp,
         crate::vm::ClarityVersion::latest(),
-        StacksEpochId::Epoch21,
+        StacksEpochId::latest(),
     )
 }
 
@@ -1992,7 +1992,7 @@ fn test_high_order_map() {
 fn test_function_order_tuples() {
     let snippet = "
 (define-read-only (get-score)
-    (ok 
+    (ok
         (tuple
             (score (get-zero))
         )

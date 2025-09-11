@@ -961,8 +961,8 @@ impl<'a> StacksMicroblockBuilder<'a> {
             dispatcher.mined_microblock_event(
                 &microblock,
                 tx_events,
-                self.anchor_block_consensus_hash,
-                self.anchor_block,
+                self.anchor_block_consensus_hash.clone(),
+                self.anchor_block.clone(),
             )
         }
 
@@ -1318,7 +1318,7 @@ impl<'a> StacksMicroblockBuilder<'a> {
                                             }
                                         }
 
-                                        invalidated_txs.push(mempool_tx.metadata.txid);
+                                        invalidated_txs.push(mempool_tx.metadata.txid.clone());
                                     }
                                     _ => {}
                                 }
@@ -1440,14 +1440,14 @@ impl StacksBlockBuilder {
         parent_chain_tip: &StacksHeaderInfo,
         total_work: &StacksWorkScore,
         proof: &VRFProof,
-        pubkh: Hash160,
+        pubkh: &Hash160,
     ) -> StacksBlockBuilder {
         let header = StacksBlockHeader::from_parent_empty(
             &parent_chain_tip.anchored_header,
             parent_chain_tip.microblock_tail.as_ref(),
             total_work,
             proof,
-            &pubkh,
+            pubkh,
         );
 
         let mut header_bytes = vec![];
@@ -1498,7 +1498,7 @@ impl StacksBlockBuilder {
             parent_chain_tip,
             total_work,
             proof,
-            pubkh,
+            &pubkh,
         );
         builder.miner_privkey = microblock_privkey.clone();
         builder
@@ -1511,7 +1511,7 @@ impl StacksBlockBuilder {
         genesis_burn_header_height: u32,
         genesis_burn_header_timestamp: u64,
         proof: &VRFProof,
-        pubkh: Hash160,
+        pubkh: &Hash160,
     ) -> StacksBlockBuilder {
         let genesis_chain_tip = StacksHeaderInfo {
             anchored_header: StacksBlockHeader::genesis_block_header().into(),
@@ -1557,7 +1557,7 @@ impl StacksBlockBuilder {
             genesis_burn_header_height,
             genesis_burn_header_timestamp,
             proof,
-            pubkh,
+            &pubkh,
         );
         builder.miner_privkey = microblock_privkey.clone();
         builder
@@ -1716,7 +1716,7 @@ impl StacksBlockBuilder {
             clarity_tx,
             self.miner_payouts.as_ref(),
             u32::try_from(self.header.total_work.work).expect("FATAL: more than 2^32 blocks"),
-            self.header.microblock_pubkey_hash,
+            &self.header.microblock_pubkey_hash,
         )
         .expect("FATAL: call to `finish_block` failed");
         self.finalize_block(clarity_tx)
@@ -1953,10 +1953,10 @@ impl StacksBlockBuilder {
             burn_dbconn.conn(),
             &burn_dbconn.context.pox_constants,
             &self.chain_tip,
-            info.burn_tip,
+            &info.burn_tip,
             info.burn_tip_height,
-            self.parent_consensus_hash,
-            self.parent_header_hash,
+            &self.parent_consensus_hash,
+            &self.parent_header_hash,
             &info.parent_microblocks,
             info.mainnet,
             Some(self.miner_id),
@@ -2077,9 +2077,9 @@ impl StacksBlockBuilder {
         burnchain: &Burnchain,
         mainnet: bool,
         stacks_parent_header: &StacksHeaderInfo,
-        proof: VRFProof,
+        proof: &VRFProof,
         total_burn: u64,
-        pubkey_hash: Hash160,
+        pubkey_hash: &Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
             let (first_block_hash, first_block_height, first_block_ts) = if mainnet {
@@ -2090,7 +2090,7 @@ impl StacksBlockBuilder {
                 )
             } else {
                 (
-                    burnchain.first_block_hash,
+                    burnchain.first_block_hash.clone(),
                     burnchain.first_block_height,
                     burnchain.first_block_timestamp,
                 )
@@ -2100,8 +2100,8 @@ impl StacksBlockBuilder {
                 &FIRST_BURNCHAIN_CONSENSUS_HASH,
                 &first_block_hash,
                 u32::try_from(first_block_height).expect("FATAL: first block is over 2^32"),
-                u64::try_from(first_block_ts).expect("FATAL: first block timestamp is over 2^64"),
-                &proof,
+                first_block_ts.into(),
+                proof,
                 pubkey_hash,
             )
         } else {
@@ -2118,7 +2118,7 @@ impl StacksBlockBuilder {
                 0,
                 stacks_parent_header,
                 &new_work,
-                &proof,
+                proof,
                 pubkey_hash,
             )
         };
@@ -2132,9 +2132,9 @@ impl StacksBlockBuilder {
     pub fn make_regtest_block_builder(
         burnchain: &Burnchain,
         stacks_parent_header: &StacksHeaderInfo,
-        proof: VRFProof,
+        proof: &VRFProof,
         total_burn: u64,
-        pubkey_hash: Hash160,
+        pubkey_hash: &Hash160,
     ) -> Result<StacksBlockBuilder, Error> {
         let builder = if stacks_parent_header.consensus_hash == FIRST_BURNCHAIN_CONSENSUS_HASH {
             StacksBlockBuilder::first_pubkey_hash(
@@ -2145,7 +2145,7 @@ impl StacksBlockBuilder {
                     .expect("first regtest bitcoin block is over 2^32"),
                 u64::try_from(burnchain.first_block_timestamp)
                     .expect("first regtest bitcoin block timestamp is over 2^64"),
-                &proof,
+                proof,
                 pubkey_hash,
             )
         } else {
@@ -2162,7 +2162,7 @@ impl StacksBlockBuilder {
                 0,
                 stacks_parent_header,
                 &new_work,
-                &proof,
+                proof,
                 pubkey_hash,
             )
         };
@@ -2256,8 +2256,8 @@ impl StacksBlockBuilder {
         mempool: &mut MemPoolDB,
         parent_stacks_header: &StacksHeaderInfo, // Stacks header we're building off of
         total_burn: u64, // the burn so far on the burnchain (i.e. from the last burnchain block)
-        proof: VRFProof, // proof over the burnchain's last seed
-        pubkey_hash: Hash160,
+        proof: &VRFProof, // proof over the burnchain's last seed
+        pubkey_hash: &Hash160,
         coinbase_tx: &StacksTransaction,
         settings: BlockBuilderSettings,
         event_observer: Option<&dyn MemPoolEventDispatcher>,
@@ -2723,7 +2723,7 @@ fn select_and_apply_transactions_from_mempool<B: BlockBuilder>(
                                     }
                                 }
 
-                                invalidated_txs.push(txinfo.metadata.txid);
+                                invalidated_txs.push(txinfo.metadata.txid.clone());
                             }
                             Error::InvalidStacksTransaction(_, true) => {
                                 // if we have an invalid transaction that was quietly ignored, don't warn here either
@@ -2819,9 +2819,10 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
             TransactionResult::Skipped(TransactionSkipped { error, .. })
             | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
                 match &error {
-                    Error::BlockTooBigError => {
+                    Error::BlockTooBigError | Error::BlockCostLimitError => {
                         // done mining -- our execution budget is exceeded.
-                        // Make the block from the transactions we did manage to get
+                        // Make the block from the transactions we did manage
+                        // (We cannot simply skip as this would put the replay txs out of order)
                         debug!("Block budget exceeded on tx {txid}");
                         info!("Miner stopping due to limit reached");
                         break;

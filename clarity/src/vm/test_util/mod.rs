@@ -1,19 +1,19 @@
-use stacks_common::address::{AddressHashMode, C32_ADDRESS_VERSION_TESTNET_SINGLESIG};
 use stacks_common::consts::{
     BITCOIN_REGTEST_FIRST_BLOCK_HASH, BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT,
     BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH,
     PEER_VERSION_EPOCH_2_0,
 };
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress, StacksBlockId,
-    StacksPrivateKey, StacksPublicKey, VRFSeed,
+    BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, PoxId, SortitionId, StacksAddress,
+    StacksBlockId, VRFSeed,
 };
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{PrincipalData, StandardPrincipalData, TupleData, Value};
+use crate::vm::types::{TupleData, Value};
 use crate::vm::{execute as vm_execute, execute_on_network as vm_execute_on_network, StacksEpoch};
 
 pub struct UnitTestBurnStateDB {
@@ -46,7 +46,8 @@ pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnState
         | StacksEpochId::Epoch25
         | StacksEpochId::Epoch30
         | StacksEpochId::Epoch31
-        | StacksEpochId::Epoch32 => UnitTestBurnStateDB { epoch_id },
+        | StacksEpochId::Epoch32
+        | StacksEpochId::Epoch33 => UnitTestBurnStateDB { epoch_id },
     }
 }
 
@@ -89,29 +90,22 @@ pub fn is_err_code_i128(v: &Value, e: i128) -> bool {
     }
 }
 
-impl From<&StacksPrivateKey> for StandardPrincipalData {
-    fn from(o: &StacksPrivateKey) -> StandardPrincipalData {
-        let stacks_addr = StacksAddress::from_public_keys(
-            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-            &AddressHashMode::SerializeP2PKH,
-            1,
-            &vec![StacksPublicKey::from_private(o)],
-        )
-        .unwrap();
-        StandardPrincipalData::from(stacks_addr)
-    }
+fn height_to_hashed_bytes(height: u32) -> [u8; 32] {
+    let input_bytes = height.to_be_bytes();
+    let hash = Sha512Trunc256Sum::from_data(&input_bytes);
+    hash.into_bytes()
 }
 
-impl From<&StacksPrivateKey> for PrincipalData {
-    fn from(o: &StacksPrivateKey) -> PrincipalData {
-        PrincipalData::Standard(StandardPrincipalData::from(o))
-    }
+fn bhh_from_height(height: u32) -> BurnchainHeaderHash {
+    let mut bytes = height_to_hashed_bytes(height);
+    bytes[31] = 2;
+    BurnchainHeaderHash::from_bytes(&bytes[0..32]).unwrap()
 }
 
-impl From<&StacksPrivateKey> for Value {
-    fn from(o: &StacksPrivateKey) -> Value {
-        Value::from(StandardPrincipalData::from(o))
-    }
+fn consensus_hash_from_height(height: u32) -> ConsensusHash {
+    let mut bytes = height_to_hashed_bytes(height);
+    bytes[19] = 3;
+    ConsensusHash::from_bytes(&bytes[0..20]).unwrap()
 }
 
 impl HeadersDB for UnitTestHeaderDB {
@@ -190,7 +184,7 @@ impl HeadersDB for UnitTestHeaderDB {
         {
             Some(FIRST_BURNCHAIN_CONSENSUS_HASH)
         } else {
-            None
+            Some(consensus_hash_from_height(id_bhh.as_bytes()[0] as u32))
         }
     }
 
@@ -232,15 +226,16 @@ impl HeadersDB for UnitTestHeaderDB {
 
 impl BurnStateDB for UnitTestBurnStateDB {
     fn get_tip_burn_block_height(&self) -> Option<u32> {
-        None
+        Some(1)
     }
 
     fn get_tip_sortition_id(&self) -> Option<SortitionId> {
-        None
+        let bhh = BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap();
+        Some(SortitionId::new(&bhh, &PoxId::stubbed()))
     }
 
     fn get_burn_block_height(&self, _sortition_id: &SortitionId) -> Option<u32> {
-        None
+        Some(1)
     }
 
     fn get_burn_header_hash(
@@ -248,7 +243,7 @@ impl BurnStateDB for UnitTestBurnStateDB {
         _height: u32,
         _sortition_id: &SortitionId,
     ) -> Option<BurnchainHeaderHash> {
-        None
+        Some(BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap())
     }
 
     fn get_stacks_epoch(&self, _height: u32) -> Option<StacksEpoch> {
@@ -301,9 +296,12 @@ impl BurnStateDB for UnitTestBurnStateDB {
     }
     fn get_sortition_id_from_consensus_hash(
         &self,
-        _consensus_hash: &ConsensusHash,
+        consensus_hash: &ConsensusHash,
     ) -> Option<SortitionId> {
-        None
+        Some(SortitionId::new(
+            &bhh_from_height(consensus_hash.as_bytes()[0] as u32),
+            &PoxId::stubbed(),
+        ))
     }
     fn get_pox_payout_addrs(
         &self,

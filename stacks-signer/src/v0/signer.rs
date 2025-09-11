@@ -629,7 +629,7 @@ impl Signer {
                 self.local_state_machine
                     .bitcoin_block_arrival(&self.signer_db, stacks_client, &self.proposal_config, Some(NewBurnBlock {
                         burn_block_height: *burn_height,
-                        consensus_hash: *consensus_hash,
+                        consensus_hash: consensus_hash.clone(),
                     }),
                     &mut self.tx_replay_scope
                 , &self.global_state_evaluator, active_signer_protocol_version)
@@ -647,7 +647,7 @@ impl Signer {
                     debug!("{self}: received a new block event for a pre-nakamoto block, no processing necessary");
                     return;
                 };
-                self.recently_processed.add_block(*block_id);
+                self.recently_processed.add_block(block_id.clone());
                 debug!(
                     "{self}: Received a new block event.";
                     "block_id" => %block_id,
@@ -1340,9 +1340,10 @@ impl Signer {
         sortition_state: &mut Option<SortitionsView>,
     ) {
         crate::monitoring::actions::increment_block_validation_responses(true);
-        let signer_signature_hash = block_validate_ok.signer_signature_hash;
+        let signer_signature_hash = &block_validate_ok.signer_signature_hash;
         if self
             .submitted_block_proposal
+            .as_ref()
             .map(|(proposal_hash, _)| proposal_hash == signer_signature_hash)
             .unwrap_or(false)
         {
@@ -1355,7 +1356,7 @@ impl Signer {
             );
             self.signer_db
                 .insert_block_validated_by_replay_tx(
-                    &signer_signature_hash,
+                    signer_signature_hash,
                     replay_tx_hash,
                     block_validate_ok.replay_tx_exhausted,
                 )
@@ -1364,7 +1365,7 @@ impl Signer {
                 });
         }
         // For mutability reasons, we need to take the block_info out of the map and add it back after processing
-        let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(signer_signature_hash) else {
             // We have not seen this block before. Why are we getting a response for it?
             debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
             return;
@@ -1406,10 +1407,10 @@ impl Signer {
             self.signer_db
                 .insert_block(&block_info)
                 .unwrap_or_else(|e| self.handle_insert_block_error(e));
-            self.send_block_pre_commit(signer_signature_hash);
+            self.send_block_pre_commit(signer_signature_hash.clone());
             // have to save the signature _after_ the block info
             let address = self.stacks_address.clone();
-            self.handle_block_pre_commit(stacks_client, &address, &signer_signature_hash);
+            self.handle_block_pre_commit(stacks_client, &address, signer_signature_hash);
         }
     }
 
@@ -1420,15 +1421,16 @@ impl Signer {
         sortition_state: &mut Option<SortitionsView>,
     ) {
         crate::monitoring::actions::increment_block_validation_responses(false);
-        let signer_signature_hash = block_validate_reject.signer_signature_hash;
+        let signer_signature_hash = &block_validate_reject.signer_signature_hash;
         if self
             .submitted_block_proposal
+            .as_ref()
             .map(|(proposal_hash, _)| proposal_hash == signer_signature_hash)
             .unwrap_or(false)
         {
             self.submitted_block_proposal = None;
         }
-        let Some(mut block_info) = self.block_lookup_by_reward_cycle(&signer_signature_hash) else {
+        let Some(mut block_info) = self.block_lookup_by_reward_cycle(signer_signature_hash) else {
             // We have not seen this block before. Why are we getting a response for it?
             debug!("{self}: Received a block validate response for a block we have not seen before. Ignoring...");
             return;
@@ -1486,7 +1488,7 @@ impl Signer {
         // Remove this block validation from the pending table
         let signer_sig_hash = block_validate_response.signer_signature_hash();
         self.signer_db
-            .remove_pending_block_validation(&signer_sig_hash)
+            .remove_pending_block_validation(signer_sig_hash)
             .unwrap_or_else(|e| warn!("{self}: Failed to remove pending block validation: {e:?}"));
 
         // Check if there is a pending block validation that we need to submit to the node

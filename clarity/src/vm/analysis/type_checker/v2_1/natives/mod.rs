@@ -498,7 +498,7 @@ fn check_contract_call(
                     _ => {
                         return Err(
                             CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
-                        )
+                        );
                     }
                 };
 
@@ -576,7 +576,7 @@ fn check_contract_call(
                                 return Err(CheckErrors::TraitReferenceUnknown(
                                     trait_instance.to_string(),
                                 )
-                                .into())
+                                .into());
                             }
                         };
 
@@ -1171,6 +1171,18 @@ impl TypedNativeFunction {
             FromConsensusBuff => Special(SpecialNativeFunction(
                 &conversions::check_special_from_consensus_buff,
             )),
+            ContractHash => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![FunctionArg::new(
+                    TypeSignature::PrincipalType,
+                    ClarityName::try_from("contract".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
+                )],
+                returns: TypeSignature::new_response(BUFF_32.clone(), TypeSignature::UIntType)
+                    .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+            }))),
         };
 
         Ok(out)

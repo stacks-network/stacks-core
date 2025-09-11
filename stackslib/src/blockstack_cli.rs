@@ -92,7 +92,7 @@ is that the miner chooses, but you can decide which with the following options:
   --block-only       indicates to mine this transaction only in a block
 
 The post-condition mode for the transaction can be controlled with the following option:
-  
+
   --postcondition-mode  indicates the post-condition mode for the contract. Allowed values: [`allow`, `deny`]. Default: `deny`.
 ";
 
@@ -377,7 +377,7 @@ fn extract_flag(args: &mut Vec<String>, flag: &str) -> bool {
 ///
 /// # Returns
 ///
-/// An `Option<String>` containing the value following the flag if both were found and removed;  
+/// An `Option<String>` containing the value following the flag if both were found and removed;
 /// returns `None` if the flag was not found or no value follows the flag.
 fn extract_flag_with_value(args: &mut Vec<String>, flag: &str) -> Option<String> {
     args.iter()

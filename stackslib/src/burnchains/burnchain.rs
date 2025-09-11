@@ -744,7 +744,7 @@ impl Burnchain {
     pub fn connect_db(
         &self,
         readwrite: bool,
-        first_block_header_hash: BurnchainHeaderHash,
+        first_block_header_hash: &BurnchainHeaderHash,
         first_block_header_timestamp: u64,
         epochs: EpochList,
     ) -> Result<(SortitionDB, BurnchainDB), burnchain_error> {
@@ -756,7 +756,7 @@ impl Burnchain {
         let sortitiondb = SortitionDB::connect(
             &db_path,
             self.first_block_height,
-            &first_block_header_hash,
+            first_block_header_hash,
             first_block_header_timestamp,
             &epochs,
             self.pox_constants.clone(),
@@ -1182,13 +1182,13 @@ impl Burnchain {
         self.setup_chainstate(indexer)?;
         let (mut sortdb, mut burnchain_db) = self.connect_db(
             true,
-            indexer.get_first_block_header_hash()?,
+            &indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
             indexer.get_stacks_epochs(),
         )?;
         let (parser_sortdb, _) = self.connect_db(
             true,
-            indexer.get_first_block_header_hash()?,
+            &indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
             indexer.get_stacks_epochs(),
         )?;
@@ -1452,7 +1452,7 @@ impl Burnchain {
         self.setup_chainstate(indexer)?;
         let (sortdb, mut burnchain_db) = self.connect_db(
             true,
-            indexer.get_first_block_header_hash()?,
+            &indexer.get_first_block_header_hash()?,
             indexer.get_first_block_header_timestamp()?,
             indexer.get_stacks_epochs(),
         )?;

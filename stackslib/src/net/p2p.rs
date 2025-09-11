@@ -447,9 +447,9 @@ impl From<&DropNeighbor> for DropPeer {
     fn from(drop_neighbor: &DropNeighbor) -> Self {
         DropPeer {
             reason: drop_neighbor.reason.clone(),
-            address: drop_neighbor.key.addrbytes,
+            address: drop_neighbor.key.addrbytes.clone(),
             port: drop_neighbor.key.port,
-            source: drop_neighbor.source.clone(),
+            source: drop_neighbor.source,
         }
     }
 }
@@ -1727,7 +1727,7 @@ impl PeerNetwork {
             };
 
             disconnect.push(DropPeer {
-                address: neighbor_key.addrbytes,
+                address: neighbor_key.addrbytes.clone(),
                 port: neighbor_key.port,
                 reason: DropReason::BannedConnection,
                 source: DropSource::PeerNetwork,
@@ -2157,7 +2157,7 @@ impl PeerNetwork {
         };
         self.deregister_peer(DropPeer {
             reason,
-            address: neighbor.addrbytes,
+            address: neighbor.addrbytes.clone(),
             source,
             port: neighbor.port,
         });
@@ -2179,7 +2179,7 @@ impl PeerNetwork {
         if event_id.is_some() {
             self.deregister_peer(DropPeer {
                 reason,
-                address: neighbor.addrbytes,
+                address: neighbor.addrbytes.clone(),
                 source,
                 port: neighbor.port,
             });
@@ -2472,7 +2472,7 @@ impl PeerNetwork {
                     );
                     if let Some(convo) = convo {
                         to_remove.push(DropPeer {
-                            address: convo.peer_addrbytes,
+                            address: convo.peer_addrbytes.clone(),
                             port: convo.peer_port,
                             reason: DropReason::BrokenConnection(format!("Connection failed: {e}")),
                             source: if ibd {
@@ -2494,7 +2494,7 @@ impl PeerNetwork {
                 );
                 if let Some(convo) = convo {
                     to_remove.push(DropPeer {
-                        address: convo.peer_addrbytes,
+                        address: convo.peer_addrbytes.clone(),
                         port: convo.peer_port,
                         reason: DropReason::DeadConnection("Connection is no longer alive".into()),
                         source: if ibd {
@@ -2606,7 +2606,7 @@ impl PeerNetwork {
                     now
                 );
                 to_remove.push(DropPeer {
-                    address: peer.nk.addrbytes,
+                    address: peer.nk.addrbytes.clone(),
                     port: peer.nk.port,
                     reason: DropReason::Unresponsive {
                         timeout: self.connection_opts.timeout,
@@ -2638,7 +2638,7 @@ impl PeerNetwork {
                     );
 
                     to_remove.push(DropPeer {
-                        address: convo.peer_addrbytes,
+                        address: convo.peer_addrbytes.clone(),
                         port: convo.peer_port,
                         reason: DropReason::Unresponsive {
                             timeout: self.connection_opts.timeout,
@@ -2661,7 +2661,7 @@ impl PeerNetwork {
                     );
 
                     to_remove.push(DropPeer {
-                        address: convo.peer_addrbytes,
+                        address: convo.peer_addrbytes.clone(),
                         port: convo.peer_port,
                         reason: DropReason::Unresponsive {
                             timeout: self.connection_opts.timeout,
@@ -2860,7 +2860,7 @@ impl PeerNetwork {
                         debug!("Relay handle broken to event {event_id}");
                         if let Some(peer) = self.peers.get(event_id) {
                             broken.push(DropPeer {
-                                address: peer.peer_addrbytes,
+                                address: peer.peer_addrbytes.clone(),
                                 port: peer.peer_port,
                                 reason: DropReason::BrokenConnection(format!(
                                     "Relay handle broken: {e}"
@@ -2995,7 +2995,7 @@ impl PeerNetwork {
                 &self.local_peer
             );
         }
-        return Ok(true);
+        Ok(true)
     }
 
     /// Disconnect from all peers
@@ -3003,14 +3003,14 @@ impl PeerNetwork {
         let address_port_pairs: Vec<_> = self
             .peers
             .values()
-            .map(|convo| (convo.peer_addrbytes, convo.peer_port))
+            .map(|convo| (convo.peer_addrbytes.clone(), convo.peer_port))
             .collect();
         for (address, port) in address_port_pairs {
             self.deregister_peer(DropPeer {
                 address,
                 port,
                 reason: reason.clone(),
-                source: source.clone(),
+                source,
             });
         }
     }
@@ -3712,7 +3712,7 @@ impl PeerNetwork {
                                         }
                                     } else {
                                         let mut pushed = HashMap::new();
-                                        pushed.insert(index_block_hash, get_epoch_time_secs());
+                                        pushed.insert(index_block_hash.clone(), get_epoch_time_secs());
                                         network.antientropy_microblocks.insert(nk.clone(), pushed);
                                     }
 
@@ -4637,7 +4637,7 @@ impl PeerNetwork {
                     // careful -- the sortition DB stores a StacksBlockId's value (the tenure-start
                     // StacksBlockId) as a BlockHeaderHash, since that's what it was designed to
                     // deal with in the pre-Nakamoto days
-                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0.clone())
+                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0)
                         || cached_rc_info.anchor_block_hash == *anchor_hash
                     {
                         // cached reward set data is still valid

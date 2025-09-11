@@ -321,7 +321,7 @@ impl UnconfirmedState {
                 };
 
                 for tx in &mblock.txs {
-                    mined_txs.insert(tx.txid(), (tx.clone(), mblock_hash, seq));
+                    mined_txs.insert(tx.txid(), (tx.clone(), mblock_hash.clone(), seq));
                 }
             }
 
@@ -463,7 +463,7 @@ impl UnconfirmedState {
             };
 
             if trie_exists {
-                Ok(Some(self.unconfirmed_chain_tip))
+                Ok(Some(self.unconfirmed_chain_tip.clone()))
             } else {
                 Ok(None)
             }
@@ -506,12 +506,12 @@ impl StacksChainState {
         burn_dbconn: &dyn BurnStateDB,
         anchored_block_id: StacksBlockId,
     ) -> Result<(UnconfirmedState, ProcessedUnconfirmedState), Error> {
-        debug!("Make new unconfirmed state off of {}", &anchored_block_id);
-        let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id)?;
+        debug!("Make new unconfirmed state off of {anchored_block_id}");
+        let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id.clone())?;
         let processed_unconfirmed_state = unconfirmed_state.refresh(self, burn_dbconn)?;
         debug!(
-            "Made new unconfirmed state off of {} (at {})",
-            &anchored_block_id, &unconfirmed_state.unconfirmed_chain_tip
+            "Made new unconfirmed state off of {anchored_block_id} (at {})",
+            &unconfirmed_state.unconfirmed_chain_tip
         );
         Ok((unconfirmed_state, processed_unconfirmed_state))
     }
@@ -558,7 +558,7 @@ impl StacksChainState {
         }
 
         let (new_unconfirmed_state, processed_unconfirmed_state) =
-            self.make_unconfirmed_state(burn_dbconn, canonical_tip)?;
+            self.make_unconfirmed_state(burn_dbconn, canonical_tip.clone())?;
 
         debug!(
             "Unconfirmed state off of {} reloaded (new unconfirmed tip is {})",
@@ -722,7 +722,7 @@ mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
 
@@ -959,7 +959,7 @@ mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
 
@@ -1218,7 +1218,7 @@ mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
 
