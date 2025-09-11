@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::{cmp, fmt};
 
 pub use clarity_serialization::errors::CostErrors;
-pub use clarity_serialization::execution_cost::ExecutionCost;
+pub use clarity_serialization::execution_cost::{CostOverflowingMath, ExecutionCost};
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
@@ -1241,28 +1241,6 @@ impl CostTracker for &mut LimitedCostTracker {
         input: &[u64],
     ) -> Result<bool> {
         LimitedCostTracker::short_circuit_contract_call(self, contract, function, input)
-    }
-}
-
-pub trait CostOverflowingMath<T> {
-    fn cost_overflow_mul(self, other: T) -> Result<T>;
-    fn cost_overflow_add(self, other: T) -> Result<T>;
-    fn cost_overflow_sub(self, other: T) -> Result<T>;
-    fn cost_overflow_div(self, other: T) -> Result<T>;
-}
-
-impl CostOverflowingMath<u64> for u64 {
-    fn cost_overflow_mul(self, other: u64) -> Result<u64> {
-        self.checked_mul(other).ok_or(CostErrors::CostOverflow)
-    }
-    fn cost_overflow_add(self, other: u64) -> Result<u64> {
-        self.checked_add(other).ok_or(CostErrors::CostOverflow)
-    }
-    fn cost_overflow_sub(self, other: u64) -> Result<u64> {
-        self.checked_sub(other).ok_or(CostErrors::CostOverflow)
-    }
-    fn cost_overflow_div(self, other: u64) -> Result<u64> {
-        self.checked_div(other).ok_or(CostErrors::CostOverflow)
     }
 }
 
