@@ -27,8 +27,8 @@ use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::StacksBlockHeader;
-use crate::clarity_vm::clarity::ClarityInstance;
-use crate::clarity_vm::database::marf::{ClarityMarfStore, MarfedKV};
+use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore};
+use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 
 fn helper_execute(contract: &str, method: &str) -> (Value, Vec<StacksTransactionEvent>) {

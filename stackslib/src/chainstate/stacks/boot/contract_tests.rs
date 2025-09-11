@@ -30,10 +30,11 @@ use crate::chainstate::stacks::boot::{
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
-use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
-use crate::clarity_vm::database::marf::{
-    ClarityMarfStore, ClarityMarfStoreTransaction, MarfedKV, WritableMarfStore,
+use crate::clarity_vm::clarity::{
+    ClarityBlockConnection, ClarityMarfStore, ClarityMarfStoreTransaction, Error as ClarityError,
+    WritableMarfStore,
 };
+use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{
     StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
     BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,

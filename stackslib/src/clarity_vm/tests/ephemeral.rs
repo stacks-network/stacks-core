@@ -42,7 +42,8 @@ use crate::chainstate::stacks::{
     TransactionSmartContract, TransactionVersion,
 };
 use crate::clarity::vm::database::ClarityBackingStore;
-use crate::clarity_vm::database::marf::{ClarityMarfStoreTransaction, MarfedKV};
+use crate::clarity_vm::clarity::ClarityMarfStoreTransaction;
+use crate::clarity_vm::database::marf::MarfedKV;
 use crate::net::test::TestEventObserver;
 use crate::net::tests::inv::nakamoto::make_nakamoto_peer_from_invs;
 use crate::net::tests::{NakamotoBootPlan, NakamotoBootStep, NakamotoBootTenure};

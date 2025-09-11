@@ -57,9 +57,8 @@ use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
     Value,
 };
-use crate::clarity_vm::database::marf::{
-    ClarityMarfStore, ClarityMarfStoreTransaction, MarfedKV, PersistentWritableMarfStore,
-};
+use crate::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
+use crate::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};

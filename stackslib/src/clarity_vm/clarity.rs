@@ -28,7 +28,7 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
     RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::{Error as InterpreterError, InterpreterResult};
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
@@ -54,7 +54,7 @@ use crate::chainstate::stacks::{
     TransactionSmartContract, TransactionVersion,
 };
 use crate::clarity_vm::database::marf::{
-    ClarityMarfStore, ClarityMarfStoreTransaction, MarfedKV, ReadOnlyMarfStore, WritableMarfStore,
+    BoxedClarityMarfStoreTransaction, MarfedKV, ReadOnlyMarfStore,
 };
 use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
@@ -134,6 +134,112 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+}
+
+/// Unified API common to all MARF stores
+pub trait ClarityMarfStore: ClarityBackingStore {
+    /// Instantiate a `ClarityDatabase` out of this MARF store.
+    /// Takes a `HeadersDB` and `BurnStateDB` implementation which are both used by
+    /// `ClarityDatabase` to access Stacks's chainstate and sortition chainstate, respectively.
+    fn as_clarity_db<'b>(
+        &'b mut self,
+        headers_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityDatabase<'b>
+    where
+        Self: Sized,
+    {
+        ClarityDatabase::new(self, headers_db, burn_state_db)
+    }
+
+    /// Instantiate an `AnalysisDatabase` out of this MARF store.
+    fn as_analysis_db(&mut self) -> AnalysisDatabase<'_>
+    where
+        Self: Sized,
+    {
+        AnalysisDatabase::new(self)
+    }
+}
+
+/// A MARF store which can be written to is both a ClarityMarfStore and a
+/// ClarityMarfStoreTransaction (and thus also a ClarityBackingStore).
+pub trait WritableMarfStore:
+    ClarityMarfStore + ClarityMarfStoreTransaction + BoxedClarityMarfStoreTransaction
+{
+}
+
+/// A MARF store transaction for a chainstate block's trie.
+/// This transaction instantiates a trie which builds atop an already-written trie in the
+/// chainstate.  Once committed, it will persist -- it may be built upon, and a subsequent attempt
+/// to build the same trie will fail.
+///
+/// The Stacks node commits tries for one of three purposes:
+/// * It processed a block, and needs to persist its trie in the chainstate proper.
+/// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
+/// may build on it later.
+/// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
+/// unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
+/// continue to build on it and the network can service RPC requests on its state.
+///
+/// These needs are each captured in distinct methods for committing this transaction.
+pub trait ClarityMarfStoreTransaction {
+    /// Commit all inserted metadata and associate it with the block trie identified by `target`.
+    /// It can later be deleted via `drop_metadata_for()` if given the same taret.
+    /// Returns Ok(()) on success
+    /// Returns Err(..) on error
+    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()>;
+
+    /// Drop metadata for a particular block trie that was stored previously via `commit_metadata_to()`.
+    /// This function is idempotent.
+    ///
+    /// Returns Ok(()) if the metadata for the trie identified by `target` was dropped.
+    /// It will be possible to insert it again afterwards.
+    /// Returns Err(..) if the metadata was not successfully dropped.
+    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()>;
+
+    /// Compute the ID of the trie being built.
+    /// In Stacks, this will only be called once all key/value pairs are inserted (and will only be
+    /// called at most once in this transaction's lifetime).
+    fn seal_trie(&mut self) -> TrieHash;
+
+    /// Drop the block trie that this transaction was creating.
+    /// Destroys the transaction.
+    fn drop_current_trie(self);
+
+    /// Drop the unconfirmed state trie that this transaction was creating.
+    /// Destroys the transaction.
+    ///
+    /// Returns Ok(()) on successful deletion of the data
+    /// Returns Err(..) if the deletion failed (this usually isn't recoverable, but recovery is up
+    /// to the caller)
+    fn drop_unconfirmed(self) -> InterpreterResult<()>;
+
+    /// Store the processed block's trie that this transaction was creating.
+    /// The trie's ID must be `target`, so that subsequent tries can be built on it (and so that
+    /// subsequent queries can read from it).  `target` may not be known until it is time to write
+    /// the trie out, which is why it is provided here.
+    ///
+    /// Returns Ok(()) if the block trie was successfully persisted.
+    /// Returns Err(..) if there was an error in trying to persist this block trie.
+    fn commit_to_processed_block(self, target: &StacksBlockId) -> InterpreterResult<()>;
+
+    /// Store a mined block's trie that this transaction was creating.
+    /// This function is distinct from `commit_to_processed_block()` in that the stored block will
+    /// not be added to the chainstate. However, it must be persisted so that the node can later
+    /// build on it.
+    ///
+    /// Returns Ok(()) if the block trie was successfully persisted.
+    /// Returns Err(..) if there was an error trying to persist this MARF trie.
+    fn commit_to_mined_block(self, target: &StacksBlockId) -> InterpreterResult<()>;
+
+    /// Persist the unconfirmed state trie so that other parts of the Stacks node can read from it
+    /// (such as to handle pending transactions or process RPC requests on it).
+    fn commit_unconfirmed(self);
+
+    /// Commit to the current chain tip.
+    /// Used only for testing.
+    #[cfg(test)]
+    fn test_commit(self);
 }
 
 impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
