@@ -21,7 +21,6 @@ use std::{cmp, io};
 
 use base64::encode;
 use serde::Serialize;
-use serde_json::json;
 use serde_json::value::RawValue;
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
@@ -77,7 +76,8 @@ use super::super::operations::BurnchainOpSigner;
 use super::super::Config;
 use super::{BurnchainController, BurnchainTip, Error as BurnchainControllerError};
 use crate::burnchains::rpc::bitcoin_rpc_client::{
-    BitcoinRpcClient, BitcoinRpcClientError, ImportDescriptorsRequest, Timestamp,
+    BitcoinRpcClient, BitcoinRpcClientError, BitcoinRpcClientResult, ImportDescriptorsRequest,
+    Timestamp,
 };
 
 /// The number of bitcoin blocks that can have
@@ -663,97 +663,28 @@ impl BitcoinRegtestController {
         }
     }
 
+    /// Retrieves all UTXOs associated with the given public key.
+    ///
+    /// The address to query is computed from the public key,
+    /// disregard the epoch we're in and currently set to [`StacksEpochId::Epoch21`].
+    ///
+    /// # Notes
+    /// Before calling this method, you must initialize the chain with either:
+    /// - [`BitcoinRegtestController::bootstrap_chain()`], or
+    /// - [`BitcoinRegtestController::bootstrap_chain_to_pks()`]
+    ///
+    /// These methods are responsible for importing the necessary descriptors into the wallet.
     #[cfg(test)]
     pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
-        // Configure UTXO filter, disregard what epoch we're in
-        let address = self.get_miner_address(StacksEpochId::Epoch21, public_key);
-        let filter_addresses = vec![address.to_string()];
-
-        let pubk = if self.config.miner.segwit {
-            let mut p = public_key.clone();
-            p.set_compressed(true);
-            p
-        } else {
-            public_key.clone()
-        };
-
-        test_debug!("Import public key '{}'", &pubk.to_hex());
-        let result = self.import_public_key(&pubk);
-        if let Err(error) = result {
-            warn!("Import public key '{}' failed: {error:?}", &pubk.to_hex());
-        }
-
-        sleep_ms(1000);
-
-        let min_conf = 0i64;
-        let max_conf = 9999999i64;
-        let minimum_amount = ParsedUTXO::sat_to_serialized_btc(1);
-
-        test_debug!("List unspent for '{address}' ('{}')", pubk.to_hex());
-        let payload = BitcoinRPCRequest {
-            method: "listunspent".to_string(),
-            params: vec![
-                min_conf.into(),
-                max_conf.into(),
-                filter_addresses.into(),
-                true.into(),
-                json!({ "minimumAmount": minimum_amount, "maximumCount": self.config.burnchain.max_unspent_utxos }),
-            ],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let mut res = BitcoinRPCRequest::send(&self.config, payload).unwrap();
-        let mut result_vec = vec![];
-
-        if let Some(ref mut object) = res.as_object_mut() {
-            match object.get_mut("result") {
-                Some(serde_json::Value::Array(entries)) => {
-                    while let Some(entry) = entries.pop() {
-                        let parsed_utxo: ParsedUTXO = match serde_json::from_value(entry) {
-                            Ok(utxo) => utxo,
-                            Err(err) => {
-                                warn!("Failed parsing UTXO: {err}");
-                                continue;
-                            }
-                        };
-                        let amount = match parsed_utxo.get_sat_amount() {
-                            Some(amount) => amount,
-                            None => continue,
-                        };
-
-                        if amount < 1 {
-                            continue;
-                        }
-
-                        let script_pub_key = match parsed_utxo.get_script_pub_key() {
-                            Some(script_pub_key) => script_pub_key,
-                            None => {
-                                continue;
-                            }
-                        };
-
-                        let txid = match parsed_utxo.get_txid() {
-                            Some(amount) => amount,
-                            None => continue,
-                        };
-
-                        result_vec.push(UTXO {
-                            txid,
-                            vout: parsed_utxo.vout,
-                            script_pub_key,
-                            amount,
-                            confirmations: parsed_utxo.confirmations,
-                        });
-                    }
-                }
-                _ => {
-                    warn!("Failed to get UTXOs");
-                }
-            }
-        }
-
-        result_vec
+        self.list_unspent(
+            &self.get_miner_address(StacksEpochId::Epoch21, public_key),
+            true,
+            1,
+            &None,
+            0,
+        )
+        .unwrap_or_log_panic("retrieve all utxos")
+        .utxos
     }
 
     /// Retrieve all loaded wallets.
@@ -2253,31 +2184,28 @@ impl BitcoinRegtestController {
         Sha256dHash(txid_bytes)
     }
 
+    /// retrieve utxo set
     pub fn list_unspent(
         &self,
-        addresses: &BitcoinAddress,
+        address: &BitcoinAddress,
         include_unsafe: bool,
         minimum_sum_amount: u64,
         utxos_to_exclude: &Option<UTXOSet>,
         block_height: u64,
-    ) -> BitcoinRegtestControllerResult<UTXOSet> {
-        let bhh = self
-            .rpc_client
-            .get_block_hash(block_height)?;
+    ) -> BitcoinRpcClientResult<UTXOSet> {
+        let bhh = self.rpc_client.get_block_hash(block_height)?;
 
         const MIN_CONFIRMATIONS: u64 = 0;
         const MAX_CONFIRMATIONS: u64 = 9_999_999;
-        let unspents = self
-            .rpc_client
-            .list_unspent(
-                &self.get_wallet_name(),
-                Some(MIN_CONFIRMATIONS),
-                Some(MAX_CONFIRMATIONS),
-                Some(&[addresses]),
-                Some(include_unsafe),
-                Some(minimum_sum_amount),
-                self.config.burnchain.max_unspent_utxos.clone(),
-            )?;
+        let unspents = self.rpc_client.list_unspent(
+            &self.get_wallet_name(),
+            Some(MIN_CONFIRMATIONS),
+            Some(MAX_CONFIRMATIONS),
+            Some(&[address]),
+            Some(include_unsafe),
+            Some(minimum_sum_amount),
+            self.config.burnchain.max_unspent_utxos.clone(),
+        )?;
 
         let txids_to_filter = if let Some(utxos_to_exclude) = utxos_to_exclude {
             utxos_to_exclude
