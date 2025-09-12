@@ -787,7 +787,7 @@ impl MicroblockMinerThread {
         ) {
             // nope!
             warn!(
-                "Our mined microblock {} was problematic",
+                "Our mined microblock {} was problematic. Will NOT process.",
                 &mined_microblock.block_hash()
             );
 
@@ -823,10 +823,7 @@ impl MicroblockMinerThread {
                     );
                 }
             }
-            warn!(
-                "Will process our problematic mined microblock {}",
-                &mined_microblock.block_hash()
-            )
+            return Err(ChainstateError::NoTransactionsToMine);
         }
 
         // cancelled?
@@ -3067,7 +3064,7 @@ impl RelayerThread {
         ) {
             // nope!
             warn!(
-                "Our mined block {} was problematic",
+                "Our mined block {} was problematic. Will NOT process.",
                 &anchored_block.block_hash()
             );
             #[cfg(any(test, feature = "testing"))]
@@ -3099,10 +3096,7 @@ impl RelayerThread {
                     );
                 }
             }
-            warn!(
-                "Will process our problematic mined block {}",
-                &anchored_block.block_hash()
-            )
+            return Err(ChainstateError::NoTransactionsToMine);
         }
 
         // Preprocess the anchored block
