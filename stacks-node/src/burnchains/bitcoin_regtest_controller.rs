@@ -676,7 +676,7 @@ impl BitcoinRegtestController {
     /// These methods are responsible for importing the necessary descriptors into the wallet.
     #[cfg(test)]
     pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
-        self.list_unspent(
+        self.retrieve_utxo_set(
             &self.get_miner_address(StacksEpochId::Epoch21, public_key),
             true,
             1,
@@ -724,7 +724,7 @@ impl BitcoinRegtestController {
         test_debug!("Get UTXOs for {} ({address})", pubk.to_hex());
 
         let mut utxos = loop {
-            let result = self.list_unspent(
+            let result = self.retrieve_utxo_set(
                 &address,
                 false,
                 total_required,
@@ -760,7 +760,7 @@ impl BitcoinRegtestController {
                     sleep_ms(1000);
                 }
 
-                let result = self.list_unspent(
+                let result = self.retrieve_utxo_set(
                     &address,
                     false,
                     total_required,
@@ -2184,8 +2184,27 @@ impl BitcoinRegtestController {
         Sha256dHash(txid_bytes)
     }
 
-    /// retrieve utxo set
-    pub fn list_unspent(
+    /// Retrieves the set of UTXOs for a given address at a specific block height.
+    ///
+    /// This method queries all unspent outputs belonging to the provided address:
+    /// 1. Using a confirmation window of `0..=9_999_999` for the RPC call.
+    /// 2. Filtering out UTXOs that:
+    ///    - Are present in the optional exclusion set (matched by transaction ID).
+    ///    - Have an amount below the specified `minimum_sum_amount`.
+    ///
+    /// Note: The `block_height` is only used to retrieve the corresponding block hash
+    /// and does not affect which UTXOs are included in the result.
+    ///
+    /// # Arguments
+    /// - `address`: The Bitcoin address whose UTXOs should be retrieved.  
+    /// - `include_unsafe`: Whether to include unsafe UTXOs.  
+    /// - `minimum_sum_amount`: Minimum amount (in satoshis) that a UTXO must have to be included in the final set.  
+    /// - `utxos_to_exclude`: Optional set of UTXOs to exclude from the final result.  
+    /// - `block_height`: The block height at which to resolve the block hash used in the result.  
+    ///
+    /// # Returns
+    /// A [`UTXOSet`] containing the filtered UTXOs and the block hash corresponding to `block_height`.
+    fn retrieve_utxo_set(
         &self,
         address: &BitcoinAddress,
         include_unsafe: bool,
@@ -3040,7 +3059,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_list_unspent_all() {
+    fn test_retrieve_utxo_set_with_all_utxos() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
         }
@@ -3059,15 +3078,16 @@ mod tests {
         btc_controller.bootstrap_chain(150); //produces 50 spendable utxos
 
         let address = to_address_legacy(&miner_pubkey);
-        let utxos = btc_controller
-            .list_unspent(&address, false, 0, &None, 0)
+        let utxo_set = btc_controller
+            .retrieve_utxo_set(&address, false, 0, &None, 0)
             .expect("Failed to get utxos");
-        assert_eq!(50, utxos.num_utxos());
+        assert_eq!(btc_controller.get_block_hash(0), utxo_set.bhh);
+        assert_eq!(50, utxo_set.num_utxos());
     }
 
     #[test]
     #[ignore]
-    fn test_list_unspent_excluding_some_utxo() {
+    fn test_retrive_utxo_set_excluding_some_utxo() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
         }
@@ -3087,17 +3107,17 @@ mod tests {
 
         let address = to_address_legacy(&miner_pubkey);
         let mut all_utxos = btc_controller
-            .list_unspent(&address, false, 0, &None, 0)
+            .retrieve_utxo_set(&address, false, 0, &None, 0)
             .expect("Failed to get utxos (50)");
 
         let filtered_utxos = btc_controller
-            .list_unspent(&address, false, 0, &Some(all_utxos.clone()), 0)
+            .retrieve_utxo_set(&address, false, 0, &Some(all_utxos.clone()), 0)
             .expect("Failed to get utxos");
         assert_eq!(0, filtered_utxos.num_utxos(), "all utxos filtered out!");
 
         all_utxos.utxos.drain(0..10);
         let filtered_utxos = btc_controller
-            .list_unspent(&address, false, 0, &Some(all_utxos), 0)
+            .retrieve_utxo_set(&address, false, 0, &Some(all_utxos), 0)
             .expect("Failed to get utxos");
         assert_eq!(10, filtered_utxos.num_utxos(), "40 utxos filtered out!");
     }
@@ -3125,7 +3145,7 @@ mod tests {
 
         let address = to_address_legacy(&miner_pubkey);
         let utxos = btc_controller
-            .list_unspent(&address, false, 1, &None, 0)
+            .retrieve_utxo_set(&address, false, 1, &None, 0)
             .expect("Failed to get utxos");
         assert_eq!(10, utxos.num_utxos());
     }
