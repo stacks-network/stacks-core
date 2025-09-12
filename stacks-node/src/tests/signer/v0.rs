@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, PeerInfo, RejectCode,
@@ -18257,6 +18258,94 @@ fn multiversioned_signer_protocol_version_calculation() {
         Ok(nmb_accept == num_signers)
     })
     .unwrap();
+    signer_test.shutdown();
+}
+
+/// This is a test for backwards compatibility regarding
+/// how contracts with an undefined top-level variable are handled.
+///
+/// Critically, we want to ensure that the cost of the block, along with
+/// the resulting block hash, are the same.
+#[test]
+#[ignore]
+fn contract_with_undefined_variable_compat() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::from_seed("sender_1".as_bytes());
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let deploy_fee = 1000000;
+    let call_fee = 1000;
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(
+                sender_addr.clone(),
+                (send_amt + send_fee) * 10 + deploy_fee + call_fee,
+            )],
+            |c| {
+                c.validate_with_replay_tx = true;
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+                node_config.miner.activated_vrf_key_path =
+                    Some(format!("{}/vrf_key", node_config.node.working_dir));
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
+
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
+
+    info!("------------------------- Beginning test -------------------------");
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    let (txid, deploy_nonce) = signer_test
+        .submit_contract_deploy(&sender_sk, deploy_fee, "foo", "undefined-var")
+        .expect("Failed to submit contract deploy");
+
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, deploy_nonce)
+        .expect("Failed to wait for nonce increase");
+
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+
+    let block = blocks.last().unwrap();
+
+    let tx_event = block
+        .tx_events
+        .iter()
+        .find(|event| event.txid().to_hex() == txid)
+        .expect("Failed to find deploy event");
+
+    info!("Tx event: {:?}", tx_event);
+
+    let TransactionEvent::Success(success_event) = tx_event else {
+        panic!("Failed: Expected success event");
+    };
+
+    let block_cost = block.cost.clone();
+    let expected_cost = ExecutionCost {
+        runtime: 346,
+        write_length: 2,
+        write_count: 1,
+        read_length: 1,
+        read_count: 1,
+    };
+
+    assert_eq!(block_cost, expected_cost.clone());
+    assert_eq!(success_event.execution_cost, expected_cost);
+
     signer_test.shutdown();
 }
 

@@ -440,6 +440,18 @@ pub enum TransactionEvent {
     Problematic(TransactionProblematicEvent),
 }
 
+impl TransactionEvent {
+    /// Get the txid of the transaction result
+    pub fn txid(&self) -> &Txid {
+        match self {
+            TransactionEvent::Success(TransactionSuccessEvent { txid, .. }) => txid,
+            TransactionEvent::ProcessingError(TransactionErrorEvent { txid, .. }) => txid,
+            TransactionEvent::Skipped(TransactionSkippedEvent { txid, .. }) => txid,
+            TransactionEvent::Problematic(TransactionProblematicEvent { txid, .. }) => txid,
+        }
+    }
+}
+
 impl TransactionResult {
     /// Logs a queryable message for the case where `txid` has succeeded.
     pub fn log_transaction_success(tx: &StacksTransaction) {
