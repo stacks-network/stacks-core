@@ -16,7 +16,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use clarity_serialization::representations::ClarityName;
+use clarity_types::representations::ClarityName;
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::ContractAST;
