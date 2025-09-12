@@ -8542,20 +8542,18 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         follower_conf.node.p2p_bind, follower_conf.node.rpc_bind
     );
 
-    let deadline = get_epoch_time_secs() + 300;
-    while get_epoch_time_secs() < deadline {
+    wait_for(300, || {
         let follower_tip_info = get_chain_info(&follower_conf);
-        if follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height
-            || follower_tip_info.stacks_tip_height + 1 == bad_block_height
-        {
-            break;
-        }
         eprintln!(
             "\nFollower is at burn block {} stacks block {} (bad_block is {bad_block_height})\n",
             follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height
         );
-        sleep_ms(1000);
-    }
+        Ok(
+            follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height
+                || follower_tip_info.stacks_tip_height + 1 == bad_block_height,
+        )
+    })
+    .expect("Follower failed to advance");
 
     // make sure we aren't just slow -- wait for the follower to do a few download passes
     let num_download_passes = pox_sync_comms.get_download_passes();
@@ -8564,14 +8562,15 @@ fn test_problematic_blocks_are_not_relayed_or_stored() {
         num_download_passes + 5
     );
 
-    while num_download_passes + 5 > pox_sync_comms.get_download_passes() {
-        sleep_ms(1000);
+    wait_for(30, || {
         eprintln!(
             "\nFollower has performed {} download passes; wait for {}\n",
             pox_sync_comms.get_download_passes(),
             num_download_passes + 5
         );
-    }
+        Ok(pox_sync_comms.get_download_passes() >= num_download_passes + 5)
+    })
+    .expect("Follower failed to perform download passes");
 
     eprintln!(
         "\nFollower has performed {} download passes\n",
