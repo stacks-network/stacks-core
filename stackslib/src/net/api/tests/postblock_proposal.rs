@@ -288,7 +288,7 @@ fn test_try_make_response() {
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
-                        .tenure_begin(&burn_dbconn, &mut miner_tenure_info, None)
+                        .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
                         .unwrap();
                     builder.try_mine_tx_with_len(
                         &mut tenure_tx,
@@ -540,7 +540,7 @@ fn replay_validation_test(
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
-                        .tenure_begin(&burn_dbconn, &mut miner_tenure_info, None)
+                        .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
                         .unwrap();
                     for tx in block_txs {
                         builder.try_mine_tx_with_len(

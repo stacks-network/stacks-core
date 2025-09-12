@@ -3263,7 +3263,7 @@ fn block_proposal_api_endpoint() {
             .unwrap();
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder
-            .tenure_begin(&burn_dbconn, &mut miner_tenure_info, None)
+            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
             .unwrap();
 
         let tx = make_stacks_transfer_serialized(
