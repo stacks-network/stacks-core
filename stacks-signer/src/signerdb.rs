@@ -2494,21 +2494,21 @@ pub mod tests {
             .unwrap();
         assert_eq!(
             db.get_block_signatures(&block_id).unwrap(),
-            vec![signature1]
+            vec![signature1.clone()]
         );
 
         db.add_block_signature(&block_id, &address1, &signature2)
             .unwrap();
         assert_eq!(
             db.get_block_signatures(&block_id).unwrap(),
-            vec![signature1]
+            vec![signature1.clone()]
         );
 
         db.add_block_signature(&block_id, &address1, &signature3)
             .unwrap();
         assert_eq!(
             db.get_block_signatures(&block_id).unwrap(),
-            vec![signature1]
+            vec![signature1.clone()]
         );
 
         db.add_block_signature(&block_id, &address2, &signature4)
