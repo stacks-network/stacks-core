@@ -1269,7 +1269,7 @@ impl ClarityBackingStore for MemoryBackingStore {
     }
 
     fn get_current_block_time(&mut self) -> InterpreterResult<u64> {
-        Ok(1610645304)
+        Err(RuntimeErrorType::BlockTimeNotFound.into())
     }
 
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {

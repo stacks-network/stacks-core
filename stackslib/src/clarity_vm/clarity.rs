@@ -311,9 +311,14 @@ impl ClarityInstance {
         burn_state_db: &'b dyn BurnStateDB,
         timestamp: Option<u64>,
     ) -> ClarityBlockConnection<'a, 'b> {
+        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
+        let timestamp = if epoch.epoch_id.uses_marfed_block_time() {
+            timestamp
+        } else {
+            None
+        };
         let mut datastore = self.datastore.begin(current, next, timestamp);
 
-        let epoch = Self::get_epoch_of(current, header_db, burn_state_db);
         let cost_track = {
             let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
             Some(
