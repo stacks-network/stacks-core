@@ -238,7 +238,7 @@ impl RunLoop {
         let mut boot_data = ChainStateBootData {
             initial_balances,
             post_flight_callback: None,
-            first_burnchain_block_hash: burnchain_config.first_block_hash,
+            first_burnchain_block_hash: burnchain_config.first_block_hash.clone(),
             first_burnchain_block_height: burnchain_config.first_block_height as u32,
             first_burnchain_block_timestamp: burnchain_config.first_block_timestamp,
             pox_constants: burnchain_config.pox_constants.clone(),
@@ -323,11 +323,6 @@ impl RunLoop {
                 let mut fee_estimator = moved_config.make_fee_estimator();
 
                 let coord_config = ChainsCoordinatorConfig {
-                    assume_present_anchor_blocks: moved_config.node.assume_present_anchor_blocks,
-                    always_use_affirmation_maps: moved_config.node.always_use_affirmation_maps,
-                    require_affirmed_anchor_blocks: moved_config
-                        .node
-                        .require_affirmed_anchor_blocks,
                     txindex: moved_config.node.txindex,
                 };
                 ChainsCoordinator::run(

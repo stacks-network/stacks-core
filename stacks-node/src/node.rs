@@ -557,7 +557,7 @@ impl Node {
                 .expect("FATAL: failed to read sortition DB")
                 .expect("FATAL: no epoch defined");
 
-        let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
+        let key_reg_op = self.generate_leader_key_register_op(vrf_pk, consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
         let key_txid = burnchain_controller
             .submit_operation(cur_epoch.epoch_id, key_reg_op, &mut op_signer)
@@ -840,22 +840,13 @@ impl Node {
             parent_consensus_hash
         };
 
-        let burnchain = self.config.get_burnchain();
-        let burnchain_db =
-            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true)
-                .expect("FATAL: failed to connect to burnchain DB");
-
         let atlas_config = Self::make_atlas_config();
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
                 let tx = db.tx_begin_at_tip();
-                self.chain_state.process_blocks(
-                    burnchain_db.conn(),
-                    tx,
-                    1,
-                    Some(&self.event_dispatcher),
-                )
+                self.chain_state
+                    .process_blocks(tx, 1, Some(&self.event_dispatcher))
             };
             match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {e:?}"),
@@ -988,7 +979,7 @@ impl Node {
     fn generate_leader_key_register_op(
         &mut self,
         vrf_public_key: VRFPublicKey,
-        consensus_hash: &ConsensusHash,
+        consensus_hash: ConsensusHash,
     ) -> BlockstackOperationType {
         let mut txid_bytes = [0u8; 32];
         let mut rng = rand::thread_rng();
@@ -998,7 +989,7 @@ impl Node {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
-            consensus_hash: *consensus_hash,
+            consensus_hash,
             vtxindex: 1,
             txid,
             block_height: 0,

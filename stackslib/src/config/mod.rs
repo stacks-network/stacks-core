@@ -36,9 +36,8 @@ use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::hex_bytes;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 
-use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::bitcoin::BitcoinNetworkType;
-use crate::burnchains::{Burnchain, MagicBytes, PoxConstants, BLOCKSTACK_MAGIC_MAINNET};
+use crate::burnchains::{Burnchain, MagicBytes, BLOCKSTACK_MAGIC_MAINNET};
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::index::marf::MARFOpenOpts;
@@ -48,10 +47,9 @@ use crate::chainstate::stacks::MAX_BLOCK_LEN;
 use crate::config::chain_data::MinerStats;
 use crate::core::mempool::{MemPoolWalkSettings, MemPoolWalkStrategy, MemPoolWalkTxTypes};
 use crate::core::{
-    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId,
-    BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT, BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
-    BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT, CHAIN_ID_MAINNET, CHAIN_ID_TESTNET,
-    PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST, STACKS_EPOCHS_TESTNET,
+    MemPoolDB, StacksEpoch, StacksEpochExtension, StacksEpochId, CHAIN_ID_MAINNET,
+    CHAIN_ID_TESTNET, PEER_VERSION_MAINNET, PEER_VERSION_TESTNET, STACKS_EPOCHS_REGTEST,
+    STACKS_EPOCHS_TESTNET,
 };
 use crate::cost_estimates::fee_medians::WeightedMedianFeeRateEstimator;
 use crate::cost_estimates::fee_rate_fuzzer::FeeRateFuzzer;
@@ -110,6 +108,8 @@ const DEFAULT_SUBSEQUENT_REJECTION_PAUSE_MS: u64 = 10_000;
 const DEFAULT_BLOCK_COMMIT_DELAY_MS: u64 = 40_000;
 /// Default percentage of the remaining tenure cost limit to consume each block
 const DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE: u8 = 25;
+/// Default percentage of the block limit to consume by non-boot contract calls
+pub const DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE: u8 = 95;
 /// Default number of seconds to wait in-between polling the sortition DB to
 /// see if we need to extend the ongoing tenure (e.g. because the current
 /// sortition is empty or invalid).
@@ -231,7 +231,7 @@ impl ConfigFile {
     }
 
     pub fn xenon() -> ConfigFile {
-        let mut burnchain = BurnchainConfigFile {
+        let burnchain = BurnchainConfigFile {
             mode: Some("xenon".to_string()),
             rpc_port: Some(18332),
             peer_port: Some(18333),
@@ -239,8 +239,6 @@ impl ConfigFile {
             magic_bytes: Some("T2".into()),
             ..BurnchainConfigFile::default()
         };
-
-        burnchain.add_affirmation_overrides_xenon();
 
         let node = NodeConfigFile {
             bootstrap_node: Some("029266faff4c8e0ca4f934f34996a96af481df94a89b0c9bd515f3536a95682ddc@seed.testnet.hiro.so:30444".to_string()),
@@ -1144,6 +1142,7 @@ impl Config {
                 filter_origins: miner_config.filter_origins,
                 tenure_cost_limit_per_block_percentage: miner_config
                     .tenure_cost_limit_per_block_percentage,
+                contract_cost_limit_percentage: miner_config.contract_cost_limit_percentage,
             },
             miner_status,
             confirm_microblocks: false,
@@ -1190,6 +1189,7 @@ impl Config {
                 filter_origins: miner_config.filter_origins,
                 tenure_cost_limit_per_block_percentage: miner_config
                     .tenure_cost_limit_per_block_percentage,
+                contract_cost_limit_percentage: miner_config.contract_cost_limit_percentage,
             },
             miner_status,
             confirm_microblocks: true,
@@ -1595,25 +1595,6 @@ pub struct BurnchainConfig {
     /// @default: `None`
     /// @deprecated: This setting is ignored in Epoch 3.0+.
     pub ast_precheck_size_height: Option<u64>,
-    /// Overrides for the burnchain block affirmation map for specific reward cycles.
-    /// Allows manually setting the miner affirmation ('p'resent/'n'ot-present/'a'bsent)
-    /// map for a given cycle, bypassing the map normally derived from sortition results.
-    ///
-    /// Special defaults are added when [`BurnchainConfig::mode`] is "xenon", but
-    /// config entries take precedence. At startup, these overrides are written to
-    /// the `BurnchainDB` (`overrides` table).
-    /// ---
-    /// @default: Empty map
-    /// @deprecated: This setting is ignored in Epoch 3.0+. Only used in the neon chain mode.
-    /// @notes:
-    ///   - Primarily used for testing or recovering from network issues.
-    ///   - Configured as a list `[[burnchain.affirmation_overrides]]` in TOML, each with
-    ///     `reward_cycle` (integer) and `affirmation` (string of 'p'/'n'/'a', length `reward_cycle - 1`).
-    /// @toml_example: |
-    ///   [[burnchain.affirmation_overrides]]
-    ///   reward_cycle = 413
-    ///   affirmation = "pna..." # Must be 412 chars long
-    pub affirmation_overrides: HashMap<u64, AffirmationMap>,
     /// Fault injection setting for testing. Introduces an artificial delay (in
     /// milliseconds) before processing each burnchain block download. Simulates a
     /// slow burnchain connection.
@@ -1681,7 +1662,6 @@ impl BurnchainConfig {
             sunset_end: None,
             wallet_name: "".to_string(),
             ast_precheck_size_height: None,
-            affirmation_overrides: HashMap::new(),
             fault_injection_burnchain_block_delay: 0,
             max_unspent_utxos: Some(1024),
         }
@@ -1741,12 +1721,6 @@ pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
 
 #[derive(Clone, Deserialize, Default, Debug)]
-pub struct AffirmationOverride {
-    pub reward_cycle: u64,
-    pub affirmation: String,
-}
-
-#[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
@@ -1784,76 +1758,11 @@ pub struct BurnchainConfigFile {
     pub sunset_end: Option<u32>,
     pub wallet_name: Option<String>,
     pub ast_precheck_size_height: Option<u64>,
-    pub affirmation_overrides: Option<Vec<AffirmationOverride>>,
     pub fault_injection_burnchain_block_delay: Option<u64>,
     pub max_unspent_utxos: Option<u64>,
 }
 
 impl BurnchainConfigFile {
-    /// Add affirmation overrides required to sync Xenon Testnet node.
-    ///
-    /// The Xenon Testnet Stacks 2.4 activation height occurred before the finalized SIP-024 updates and release of the stacks-node versioned 2.4.0.0.0.
-    /// This caused the Stacks Xenon testnet to undergo a deep reorg when 2.4.0.0.0 was finalized. This deep reorg meant that 3 reward cycles were
-    /// invalidated, which requires overrides in the affirmation map to continue correct operation. Those overrides are required for cycles 413, 414, and 415.
-    #[allow(clippy::indexing_slicing)] // bad affirmation map override should panic
-    pub fn add_affirmation_overrides_xenon(&mut self) {
-        let mut default_overrides = vec![
-        AffirmationOverride {
-            reward_cycle: 413,
-            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa".to_string()
-        },
-        AffirmationOverride {
-            reward_cycle: 414,
-            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaa".to_string()
-        },
-        AffirmationOverride {
-            reward_cycle: 415,
-            affirmation: "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaa".to_string()
-        }];
-
-        // Now compute the 2.5 overrides.
-        let affirmations_pre_2_5 = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpaaaapppppppnnnnnnnnnnnnnnnnnnnnnnnpnppnppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnpnpppppppppnppnnnnnnnnnnnnnnnnnnnnnnnnnppnppppppppp";
-        let xenon_pox_consts = PoxConstants::testnet_default();
-        let last_present_cycle = xenon_pox_consts
-            .block_height_to_reward_cycle(
-                BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-                BITCOIN_TESTNET_STACKS_25_BURN_HEIGHT,
-            )
-            .unwrap();
-        assert_eq!(
-            u64::try_from(affirmations_pre_2_5.len()).unwrap(),
-            last_present_cycle - 1
-        );
-        let last_override = xenon_pox_consts
-            .block_height_to_reward_cycle(
-                BITCOIN_TESTNET_FIRST_BLOCK_HEIGHT,
-                BITCOIN_TESTNET_STACKS_25_REORGED_HEIGHT,
-            )
-            .unwrap();
-        let override_values = ["a", "n"];
-
-        for (override_index, reward_cycle) in (last_present_cycle + 1..=last_override).enumerate() {
-            assert!(override_values.len() > override_index);
-            let overrides = override_values[..(override_index + 1)].join("");
-            let affirmation = format!("{affirmations_pre_2_5}{overrides}");
-            default_overrides.push(AffirmationOverride {
-                reward_cycle,
-                affirmation,
-            });
-        }
-
-        if let Some(affirmation_overrides) = self.affirmation_overrides.as_mut() {
-            for affirmation in default_overrides {
-                // insert at front, so that the hashmap uses the configured overrides
-                //  instead of the defaults (the configured overrides will write over the
-                //  the defaults because they come later in the list).
-                affirmation_overrides.insert(0, affirmation);
-            }
-        } else {
-            self.affirmation_overrides = Some(default_overrides);
-        };
-    }
-
     fn into_config_default(
         mut self,
         default_burnchain_config: BurnchainConfig,
@@ -1862,7 +1771,6 @@ impl BurnchainConfigFile {
             if self.magic_bytes.is_none() {
                 self.magic_bytes = ConfigFile::xenon().burnchain.unwrap().magic_bytes;
             }
-            self.add_affirmation_overrides_xenon();
         }
 
         let mode = self.mode.unwrap_or(default_burnchain_config.mode);
@@ -1878,25 +1786,6 @@ impl BurnchainConfigFile {
                     "Attempted to run mainnet node with bad magic bytes '{}'",
                     self.magic_bytes.as_ref().unwrap()
                 ));
-            }
-        }
-
-        let mut affirmation_overrides = HashMap::new();
-        if let Some(aos) = self.affirmation_overrides {
-            for ao in aos {
-                let Some(affirmation_map) = AffirmationMap::decode(&ao.affirmation) else {
-                    return Err(format!(
-                        "Invalid affirmation override for reward cycle {}: {}",
-                        ao.reward_cycle, ao.affirmation
-                    ));
-                };
-                if u64::try_from(affirmation_map.len()).unwrap() != ao.reward_cycle - 1 {
-                    return Err(format!(
-                        "Invalid affirmation override for reward cycle {}. Map len = {}, but expected {}.",
-                        ao.reward_cycle, affirmation_map.len(), ao.reward_cycle - 1,
-                    ));
-                }
-                affirmation_overrides.insert(ao.reward_cycle, affirmation_map);
             }
         }
 
@@ -2007,7 +1896,6 @@ impl BurnchainConfigFile {
             pox_prepare_length: self
                 .pox_prepare_length
                 .or(default_burnchain_config.pox_prepare_length),
-            affirmation_overrides,
             fault_injection_burnchain_block_delay: self
                 .fault_injection_burnchain_block_delay
                 .unwrap_or(default_burnchain_config.fault_injection_burnchain_block_delay),
@@ -2130,8 +2018,6 @@ pub struct NodeConfig {
     /// Flag indicating whether this node should activate its mining logic and attempt to
     /// produce Stacks blocks. Setting this to `true` typically requires providing
     /// necessary private keys (either [`NodeConfig::seed`] or [`MinerConfig::mining_key`]).
-    /// It also influences default behavior for settings like
-    /// [`NodeConfig::require_affirmed_anchor_blocks`].
     /// ---
     /// @default: `false`
     pub miner: bool,
@@ -2244,48 +2130,6 @@ pub struct NodeConfig {
     /// @notes:
     ///   - This is intended strictly for testing purposes and is disallowed on mainnet.
     pub use_test_genesis_chainstate: Option<bool>,
-    /// Controls if Stacks Epoch 2.1+ affirmation map logic should be applied even
-    /// before Epoch 2.1.
-    /// - If `true` (default), the node consistently uses the newer (Epoch 2.1) rules
-    ///   for PoX anchor block validation and affirmation-based reorg handling, even in
-    ///   earlier epochs.
-    /// - If `false`, the node strictly follows the rules defined for the specific epoch
-    ///   it is currently processing, only applying 2.1+ logic from Epoch 2.1 onwards.
-    /// Differences in this setting between nodes prior to Epoch 2.1 could lead to
-    /// consensus forks.
-    /// ---
-    /// @default: `true`
-    pub always_use_affirmation_maps: bool,
-    /// Controls if the node must wait for locally missing but burnchain-affirmed PoX
-    /// anchor blocks. If an anchor block is confirmed by the affirmation map but not
-    /// yet processed by this node:
-    /// - If `true`: Burnchain processing halts until the affirmed block is acquired.
-    ///   Ensures strict adherence to the affirmed canonical chain, typical for
-    ///   followers.
-    /// - If `false`: Burnchain processing continues without waiting. Allows miners to
-    ///   operate optimistically but may necessitate unwinding later if the affirmed
-    ///   block alters the chain state.
-    /// ---
-    /// @default: Derived from the inverse of [`NodeConfig::miner`] value.
-    pub require_affirmed_anchor_blocks: bool,
-    /// Controls if the node must strictly wait for any PoX anchor block selected by
-    /// the core consensus mechanism.
-    /// - If `true`: Halts burnchain processing immediately whenever a selected anchor
-    ///   block is missing locally (`SelectedAndUnknown` status), regardless of
-    ///   affirmation status.
-    /// - If `false` (primarily for testing): Skips this immediate halt, allowing
-    ///   processing to proceed to affirmation map checks.
-    /// Normal operation requires this to be `true`; setting to `false` will likely
-    /// break consensus adherence.
-    /// ---
-    /// @default: `true`
-    /// @notes:
-    ///   - This parameter cannot be set via the configuration file; it must be modified
-    ///     programmatically.
-    ///   - This is intended strictly for testing purposes.
-    ///   - The halt check runs *before* affirmation checks.
-    ///   - In Nakamoto (Epoch 3.0+), all prepare phases have anchor blocks.
-    pub assume_present_anchor_blocks: bool,
     /// Fault injection setting for testing purposes. If set to `Some(p)`, where `p` is
     /// between 0 and 100, the node will have a `p` percent chance of intentionally
     /// *not* pushing a newly processed block to its peers.
@@ -2591,9 +2435,6 @@ impl Default for NodeConfig {
             marf_defer_hashing: true,
             pox_sync_sample_secs: 30,
             use_test_genesis_chainstate: None,
-            always_use_affirmation_maps: true,
-            require_affirmed_anchor_blocks: true,
-            assume_present_anchor_blocks: true,
             fault_injection_block_push_fail_probability: None,
             fault_injection_hide_blocks: false,
             chain_liveness_poll_time_secs: 300,
@@ -3099,6 +2940,30 @@ pub struct MinerConfig {
     ///   - Setting to 100 effectively disables this per-block limit, allowing a block to use the
     ///     entire remaining tenure budget.
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
+    /// The percentage of a block’s execution cost limit at which the miner changes
+    /// transaction selection behavior for non-boot contract calls.
+    ///
+    /// When the total cost of included transactions in the current block reaches this
+    /// percentage of the block’s maximum execution cost (Clarity cost), and the next
+    /// available **non-bootcode** contract call in the mempool would cause a
+    /// `BlockTooBigError`, the miner will stop attempting to include additional
+    /// non-boot contract calls. Instead, it will consider only STX transfers and
+    /// boot contract calls for the remainder of the block budget.
+    ///
+    /// This allows miners to avoid repeatedly attempting to fit large non-boot
+    /// contract calls late in block assembly when space is tight, improving block
+    /// packing efficiency and ensuring other transaction types are not starved.
+    ///
+    /// ---
+    /// @default: [`DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE`]
+    /// @units: percent
+    /// @notes:
+    ///   - Values: 0–100.
+    ///   - Setting to 100 effectively disables this behavior, allowing miners to
+    ///     attempt non-boot contract calls until the block is full.
+    ///   - This setting only affects **non-boot** contract calls; boot contract calls
+    ///     and STX transfers are unaffected.
+    pub contract_cost_limit_percentage: Option<u8>,
     /// Duration to wait in-between polling the sortition DB to see if we need to
     /// extend the ongoing tenure (e.g. because the current sortition is empty or invalid).
     ///
@@ -3239,6 +3104,7 @@ impl Default for MinerConfig {
             tenure_cost_limit_per_block_percentage: Some(
                 DEFAULT_TENURE_COST_LIMIT_PER_BLOCK_PERCENTAGE,
             ),
+            contract_cost_limit_percentage: Some(DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE),
             tenure_extend_poll_timeout: Duration::from_secs(DEFAULT_TENURE_EXTEND_POLL_SECS),
             tenure_extend_wait_timeout: Duration::from_millis(DEFAULT_TENURE_EXTEND_WAIT_MS),
             tenure_timeout: Duration::from_secs(DEFAULT_TENURE_TIMEOUT_SECS),
@@ -3937,9 +3803,6 @@ pub struct NodeConfigFile {
     pub marf_defer_hashing: Option<bool>,
     pub pox_sync_sample_secs: Option<u64>,
     pub use_test_genesis_chainstate: Option<bool>,
-    pub always_use_affirmation_maps: Option<bool>,
-    pub require_affirmed_anchor_blocks: Option<bool>,
-    pub assume_present_anchor_blocks: Option<bool>,
     /// At most, how often should the chain-liveness thread
     ///  wake up the chains-coordinator. Defaults to 300s (5 min).
     pub chain_liveness_poll_time_secs: Option<u64>,
@@ -4017,16 +3880,6 @@ impl NodeConfigFile {
                 .pox_sync_sample_secs
                 .unwrap_or(default_node_config.pox_sync_sample_secs),
             use_test_genesis_chainstate: self.use_test_genesis_chainstate,
-            always_use_affirmation_maps: self
-                .always_use_affirmation_maps
-                .unwrap_or(default_node_config.always_use_affirmation_maps),
-            // miners should always try to mine, even if they don't have the anchored
-            // blocks in the canonical affirmation map. Followers, however, can stall.
-            require_affirmed_anchor_blocks: self.require_affirmed_anchor_blocks.unwrap_or(!miner),
-            // as of epoch 3.0, all prepare phases have anchor blocks.
-            // at the start of epoch 3.0, the chain stalls without anchor blocks.
-            // only set this to false if you're doing some very extreme testing.
-            assume_present_anchor_blocks: true,
             // chainstate fault_injection activation for hide_blocks.
             // you can't set this in the config file.
             fault_injection_hide_blocks: false,
@@ -4189,6 +4042,7 @@ pub struct MinerConfigFile {
     pub subsequent_rejection_pause_ms: Option<u64>,
     pub block_commit_delay_ms: Option<u64>,
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
+    pub contract_cost_limit_percentage: Option<u8>,
     pub tenure_extend_poll_secs: Option<u64>,
     pub tenure_extend_wait_timeout_ms: Option<u64>,
     pub tenure_timeout_secs: Option<u64>,
@@ -4231,6 +4085,20 @@ impl MinerConfigFile {
             } else {
                 miner_default_config.tenure_cost_limit_per_block_percentage
             };
+
+        let contract_cost_limit_percentage = if let Some(percentage) =
+            self.contract_cost_limit_percentage
+        {
+            if percentage <= 100 {
+                Some(percentage)
+            } else {
+                return Err(
+                    "miner.contract_cost_limit_percentage must be between 0 and 100".to_string(),
+                );
+            }
+        } else {
+            miner_default_config.contract_cost_limit_percentage
+        };
 
         let nonce_cache_size = self
             .nonce_cache_size
@@ -4349,6 +4217,7 @@ impl MinerConfigFile {
             subsequent_rejection_pause_ms: self.subsequent_rejection_pause_ms.unwrap_or(miner_default_config.subsequent_rejection_pause_ms),
             block_commit_delay: self.block_commit_delay_ms.map(Duration::from_millis).unwrap_or(miner_default_config.block_commit_delay),
             tenure_cost_limit_per_block_percentage,
+            contract_cost_limit_percentage,
             tenure_extend_poll_timeout: self.tenure_extend_poll_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_extend_poll_timeout),
             tenure_extend_wait_timeout: self.tenure_extend_wait_timeout_ms.map(Duration::from_millis).unwrap_or(miner_default_config.tenure_extend_wait_timeout),
             tenure_timeout: self.tenure_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.tenure_timeout),
@@ -4924,104 +4793,6 @@ mod tests {
             config.connection_options.auth_token,
             Some("password".to_string())
         );
-    }
-
-    #[test]
-    fn should_load_affirmation_map() {
-        let affirmation_string = "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
-        let affirmation =
-            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
-        let config = Config::from_config_file(
-            ConfigFile::from_str(&format!(
-                r#"
-                    [[burnchain.affirmation_overrides]]
-                    reward_cycle = 413
-                    affirmation = "{affirmation_string}"
-                "#
-            ))
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 1);
-        assert_eq!(config.burnchain.affirmation_overrides.get(&0), None);
-        assert_eq!(
-            config.burnchain.affirmation_overrides.get(&413),
-            Some(&affirmation)
-        );
-    }
-
-    #[test]
-    fn should_fail_to_load_invalid_affirmation_map() {
-        let bad_affirmation_string = "bad_map";
-        let file = ConfigFile::from_str(&format!(
-            r#"
-                    [[burnchain.affirmation_overrides]]
-                    reward_cycle = 1
-                    affirmation = "{bad_affirmation_string}"
-                "#
-        ))
-        .expect("Expected to be able to parse config file from string");
-
-        assert!(Config::from_config_file(file, false).is_err());
-    }
-
-    #[test]
-    fn should_load_empty_affirmation_map() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(r#""#)
-                .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-
-        assert!(config.burnchain.affirmation_overrides.is_empty());
-    }
-
-    #[test]
-    fn should_include_xenon_default_affirmation_overrides() {
-        let config = Config::from_config_file(
-            ConfigFile::from_str(
-                r#"
-                [burnchain]
-                chain = "bitcoin"
-                mode = "xenon"
-                "#,
-            )
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-        // Should default add xenon affirmation overrides
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
-    }
-
-    #[test]
-    fn should_override_xenon_default_affirmation_overrides() {
-        let affirmation_string = "aaapnnnnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnpppppnnnnnnnnnnnnnnnnnnnnnnnpppppppppppppppnnnnnnnnnnnnnnnnnnnnnnnppppppppppnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnppppppppnnnnnnnnnnnnnnnnnnnnnnnppnppnnnnnnnnnnnnnnnnnnnnnnnppppnnnnnnnnnnnnnnnnnnnnnnnnnppppppnnnnnnnnnnnnnnnnnnnnnnnnnppnnnnnnnnnnnnnnnnnnnnnnnnnpppppppnnnnnnnnnnnnnnnnnnnnnnnnnnpnnnnnnnnnnnnnnnnnnnnnnnnnpppnppppppppppppppnnppppnpa";
-        let affirmation =
-            AffirmationMap::decode(affirmation_string).expect("Failed to decode affirmation map");
-
-        let config = Config::from_config_file(
-            ConfigFile::from_str(&format!(
-                r#"
-                [burnchain]
-                chain = "bitcoin"
-                mode = "xenon"
-
-                [[burnchain.affirmation_overrides]]
-                reward_cycle = 413
-                affirmation = "{affirmation_string}"
-                "#,
-            ))
-            .expect("Expected to be able to parse config file from string"),
-            false,
-        )
-        .expect("Expected to be able to parse affirmation map from file");
-        // Should default add xenon affirmation overrides, but overwrite with the configured one above
-        assert_eq!(config.burnchain.affirmation_overrides.len(), 5);
-        assert_eq!(config.burnchain.affirmation_overrides[&413], affirmation);
     }
 
     #[test]

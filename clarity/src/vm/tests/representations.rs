@@ -74,7 +74,7 @@ fn prop_clarity_name_valid_patterns() {
         prop_assume!(name.len() <= MAX_STRING_LEN as usize);
 
         let clarity_name = ClarityName::try_from(name.clone())
-            .unwrap_or_else(|_| panic!("Should parse valid clarity name: {}", name));
+            .unwrap_or_else(|_| panic!("Should parse valid clarity name: {name}"));
         prop_assert_eq!(clarity_name.as_str(), name);
     });
 }
@@ -224,7 +224,7 @@ fn prop_contract_name_valid_patterns() {
         prop_assume!(name.len() <= MAX_STRING_LEN as usize);
 
         let contract_name = ContractName::try_from(name.clone())
-            .unwrap_or_else(|_| panic!("Should parse valid contract name: {}", name));
+            .unwrap_or_else(|_| panic!("Should parse valid contract name: {name}"));
         prop_assert_eq!(contract_name.as_str(), name);
     });
 }

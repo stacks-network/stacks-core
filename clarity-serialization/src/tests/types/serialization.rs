@@ -14,10 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
-use crate::errors::CodecError;
+use crate::Error;
+use crate::errors::{CheckErrors, InterpreterError};
+use crate::types::serialization::SerializationError;
 use crate::types::{
-    MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData,
-    TypeSignature, Value,
+    ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    StandardPrincipalData, TupleData, TypeSignature, Value,
 };
 
 fn test_deser_ser(v: Value) {
@@ -45,7 +47,7 @@ fn test_deser_ser(v: Value) {
 fn test_bad_expectation(v: Value, e: TypeSignature) {
     assert!(matches!(
         Value::try_deserialize_hex(&v.serialize_to_hex().unwrap(), &e, false).unwrap_err(),
-        CodecError::DeserializeExpected(_)
+        SerializationError::DeserializeExpected(_)
     ));
 }
 
@@ -71,10 +73,10 @@ fn test_lists() {
     )
     .unwrap();
 
-    assert!(matches!(
+    assert_eq!(
         Value::deserialize_read(&mut too_big.as_slice(), None, false).unwrap_err(),
-        CodecError::Deserialization(e) if e == "Illegal list type"
-    ));
+        "Illegal list type".into()
+    );
 
     // make a list that says it is longer than it is!
     //   this describes a list of size MAX_VALUE_SIZE of Value::Bool(true)'s, but is actually only 59 bools.
@@ -98,11 +100,11 @@ fn test_lists() {
     match Value::deserialize_read(&mut eof.as_slice(), None, false) {
         Ok(_) => panic!("Accidentally parsed truncated slice"),
         Err(eres) => match eres {
-            CodecError::Io(io_e) => match io_e.kind() {
+            SerializationError::IOError(ioe) => match ioe.err.kind() {
                 std::io::ErrorKind::UnexpectedEof => {}
-                _ => panic!("Invalid I/O error: {:?}", &io_e),
+                _ => panic!("Invalid I/O error: {ioe:?}"),
             },
-            _ => panic!("Invalid deserialize error: {:?}", &eres),
+            _ => panic!("Invalid deserialize error: {eres:?}"),
         },
     }
 }
@@ -240,7 +242,7 @@ fn test_tuples() {
             false
         )
         .unwrap_err(),
-        CodecError::DeserializeExpected(_)
+        SerializationError::DeserializeExpected(_)
     ));
 
     // field type mismatch
@@ -251,7 +253,7 @@ fn test_tuples() {
             false
         )
         .unwrap_err(),
-        CodecError::DeserializeExpected(_)
+        SerializationError::DeserializeExpected(_)
     ));
 
     // field not-present in expected
@@ -262,17 +264,14 @@ fn test_tuples() {
             false
         )
         .unwrap_err(),
-        CodecError::DeserializeExpected(_)
+        SerializationError::DeserializeExpected(_)
     ));
 }
 
 #[test]
 fn test_vectors() {
     let tests = [
-        (
-            "1010",
-            Err(CodecError::Deserialization("Bad type prefix".to_string())),
-        ),
+        ("1010", Err("Bad type prefix".into())),
         ("0000000000000000000000000000000001", Ok(Value::Int(1))),
         ("00ffffffffffffffffffffffffffffffff", Ok(Value::Int(-1))),
         ("0100000000000000000000000000000001", Ok(Value::UInt(1))),
@@ -373,10 +372,10 @@ fn try_deser_large_list() {
         11, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ];
 
-    assert!(matches!(
+    assert_eq!(
         Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
-        CodecError::Deserialization(e) if e == "Illegal list type"
-    ));
+        SerializationError::DeserializationError("Illegal list type".to_string())
+    );
 }
 
 #[test]
@@ -385,19 +384,19 @@ fn try_deser_large_tuple() {
         12, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ];
 
-    assert!(matches!(
+    assert_eq!(
         Value::try_deserialize_bytes_untyped(&buff).unwrap_err(),
-        CodecError::Deserialization(e) if e == "Illegal tuple type"
-    ));
+        SerializationError::DeserializationError("Illegal tuple type".to_string())
+    );
 }
 
 #[test]
 fn try_overflow_stack() {
     let input = "08080808080808080808070707080807080808080808080708080808080708080707080707080807080808080808080708080808080708080707080708070807080808080808080708080808080708080708080808080808080807070807080808080808070808070707080807070808070808080808070808070708070807080808080808080707080708070807080708080808080808070808080808070808070808080808080808080707080708080808080807080807070708080707080807080808080807080807070807080708080808080808070708070808080808080708080707070808070708080807080807070708";
-    assert!(matches!(
-        Value::try_deserialize_hex_untyped(input),
-        Err(CodecError::TypeSignatureTooDeep)
-    ));
+    assert_eq!(
+        Err(CheckErrors::TypeSignatureTooDeep.into()),
+        Value::try_deserialize_hex_untyped(input)
+    );
 }
 
 #[test]
@@ -415,4 +414,34 @@ fn test_principals() {
 
     test_bad_expectation(contract_p2, TypeSignature::BoolType);
     test_bad_expectation(standard_p, TypeSignature::BoolType);
+}
+
+/// The returned InterpreterError is consensus-critical.
+#[test]
+fn test_serialize_to_vec_returns_interpreter_error_consensus_critical() {
+    let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+        data: vec![0; MAX_VALUE_SIZE as usize + 1],
+    })));
+    let err = value.serialize_to_vec().unwrap_err();
+    assert_eq!(
+        Error::from(InterpreterError::Expect(
+            "IOError filling byte buffer.".into()
+        )),
+        err.into()
+    );
+}
+
+/// The returned InterpreterError is consensus-critical.
+#[test]
+fn test_serialize_to_hex_returns_interpreter_error_consensus_critical() {
+    let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
+        data: vec![0; MAX_VALUE_SIZE as usize + 1],
+    })));
+    let err = value.serialize_to_hex().unwrap_err();
+    assert_eq!(
+        Error::from(InterpreterError::Expect(
+            "IOError filling byte buffer.".into()
+        )),
+        err.into()
+    );
 }

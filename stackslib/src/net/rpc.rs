@@ -104,7 +104,7 @@ impl ConversationHttp {
         conn_id: usize,
         socket_send_buffer_size: u32,
     ) -> ConversationHttp {
-        let stacks_http = StacksHttp::new(peer_addr.clone(), conn_opts);
+        let stacks_http = StacksHttp::new(peer_addr, conn_opts);
         ConversationHttp {
             connection: ConnectionHttp::new(stacks_http, conn_opts, None),
             conn_id,

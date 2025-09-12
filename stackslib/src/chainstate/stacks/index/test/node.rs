@@ -3837,7 +3837,7 @@ fn read_write_node4() {
         .unwrap();
 
     let hash = TrieHash::from_data(&[0u8; 32]);
-    let wres = trie_io.write_nodetype(0, &TrieNodeType::Node4(node4.clone()), hash.clone());
+    let wres = trie_io.write_nodetype(0, &TrieNodeType::Node4(node4.clone()), hash);
     assert!(wres.is_ok());
 
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node4 as u8, 0, 0));
@@ -3867,7 +3867,7 @@ fn read_write_node16() {
         .unwrap();
 
     let hash = TrieHash::from_data(&[0u8; 32]);
-    let wres = trie_io.write_nodetype(0, &TrieNodeType::Node16(node16.clone()), hash.clone());
+    let wres = trie_io.write_nodetype(0, &TrieNodeType::Node16(node16.clone()), hash);
     assert!(wres.is_ok());
 
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node16 as u8, 0, 0));
@@ -3897,7 +3897,7 @@ fn read_write_node48() {
         .unwrap();
 
     let hash = TrieHash::from_data(&[0u8; 32]);
-    let wres = trie_io.write_nodetype(0, &node48.as_trie_node_type(), hash.clone());
+    let wres = trie_io.write_nodetype(0, &node48.as_trie_node_type(), hash);
     assert!(wres.is_ok());
 
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Node48 as u8, 0, 0));
@@ -3927,7 +3927,7 @@ fn read_write_node256() {
         .extend_to_block(&BlockHeaderHash([0u8; 32]))
         .unwrap();
 
-    let wres = trie_io.write_nodetype(0, &node256.as_trie_node_type(), hash.clone());
+    let wres = trie_io.write_nodetype(0, &node256.as_trie_node_type(), hash);
     assert!(wres.is_ok());
 
     let root_ptr = trie_io.root_ptr();
@@ -3957,7 +3957,7 @@ fn read_write_leaf() {
         .unwrap();
 
     let hash = TrieHash::from_data(&[0u8; 32]);
-    let wres = trie_io.write_nodetype(0, &TrieNodeType::Leaf(leaf.clone()), hash.clone());
+    let wres = trie_io.write_nodetype(0, &TrieNodeType::Leaf(leaf.clone()), hash);
     assert!(wres.is_ok());
 
     let rres = trie_io.read_nodetype(&TriePtr::new(TrieNodeID::Leaf as u8, 0, 0));
@@ -3990,7 +3990,7 @@ fn read_write_node4_hashes() {
         );
         let child_hash = get_leaf_hash(&child);
 
-        child_hashes.push(child_hash.clone());
+        child_hashes.push(child_hash);
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
@@ -4034,7 +4034,7 @@ fn read_write_node16_hashes() {
         );
         let child_hash = get_leaf_hash(&child);
 
-        child_hashes.push(child_hash.clone());
+        child_hashes.push(child_hash);
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
@@ -4080,7 +4080,7 @@ fn read_write_node48_hashes() {
         );
         let child_hash = get_leaf_hash(&child);
 
-        child_hashes.push(child_hash.clone());
+        child_hashes.push(child_hash);
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();
@@ -4126,7 +4126,7 @@ fn read_write_node256_hashes() {
         );
         let child_hash = get_leaf_hash(&child);
 
-        child_hashes.push(child_hash.clone());
+        child_hashes.push(child_hash);
 
         let ptr = trie_io.last_ptr().unwrap();
         trie_io.write_node(ptr, &child, child_hash).unwrap();

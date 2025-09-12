@@ -21,6 +21,7 @@ use std::time::Instant;
 use std::{fs, process};
 
 use clarity::types::chainstate::SortitionId;
+use clarity::util::hash::{to_hex, Sha512Trunc256Sum};
 use db::blocks::DummyEventDispatcher;
 use db::ChainstateTx;
 use regex::Regex;
@@ -30,7 +31,6 @@ use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 
-use crate::burnchains::db::BurnchainDB;
 use crate::burnchains::Burnchain;
 use crate::chainstate::burn::db::sortdb::{
     get_ancestor_sort_id, SortitionDB, SortitionHandleContext,
@@ -472,8 +472,8 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
                 &mut mempool_db,
                 &parent_stacks_header,
                 chain_tip.total_burn,
-                VRFProof::empty(),
-                Hash160([0; 20]),
+                &VRFProof::empty(),
+                &Hash160([0; 20]),
                 &coinbase_tx,
                 settings,
                 None,
@@ -548,13 +548,33 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     process::exit(code);
 }
 
+/// Compute the contract hash for a given contract
+///
+/// Arguments:
+///  - `argv`: Args in CLI format: `<command-name> [args...]`
+pub fn command_contract_hash(argv: &[String], _conf: Option<&Config>) {
+    let print_help_and_exit = || -> ! {
+        let n = &argv[0];
+        eprintln!("Usage:");
+        eprintln!("  {n} <path-to-contract>");
+        process::exit(1);
+    };
+
+    // Process CLI args
+    let contract_path = argv.get(1).unwrap_or_else(|| print_help_and_exit());
+    let contract_source = fs::read_to_string(contract_path)
+        .unwrap_or_else(|e| panic!("Failed to read contract file {contract_path:?}: {e}"));
+
+    let hash = Sha512Trunc256Sum::from_data(contract_source.as_bytes());
+    let hex_string = to_hex(hash.as_bytes());
+    println!("Contract hash for {contract_path}:\n{hex_string}");
+}
+
 /// Fetch and process a `StagingBlock` from database and call `replay_block()` to validate
 fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<&Config>) {
     let block_id = StacksBlockId::from_hex(index_block_hash_hex).unwrap();
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
-    let burn_db_path = format!("{db_path}/burnchain/burnchain.sqlite");
-    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
     let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
@@ -613,7 +633,6 @@ fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<
         sort_tx,
         chainstate_tx,
         clarity_instance,
-        &burnchain_blocks_db,
         &parent_header_info,
         &next_staging_block.parent_microblock_hash,
         next_staging_block.parent_microblock_seq,
@@ -631,8 +650,6 @@ fn replay_staging_block(db_path: &str, index_block_hash_hex: &str, conf: Option<
 fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Option<&Config>) {
     let chain_state_path = format!("{db_path}/chainstate/");
     let sort_db_path = format!("{db_path}/burnchain/sortition");
-    let burn_db_path = format!("{db_path}/burnchain/burnchain.sqlite");
-    let burnchain_blocks_db = BurnchainDB::open(&burn_db_path, false).unwrap();
 
     let conf = conf.unwrap_or(&DEFAULT_MAINNET_CONFIG);
 
@@ -687,7 +704,6 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
         sort_tx,
         chainstate_tx,
         clarity_instance,
-        &burnchain_blocks_db,
         &parent_header_info,
         &block.anchored_block.header.parent_microblock,
         block.anchored_block.header.parent_microblock_sequence,
@@ -707,7 +723,6 @@ fn replay_block(
     mut sort_tx: IndexDBTx<SortitionHandleContext, SortitionId>,
     mut chainstate_tx: ChainstateTx,
     clarity_instance: &mut ClarityInstance,
-    burnchain_blocks_db: &BurnchainDB,
     parent_header_info: &StacksHeaderInfo,
     parent_microblock_hash: &BlockHeaderHash,
     parent_microblock_seq: u16,
@@ -799,14 +814,6 @@ fn replay_block(
     assert_eq!(*parent_microblock_hash, last_microblock_hash);
     assert_eq!(parent_microblock_seq, last_microblock_seq);
 
-    let block_am = StacksChainState::find_stacks_tip_affirmation_map(
-        burnchain_blocks_db,
-        sort_tx.tx(),
-        block_consensus_hash,
-        block_hash,
-    )
-    .unwrap();
-
     let pox_constants = sort_tx.context.pox_constants.clone();
 
     match StacksChainState::append_block(
@@ -824,7 +831,6 @@ fn replay_block(
         &next_microblocks,
         block_commit_burn,
         block_sortition_burn,
-        block_am.weight(),
         true,
     ) {
         Ok((receipt, _, _)) => {
@@ -1050,9 +1056,9 @@ fn replay_block_nakamoto(
                 ));
             }
         }
-        tenure_change.burn_view_consensus_hash
+        &tenure_change.burn_view_consensus_hash
     } else {
-        parent_header_info.burn_view.clone().ok_or_else(|| {
+        parent_header_info.burn_view.as_ref().ok_or_else(|| {
                 warn!(
                     "Cannot process Nakamoto block: parent block does not have a burnchain view and current block has no tenure tx";
                     "consensus_hash" => %block.header.consensus_hash,
@@ -1064,7 +1070,7 @@ fn replay_block_nakamoto(
             })?
     };
     let Some(burnchain_view_sn) =
-        SortitionDB::get_block_snapshot_consensus(sort_db.conn(), &burnchain_view)?
+        SortitionDB::get_block_snapshot_consensus(sort_db.conn(), burnchain_view)?
     else {
         // This should be checked already during block acceptance and parent block processing
         //   - The check for expected burns returns `NoSuchBlockError` if the burnchain view

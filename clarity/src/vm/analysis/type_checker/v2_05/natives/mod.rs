@@ -59,9 +59,8 @@ fn check_special_list_cons(
             type_arg.type_size()?,
         )?;
     }
-    TypeSignature::parent_list_type(&typed_args)
-        .map_err(|x| x.into())
-        .map(TypeSignature::from)
+    let list_type = TypeSignature::parent_list_type(&typed_args)?;
+    Ok(TypeSignature::from(list_type))
 }
 
 fn check_special_print(
@@ -410,7 +409,7 @@ fn check_contract_call(
                 _ => {
                     return Err(
                         CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
-                    )
+                    );
                 }
             };
 
@@ -779,10 +778,10 @@ impl TypedNativeFunction {
             | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo => {
+            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash => {
                 return Err(CheckErrors::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
-                ))
+                ));
             }
         };
 

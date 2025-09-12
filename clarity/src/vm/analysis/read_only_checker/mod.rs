@@ -14,7 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::HashMap;
+use std::collections::HashMap;
+
+use clarity_serialization::representations::ClarityName;
+use clarity_serialization::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{
@@ -28,8 +31,7 @@ use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{PrincipalData, Value};
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::ClarityVersion;
 
 #[cfg(test)]
@@ -291,7 +293,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
             | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice | ReplaceAt
             | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift | BitwiseXor2
-            | ElementAtAlias | IndexOfAlias => {
+            | ElementAtAlias | IndexOfAlias | ContractHash => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }
