@@ -2514,10 +2514,11 @@ pub mod tests {
         db.add_block_signature(&block_id, &address2, &signature4)
             .unwrap();
         // sort them as ordering is not enforced in get_block_signatures
-        assert_eq!(
-            db.get_block_signatures(&block_id).unwrap().sort(),
-            vec![signature1, signature4].sort()
-        );
+        let mut block_signatures = db.get_block_signatures(&block_id).unwrap();
+        block_signatures.sort();
+        let mut signatures = [signature1, signature4];
+        signatures.sort();
+        assert_eq!(block_signatures, signatures);
     }
 
     #[test]
