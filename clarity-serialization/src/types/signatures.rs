@@ -724,8 +724,8 @@ impl TypeSignature {
                         CallableSubtype::Principal(_) => {
                             if is_trait.is_some() {
                                 return Err(CheckErrors::TypeError(
-                                    TypeSignature::PrincipalType,
                                     TypeSignature::CallableType(partial.clone()),
+                                    TypeSignature::PrincipalType,
                                 ));
                             } else {
                                 is_principal = true;
