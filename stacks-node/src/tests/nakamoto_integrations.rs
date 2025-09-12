@@ -143,6 +143,7 @@ pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 use clarity::vm::database::STXBalance;
 use stacks::chainstate::stacks::boot::SIP_031_NAME;
 use stacks::clarity_vm::clarity::SIP_031_INITIAL_MINT;
+use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 
 use crate::clarity::vm::clarity::ClarityConnection;
 
@@ -3168,6 +3169,7 @@ fn block_proposal_api_endpoint() {
             1,
             None,
             None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )
         .expect("Failed to build Nakamoto block");
 

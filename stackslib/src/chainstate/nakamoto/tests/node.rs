@@ -51,6 +51,7 @@ use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, *};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::{BOOT_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER};
 use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::test::{TestPeer, *};
@@ -797,6 +798,7 @@ impl TestStacksNode {
                     1,
                     None,
                     None,
+                    u64::from(DEFAULT_MAX_TENURE_BYTES),
                 )?
             } else {
                 NakamotoBlockBuilder::new_first_block(

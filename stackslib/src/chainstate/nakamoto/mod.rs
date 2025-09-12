@@ -288,6 +288,22 @@ pub static NAKAMOTO_CHAINSTATE_SCHEMA_6: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS nakamoto_block_headers_by_ch_bv ON nakamoto_block_headers(consensus_hash, burn_view);"
 ];
 
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_7: &[&str] = &[
+    r#"
+    UPDATE db_config SET version = "12";
+    "#,
+    // Add a `total_tenure_size` field to the block header row, so we can keep track
+    // of the whole tenure size (and eventually limit it)
+    //
+    //
+    //
+    // Default to 0.
+    r#"
+    ALTER TABLE nakamoto_block_headers
+    ADD COLUMN total_tenure_size NOT NULL DEFAULT 0;
+    "#,
+];
+
 #[cfg(test)]
 mod fault_injection {
     static PROCESS_BLOCK_STALL: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
@@ -3196,6 +3212,7 @@ impl NakamotoChainState {
             stacks_block_height,
             burn_header_height,
             burn_header_timestamp,
+            total_tenure_size,
             ..
         } = tip_info;
 
@@ -3252,6 +3269,7 @@ impl NakamotoChainState {
                     "Nakamoto block StacksHeaderInfo did not set burnchain view".into(),
                 ))
             })?,
+            total_tenure_size
         ];
 
         chainstate_tx.execute(
@@ -3284,8 +3302,9 @@ impl NakamotoChainState {
                     vrf_proof,
                     signer_bitvec,
                     height_in_tenure,
-                    burn_view)
-                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)",
+                    burn_view,
+                    total_tenure_size)
+                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)",
             args
         )?;
 
@@ -3351,6 +3370,9 @@ impl NakamotoChainState {
         let mut marf_keys = vec![];
         let mut marf_values = vec![];
 
+        // assume a new tenure (we will eventually add the parent accumulated size later)
+        let mut total_tenure_size = block_size;
+
         if new_tenure {
             // make the coinbase height point to this tenure-start block
             marf_keys.push(nakamoto_keys::ongoing_tenure_coinbase_height(
@@ -3403,6 +3425,15 @@ impl NakamotoChainState {
                 &tenure_change_tx.tenure_consensus_hash,
             ));
             marf_values.push(nakamoto_keys::make_tenure_id_value(&block_found_tenure_id));
+        } else {
+            // if we are here we need to accumulate the parent total tenure size
+            if let Some(parent_header_info) =
+                NakamotoChainState::get_block_header(&headers_tx, &new_tip.parent_block_id)?
+            {
+                total_tenure_size = total_tenure_size
+                    .checked_add(parent_header_info.total_tenure_size)
+                    .expect("Invalid tenure size");
+            }
         }
 
         if let Some(tenure_tx) = new_block.get_tenure_tx_payload() {
@@ -3445,6 +3476,7 @@ impl NakamotoChainState {
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: block_size,
             burn_view: Some(burn_view.clone()),
+            total_tenure_size,
         };
 
         let tenure_fees = block_fees

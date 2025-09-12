@@ -38,7 +38,7 @@ use crate::chainstate::stacks::miner::{
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::ClarityInstance;
-use crate::config::DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE;
+use crate::config::{DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE, DEFAULT_MAX_TENURE_BYTES};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -94,6 +94,8 @@ pub struct NakamotoBlockBuilder {
     /// Percentage of a block's budget that may be consumed by
     /// contract calls before reverting to stx transfers/boot contract calls only
     contract_limit_percentage: Option<u8>,
+    /// Maximum size of the whole tenure
+    pub max_tenure_bytes: u64,
 }
 
 pub struct MinerTenureInfo<'a> {
@@ -146,6 +148,7 @@ impl NakamotoBlockBuilder {
             header: NakamotoBlockHeader::genesis(),
             soft_limit: None,
             contract_limit_percentage: None,
+            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
         }
     }
 
@@ -176,6 +179,7 @@ impl NakamotoBlockBuilder {
         bitvec_len: u16,
         soft_limit: Option<ExecutionCost>,
         contract_limit_percentage: Option<u8>,
+        max_tenure_bytes: u64,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -217,6 +221,7 @@ impl NakamotoBlockBuilder {
             ),
             soft_limit,
             contract_limit_percentage,
+            max_tenure_bytes,
         })
     }
 
@@ -542,6 +547,7 @@ impl NakamotoBlockBuilder {
             signer_bitvec_len,
             None,
             settings.mempool_settings.contract_cost_limit_percentage,
+            settings.max_tenure_bytes,
         )?;
 
         let ts_start = get_epoch_time_ms();
@@ -677,6 +683,20 @@ impl BlockBuilder for NakamotoBlockBuilder {
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
             return TransactionResult::skipped_due_to_error(tx, Error::BlockTooBigError);
+        }
+
+        if let Some(parent_header) = &self.parent_header {
+            let mut total_tenure_size = self.bytes_so_far + tx_len;
+
+            // if we are in the same tenure of the parent, accumulate the parent total_tenure_size
+            // note that total_tenure_size is reset whenever a new tenure extend happens
+            if parent_header.consensus_hash == self.header.consensus_hash {
+                total_tenure_size += parent_header.total_tenure_size;
+            }
+
+            if total_tenure_size >= self.max_tenure_bytes {
+                return TransactionResult::skipped_due_to_error(tx, Error::TenureTooBigError);
+            }
         }
 
         let non_boot_code_contract_call = match &tx.payload {

@@ -52,6 +52,7 @@ use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
 use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -243,6 +244,7 @@ pub struct BlockBuilderSettings {
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
     pub max_execution_time: Option<std::time::Duration>,
+    pub max_tenure_bytes: u64,
 }
 
 impl BlockBuilderSettings {
@@ -255,6 +257,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
         }
     }
 
@@ -267,6 +270,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
         }
     }
 }
@@ -1548,6 +1552,7 @@ impl StacksBlockBuilder {
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(

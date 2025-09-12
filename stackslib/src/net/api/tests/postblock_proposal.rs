@@ -38,6 +38,7 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
 use crate::chainstate::stacks::test::make_codec_test_nakamoto_block;
 use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use crate::core::test_util::{
     make_big_read_count_contract, make_contract_call, make_contract_publish,
@@ -272,6 +273,7 @@ fn test_try_make_response() {
             8,
             None,
             None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )
         .unwrap();
 
@@ -524,6 +526,7 @@ fn replay_validation_test(
             8,
             None,
             None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )
         .unwrap();
 

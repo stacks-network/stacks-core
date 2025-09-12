@@ -120,6 +120,7 @@ pub enum Error {
     /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
     InvalidChildOfNakomotoBlock,
     NoRegisteredSigners(u64),
+    TenureTooBigError,
 }
 
 impl From<marf_error> for Error {
@@ -222,6 +223,7 @@ impl fmt::Display for Error {
             Error::NotInSameFork => {
                 write!(f, "The supplied block identifiers are not in the same fork")
             }
+            Error::TenureTooBigError => write!(f, "Too much data in tenure"),
         }
     }
 }
@@ -268,6 +270,7 @@ impl error::Error for Error {
             Error::ExpectedTenureChange => None,
             Error::NoRegisteredSigners(_) => None,
             Error::NotInSameFork => None,
+            Error::TenureTooBigError => None,
         }
     }
 }
@@ -314,6 +317,7 @@ impl Error {
             Error::ExpectedTenureChange => "ExpectedTenureChange",
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
             Error::NotInSameFork => "NotInSameFork",
+            Error::TenureTooBigError => "TenureTooBigError",
         }
     }
 

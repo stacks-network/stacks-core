@@ -69,6 +69,7 @@ use crate::chainstate::stacks::{
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::ClarityInstance;
 use crate::clarity_vm::database::SortitionDBRef;
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::Error as NetError;
 use crate::util_lib::db::{query_row, u64_to_sql, Error as DBError};
 
@@ -728,6 +729,7 @@ impl NakamotoBlockBuilder {
             1,
             None,
             None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )?;
 
         let mut block_txs = vec![tenure_change_tx, coinbase_tx];

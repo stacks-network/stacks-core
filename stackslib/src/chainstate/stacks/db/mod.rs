@@ -51,6 +51,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConn,
     NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
     NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
+    NAKAMOTO_CHAINSTATE_SCHEMA_7,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -185,6 +186,8 @@ pub struct StacksHeaderInfo {
     /// The burnchain tip that is passed to Clarity while processing this block.
     /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x blocks
     pub burn_view: Option<ConsensusHash>,
+    /// Total tenure size (reset at every tenure extend) in bytes
+    pub total_tenure_size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -283,8 +286,8 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => (1..=11).contains(&version_u32),
-            StacksEpochId::Epoch2_05 => (2..=11).contains(&version_u32),
+            StacksEpochId::Epoch20 => (1..=12).contains(&version_u32),
+            StacksEpochId::Epoch2_05 => (2..=12).contains(&version_u32),
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
@@ -293,7 +296,7 @@ impl DBConfig {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => (3..=11).contains(&version_u32),
+            | StacksEpochId::Epoch33 => (3..=12).contains(&version_u32),
         }
     }
 }
@@ -362,6 +365,7 @@ impl StacksHeaderInfo {
             burn_header_timestamp: 0,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         }
     }
 
@@ -382,6 +386,7 @@ impl StacksHeaderInfo {
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         }
     }
 
@@ -454,6 +459,13 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             return Err(db_error::ParseError);
         }
 
+        let total_tenure_size = {
+            match header_type {
+                HeaderTypeNames::Epoch2 => 0,
+                HeaderTypeNames::Nakamoto => u64::from_column(row, "total_tenure_size")?,
+            }
+        };
+
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
@@ -465,6 +477,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_timestamp,
             anchored_block_size,
             burn_view,
+            total_tenure_size,
         })
     }
 }
@@ -652,7 +665,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "11";
+pub const CHAINSTATE_VERSION: &str = "12";
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1142,6 +1155,14 @@ impl StacksChainState {
                         "Migrating chainstate schema from version 10 to 11: drop affirmation_weight from block_headers"
                     );
                     for cmd in CHAINSTATE_SCHEMA_5.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "11" => {
+                    info!(
+                        "Migrating chainstate schema from version 11 to 12: add total_tenure_size field"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_7.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
@@ -2671,6 +2692,7 @@ impl StacksChainState {
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: anchor_block_size,
             burn_view: None,
+            total_tenure_size: 0,
         };
 
         StacksChainState::insert_stacks_block_header(
