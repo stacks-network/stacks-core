@@ -3430,9 +3430,14 @@ impl NakamotoChainState {
             if let Some(parent_header_info) =
                 NakamotoChainState::get_block_header(&headers_tx, &new_tip.parent_block_id)?
             {
-                total_tenure_size = total_tenure_size
-                    .checked_add(parent_header_info.total_tenure_size)
-                    .expect("Invalid tenure size");
+                total_tenure_size =
+                    match total_tenure_size.checked_add(parent_header_info.total_tenure_size) {
+                        Some(total_tenure_size) => total_tenure_size,
+                        // in the extremely improbable case of overflow, just throw the tenure too big error
+                        None => {
+                            return Err(ChainstateError::TenureTooBigError);
+                        }
+                    };
             }
         }
 

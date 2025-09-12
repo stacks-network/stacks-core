@@ -14931,3 +14931,142 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
 
     run_loop_thread.join().unwrap();
 }
+
+#[test]
+#[ignore]
+/// Tests that the tenure size limit is correctly accounted.
+fn smaller_tenure_size_for_miner() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+
+    let sender_addr = tests::to_addr(&sender_sk);
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    naka_conf.miner.max_tenure_bytes = 2 * 1024 * 1024; // 2MB
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    let mut long_comment = String::from(";; ");
+    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    let contract = format!(
+        r#"
+        {long_comment}
+        (define-public (test-fn)
+          (ok "Hello, world!")
+        )
+     "#
+    );
+
+    let deploy_fee = 524504;
+    // number of deploys to submit in the test
+    let num_deploys = 10;
+
+    let mut nonce = 0;
+
+    test_observer::clear();
+
+    for deploy in 0..num_deploys {
+        info!("Submitting deploy {deploy}");
+        let contract_name = format!("test-{deploy}");
+
+        let contract_tx = make_contract_publish(
+            &sender_sk,
+            nonce,
+            deploy_fee,
+            naka_conf.burnchain.chain_id,
+            &contract_name,
+            &contract,
+        );
+
+        submit_tx(&http_origin, &contract_tx);
+        nonce += 1;
+    }
+
+    wait_for(
+        60,
+        || Ok(get_account(&http_origin, &sender_addr).nonce >= 3),
+    )
+    .unwrap();
+
+    // 3 of the deploys should have been mined, and the
+    // 4th should have been rejected.
+    let sender_account = get_account(&http_origin, &to_addr(&sender_sk));
+
+    assert_eq!(sender_account.nonce, 3, "Should have signed 3 deploys");
+
+    let blocks = test_observer::get_blocks();
+
+    assert_eq!(
+        blocks.len(),
+        1,
+        "Should have successfully mined one block, but got {}",
+        blocks.len()
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
