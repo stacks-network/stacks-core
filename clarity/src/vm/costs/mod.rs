@@ -42,6 +42,8 @@ use crate::vm::types::{
     FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
 };
 use crate::vm::{CallStack, ClarityName, Environment, LocalContext, SymbolicExpression, Value};
+
+pub mod analysis;
 pub mod constants;
 pub mod cost_functions;
 #[allow(unused_variables)]
