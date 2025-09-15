@@ -2172,12 +2172,6 @@ impl BitcoinRegtestController {
         Ok(())
     }
 
-    pub fn to_bitcoin_tx_hash(txid: &Txid) -> Sha256dHash {
-        let mut txid_bytes = txid.0;
-        txid_bytes.reverse();
-        Sha256dHash(txid_bytes)
-    }
-
     /// Returns a copy of the given public key adjusted to the current epoch rules.
     ///
     /// In particular:
@@ -2253,10 +2247,10 @@ impl BitcoinRegtestController {
 
         let utxos = unspents
             .into_iter()
-            .filter(|each| !txids_to_exclude.contains(&Self::to_bitcoin_tx_hash(&each.txid)))
+            .filter(|each| !txids_to_exclude.contains(&Txid::to_bitcoin_tx_hash(&each.txid)))
             .filter(|each| each.amount >= minimum_sum_amount)
             .map(|each| UTXO {
-                txid: Self::to_bitcoin_tx_hash(&each.txid),
+                txid: Txid::to_bitcoin_tx_hash(&each.txid),
                 vout: each.vout,
                 script_pub_key: each.script_pub_key,
                 amount: each.amount,
