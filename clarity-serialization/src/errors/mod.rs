@@ -54,10 +54,8 @@ pub enum Error {
 /// Test executions may trigger these errors.
 #[derive(Debug, PartialEq)]
 pub enum InterpreterError {
-    BadSender(Value),
     BadSymbolicRepresentation(String),
     InterpreterError(String),
-    UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
     #[cfg(feature = "rusqlite")]
@@ -68,7 +66,6 @@ pub enum InterpreterError {
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
     InsufficientBalance,
-    CostContractLoadFailure,
     DBError(String),
     Expect(String),
 }
