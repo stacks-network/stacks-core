@@ -30,7 +30,7 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, Value,
 };
-use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
+use clarity::vm::{Environment, SymbolicExpression};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
@@ -56,6 +56,7 @@ pub const BOOT_CODE_LOCKUP: &str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COSTS_2: &str = std::include_str!("costs-2.clar");
 pub const BOOT_CODE_COSTS_3: &str = std::include_str!("costs-3.clar");
+pub const BOOT_CODE_COSTS_4: &str = std::include_str!("costs-4.clar");
 pub const BOOT_CODE_COSTS_2_TESTNET: &str = std::include_str!("costs-2-testnet.clar");
 pub const BOOT_CODE_COST_VOTING_MAINNET: &str = std::include_str!("cost-voting.clar");
 pub const BOOT_CODE_BNS: &str = std::include_str!("bns.clar");
@@ -87,6 +88,7 @@ const SIP_031_BODY: &str = std::include_str!("sip-031.clar");
 pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
+pub const COSTS_4_NAME: &str = "costs-4";
 /// This contract name is used in testnet **only** to lookup an initial
 ///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
 ///  function called `aggregate-key` with zero arguments which returns a (buff 33)
@@ -385,7 +387,6 @@ impl StacksChainState {
                 is_mainnet,
                 // chain id doesn't matter since it won't be used
                 CHAIN_ID_MAINNET,
-                ClarityVersion::Clarity2,
                 sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
@@ -435,7 +436,6 @@ impl StacksChainState {
                 is_mainnet,
                 // chain id doesn't matter since it won't be used
                 CHAIN_ID_MAINNET,
-                ClarityVersion::Clarity2,
                 sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
@@ -696,7 +696,6 @@ impl StacksChainState {
                     clarity_tx.with_readonly_clarity_env(
                         mainnet,
                         chain_id,
-                        ClarityVersion::Clarity1,
                         sender,
                         None,
                         cost_track,

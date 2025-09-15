@@ -1010,7 +1010,6 @@ fn test_get_block_info_v210() {
                     let list_val = clarity_tx.with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1314,7 +1313,6 @@ fn test_get_block_info_v210_no_microblocks() {
                     let list_val = clarity_tx.with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1782,7 +1780,6 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     let list_val = clarity_tx.with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1813,7 +1810,6 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                         let miner_val = clarity_tx.with_readonly_clarity_env(
                             false,
                             CHAIN_ID_TESTNET,
-                            ClarityVersion::Clarity2,
                             PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                             None,
                             LimitedCostTracker::new_free(),
@@ -1892,7 +1888,6 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),

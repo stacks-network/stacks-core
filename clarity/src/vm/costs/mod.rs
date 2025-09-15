@@ -18,11 +18,12 @@ use std::collections::HashMap;
 use std::{cmp, fmt};
 
 pub use clarity_serialization::errors::CostErrors;
-pub use clarity_serialization::execution_cost::ExecutionCost;
+pub use clarity_serialization::execution_cost::{CostOverflowingMath, ExecutionCost};
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
 use costs_3::Costs3;
+use costs_4::Costs4;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
@@ -51,6 +52,8 @@ pub mod costs_2;
 pub mod costs_2_testnet;
 #[allow(unused_variables)]
 pub mod costs_3;
+#[allow(unused_variables)]
+pub mod costs_4;
 
 type Result<T> = std::result::Result<T, CostErrors>;
 
@@ -60,6 +63,7 @@ pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
+pub const COSTS_4_NAME: &str = "costs-4";
 
 lazy_static! {
     static ref COST_TUPLE_TYPE_SIGNATURE: TypeSignature = {
@@ -191,6 +195,7 @@ pub enum DefaultVersion {
     Costs2,
     Costs2Testnet,
     Costs3,
+    Costs4,
 }
 
 impl DefaultVersion {
@@ -208,6 +213,7 @@ impl DefaultVersion {
             DefaultVersion::Costs2 => f.eval::<Costs2>(*n),
             DefaultVersion::Costs2Testnet => f.eval::<Costs2Testnet>(*n),
             DefaultVersion::Costs3 => f.eval::<Costs3>(*n),
+            DefaultVersion::Costs4 => f.eval::<Costs4>(*n),
         };
         r.map_err(|e| {
             let e = match e {
@@ -242,6 +248,8 @@ impl DefaultVersion {
             }
         } else if value.name.as_str() == COSTS_3_NAME {
             Ok(Self::Costs3)
+        } else if value.name.as_str() == COSTS_4_NAME {
+            Ok(Self::Costs4)
         } else {
             Err(format!("Unknown default contract {}", &value.name))
         }
@@ -842,6 +850,7 @@ impl LimitedCostTracker {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32 => COSTS_3_NAME.to_string(),
+            StacksEpochId::Epoch33 => COSTS_4_NAME.to_string(),
         };
         Ok(result)
     }
@@ -1241,28 +1250,6 @@ impl CostTracker for &mut LimitedCostTracker {
         input: &[u64],
     ) -> Result<bool> {
         LimitedCostTracker::short_circuit_contract_call(self, contract, function, input)
-    }
-}
-
-pub trait CostOverflowingMath<T> {
-    fn cost_overflow_mul(self, other: T) -> Result<T>;
-    fn cost_overflow_add(self, other: T) -> Result<T>;
-    fn cost_overflow_sub(self, other: T) -> Result<T>;
-    fn cost_overflow_div(self, other: T) -> Result<T>;
-}
-
-impl CostOverflowingMath<u64> for u64 {
-    fn cost_overflow_mul(self, other: u64) -> Result<u64> {
-        self.checked_mul(other).ok_or(CostErrors::CostOverflow)
-    }
-    fn cost_overflow_add(self, other: u64) -> Result<u64> {
-        self.checked_add(other).ok_or(CostErrors::CostOverflow)
-    }
-    fn cost_overflow_sub(self, other: u64) -> Result<u64> {
-        self.checked_sub(other).ok_or(CostErrors::CostOverflow)
-    }
-    fn cost_overflow_div(self, other: u64) -> Result<u64> {
-        self.checked_div(other).ok_or(CostErrors::CostOverflow)
     }
 }
 

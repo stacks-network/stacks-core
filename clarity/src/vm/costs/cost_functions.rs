@@ -157,6 +157,7 @@ define_named_enum!(ClarityCostFunction {
     BitwiseNot("cost_bitwise_not"),
     BitwiseLShift("cost_bitwise_left_shift"),
     BitwiseRShift("cost_bitwise_right_shift"),
+    ContractHash("cost_contract_hash"),
     Unimplemented("cost_unimplemented"),
 });
 
@@ -326,6 +327,7 @@ pub trait CostValues {
     fn cost_bitwise_not(n: u64) -> InterpreterResult<ExecutionCost>;
     fn cost_bitwise_left_shift(n: u64) -> InterpreterResult<ExecutionCost>;
     fn cost_bitwise_right_shift(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost>;
 }
 
 impl ClarityCostFunction {
@@ -478,6 +480,7 @@ impl ClarityCostFunction {
             ClarityCostFunction::BitwiseNot => C::cost_bitwise_not(n),
             ClarityCostFunction::BitwiseLShift => C::cost_bitwise_left_shift(n),
             ClarityCostFunction::BitwiseRShift => C::cost_bitwise_right_shift(n),
+            ClarityCostFunction::ContractHash => C::cost_contract_hash(n),
             ClarityCostFunction::Unimplemented => Err(RuntimeErrorType::NotImplemented.into()),
         }
     }

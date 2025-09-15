@@ -292,7 +292,8 @@ impl DBConfig {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => (3..=11).contains(&version_u32),
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => (3..=11).contains(&version_u32),
         }
     }
 }
@@ -2013,7 +2014,6 @@ impl StacksChainState {
         let result = conn.with_readonly_clarity_env(
             self.mainnet,
             self.chain_id,
-            ClarityVersion::latest(),
             contract.clone().into(),
             None,
             LimitedCostTracker::Free,

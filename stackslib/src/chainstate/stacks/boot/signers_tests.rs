@@ -18,7 +18,7 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::tests::symbols_from_values;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
@@ -469,7 +469,6 @@ pub fn readonly_call_with_sortdb(
                     .with_readonly_clarity_env(
                         false,
                         0x80000000,
-                        ClarityVersion::Clarity2,
                         PrincipalData::from(boot_code_addr(false)),
                         None,
                         LimitedCostTracker::new_free(),
