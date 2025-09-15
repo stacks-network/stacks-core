@@ -2879,9 +2879,10 @@ fn select_and_apply_transactions_from_vec<B: BlockBuilder>(
             TransactionResult::Skipped(TransactionSkipped { error, .. })
             | TransactionResult::ProcessingError(TransactionError { error, .. }) => {
                 match &error {
-                    Error::BlockTooBigError => {
+                    Error::BlockTooBigError | Error::BlockCostLimitError => {
                         // done mining -- our execution budget is exceeded.
-                        // Make the block from the transactions we did manage to get
+                        // Make the block from the transactions we did manage
+                        // (We cannot simply skip as this would put the replay txs out of order)
                         debug!("Block budget exceeded on tx {txid}");
                         info!("Miner stopping due to limit reached");
                         break;
