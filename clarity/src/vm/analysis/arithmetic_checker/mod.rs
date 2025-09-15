@@ -16,9 +16,7 @@
 
 use clarity_serialization::representations::ClarityName;
 
-pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
-};
+pub use super::errors::{check_argument_count, check_arguments_at_least, CheckError, CheckErrors};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::functions::NativeFunctions;

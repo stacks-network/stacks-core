@@ -25,15 +25,12 @@ pub use clarity_serialization::types::signatures::{
 pub use clarity_serialization::types::Value;
 use stacks_common::types::StacksEpochId;
 
+use self::TypeSignature::SequenceType;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{CheckErrors, SyntaxBindingError, SyntaxBindingErrorType};
 use crate::vm::representations::{
     ClarityName, SymbolicExpression, SymbolicExpressionType, TraitDefinition,
 };
-
-type CheckResult<R> = std::result::Result<R, CheckErrors>;
-
-use self::TypeSignature::SequenceType;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FunctionSignature {
@@ -166,48 +163,52 @@ impl From<FixedFunction> for FunctionSignature {
 /// This is not included in clarity-serialization because it requires the
 /// [`CostTracker`] trait.
 pub trait TypeSignatureExt {
-    fn parse_atom_type(typename: &str) -> CheckResult<TypeSignature>;
+    fn parse_atom_type(typename: &str) -> Result<TypeSignature, CheckErrors>;
     fn parse_list_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature>;
+    ) -> Result<TypeSignature, CheckErrors>;
     fn parse_tuple_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature>;
-    fn parse_buff_type_repr(type_args: &[SymbolicExpression]) -> CheckResult<TypeSignature>;
-    fn parse_string_utf8_type_repr(type_args: &[SymbolicExpression]) -> CheckResult<TypeSignature>;
-    fn parse_string_ascii_type_repr(type_args: &[SymbolicExpression])
-        -> CheckResult<TypeSignature>;
+    ) -> Result<TypeSignature, CheckErrors>;
+    fn parse_buff_type_repr(type_args: &[SymbolicExpression])
+        -> Result<TypeSignature, CheckErrors>;
+    fn parse_string_utf8_type_repr(
+        type_args: &[SymbolicExpression],
+    ) -> Result<TypeSignature, CheckErrors>;
+    fn parse_string_ascii_type_repr(
+        type_args: &[SymbolicExpression],
+    ) -> Result<TypeSignature, CheckErrors>;
     fn parse_optional_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature>;
+    ) -> Result<TypeSignature, CheckErrors>;
     fn parse_response_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature>;
+    ) -> Result<TypeSignature, CheckErrors>;
     fn parse_type_repr<A: CostTracker>(
         epoch: StacksEpochId,
         x: &SymbolicExpression,
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature>;
+    ) -> Result<TypeSignature, CheckErrors>;
     fn parse_trait_type_repr<A: CostTracker>(
         type_args: &[SymbolicExpression],
         accounting: &mut A,
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>>;
+    ) -> Result<BTreeMap<ClarityName, FunctionSignature>, CheckErrors>;
     #[cfg(test)]
     fn from_string(val: &str, version: ClarityVersion, epoch: StacksEpochId) -> Self;
 }
 
 impl TypeSignatureExt for TypeSignature {
-    fn parse_atom_type(typename: &str) -> CheckResult<TypeSignature> {
+    fn parse_atom_type(typename: &str) -> Result<TypeSignature, CheckErrors> {
         match typename {
             "int" => Ok(TypeSignature::IntType),
             "uint" => Ok(TypeSignature::UIntType),
@@ -223,7 +224,7 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature> {
+    ) -> Result<TypeSignature, CheckErrors> {
         if type_args.len() != 2 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
@@ -244,7 +245,7 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature> {
+    ) -> Result<TypeSignature, CheckErrors> {
         let mapped_key_types = parse_name_type_pairs::<_, CheckErrors>(
             epoch,
             type_args,
@@ -257,7 +258,9 @@ impl TypeSignatureExt for TypeSignature {
 
     // Parses type signatures of the form:
     // (buff 10)
-    fn parse_buff_type_repr(type_args: &[SymbolicExpression]) -> CheckResult<TypeSignature> {
+    fn parse_buff_type_repr(
+        type_args: &[SymbolicExpression],
+    ) -> Result<TypeSignature, CheckErrors> {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
@@ -271,7 +274,9 @@ impl TypeSignatureExt for TypeSignature {
 
     // Parses type signatures of the form:
     // (string-utf8 10)
-    fn parse_string_utf8_type_repr(type_args: &[SymbolicExpression]) -> CheckResult<TypeSignature> {
+    fn parse_string_utf8_type_repr(
+        type_args: &[SymbolicExpression],
+    ) -> Result<TypeSignature, CheckErrors> {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
@@ -288,7 +293,7 @@ impl TypeSignatureExt for TypeSignature {
     // (string-ascii 10)
     fn parse_string_ascii_type_repr(
         type_args: &[SymbolicExpression],
-    ) -> CheckResult<TypeSignature> {
+    ) -> Result<TypeSignature, CheckErrors> {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
@@ -305,7 +310,7 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature> {
+    ) -> Result<TypeSignature, CheckErrors> {
         if type_args.len() != 1 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
@@ -318,7 +323,7 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         type_args: &[SymbolicExpression],
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature> {
+    ) -> Result<TypeSignature, CheckErrors> {
         if type_args.len() != 2 {
             return Err(CheckErrors::InvalidTypeDescription);
         }
@@ -331,7 +336,7 @@ impl TypeSignatureExt for TypeSignature {
         epoch: StacksEpochId,
         x: &SymbolicExpression,
         accounting: &mut A,
-    ) -> CheckResult<TypeSignature> {
+    ) -> Result<TypeSignature, CheckErrors> {
         runtime_cost(ClarityCostFunction::TypeParseStep, accounting, 0)?;
 
         match x.expr {
@@ -393,7 +398,7 @@ impl TypeSignatureExt for TypeSignature {
         accounting: &mut A,
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> CheckResult<BTreeMap<ClarityName, FunctionSignature>> {
+    ) -> Result<BTreeMap<ClarityName, FunctionSignature>, CheckErrors> {
         let mut trait_signature: BTreeMap<ClarityName, FunctionSignature> = BTreeMap::new();
         let functions_types = type_args
             .first()
@@ -421,7 +426,7 @@ impl TypeSignatureExt for TypeSignature {
             let fn_args = fn_args_exprs
                 .iter()
                 .map(|arg_type| TypeSignature::parse_type_repr(epoch, arg_type, accounting))
-                .collect::<CheckResult<_>>()?;
+                .collect::<Result<_, CheckErrors>>()?;
 
             // Extract function's type return - must be a response
             let fn_return = match TypeSignature::parse_type_repr(epoch, &args[2], accounting) {
@@ -466,7 +471,7 @@ impl TypeSignatureExt for TypeSignature {
 }
 
 impl FixedFunction {
-    pub fn total_type_size(&self) -> CheckResult<u64> {
+    pub fn total_type_size(&self) -> Result<u64, CheckErrors> {
         let mut function_type_size = u64::from(self.returns.type_size()?);
         for arg in self.args.iter() {
             function_type_size =
@@ -477,7 +482,7 @@ impl FixedFunction {
 }
 
 impl FunctionSignature {
-    pub fn total_type_size(&self) -> CheckResult<u64> {
+    pub fn total_type_size(&self) -> Result<u64, CheckErrors> {
         let mut function_type_size = u64::from(self.returns.type_size()?);
         for arg in self.args.iter() {
             function_type_size =
@@ -490,7 +495,7 @@ impl FunctionSignature {
         &self,
         epoch: &StacksEpochId,
         args: Vec<TypeSignature>,
-    ) -> CheckResult<bool> {
+    ) -> Result<bool, CheckErrors> {
         if args.len() != self.args.len() {
             return Ok(false);
         }

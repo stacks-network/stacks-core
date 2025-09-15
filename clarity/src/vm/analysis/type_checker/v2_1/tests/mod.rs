@@ -20,10 +20,8 @@ use rstest::rstest;
 use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
-use super::CheckResult;
-use crate::vm::analysis::errors::{CheckErrors, SyntaxBindingError};
+use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
-use crate::vm::analysis::type_checker::v2_1::TypeResult;
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrors;
@@ -43,7 +41,7 @@ mod assets;
 pub mod contracts;
 
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
-pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+pub fn mem_type_check(exp: &str) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     mem_run_analysis(
         exp,
         crate::vm::ClarityVersion::latest(),
@@ -52,16 +50,19 @@ pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, Contract
 }
 
 /// NOTE: runs at latest Clarity version
-fn type_check_helper(exp: &str) -> TypeResult {
+fn type_check_helper(exp: &str) -> Result<TypeSignature, CheckError> {
     mem_type_check(exp).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
-fn type_check_helper_version(exp: &str, version: ClarityVersion) -> TypeResult {
+fn type_check_helper_version(
+    exp: &str,
+    version: ClarityVersion,
+) -> Result<TypeSignature, CheckError> {
     mem_run_analysis(exp, version, StacksEpochId::latest())
         .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
-fn type_check_helper_v1(exp: &str) -> TypeResult {
+fn type_check_helper_v1(exp: &str) -> Result<TypeSignature, CheckError> {
     type_check_helper_version(exp, ClarityVersion::Clarity1)
 }
 

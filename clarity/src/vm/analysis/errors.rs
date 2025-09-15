@@ -16,5 +16,5 @@
 
 pub use clarity_serialization::errors::analysis::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckError,
-    CheckErrors, CheckResult, SyntaxBindingError, SyntaxBindingErrorType,
+    CheckErrors, SyntaxBindingError, SyntaxBindingErrorType,
 };
