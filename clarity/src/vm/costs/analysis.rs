@@ -1,5 +1,9 @@
 // Static cost analysis for Clarity expressions
 
+use clarity_serialization::representations::ContractName;
+use clarity_serialization::types::TraitIdentifier;
+use clarity_serialization::Value;
+
 use crate::vm::ast::parser::v2::parse;
 use crate::vm::costs::cost_functions::CostValues;
 use crate::vm::costs::costs_3::Costs3;
@@ -13,6 +17,7 @@ use crate::vm::representations::{ClarityName, PreSymbolicExpression, PreSymbolic
 // contract-call? - how to handle?
 // type-checking
 // lookups
+// unwrap evaluates both branches (https://github.com/clarity-lang/reference/issues/59)
 
 #[derive(Debug, Clone)]
 pub struct StaticCostNode {
@@ -68,20 +73,175 @@ pub fn static_cost(source: &str) -> Result<StaticCost, String> {
         return Err("No expressions found".to_string());
     }
 
+    // TODO what happens if multiple expressions are selected?
     let pre_expr = &pre_expressions[0];
+    let _expr_tree = build_expr_tree(pre_expr)?;
     let cost_tree = build_cost_tree(pre_expr)?;
 
     Ok(calculate_total_cost(&cost_tree))
+}
+
+#[derive(Debug, Clone)]
+pub enum ExprNode {
+    If,
+    Match,
+    Unwrap,
+    Ok,
+    Err,
+    GT,
+    LT,
+    GE,
+    LE,
+    EQ,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    // Other functions
+    Function(ClarityName),
+    // Values
+    AtomValue(Value),
+    Atom(ClarityName),
+    // Placeholder for sugared identifiers
+    SugaredContractIdentifier(ContractName),
+    SugaredFieldIdentifier(ContractName, ClarityName),
+    FieldIdentifier(TraitIdentifier),
+    TraitReference(ClarityName),
+}
+
+#[derive(Debug, Clone)]
+pub struct ExprTree {
+    pub expr: ExprNode,
+    pub children: Vec<ExprTree>,
+    pub branching: bool,
+}
+
+/// Build an expression tree, skipping comments and placeholders
+fn build_expr_tree(expr: &PreSymbolicExpression) -> Result<ExprTree, String> {
+    match &expr.pre_expr {
+        PreSymbolicExpressionType::List(list) => build_listlike_expr_tree(list, "list"),
+        PreSymbolicExpressionType::AtomValue(value) => Ok(ExprTree {
+            expr: ExprNode::AtomValue(value.clone()),
+            children: vec![],
+            branching: false,
+        }),
+        PreSymbolicExpressionType::Atom(name) => Ok(ExprTree {
+            expr: ExprNode::Atom(name.clone()),
+            children: vec![],
+            branching: false,
+        }),
+        PreSymbolicExpressionType::Tuple(tuple) => build_listlike_expr_tree(tuple, "tuple"),
+        PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
+            // TODO: Look up the source for this contract identifier
+            Ok(ExprTree {
+                expr: ExprNode::SugaredContractIdentifier(contract_name.clone()),
+                children: vec![],
+                branching: false,
+            })
+        }
+        PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, field_name) => {
+            // TODO: Look up the source for this field identifier
+            Ok(ExprTree {
+                expr: ExprNode::SugaredFieldIdentifier(contract_name.clone(), field_name.clone()),
+                children: vec![],
+                branching: false,
+            })
+        }
+        PreSymbolicExpressionType::FieldIdentifier(field_name) => Ok(ExprTree {
+            expr: ExprNode::FieldIdentifier(field_name.clone()),
+            children: vec![],
+            branching: false,
+        }),
+        PreSymbolicExpressionType::TraitReference(trait_name) => {
+            // TODO: Look up the source for this trait reference
+            Ok(ExprTree {
+                expr: ExprNode::TraitReference(trait_name.clone()),
+                children: vec![],
+                branching: false,
+            })
+        }
+        // Comments and placeholders should be filtered out during traversal
+        PreSymbolicExpressionType::Comment(_comment) => {
+            Err("hit an irrelevant comment expr type".to_string())
+        }
+        PreSymbolicExpressionType::Placeholder(_placeholder) => {
+            Err("hit an irrelevant placeholder expr type".to_string())
+        }
+    }
+}
+
+/// Helper function to build expression trees for both lists and tuples
+fn build_listlike_expr_tree(
+    items: &[PreSymbolicExpression],
+    container_type: &str,
+) -> Result<ExprTree, String> {
+    let function_name = match &items[0].pre_expr {
+        PreSymbolicExpressionType::Atom(name) => name,
+        _ => {
+            return Err(format!(
+                "First element of {} must be an atom (function name)",
+                container_type
+            ));
+        }
+    };
+
+    let args = &items[1..];
+    let mut children = Vec::new();
+
+    // Build children for all arguments, skipping comments and placeholders
+    for arg in args {
+        match &arg.pre_expr {
+            PreSymbolicExpressionType::Comment(_) | PreSymbolicExpressionType::Placeholder(_) => {
+                // Skip comments and placeholders
+                continue;
+            }
+            _ => {
+                children.push(build_expr_tree(arg)?);
+            }
+        }
+    }
+
+    // Determine if this is a branching function
+    let branching = is_branching_function(function_name);
+
+    // Create the appropriate ExprNode
+    let expr_node = match function_name.as_str() {
+        "if" => ExprNode::If,
+        "match" => ExprNode::Match,
+        "unwrap!" | "unwrap-err!" | "unwrap-panic" | "unwrap-err-panic" => ExprNode::Unwrap,
+        "ok" => ExprNode::Ok,
+        "err" => ExprNode::Err,
+        ">" => ExprNode::GT,
+        "<" => ExprNode::LT,
+        ">=" => ExprNode::GE,
+        "<=" => ExprNode::LE,
+        "=" | "is-eq" | "eq" => ExprNode::EQ,
+        "+" | "add" => ExprNode::Add,
+        "-" | "sub" => ExprNode::Sub,
+        "*" | "mul" => ExprNode::Mul,
+        "/" | "div" => ExprNode::Div,
+        _ => ExprNode::Function(function_name.clone()),
+    };
+
+    Ok(ExprTree {
+        expr: expr_node,
+        children,
+        branching,
+    })
+}
+
+/// Determine if a function name represents a branching function
+fn is_branching_function(function_name: &ClarityName) -> bool {
+    match function_name.as_str() {
+        "if" | "match" | "unwrap!" | "unwrap-err!" => true,
+        _ => false,
+    }
 }
 
 // TODO: Needs alternative traversals to get min/max
 fn build_cost_tree(expr: &PreSymbolicExpression) -> Result<StaticCostNode, String> {
     match &expr.pre_expr {
         PreSymbolicExpressionType::List(list) => {
-            if list.is_empty() {
-                return Err("Empty list expression".to_string());
-            }
-
             let function_name = match &list[0].pre_expr {
                 PreSymbolicExpressionType::Atom(name) => name,
                 _ => {
@@ -368,5 +528,81 @@ mod tests {
         // cost: 429 (constant) - len doesn't depend on string size
         assert_eq!(cost.min.runtime, 429);
         assert_eq!(cost.max.runtime, 429);
+    }
+
+    #[test]
+    fn test_build_expr_tree_if_expression() {
+        let source = "(if (> 3 0) (ok true) (ok false))";
+        let pre_expressions = parse(source).unwrap();
+        let pre_expr = &pre_expressions[0];
+        let expr_tree = build_expr_tree(pre_expr).unwrap();
+
+        // Root should be an If node with branching=true
+        assert!(matches!(expr_tree.expr, ExprNode::If));
+        assert!(expr_tree.branching);
+        assert_eq!(expr_tree.children.len(), 3); // condition, then, else
+
+        // First child should be GT comparison
+        let gt_node = &expr_tree.children[0];
+        assert!(matches!(gt_node.expr, ExprNode::GT));
+        assert!(!gt_node.branching);
+        assert_eq!(gt_node.children.len(), 2); // 3 and 0
+
+        // GT children should be AtomValue(3) and AtomValue(0)
+        let left_val = &gt_node.children[0];
+        let right_val = &gt_node.children[1];
+        assert!(matches!(left_val.expr, ExprNode::AtomValue(_)));
+        assert!(matches!(right_val.expr, ExprNode::AtomValue(_)));
+
+        // Second child should be Ok(true)
+        let ok_true_node = &expr_tree.children[1];
+        assert!(matches!(ok_true_node.expr, ExprNode::Ok));
+        assert!(!ok_true_node.branching);
+        assert_eq!(ok_true_node.children.len(), 1);
+
+        // Third child should be Ok(false)
+        let ok_false_node = &expr_tree.children[2];
+        assert!(matches!(ok_false_node.expr, ExprNode::Ok));
+        assert!(!ok_false_node.branching);
+        assert_eq!(ok_false_node.children.len(), 1);
+    }
+
+    #[test]
+    fn test_build_expr_tree_arithmetic() {
+        let source = "(+ (* 2 3) (- 5 1))";
+        let pre_expressions = parse(source).unwrap();
+        let pre_expr = &pre_expressions[0];
+        let expr_tree = build_expr_tree(pre_expr).unwrap();
+
+        // Root should be Add node
+        assert!(matches!(expr_tree.expr, ExprNode::Add));
+        assert!(!expr_tree.branching);
+        assert_eq!(expr_tree.children.len(), 2);
+
+        // First child should be Mul
+        let mul_node = &expr_tree.children[0];
+        assert!(matches!(mul_node.expr, ExprNode::Mul));
+        assert_eq!(mul_node.children.len(), 2);
+
+        // Second child should be Sub
+        let sub_node = &expr_tree.children[1];
+        assert!(matches!(sub_node.expr, ExprNode::Sub));
+        assert_eq!(sub_node.children.len(), 2);
+    }
+
+    #[test]
+    fn test_build_expr_tree_with_comments() {
+        let source = "(+ 1 ;; this is a comment\n 2)";
+        let pre_expressions = parse(source).unwrap();
+        let pre_expr = &pre_expressions[0];
+        let expr_tree = build_expr_tree(pre_expr).unwrap();
+
+        assert!(matches!(expr_tree.expr, ExprNode::Add));
+        assert!(!expr_tree.branching);
+        assert_eq!(expr_tree.children.len(), 2);
+
+        for child in &expr_tree.children {
+            assert!(matches!(child.expr, ExprNode::AtomValue(_)));
+        }
     }
 }
