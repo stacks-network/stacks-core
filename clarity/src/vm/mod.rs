@@ -55,7 +55,7 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
-pub use clarity_serialization::MAX_CALL_STACK_DEPTH;
+pub use clarity_types::MAX_CALL_STACK_DEPTH;
 use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
 
