@@ -2846,6 +2846,27 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
+    /// Get the first canonical block header in a vector of height-ordered candidates
+    fn get_highest_canonical_block_header_from_candidates(
+        sort_db: &SortitionDB,
+        candidates: Vec<StacksHeaderInfo>,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let canonical_sortition_handle = sort_db.index_handle_at_tip();
+        for candidate in candidates.into_iter() {
+            let Some(ref candidate_ch) = candidate.burn_view else {
+                // this is an epoch 2.x header, no burn view to check
+                return Ok(Some(candidate));
+            };
+            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
+            if in_canonical_fork {
+                return Ok(Some(candidate));
+            }
+        }
+
+        // did not find any blocks in candidates
+        Ok(None)
+    }
+
     /// Get the highest block in the given tenure on a given fork.
     /// Only works on Nakamoto blocks.
     /// TODO: unit test
@@ -2879,20 +2900,7 @@ impl NakamotoChainState {
             tenure_id,
         )?;
 
-        let canonical_sortition_handle = sort_db.index_handle_at_tip();
-        for candidate in candidates.into_iter() {
-            let Some(ref candidate_ch) = candidate.burn_view else {
-                // this is an epoch 2.x header, no burn view to check
-                return Ok(Some(candidate));
-            };
-            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
-            if in_canonical_fork {
-                return Ok(Some(candidate));
-            }
-        }
-
-        // did not find any blocks in the tenure
-        Ok(None)
+        Self::get_highest_canonical_block_header_from_candidates(sort_db, candidates)
     }
 
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
@@ -2949,20 +2957,7 @@ impl NakamotoChainState {
                 tenure_height,
             )?;
 
-        let canonical_sortition_handle = sort_db.index_handle_at_tip();
-        for candidate in candidates.into_iter() {
-            let Some(ref candidate_ch) = candidate.burn_view else {
-                // this is an epoch 2.x header, no burn view to check
-                return Ok(Some(candidate));
-            };
-            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
-            if in_canonical_fork {
-                return Ok(Some(candidate));
-            }
-        }
-
-        // did not find any blocks in the tenure
-        Ok(None)
+        Self::get_highest_canonical_block_header_from_candidates(sort_db, candidates)
     }
 
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
@@ -2983,20 +2978,7 @@ impl NakamotoChainState {
                 tenure_block_hash,
             )?;
 
-        let canonical_sortition_handle = sort_db.index_handle_at_tip();
-        for candidate in candidates.into_iter() {
-            let Some(ref candidate_ch) = candidate.burn_view else {
-                // this is an epoch 2.x header, no burn view to check
-                return Ok(Some(candidate));
-            };
-            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
-            if in_canonical_fork {
-                return Ok(Some(candidate));
-            }
-        }
-
-        // did not find any blocks in the tenure
-        Ok(None)
+        Self::get_highest_canonical_block_header_from_candidates(sort_db, candidates)
     }
 
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
