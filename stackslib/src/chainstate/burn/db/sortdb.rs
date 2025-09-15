@@ -21,7 +21,6 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::{cmp, fs};
 
 use clarity::util::lru_cache::LruCache;
-use clarity::vm::ast::ASTRules;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, PoxId, SortitionId, StacksAddress, StacksBlockId,
@@ -56,9 +55,7 @@ use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
 use crate::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::ChainstateDB;
-use crate::core::{
-    EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId, AST_RULES_PRECHECK_SIZE,
-};
+use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, StacksEpochId};
 use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::{
     db_mkdirs, opt_u64_to_sql, query_row, query_row_panic, query_rows, sql_pragma, table_exists,
@@ -484,7 +481,7 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: &str = "9";
+pub const SORTITION_DB_VERSION: u32 = 10;
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -722,6 +719,7 @@ const SORTITION_DB_SCHEMA_8: &[&str] = &[
 
 static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
+static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
 
 const LAST_SORTITION_DB_INDEX: &str = "index_block_commits_by_sender";
 const SORTITION_DB_INDEXES: &[&str] = &[
@@ -2837,7 +2835,7 @@ impl SortitionDB {
 
         let db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
-
+        SortitionDB::apply_schema_10(&db_tx)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
@@ -3030,7 +3028,7 @@ impl SortitionDB {
     /// Returns the version string, if it exists.
     ///
     /// Does **not** migrate the database (like `open()` or `connect()` would)
-    pub fn get_db_version_from_path(path: &str) -> Result<Option<String>, db_error> {
+    pub fn get_db_version_from_path(path: &str) -> Result<Option<u32>, db_error> {
         if fs::metadata(path).is_err() {
             return Err(db_error::NoDBError);
         }
@@ -3055,33 +3053,31 @@ impl SortitionDB {
     }
 
     /// Is a particular database version supported by a given epoch?
-    pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: &str) -> bool {
-        let version_u32: u32 = version.parse().unwrap_or_else(|e| {
-            error!("Failed to parse sortdb version as u32: {e}");
-            0
-        });
+    pub fn is_db_version_supported_in_epoch(epoch: StacksEpochId, version: u32) -> bool {
         match epoch {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2,
-            StacksEpochId::Epoch21 => version_u32 >= 3,
-            StacksEpochId::Epoch22 => version_u32 >= 3,
-            StacksEpochId::Epoch23 => version_u32 >= 3,
-            StacksEpochId::Epoch24 => version_u32 >= 3,
-            StacksEpochId::Epoch25 => version_u32 >= 3,
-            StacksEpochId::Epoch30 => version_u32 >= 3,
-            StacksEpochId::Epoch31 => version_u32 >= 3,
-            StacksEpochId::Epoch32 => version_u32 >= 3,
-            StacksEpochId::Epoch33 => version_u32 >= 3,
+            StacksEpochId::Epoch20 => version >= 1,
+            StacksEpochId::Epoch2_05 => version >= 2,
+            StacksEpochId::Epoch21 => version >= 3,
+            StacksEpochId::Epoch22 => version >= 3,
+            StacksEpochId::Epoch23 => version >= 3,
+            StacksEpochId::Epoch24 => version >= 3,
+            StacksEpochId::Epoch25 => version >= 3,
+            StacksEpochId::Epoch30 => version >= 3,
+            StacksEpochId::Epoch31 => version >= 3,
+            StacksEpochId::Epoch32 => version >= 3,
+            StacksEpochId::Epoch33 => version >= 3,
         }
     }
 
     /// Get the database schema version, given a DB connection
-    fn get_schema_version(conn: &Connection) -> Result<Option<String>, db_error> {
+    fn get_schema_version(conn: &Connection) -> Result<Option<u32>, db_error> {
         let version = conn
-            .query_row("SELECT MAX(version) from db_config", NO_PARAMS, |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT MAX(CAST(version AS INTEGER)) FROM db_config",
+                [],
+                |row| row.get(0),
+            )
             .optional()?;
         Ok(version)
     }
@@ -3116,22 +3112,6 @@ impl SortitionDB {
         for sql_exec in SORTITION_DB_SCHEMA_4 {
             tx.execute_batch(sql_exec)?;
         }
-
-        let typical_rules = params![(ASTRules::Typical as u8), 0i64];
-
-        let precheck_size_rules = params![
-            (ASTRules::PrecheckSize as u8),
-            u64_to_sql(AST_RULES_PRECHECK_SIZE)?,
-        ];
-
-        tx.execute(
-            "INSERT INTO ast_rule_heights (ast_rule_id,block_height) VALUES (?1, ?2)",
-            typical_rules,
-        )?;
-        tx.execute(
-            "INSERT INTO ast_rule_heights (ast_rule_id,block_height) VALUES (?1, ?2)",
-            precheck_size_rules,
-        )?;
         tx.execute(
             "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
             &["4"],
@@ -3326,19 +3306,30 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn apply_schema_10(tx: &DBTx) -> Result<(), db_error> {
+        for sql_exec in SORTITION_DB_SCHEMA_10 {
+            tx.execute_batch(sql_exec)?;
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
+            &["10"],
+        )?;
+
+        Ok(())
+    }
+
     fn check_schema_version_or_error(&mut self) -> Result<(), db_error> {
         match SortitionDB::get_schema_version(self.conn()) {
             Ok(Some(version)) => {
-                let expected_version = SORTITION_DB_VERSION.to_string();
-                if version == expected_version {
+                if version == SORTITION_DB_VERSION {
                     Ok(())
                 } else {
-                    let version_u64 = version.parse::<u64>().unwrap();
-                    Err(db_error::OldSchema(version_u64))
+                    Err(db_error::OldSchema(version.into()))
                 }
             }
             Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
-            Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+            Err(e) => panic!("Error obtaining the version of the sortition DB: {e:?}"),
         }
     }
 
@@ -3351,46 +3342,49 @@ impl SortitionDB {
         epochs: &[StacksEpoch],
         mut migrator: Option<SortitionDBMigrator>,
     ) -> Result<(), db_error> {
-        let expected_version = SORTITION_DB_VERSION.to_string();
         loop {
             match SortitionDB::get_schema_version(self.conn()) {
                 Ok(Some(version)) => {
-                    if version == "1" {
+                    if version == 1 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_2(tx.deref(), epochs)?;
                         tx.commit()?;
-                    } else if version == "2" {
+                    } else if version == 2 {
                         // add the tables of schema 3, but do not populate them.
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_3(tx.deref())?;
                         tx.commit()?;
-                    } else if version == "3" {
+                    } else if version == 3 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_4(tx.deref())?;
                         tx.commit()?;
-                    } else if version == "4" {
+                    } else if version == 4 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_5(tx.deref(), epochs)?;
                         tx.commit()?;
-                    } else if version == "5" {
+                    } else if version == 5 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_6(tx.deref(), epochs)?;
                         tx.commit()?;
-                    } else if version == "6" {
+                    } else if version == 6 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_7(tx.deref(), epochs)?;
                         tx.commit()?;
-                    } else if version == "7" {
+                    } else if version == 7 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_8_tables(tx.deref(), epochs)?;
                         tx.commit()?;
 
                         self.apply_schema_8_migration(migrator.take())?;
-                    } else if version == "8" {
+                    } else if version == 8 {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_9(tx.deref(), epochs)?;
                         tx.commit()?;
-                    } else if version == expected_version {
+                    } else if version == 9 {
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_10(tx.deref())?;
+                        tx.commit()?;
+                    } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
                         let validated_epochs = StacksEpoch::validate_epochs(epochs);
                         let existing_epochs = Self::get_stacks_epochs(self.conn())?;
@@ -3409,7 +3403,7 @@ impl SortitionDB {
                     }
                 }
                 Ok(None) => panic!("The schema version of the sortition DB is not recorded."),
-                Err(e) => panic!("Error obtaining the version of the sortition DB: {:?}", e),
+                Err(e) => panic!("Error obtaining the version of the sortition DB: {e:?}"),
             }
         }
     }
@@ -4757,7 +4751,7 @@ impl SortitionDB {
         let args = params![ConsensusHash::empty()];
         let mut stmt = conn.prepare(sql)?;
         let mut rows = stmt.query(args)?;
-        while let Some(row) = rows.next()? {
+        if let Some(row) = rows.next()? {
             let height_i64: i64 = row.get("block_height")?;
             let hash: BurnchainHeaderHash = row.get("burn_header_hash")?;
             let height = u64::try_from(height_i64).map_err(|_| {
@@ -4767,7 +4761,7 @@ impl SortitionDB {
             return Ok((height, hash));
         }
         // NOTE: shouldn't be reachable because we instantiate with a first snapshot
-        return Err(db_error::NotFoundError);
+        Err(db_error::NotFoundError)
     }
 
     pub fn is_pox_active(
@@ -10957,5 +10951,42 @@ pub mod tests {
         assert!(!ih
             .has_consensus_hash(&all_snapshots[4].consensus_hash)
             .unwrap());
+    }
+
+    fn table_exists(path: &str, name: &str) -> bool {
+        let conn =
+            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        conn.busy_timeout(std::time::Duration::from_secs(1))
+            .unwrap();
+
+        conn.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
+            [name],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+            > 0
+    }
+
+    #[test]
+    fn schema_10_drops_ast_rules() {
+        let tmp = std::env::temp_dir().join(function_name!());
+
+        let first_block_header = {
+            let burnchain = Burnchain::regtest(tmp.to_str().unwrap());
+            let burnchain_db =
+                BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+
+            burnchain_db.get_canonical_chain_tip().unwrap()
+        };
+        let epochs = (*STACKS_EPOCHS_TESTNET).clone();
+        let db = SortitionDB::connect_test_with_epochs(
+            first_block_header.block_height,
+            &first_block_header.block_hash,
+            epochs,
+        )
+        .unwrap();
+        let path = db.conn().path().unwrap().to_string();
+        assert!(!table_exists(&path, "ast_rule_heights"));
     }
 }

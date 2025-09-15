@@ -6456,7 +6456,7 @@ fn test_check_chainstate_db_versions() {
         SortitionDB::get_db_version_from_path(&sortdb_path)
             .unwrap()
             .unwrap(),
-        "1"
+        1
     );
 
     // should work just fine in epoch 2

@@ -54,12 +54,6 @@ pub fn parse(
     Ok(ast.expressions)
 }
 
-// AST parser rulesets to apply.
-define_u8_enum!(ASTRules {
-    Typical = 0,
-    PrecheckSize = 1
-});
-
 /// Parse a program based on which epoch is active
 fn parse_in_epoch(
     source_code: &str,
