@@ -39,6 +39,7 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction),
 }
 
+#[allow(clippy::type_complexity)]
 pub struct SpecialNativeFunction(
     &'static dyn Fn(
         &mut TypeChecker,

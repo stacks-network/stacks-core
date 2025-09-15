@@ -170,6 +170,7 @@ pub fn check_argument_len(expected: usize, args_len: usize) -> Result<(), CheckE
 }
 
 impl FunctionType {
+    #[allow(clippy::type_complexity)]
     pub fn check_args_visitor_2_1<T: CostTracker>(
         &self,
         accounting: &mut T,
