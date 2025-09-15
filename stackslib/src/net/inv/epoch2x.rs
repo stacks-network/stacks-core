@@ -2587,7 +2587,7 @@ impl PeerNetwork {
             .inspect_err(|e| debug!("Failed to load tip sortition snapshot: {e:?}"))?;
 
         let getblocksinv = GetBlocksInv {
-            consensus_hash: ancestor_sn.consensus_hash,
+            consensus_hash: ancestor_sn.consensus_hash.clone(),
             num_blocks: cmp::min(
                 tip_sn.block_height.saturating_sub(ancestor_sn.block_height) + 1,
                 self.burnchain.pox_constants.reward_cycle_length as u64,

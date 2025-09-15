@@ -156,7 +156,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
 
         let path = TrieHash::from_bytes(&path_bytes).unwrap();
         let value = TrieLeaf::new(&[], &[i as u8; 40]);
-        confirmed_marf.insert_raw(path.clone(), value).unwrap();
+        confirmed_marf.insert_raw(path, value).unwrap();
     }
 
     let confirmed_tip = StacksBlockId([0x01; 32]);
@@ -228,7 +228,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
             let path = TrieHash::from_bytes(&path_bytes).unwrap();
             let value = TrieLeaf::new(&[], &[(i + 128) as u8; 40]);
 
-            new_inserted.push((path.clone(), value.clone()));
+            new_inserted.push((path, value.clone()));
 
             if let Ok(Some(_)) = MARF::get_path(
                 &mut confirmed_marf.borrow_storage_backend(),
@@ -236,7 +236,7 @@ fn load_store_trie_m_n_same(m: u64, n: u64, same: bool) {
                 &path,
             ) {
             } else {
-                all_new_paths.push(path.clone());
+                all_new_paths.push(path);
             }
 
             marf.insert_raw(path, value).unwrap();

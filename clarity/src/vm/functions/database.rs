@@ -1166,3 +1166,40 @@ pub fn special_get_tenure_info(
 
     Value::some(result)
 }
+
+/// Handles the function `contract-hash?`
+pub fn special_contract_hash(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    let contract_expr = args
+        .first()
+        .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
+    let contract_value = eval(contract_expr, env, context)?;
+    let contract_identifier = match contract_value {
+        Value::Principal(PrincipalData::Standard(_)) => {
+            // If the value is a standard principal, we return `(err u1)`.
+            return Ok(Value::err_uint(1));
+        }
+        Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
+        _ => {
+            // If the value is not a principal, we return a check error.
+            return Err(CheckErrors::ExpectedContractPrincipalValue(contract_value).into());
+        }
+    };
+
+    runtime_cost(ClarityCostFunction::ContractHash, env, 0)?;
+
+    let Some(contract_hash) = env
+        .global_context
+        .database
+        .get_contract_hash(&contract_identifier)?
+    else {
+        // If the contract does not exist, we return `(err u2)`.
+        return Ok(Value::err_uint(2));
+    };
+
+    Value::okay(Value::buff_from(contract_hash.as_bytes().to_vec())?)
+}

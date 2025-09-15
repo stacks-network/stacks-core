@@ -33,11 +33,7 @@ use crate::chainstate::burn::operations::{
 };
 use crate::chainstate::burn::{Opcodes, SortitionId};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::core::{
-    StacksEpochId, STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_2_2_MARKER,
-    STACKS_EPOCH_2_3_MARKER, STACKS_EPOCH_2_4_MARKER, STACKS_EPOCH_2_5_MARKER,
-    STACKS_EPOCH_3_0_MARKER, STACKS_EPOCH_3_1_MARKER, STACKS_EPOCH_3_2_MARKER,
-};
+use crate::core::{marker_for_epoch, StacksEpochId};
 
 // return type from parse_data below
 #[derive(Debug)]
@@ -192,7 +188,7 @@ impl LeaderBlockCommitOp {
     /// In Nakamoto, the block header hash is actually the index block hash of the first Nakamoto
     /// block of the last tenure (the "tenure id"). This helper obtains it.
     pub fn last_tenure_id(&self) -> StacksBlockId {
-        StacksBlockId(self.block_header_hash.0.clone())
+        StacksBlockId(self.block_header_hash.0)
     }
 
     pub fn parse_data(data: &[u8]) -> Option<ParsedData> {
@@ -847,37 +843,10 @@ impl LeaderBlockCommitOp {
 
     /// Check the epoch marker in the block commit, given the epoch we're in
     fn check_epoch_commit(&self, epoch_id: StacksEpochId) -> Result<(), op_error> {
-        match epoch_id {
-            StacksEpochId::Epoch10 => {
-                panic!("FATAL: processed block-commit pre-Stacks 2.0");
-            }
-            StacksEpochId::Epoch20 => {
-                // no-op, but log for helping node operators watch for old nodes
-                let Some(memo_0) = self.memo.first() else {
-                    debug!(
-                        "Soon-to-be-invalid block commit";
-                        "reason" => "no epoch marker byte given",
-                    );
-                    return Ok(());
-                };
-                if *memo_0 < STACKS_EPOCH_2_05_MARKER {
-                    debug!(
-                        "Soon-to-be-invalid block commit";
-                        "reason" => "invalid epoch marker byte",
-                        "marker_byte" => memo_0,
-                    );
-                }
-                Ok(())
-            }
-            StacksEpochId::Epoch2_05 => self.check_epoch_commit_marker(STACKS_EPOCH_2_05_MARKER),
-            StacksEpochId::Epoch21 => self.check_epoch_commit_marker(STACKS_EPOCH_2_1_MARKER),
-            StacksEpochId::Epoch22 => self.check_epoch_commit_marker(STACKS_EPOCH_2_2_MARKER),
-            StacksEpochId::Epoch23 => self.check_epoch_commit_marker(STACKS_EPOCH_2_3_MARKER),
-            StacksEpochId::Epoch24 => self.check_epoch_commit_marker(STACKS_EPOCH_2_4_MARKER),
-            StacksEpochId::Epoch25 => self.check_epoch_commit_marker(STACKS_EPOCH_2_5_MARKER),
-            StacksEpochId::Epoch30 => self.check_epoch_commit_marker(STACKS_EPOCH_3_0_MARKER),
-            StacksEpochId::Epoch31 => self.check_epoch_commit_marker(STACKS_EPOCH_3_1_MARKER),
-            StacksEpochId::Epoch32 => self.check_epoch_commit_marker(STACKS_EPOCH_3_2_MARKER),
+        if let Some(marker) = marker_for_epoch(epoch_id) {
+            self.check_epoch_commit_marker(marker)
+        } else {
+            Ok(())
         }
     }
 
@@ -899,7 +868,8 @@ impl LeaderBlockCommitOp {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => {
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => {
                 // correct behavior -- uses *sortition height* to find the intended sortition ID
                 let sortition_height = self
                     .block_height
@@ -1181,7 +1151,8 @@ mod tests {
     use crate::chainstate::stacks::StacksPublicKey;
     use crate::core::{
         StacksEpoch, StacksEpochExtension, StacksEpochId, PEER_VERSION_EPOCH_1_0,
-        PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, STACKS_EPOCH_MAX,
+        PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
+        STACKS_EPOCH_2_05_MARKER, STACKS_EPOCH_2_1_MARKER, STACKS_EPOCH_MAX,
     };
 
     struct OpFixture {
@@ -2051,7 +2022,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -2123,7 +2094,7 @@ mod tests {
                 prev_snapshot = snapshot_row;
             }
 
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let mut fixtures = vec![
@@ -2340,7 +2311,7 @@ mod tests {
                     .unwrap(),
                     // miss distance from height 126 was 1, which corresponds to the hash at height
                     // 125 (intended modulus = ((124 % 5) + 1) % 5 = 0, actual = (126 % 5) = 1
-                    intended_sortition: SortitionId(block_125_hash.0.clone()),
+                    intended_sortition: SortitionId(block_125_hash.0),
                 })),
             },
             CheckFixture {
@@ -2584,7 +2555,7 @@ mod tests {
                     block_height: (i + 1 + first_block_height as usize) as u64,
                     burn_header_timestamp: get_epoch_time_secs(),
                     burn_header_hash: block_header_hashes[i].clone(),
-                    sortition_id: SortitionId(block_header_hashes[i].0.clone()),
+                    sortition_id: SortitionId(block_header_hashes[i].0),
                     parent_sortition_id: prev_snapshot.sortition_id.clone(),
                     parent_burn_header_hash: prev_snapshot.burn_header_hash.clone(),
                     consensus_hash: ConsensusHash::from_bytes(&[
@@ -2656,7 +2627,7 @@ mod tests {
                 prev_snapshot = snapshot_row;
             }
 
-            prev_snapshot.index_root.clone()
+            prev_snapshot.index_root
         };
 
         let block_height = 124;

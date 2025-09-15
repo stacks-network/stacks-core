@@ -668,7 +668,7 @@ impl StackerDBListenerComms {
 
     /// Get the global state if there is one
     pub fn get_signer_global_state(&self) -> Option<SignerStateMachine> {
-        let mut eval = self
+        let eval = self
             .global_state_evaluator
             .lock()
             .expect("FATAL: failed to lock global state evaluator");

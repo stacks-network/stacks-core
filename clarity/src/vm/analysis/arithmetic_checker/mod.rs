@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_serialization::representations::ClarityName;
+use clarity_types::representations::ClarityName;
 
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
@@ -178,7 +178,7 @@ impl ArithmeticOnlyChecker<'_> {
             | StxGetAccount => Err(Error::FunctionNotPermitted(function)),
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
             | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
-            | Fold | Slice | ReplaceAt => Err(Error::FunctionNotPermitted(function)),
+            | Fold | Slice | ReplaceAt | ContractHash => Err(Error::FunctionNotPermitted(function)),
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 Err(Error::FunctionNotPermitted(function))
             }

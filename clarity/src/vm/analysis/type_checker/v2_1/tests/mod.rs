@@ -47,7 +47,7 @@ pub fn mem_type_check(exp: &str) -> CheckResult<(Option<TypeSignature>, Contract
     mem_run_analysis(
         exp,
         crate::vm::ClarityVersion::latest(),
-        StacksEpochId::Epoch21,
+        StacksEpochId::latest(),
     )
 }
 

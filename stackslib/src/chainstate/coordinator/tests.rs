@@ -25,7 +25,7 @@ use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::Value;
 use lazy_static::lazy_static;
 use rusqlite::Connection;
 use stacks_common::address;
@@ -389,10 +389,10 @@ impl BlockEventDispatcher for NullEventDispatcher {
         _metadata: &StacksHeaderInfo,
         _receipts: &[StacksTransactionReceipt],
         _parent: &StacksBlockId,
-        _winner_txid: Txid,
+        _winner_txid: &Txid,
         _rewards: &[MinerReward],
         _rewards_info: Option<&MinerRewardInfo>,
-        _parent_burn_block_hash: BurnchainHeaderHash,
+        _parent_burn_block_hash: &BurnchainHeaderHash,
         _parent_burn_block_height: u32,
         _parent_burn_block_timestamp: u64,
         _anchor_block_cost: &ExecutionCost,
@@ -626,15 +626,15 @@ fn make_genesis_block_with_recipients(
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         burnchain,
         &parent_stacks_header,
-        proof.clone(),
+        &proof,
         0,
-        next_hash160(),
+        &next_hash160(),
     )
     .unwrap();
 
     let iconn = sort_db.index_handle_at_tip();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
-    let ast_rules = miner_epoch_info.ast_rules.clone();
+    let ast_rules = miner_epoch_info.ast_rules;
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
@@ -893,13 +893,13 @@ fn make_stacks_block_with_input(
     let mut builder = StacksBlockBuilder::make_regtest_block_builder(
         burnchain,
         &parent_stacks_header,
-        proof.clone(),
+        &proof,
         total_burn,
-        next_hash160(),
+        &next_hash160(),
     )
     .unwrap();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
-    let ast_rules = miner_epoch_info.ast_rules.clone();
+    let ast_rules = miner_epoch_info.ast_rules;
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
@@ -1156,7 +1156,7 @@ fn missed_block_commits_2_05() {
         } else {
             // produce a block with one good op,
             last_input = Some((
-                expected_winner,
+                expected_winner.clone(),
                 if b.is_in_prepare_phase(next_mock_header.block_height) {
                     2
                 } else {
@@ -1259,7 +1259,6 @@ fn missed_block_commits_2_05() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1483,7 +1482,7 @@ fn missed_block_commits_2_1() {
         } else {
             // produce a block with one good op,
             last_input = Some((
-                expected_winner,
+                expected_winner.clone(),
                 if b.is_in_prepare_phase(next_mock_header.block_height) {
                     2
                 } else {
@@ -1607,7 +1606,6 @@ fn missed_block_commits_2_1() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1824,7 +1822,7 @@ fn late_block_commits_2_1() {
         } else {
             // produce a block with one good op,
             last_input = Some((
-                expected_winner,
+                expected_winner.clone(),
                 if b.is_in_prepare_phase(next_mock_header.block_height) {
                     2
                 } else {
@@ -1950,7 +1948,6 @@ fn late_block_commits_2_1() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2123,7 +2120,6 @@ fn test_simple_setup() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2425,7 +2421,6 @@ fn test_sortition_with_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2666,7 +2661,6 @@ fn test_sortition_with_burner_reward_set() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -2953,7 +2947,6 @@ fn test_pox_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -3295,7 +3288,6 @@ fn test_stx_transfer_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -3331,7 +3323,6 @@ fn get_delegation_info_pox_2(
             conn.with_readonly_clarity_env(
                 false,
                 CHAIN_ID_TESTNET,
-                ClarityVersion::Clarity2,
                 PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                 None,
                 LimitedCostTracker::new_free(),
@@ -3691,7 +3682,6 @@ fn test_delegate_stx_btc_ops() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -3935,7 +3925,6 @@ fn test_initial_coinbase_reward_distributions() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -4851,7 +4840,6 @@ fn get_total_stacked_info(
             conn.with_readonly_clarity_env(
                 false,
                 CHAIN_ID_TESTNET,
-                ClarityVersion::Clarity2,
                 PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                 None,
                 LimitedCostTracker::new_free(),
@@ -5459,7 +5447,6 @@ fn test_sortition_with_sunset() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -5802,7 +5789,6 @@ fn test_sortition_with_sunset_and_epoch_switch() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity1,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -6359,7 +6345,6 @@ fn eval_at_chain_tip(chainstate_path: &str, sort_db: &SortitionDB, eval: &str) -
                 conn.with_readonly_clarity_env(
                     false,
                     CHAIN_ID_TESTNET,
-                    ClarityVersion::Clarity1,
                     PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                     None,
                     LimitedCostTracker::new_free(),

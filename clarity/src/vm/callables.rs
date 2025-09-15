@@ -16,8 +16,8 @@
 
 use std::collections::BTreeMap;
 
-use clarity_serialization::representations::ClarityName;
-pub use clarity_serialization::types::FunctionIdentifier;
+use clarity_types::representations::ClarityName;
+pub use clarity_types::types::FunctionIdentifier;
 use stacks_common::types::StacksEpochId;
 
 use super::costs::{CostErrors, CostOverflowingMath};

@@ -61,7 +61,7 @@ pub const TXID_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Copy)]
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 impl MagicBytes {

@@ -19,8 +19,8 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-pub use clarity_serialization::errors::StackTrace;
-use clarity_serialization::representations::ClarityName;
+pub use clarity_types::errors::StackTrace;
+use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;

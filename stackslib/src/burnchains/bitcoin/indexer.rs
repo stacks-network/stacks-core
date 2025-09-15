@@ -160,7 +160,7 @@ impl BitcoinIndexerConfig {
             socket_timeout: 30,
             spv_headers_path: "./headers.sqlite".to_string(),
             first_block,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }
@@ -177,7 +177,7 @@ impl BitcoinIndexerConfig {
             socket_timeout: 30,
             spv_headers_path,
             first_block: 0,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }
@@ -195,7 +195,7 @@ impl BitcoinIndexerConfig {
             socket_timeout: 30,
             spv_headers_path,
             first_block: 0,
-            magic_bytes: BLOCKSTACK_MAGIC_MAINNET.clone(),
+            magic_bytes: BLOCKSTACK_MAGIC_MAINNET,
             epochs: None,
         }
     }

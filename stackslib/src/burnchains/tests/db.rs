@@ -113,7 +113,7 @@ impl BurnchainHeaderReader for Vec<BurnchainBlockHeader> {
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<u64>, DBError> {
         for hdr in self.iter() {
-            if hdr.block_hash == *burn_header_hash {
+            if &hdr.block_hash == burn_header_hash {
                 return Ok(Some(hdr.block_height));
             }
         }
@@ -169,7 +169,7 @@ fn test_store_and_fetch() {
     let fixtures = operations::leader_key_register::tests::get_test_fixtures(
         vtxindex,
         noncanon_block_height,
-        non_canon_hash,
+        non_canon_hash.clone(),
     );
 
     let parser = BitcoinBlockParser::new(BitcoinNetworkType::Testnet, BLOCKSTACK_MAGIC_MAINNET);
@@ -653,7 +653,7 @@ fn test_get_commit_at() {
     let fork_hdr = BurnchainHeaderHash([90; 32]);
     let fork_block_header = BurnchainBlockHeader {
         block_height: 5,
-        block_hash: fork_hdr,
+        block_hash: fork_hdr.clone(),
         parent_block_hash: BurnchainHeaderHash([4; 32]),
         num_txs: 1,
         timestamp: 4,

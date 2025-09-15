@@ -1,7 +1,7 @@
 pub mod lexer;
 
-use clarity_serialization::representations::{ClarityName, ContractName};
-use clarity_serialization::types::{
+use clarity_types::representations::{ClarityName, ContractName};
+use clarity_types::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, UTF8Data,
     Value,
 };

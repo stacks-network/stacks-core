@@ -745,4 +745,8 @@ impl CostValues for Costs2Testnet {
     fn cost_bitwise_right_shift(n: u64) -> InterpreterResult<ExecutionCost> {
         Err(RuntimeErrorType::NotImplemented.into())
     }
+
+    fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeErrorType::NotImplemented.into())
+    }
 }

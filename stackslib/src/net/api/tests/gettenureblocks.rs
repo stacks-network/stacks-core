@@ -76,7 +76,8 @@ fn test_try_make_response() {
         .first()
         .unwrap()
         .metadata
-        .consensus_hash;
+        .consensus_hash
+        .clone();
 
     // query existing, non-empty Epoch2 tenure
     let request =

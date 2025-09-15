@@ -2511,6 +2511,23 @@ If the provided index is out of bounds, this functions returns `none`.
 "#,
 };
 
+const CONTRACT_HASH: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    snippet: "contract-hash? ${1:principal}",
+    signature: "(contract-hash? contract)",
+    description: "Returns the hash of the specified contract, or an error if the principal
+is not a contract or the specified contract does not exist. Returns:
+* `(ok 0x<hash>)` on success, where `<hash>` is the SHA-512/256 hash of the code body
+* `(err u1)` if the principal is not a contract principal.
+* `(err u2)` if the specified contract does not exist.",
+    example: r#"
+;; instantiate the sample/contracts/tokens.clar contract first!
+(contract-hash? .tokens) ;; Returns (ok 0x90b4a559286ba8ec3801fe8ef49d5e646043861f29376771918d1afb8ff68af7)
+(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM) ;; Returns (err u1)
+(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.does-not-exist) ;; Returns (err u2)
+"#,
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2623,6 +2640,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, function, name),
         BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, function, name),
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
+        ContractHash => make_for_simple_native(&CONTRACT_HASH, function, name),
     }
 }
 
