@@ -2943,7 +2943,8 @@ impl NakamotoChainState {
     /// tenure.
     ///
     /// Get the highest block in a given tenure (identified by burnchain block height) with a canonical
-    ///  burn_view (i.e., burn_view on the canonical sortition fork)
+    ///  burn_view (i.e., burn_view on the canonical sortition fork). This covers only Nakamoto blocks.
+    /// Epoch2 blocks will not be checked. 
     pub fn find_highest_known_block_header_in_tenure_by_block_height(
         chainstate: &StacksChainState,
         sort_db: &SortitionDB,
@@ -2964,7 +2965,8 @@ impl NakamotoChainState {
     /// tenure.
     ///
     /// Get the highest block in a given tenure (identified by burnchain block hash) with a canonical
-    ///  burn_view (i.e., burn_view on the canonical sortition fork)
+    ///  burn_view (i.e., burn_view on the canonical sortition fork). This covers only Nakamoto blocks.
+    /// Epoch2 blocks will not be checked. 
     pub fn find_highest_known_block_header_in_tenure_by_block_hash(
         chainstate: &StacksChainState,
         sort_db: &SortitionDB,
