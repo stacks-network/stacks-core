@@ -722,7 +722,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header.consensus_hash),
+        burn_view: Some(nakamoto_header.consensus_hash.clone()),
     };
 
     let epoch2_block = StacksBlock {
@@ -768,7 +768,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header_2.consensus_hash),
+        burn_view: Some(nakamoto_header_2.consensus_hash.clone()),
     };
 
     let nakamoto_block_2 = NakamotoBlock {
@@ -791,7 +791,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_spent: 128,
         consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         parent_block_id: nakamoto_header_2.block_id(),
-        tx_merkle_root: nakamoto_tx_merkle_root_3,
+        tx_merkle_root: nakamoto_tx_merkle_root_3.clone(),
         state_index_root: TrieHash([0x07; 32]),
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
@@ -809,7 +809,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header_3.consensus_hash),
+        burn_view: Some(nakamoto_header_3.consensus_hash.clone()),
     };
 
     let nakamoto_block_3 = NakamotoBlock {
@@ -842,7 +842,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header_3.consensus_hash),
+        burn_view: Some(nakamoto_header_3.consensus_hash.clone()),
     };
 
     let nakamoto_block_3_weight_2 = NakamotoBlock {
@@ -875,7 +875,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header_4.consensus_hash),
+        burn_view: Some(nakamoto_header_4.consensus_hash.clone()),
     };
 
     let nakamoto_block_4 = NakamotoBlock {
@@ -920,7 +920,6 @@ pub fn test_load_store_update_nakamoto_blocks() {
             &epoch2_parent_block_id,
             &epoch2_header_info,
             &epoch2_execution_cost,
-            1,
         )
         .unwrap();
 

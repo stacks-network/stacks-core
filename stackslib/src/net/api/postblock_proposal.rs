@@ -53,7 +53,7 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble,
 };
-use crate::net::httpcore::{HttpPreambleExtensions, RPCRequestHandler};
+use crate::net::httpcore::RPCRequestHandler;
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[cfg(any(test, feature = "testing"))]
@@ -186,10 +186,10 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
 
 impl BlockValidateResponse {
     /// Get the signer signature hash from the response
-    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+    pub fn signer_signature_hash(&self) -> &Sha512Trunc256Sum {
         match self {
-            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
-            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+            BlockValidateResponse::Ok(o) => &o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => &r.signer_signature_hash,
         }
     }
 }
@@ -579,6 +579,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
 
         let mut miner_tenure_info =
@@ -725,6 +726,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
         let (mut replay_chainstate, _) =
             StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;
@@ -787,6 +789,7 @@ impl NakamotoBlockProposal {
                         match error {
                             ChainError::CostOverflowError(..)
                             | ChainError::BlockTooBigError
+                            | ChainError::BlockCostLimitError
                             | ChainError::ClarityError(ClarityError::CostError(..)) => {
                                 // block limit reached; add tx back to replay set.
                                 // BUT we know that the block should have ended at this point, so
@@ -865,6 +868,7 @@ impl NakamotoBlockProposal {
                             ChainError::CostOverflowError(..)
                                 | ChainError::BlockTooBigError
                                 | ChainError::ClarityError(ClarityError::CostError(..))
+                                | ChainError::BlockCostLimitError
                         )
                     }
                     TransactionResult::Success(_) => {
@@ -1053,8 +1057,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
 
         match res {
             Ok(_) => {
-                let mut preamble = HttpResponsePreamble::accepted_json(&preamble);
-                preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+                let preamble = HttpResponsePreamble::accepted_json(&preamble);
                 let body = HttpResponseContents::try_from_json(&serde_json::json!({
                     "result": "Accepted",
                     "message": "Block proposal is processing, result will be returned via the event observer"
@@ -1062,8 +1065,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 Ok((preamble, body))
             }
             Err((code, err)) => {
-                let mut preamble = HttpResponsePreamble::error_json(code, http_reason(code));
-                preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+                let preamble = HttpResponsePreamble::error_json(code, http_reason(code));
                 let body = HttpResponseContents::try_from_json(&serde_json::json!({
                     "result": "Error",
                     "message": format!("Could not process block proposal request: {err}")

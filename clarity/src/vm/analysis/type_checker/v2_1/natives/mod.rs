@@ -20,9 +20,10 @@ use super::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most,
     compute_typecheck_cost, no_type, TypeChecker, TypeResult, TypingContext,
 };
-use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
+use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
@@ -231,30 +232,36 @@ pub fn check_special_tuple_cons(
     let mut type_size = 0u32;
     let mut cons_error = Ok(());
 
-    handle_binding_list(args, |var_name, var_sexp| {
-        checker.type_check(var_sexp, context).and_then(|var_type| {
-            runtime_cost(
-                ClarityCostFunction::AnalysisTupleItemsCheck,
-                checker,
-                var_type.type_size()?,
-            )?;
-            if type_size < MAX_VALUE_SIZE {
-                type_size = type_size
-                    .saturating_add(var_name.len() as u32)
-                    .saturating_add(var_name.len() as u32)
-                    .saturating_add(var_type.type_size()?)
-                    .saturating_add(var_type.size()?);
-                tuple_type_data.push((var_name.clone(), var_type));
-            } else {
-                cons_error = Err(CheckErrors::BadTupleConstruction);
-            }
-            Ok(())
-        })
-    })?;
+    handle_binding_list(
+        args,
+        SyntaxBindingErrorType::TupleCons,
+        |var_name, var_sexp| {
+            checker.type_check(var_sexp, context).and_then(|var_type| {
+                runtime_cost(
+                    ClarityCostFunction::AnalysisTupleItemsCheck,
+                    checker,
+                    var_type.type_size()?,
+                )?;
+                if type_size < MAX_VALUE_SIZE {
+                    type_size = type_size
+                        .saturating_add(var_name.len() as u32)
+                        .saturating_add(var_name.len() as u32)
+                        .saturating_add(var_type.type_size()?)
+                        .saturating_add(var_type.size()?);
+                    tuple_type_data.push((var_name.clone(), var_type));
+                } else {
+                    cons_error = Err(CheckErrors::BadTupleConstruction(format!(
+                        "type size of {type_size} bytes exceeds maximum of {MAX_VALUE_SIZE} bytes"
+                    )));
+                }
+                Ok(())
+            })
+        },
+    )?;
 
     cons_error?;
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
-        .map_err(|_e| CheckErrors::BadTupleConstruction)?;
+        .map_err(|e| CheckErrors::BadTupleConstruction(e.message()))?;
 
     Ok(TypeSignature::TupleType(tuple_signature))
 }
@@ -276,33 +283,37 @@ fn check_special_let(
     runtime_cost(ClarityCostFunction::AnalysisCheckLet, checker, args.len())?;
 
     let mut added_memory = 0u64;
-    handle_binding_list(binding_list, |var_name, var_sexp| {
-        checker.contract_context.check_name_used(var_name)?;
-        if out_context.lookup_variable_type(var_name).is_some() {
-            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(
-                var_name.to_string(),
-            )));
-        }
+    handle_binding_list(
+        binding_list,
+        SyntaxBindingErrorType::Let,
+        |var_name, var_sexp| {
+            checker.contract_context.check_name_used(var_name)?;
+            if out_context.lookup_variable_type(var_name).is_some() {
+                return Err(CheckError::new(CheckErrors::NameAlreadyUsed(
+                    var_name.to_string(),
+                )));
+            }
 
-        let typed_result = checker.type_check(var_sexp, &out_context)?;
+            let typed_result = checker.type_check(var_sexp, &out_context)?;
 
-        runtime_cost(
-            ClarityCostFunction::AnalysisBindName,
-            checker,
-            typed_result.type_size()?,
-        )?;
-        if checker.epoch.analysis_memory() {
-            let memory_use = u64::from(var_name.len())
-                .checked_add(u64::from(typed_result.type_size()?))
-                .ok_or_else(|| CostErrors::CostOverflow)?;
-            added_memory = added_memory
-                .checked_add(memory_use)
-                .ok_or_else(|| CostErrors::CostOverflow)?;
-            checker.add_memory(memory_use)?;
-        }
-        out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);
-        Ok(())
-    })?;
+            runtime_cost(
+                ClarityCostFunction::AnalysisBindName,
+                checker,
+                typed_result.type_size()?,
+            )?;
+            if checker.epoch.analysis_memory() {
+                let memory_use = u64::from(var_name.len())
+                    .checked_add(u64::from(typed_result.type_size()?))
+                    .ok_or_else(|| CostErrors::CostOverflow)?;
+                added_memory = added_memory
+                    .checked_add(memory_use)
+                    .ok_or_else(|| CostErrors::CostOverflow)?;
+                checker.add_memory(memory_use)?;
+            }
+            out_context.add_variable_type(var_name.clone(), typed_result, checker.clarity_version);
+            Ok(())
+        },
+    )?;
 
     let res = checker.type_check_consecutive_statements(&args[1..args.len()], &out_context);
     if checker.epoch.analysis_memory() {
@@ -487,7 +498,7 @@ fn check_contract_call(
                     _ => {
                         return Err(
                             CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
-                        )
+                        );
                     }
                 };
 
@@ -565,7 +576,7 @@ fn check_contract_call(
                                 return Err(CheckErrors::TraitReferenceUnknown(
                                     trait_instance.to_string(),
                                 )
-                                .into())
+                                .into());
                             }
                         };
 
@@ -1160,6 +1171,18 @@ impl TypedNativeFunction {
             FromConsensusBuff => Special(SpecialNativeFunction(
                 &conversions::check_special_from_consensus_buff,
             )),
+            ContractHash => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
+                args: vec![FunctionArg::new(
+                    TypeSignature::PrincipalType,
+                    ClarityName::try_from("contract".to_owned()).map_err(|_| {
+                        CheckErrors::Expects(
+                            "FAIL: ClarityName failed to accept default arg name".into(),
+                        )
+                    })?,
+                )],
+                returns: TypeSignature::new_response(BUFF_32.clone(), TypeSignature::UIntType)
+                    .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+            }))),
         };
 
         Ok(out)

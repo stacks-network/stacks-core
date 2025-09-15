@@ -16,6 +16,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckErrors, CheckResult};
@@ -23,9 +25,8 @@ use crate::vm::analysis::type_checker::ContractAnalysis;
 use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
 };
-use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;
-use crate::vm::types::{FunctionType, QualifiedContractIdentifier, TraitIdentifier};
+use crate::vm::types::FunctionType;
 use crate::vm::ClarityVersion;
 
 pub struct AnalysisDatabase<'a> {

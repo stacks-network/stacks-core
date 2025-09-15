@@ -263,7 +263,7 @@ impl AttachmentsDownloader {
             } else {
                 // This attachment refers to an unknown attachment.
                 // Let's append it to the batch being constructed in this routine.
-                match attachments_batches.entry(attachment_instance.index_block_hash) {
+                match attachments_batches.entry(attachment_instance.index_block_hash.clone()) {
                     Entry::Occupied(entry) => {
                         entry.into_mut().track_attachment(&attachment_instance);
                     }
@@ -389,7 +389,7 @@ impl AttachmentsBatchStateContext {
                         contract_id: contract_id.clone(),
                         pages: pages.clone(),
                         stacks_block_height: self.attachments_batch.stacks_block_height,
-                        index_block_hash: self.attachments_batch.index_block_hash,
+                        index_block_hash: self.attachments_batch.index_block_hash.clone(),
                         canonical_stacks_tip_height: self
                             .attachments_batch
                             .canonical_stacks_tip_height,
@@ -1149,7 +1149,7 @@ impl AttachmentsBatch {
 
     pub fn track_attachment(&mut self, attachment: &AttachmentInstance) {
         if self.attachments_instances.is_empty() {
-            self.stacks_block_height = attachment.stacks_block_height.clone();
+            self.stacks_block_height = attachment.stacks_block_height;
             self.index_block_hash = attachment.index_block_hash.clone();
             self.canonical_stacks_tip_height = attachment.canonical_stacks_tip_height;
         } else if self.stacks_block_height != attachment.stacks_block_height
@@ -1229,7 +1229,7 @@ impl AttachmentsBatch {
             let mut keys = vec![];
             for (k, hash) in missing_attachments.iter() {
                 if hash == content_hash {
-                    keys.push(k.clone());
+                    keys.push(*k);
                 }
             }
             for key in keys {

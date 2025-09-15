@@ -43,7 +43,6 @@ use crate::net::neighbors::MAX_NEIGHBOR_BLOCK_DELAY;
 use crate::util_lib::db::Error as db_error;
 
 /// This module contains drivers and types for all burn chains we support.
-pub mod affirmation;
 pub mod bitcoin;
 pub mod burnchain;
 pub mod db;
@@ -62,7 +61,7 @@ pub const TXID_ENCODED_SIZE: u32 = 32;
 
 pub const MAGIC_BYTES_LENGTH: usize = 2;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Copy)]
 pub struct MagicBytes([u8; MAGIC_BYTES_LENGTH]);
 impl_array_newtype!(MagicBytes, u8, MAGIC_BYTES_LENGTH);
 impl MagicBytes {

@@ -23,14 +23,14 @@ use crate::chainstate::stacks::test::make_codec_test_microblock;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
-    HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
 
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let mblock = make_codec_test_microblock(3);
     let request = StacksHttpRequest::new_post_microblock(
@@ -67,7 +67,7 @@ fn test_try_parse_request() {
     assert!(handler.microblock.is_none());
 
     // try to decode a bad microblock
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
     let mut bad_mblock = mblock;
     bad_mblock.txs.clear();
     let request = StacksHttpRequest::new_post_microblock(

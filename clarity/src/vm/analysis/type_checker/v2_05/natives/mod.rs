@@ -19,9 +19,10 @@ use stacks_common::types::StacksEpochId;
 use super::{
     check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypeResult, TypingContext,
 };
-use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
+use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
@@ -58,9 +59,8 @@ fn check_special_list_cons(
             type_arg.type_size()?,
         )?;
     }
-    TypeSignature::parent_list_type(&typed_args)
-        .map_err(|x| x.into())
-        .map(TypeSignature::from)
+    let list_type = TypeSignature::parent_list_type(&typed_args)?;
+    Ok(TypeSignature::from(list_type))
 }
 
 fn check_special_print(
@@ -188,20 +188,24 @@ pub fn check_special_tuple_cons(
 
     let mut tuple_type_data = Vec::with_capacity(len);
 
-    handle_binding_list(args, |var_name, var_sexp| {
-        checker.type_check(var_sexp, context).and_then(|var_type| {
-            runtime_cost(
-                ClarityCostFunction::AnalysisTupleItemsCheck,
-                checker,
-                var_type.type_size()?,
-            )?;
-            tuple_type_data.push((var_name.clone(), var_type));
-            Ok(())
-        })
-    })?;
+    handle_binding_list(
+        args,
+        SyntaxBindingErrorType::TupleCons,
+        |var_name, var_sexp| {
+            checker.type_check(var_sexp, context).and_then(|var_type| {
+                runtime_cost(
+                    ClarityCostFunction::AnalysisTupleItemsCheck,
+                    checker,
+                    var_type.type_size()?,
+                )?;
+                tuple_type_data.push((var_name.clone(), var_type));
+                Ok(())
+            })
+        },
+    )?;
 
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
-        .map_err(|_e| CheckErrors::BadTupleConstruction)?;
+        .map_err(|e| CheckErrors::BadTupleConstruction(e.message()))?;
 
     Ok(TypeSignature::TupleType(tuple_signature))
 }
@@ -221,26 +225,30 @@ fn check_special_let(
 
     runtime_cost(ClarityCostFunction::AnalysisCheckLet, checker, args.len())?;
 
-    handle_binding_list(binding_list, |var_name, var_sexp| {
-        checker.contract_context.check_name_used(var_name)?;
-        if out_context.lookup_variable_type(var_name).is_some() {
-            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(
-                var_name.to_string(),
-            )));
-        }
+    handle_binding_list(
+        binding_list,
+        SyntaxBindingErrorType::Let,
+        |var_name, var_sexp| {
+            checker.contract_context.check_name_used(var_name)?;
+            if out_context.lookup_variable_type(var_name).is_some() {
+                return Err(CheckError::new(CheckErrors::NameAlreadyUsed(
+                    var_name.to_string(),
+                )));
+            }
 
-        let typed_result = checker.type_check(var_sexp, &out_context)?;
+            let typed_result = checker.type_check(var_sexp, &out_context)?;
 
-        runtime_cost(
-            ClarityCostFunction::AnalysisBindName,
-            checker,
-            typed_result.type_size()?,
-        )?;
-        out_context
-            .variable_types
-            .insert(var_name.clone(), typed_result);
-        Ok(())
-    })?;
+            runtime_cost(
+                ClarityCostFunction::AnalysisBindName,
+                checker,
+                typed_result.type_size()?,
+            )?;
+            out_context
+                .variable_types
+                .insert(var_name.clone(), typed_result);
+            Ok(())
+        },
+    )?;
 
     checker.type_check_consecutive_statements(&args[1..args.len()], &out_context)
 }
@@ -401,7 +409,7 @@ fn check_contract_call(
                 _ => {
                     return Err(
                         CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
-                    )
+                    );
                 }
             };
 
@@ -770,10 +778,10 @@ impl TypedNativeFunction {
             | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo => {
+            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash => {
                 return Err(CheckErrors::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
-                ))
+                ));
             }
         };
 

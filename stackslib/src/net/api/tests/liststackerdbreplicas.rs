@@ -23,15 +23,13 @@ use stacks_common::util::hash::Hash160;
 use super::test_rpc;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
-use crate::net::httpcore::{
-    HttpPreambleExtensions, RPCRequestHandler, StacksHttp, StacksHttpRequest,
-};
+use crate::net::httpcore::{RPCRequestHandler, StacksHttp, StacksHttpRequest};
 use crate::net::ProtocolFamily;
 
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let contract_identifier = QualifiedContractIdentifier::parse(
         "ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R.hello-world-unconfirmed",
@@ -94,15 +92,11 @@ fn test_try_make_response() {
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
-    );
 
     let resp = response.decode_stackerdb_replicas().unwrap();
     assert_eq!(resp.len(), 2);
 
-    let naddr = resp.last().clone().unwrap();
+    let naddr = resp.last().unwrap();
     assert_eq!(naddr.addrbytes, PeerAddress::from_ipv4(127, 0, 0, 1));
     assert_eq!(
         naddr.public_key_hash,

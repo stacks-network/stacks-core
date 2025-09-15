@@ -284,7 +284,7 @@ fn test_bad_microblock_fees_pre_v210() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                 )
                 .unwrap();
 
@@ -607,7 +607,7 @@ fn test_bad_microblock_fees_fix_transition() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                 )
                 .unwrap();
 
@@ -650,13 +650,13 @@ fn test_bad_microblock_fees_fix_transition() {
     ];
 
     for i in 1..num_blocks {
-        let parent_block_id = block_ids[i - 1].clone();
-        let block_id = block_ids[i].clone();
+        let parent_block_id = &block_ids[i - 1];
+        let block_id = &block_ids[i];
 
         let matured_reward_opt = StacksChainState::get_matured_miner_payment(
             peer.chainstate().db(),
-            &parent_block_id.into(),
-            &block_id.into(),
+            &parent_block_id.clone().into(),
+            &block_id.clone().into(),
         )
         .unwrap();
 
@@ -963,7 +963,7 @@ fn test_get_block_info_v210() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                 )
                 .unwrap();
 
@@ -1010,7 +1010,6 @@ fn test_get_block_info_v210() {
                     let list_val = clarity_tx.with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1267,7 +1266,7 @@ fn test_get_block_info_v210_no_microblocks() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                 )
                 .unwrap();
 
@@ -1314,7 +1313,6 @@ fn test_get_block_info_v210_no_microblocks() {
                     let list_val = clarity_tx.with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1732,7 +1730,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                 )
                 .unwrap();
 
@@ -1782,7 +1780,6 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     let list_val = clarity_tx.with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),
@@ -1813,7 +1810,6 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                         let miner_val = clarity_tx.with_readonly_clarity_env(
                             false,
                             CHAIN_ID_TESTNET,
-                            ClarityVersion::Clarity2,
                             PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                             None,
                             LimitedCostTracker::new_free(),
@@ -1892,7 +1888,6 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse("SP3Q4A5WWZ80REGBN0ZXNE540ECJ9JZ4A765Q5K2Q").unwrap(),
                         None,
                         LimitedCostTracker::new_free(),

@@ -198,7 +198,7 @@ impl Trie {
                 return Err(Error::CorruptionError("ptr is empty".to_string()));
             }
             let (node, node_hash) = storage.read_nodetype(ptr)?;
-            return Ok((node, node_hash, ptr.clone()));
+            Ok((node, node_hash, *ptr))
         } else {
             storage.bench_mut().marf_find_backptr_node_start();
             // ptr is a backptr -- find the block
@@ -371,7 +371,7 @@ impl Trie {
         let cur_leaf_hash = get_leaf_hash(cur_leaf_data);
 
         // NOTE: this is safe since the current leaf's byte representation has gotten shorter
-        storage.write_node(cur_leaf_ptr.ptr(), cur_leaf_data, cur_leaf_hash.clone())?;
+        storage.write_node(cur_leaf_ptr.ptr(), cur_leaf_data, cur_leaf_hash)?;
 
         // append the new leaf and the end of the file.
         let new_leaf_disk_ptr = storage.last_ptr()?;
@@ -383,7 +383,7 @@ impl Trie {
         // put new leaf at the end of this Trie
         let new_leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, new_leaf_chr, new_leaf_disk_ptr);
 
-        storage.write_node(new_leaf_disk_ptr, new_leaf_data, new_leaf_hash.clone())?;
+        storage.write_node(new_leaf_disk_ptr, new_leaf_data, new_leaf_hash)?;
 
         // append the Node4 that points to both of them, and put it after the new leaf
         let mut node4_data = TrieNode4::new(&node4_path);
@@ -628,7 +628,7 @@ impl Trie {
         let leaf_disk_ptr = storage.last_ptr()?;
         let leaf_hash = get_leaf_hash(leaf);
         let leaf_ptr = TriePtr::new(TrieNodeID::Leaf as u8, leaf_chr, leaf_disk_ptr);
-        storage.write_node(leaf_disk_ptr, leaf, leaf_hash.clone())?;
+        storage.write_node(leaf_disk_ptr, leaf, leaf_hash)?;
 
         // update current node (node-X) and make a new path and ptr for it
         let cur_node_cur_ptr = cursor.ptr();
@@ -836,7 +836,7 @@ impl Trie {
             children_root_hash
         );
         let mut ancestor_bytes = Trie::get_trie_ancestor_hashes_bytes(storage)?;
-        ancestor_bytes.insert(0, children_root_hash.clone());
+        ancestor_bytes.insert(0, *children_root_hash);
 
         trace!(
             "Trie ancestor bytes for root hash calculation: {:?}",
@@ -904,7 +904,7 @@ impl Trie {
 
             // for debug purposes
             if cfg!(test) && is_trace() {
-                let node_hash = my_hash.clone();
+                let node_hash = my_hash;
                 let _ = Trie::get_trie_root_ancestor_hashes_bytes(storage, &node_hash)
                     .map(|_hs| {
                         storage.clear_cached_ancestor_hashes_bytes();
@@ -957,14 +957,14 @@ impl Trie {
                         &_cur_hash,
                         &content_hash
                     );
-                    content_hash.clone()
+                    content_hash
                 } else {
                     let root_ptr = storage.root_trieptr();
                     let node_hash = if ptr == root_ptr {
                         let h = if update_skiplist {
                             Trie::get_trie_root_hash(storage, &content_hash)?
                         } else {
-                            content_hash.clone()
+                            content_hash
                         };
 
                         if cfg!(test) && is_trace() {

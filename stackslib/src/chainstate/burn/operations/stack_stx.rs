@@ -410,7 +410,7 @@ impl StackStxOp {
         }
 
         // Check to see if the signer key is valid if available
-        if let Some(signer_key) = self.signer_key {
+        if let Some(signer_key) = &self.signer_key {
             Secp256k1PublicKey::from_slice(signer_key.as_bytes())
                 .map_err(|_| op_error::StackStxInvalidKey)?;
         }

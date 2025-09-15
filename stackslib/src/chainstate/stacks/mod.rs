@@ -17,8 +17,6 @@
 use std::hash::Hash;
 use std::{error, fmt, io};
 
-use clarity::util::hash::to_hex;
-use clarity::util::HexError;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
 use clarity::vm::errors::Error as clarity_interpreter_error;
@@ -94,6 +92,7 @@ pub enum Error {
     NotInSameFork,
     InvalidChainstateDB,
     BlockTooBigError,
+    BlockCostLimitError,
     TransactionTooBigError(Option<ExecutionCost>),
     BlockCostExceeded,
     NoTransactionsToMine,
@@ -158,6 +157,7 @@ impl fmt::Display for Error {
             Error::NoSuchBlockError => write!(f, "No such Stacks block"),
             Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
             Error::BlockTooBigError => write!(f, "Too much data in block"),
+            Error::BlockCostLimitError => write!(f, "Block cost limit exceeded"),
             Error::TransactionTooBigError(ref c) => {
                 write!(f, "Too much data in transaction: measured_cost={c:?}")
             }
@@ -238,6 +238,7 @@ impl error::Error for Error {
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
             Error::BlockTooBigError => None,
+            Error::BlockCostLimitError => None,
             Error::TransactionTooBigError(..) => None,
             Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
@@ -283,6 +284,7 @@ impl Error {
             Error::NoSuchBlockError => "NoSuchBlockError",
             Error::InvalidChainstateDB => "InvalidChainstateDB",
             Error::BlockTooBigError => "BlockTooBigError",
+            Error::BlockCostLimitError => "BlockCostLimitError",
             Error::TransactionTooBigError(..) => "TransactionTooBigError",
             Error::BlockCostExceeded => "BlockCostExceeded",
             Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",
@@ -382,30 +384,9 @@ impl Txid {
     /// Create a Txid from the tx hash bytes used in bitcoin.
     /// This just reverses the inner bytes of the input.
     pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
-        let mut txid_bytes = tx_hash.0.clone();
+        let mut txid_bytes = tx_hash.0;
         txid_bytes.reverse();
         Self(txid_bytes)
-    }
-
-    /// Creates a [`Txid`] from a Bitcoin transaction hash given as a hex string.
-    ///
-    /// # Argument
-    /// * `hex` - A 64-character, hex-encoded transaction ID (human-readable, **big-endian**)
-    ///
-    /// Internally `Txid` stores the hash bytes in little-endian
-    pub fn from_bitcoin_hex(hex: &str) -> Result<Txid, HexError> {
-        let hash = Sha256dHash::from_hex(hex)?;
-        Ok(Self(hash.to_bytes()))
-    }
-
-    /// Convert a [`Txid`] to a Bitcoin transaction hex string (human-readable, **big-endian**)
-    ///
-    /// Internally is intended that bytes are stored in **little-endian** order,
-    /// so bytes will be reversed to compute the final hex string in **big-endian** order.
-    pub fn to_bitcoin_hex(&self) -> String {
-        let mut bytes = self.to_bytes();
-        bytes.reverse();
-        to_hex(&bytes)
     }
 }
 
@@ -488,9 +469,7 @@ impl TransactionAuthField {
 
     pub fn as_signature(&self) -> Option<(TransactionPublicKeyEncoding, MessageSignature)> {
         match *self {
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                Some((key_fmt.clone(), sig.clone()))
-            }
+            TransactionAuthField::Signature(ref key_fmt, ref sig) => Some((*key_fmt, sig.clone())),
             _ => None,
         }
     }
@@ -502,11 +481,7 @@ impl TransactionAuthField {
             TransactionAuthField::Signature(ref key_fmt, ref sig) => {
                 let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
                     .map_err(|e| net_error::VerifyingError(e.to_string()))?;
-                pubk.set_compressed(if *key_fmt == TransactionPublicKeyEncoding::Compressed {
-                    true
-                } else {
-                    false
-                });
+                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
                 Ok(pubk)
             }
         }
@@ -1513,11 +1488,11 @@ pub mod test {
                     let auth = tx_auth.clone();
 
                     let tx = StacksTransaction {
-                        version: (*version).clone(),
+                        version: *version,
                         chain_id,
                         auth,
-                        anchor_mode: (*anchor_mode).clone(),
-                        post_condition_mode: (*post_condition_mode).clone(),
+                        anchor_mode: *anchor_mode,
+                        post_condition_mode: *post_condition_mode,
                         post_conditions: tx_post_condition.clone(),
                         payload: tx_payload.clone(),
                     };
@@ -1716,43 +1691,5 @@ pub mod test {
             header,
             txs: txs_mblock,
         }
-    }
-
-    #[test]
-    fn test_txid_from_bitcoin_hex_ok() {
-        let btc_hex = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
-        let mut expected_bytes = hex_bytes(btc_hex).unwrap();
-        expected_bytes.reverse();
-
-        let txid = Txid::from_bitcoin_hex(btc_hex).expect("Should be ok!");
-        assert_eq!(expected_bytes, txid.as_bytes());
-    }
-
-    #[test]
-    fn test_txid_from_bitcoin_hex_failure() {
-        let short_hex = "short_hex";
-        let error = Txid::from_bitcoin_hex(short_hex).expect_err("Should fail due to length!");
-        assert!(matches!(error, HexError::BadLength(9)));
-
-        let bad_hex = "Z000000000000000000000000000000000000000000000000000000000000000";
-        let error = Txid::from_bitcoin_hex(bad_hex).expect_err("Should fail to invalid char!");
-        assert!(matches!(error, HexError::BadCharacter('Z')))
-    }
-
-    #[test]
-    fn test_txid_to_bitcoin_hex_ok() {
-        let btc_hex = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
-        let mut txid_hex = hex_bytes(btc_hex).unwrap();
-        txid_hex.reverse();
-        let txid = Txid::from_bytes(&txid_hex).unwrap();
-        assert_eq!(btc_hex, txid.to_bitcoin_hex());
-    }
-
-    #[test]
-    fn test_txid_from_to_bitcoin_hex_integration_ok() {
-        let btc_hex_input = "b9a0d01a3e21809e920fa022dfdd85368d56d1cacc5229f7a704c4d5fbccc6bd";
-        let txid = Txid::from_bitcoin_hex(btc_hex_input).unwrap();
-        let btc_hex_output = txid.to_bitcoin_hex();
-        assert_eq!(btc_hex_input, btc_hex_output);
     }
 }

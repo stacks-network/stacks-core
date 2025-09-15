@@ -3120,7 +3120,6 @@ mod test {
         let stackerdb = StackerDBs::connect(&stackerdb_path, true).unwrap();
 
         let first_burnchain_block_height = burnchain.first_block_height;
-        let first_burnchain_block_hash = burnchain.first_block_hash;
 
         let mut boot_data = ChainStateBootData::new(burnchain, vec![], None);
 
@@ -3222,20 +3221,20 @@ mod test {
             } else if i == chain_view.burn_stable_block_height {
                 next_snapshot.burn_header_hash = chain_view.burn_stable_block_hash.clone();
             } else {
-                next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+                next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32);
             }
 
             next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
-            next_snapshot.sortition_id = SortitionId(big_i_bytes_32.clone());
+            next_snapshot.sortition_id = SortitionId(big_i_bytes_32);
             next_snapshot.parent_sortition_id = prev_snapshot.sortition_id.clone();
             next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
-            next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32.clone());
-            next_snapshot.winning_block_txid = Txid(big_i_bytes_32.clone());
+            next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32);
+            next_snapshot.winning_block_txid = Txid(big_i_bytes_32);
             next_snapshot.total_burn += 1;
             next_snapshot.sortition = true;
             next_snapshot.sortition_hash = next_snapshot
                 .sortition_hash
-                .mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
+                .mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32));
             next_snapshot.num_sortitions += 1;
 
             let mut tx = SortitionHandleTx::begin(sortdb, &prev_snapshot.sortition_id).unwrap();

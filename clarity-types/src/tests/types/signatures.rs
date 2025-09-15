@@ -14,11 +14,12 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashSet;
 
-use crate::errors::CodecError;
+use crate::errors::CheckErrors;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier, TupleTypeSignature,
+    MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier,
+    TupleTypeSignature,
 };
 
 #[test]
@@ -517,11 +518,22 @@ fn test_least_supertype() {
     for pair in bad_pairs {
         matches!(
             TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap_err(),
-            CodecError::TypeError { .. }
+            CheckErrors::TypeError(..)
         );
         matches!(
             TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap_err(),
-            CodecError::TypeError { .. }
+            CheckErrors::TypeError(..)
         );
     }
+}
+
+#[test]
+fn test_type_signature_bound_string_ascii_type_returns_check_errors() {
+    let err = TypeSignature::bound_string_ascii_type(MAX_VALUE_SIZE + 1).unwrap_err();
+    assert_eq!(
+        CheckErrors::Expects(
+            "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".to_string()
+        ),
+        err
+    );
 }

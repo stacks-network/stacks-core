@@ -315,22 +315,16 @@ impl HttpResponsePreamble {
             return false;
         }
         self.headers.remove(&key);
-        return true;
+        true
     }
 
     /// Get an owned copy of a header if it exists
     pub fn get_header(&self, key: String) -> Option<String> {
         let hdr = key.to_lowercase();
         match hdr.as_str() {
-            "content-type" => {
-                return Some(format!("{}", &self.content_type));
-            }
-            "content-length" => {
-                return self.content_length.clone().map(|cl| format!("{}", &cl));
-            }
-            _ => {
-                return self.headers.get(&hdr).cloned();
-            }
+            "content-type" => Some(format!("{}", &self.content_type)),
+            "content-length" => self.content_length.map(|cl| cl.to_string()),
+            _ => self.headers.get(&hdr).cloned(),
         }
     }
 
@@ -342,6 +336,11 @@ impl HttpResponsePreamble {
     // do we have Transfer-Encoding: chunked?
     pub fn is_chunked(&self) -> bool {
         self.content_length.is_none()
+    }
+
+    /// Is this a successful response?
+    pub fn is_success(&self) -> bool {
+        self.status_code >= 100 && self.status_code < 400
     }
 }
 

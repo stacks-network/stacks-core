@@ -44,7 +44,7 @@ use stacks::chainstate::stacks::miner::{
 use stacks::chainstate::stacks::Error as ChainstateError;
 use stacks::config::BurnchainConfig;
 use stacks::core::mempool::MemPoolDB;
-use stacks::core::STACKS_EPOCH_3_2_MARKER;
+use stacks::core::STACKS_EPOCH_LATEST_MARKER;
 use stacks::monitoring::increment_stx_blocks_mined_counter;
 use stacks::net::db::LocalPeer;
 use stacks::net::p2p::NetworkHandle;
@@ -263,7 +263,7 @@ impl LastCommit {
 
     /// Set our txid
     pub fn set_txid(&mut self, txid: &Txid) {
-        self.txid = Some(*txid);
+        self.txid = Some(txid.clone());
     }
 }
 
@@ -622,10 +622,10 @@ impl RelayerThread {
     fn choose_directive_sortition_with_winner(
         &mut self,
         sn: BlockSnapshot,
-        mining_pkh: Hash160,
+        mining_pkh: &Hash160,
         committed_index_hash: StacksBlockId,
     ) -> Option<MinerDirective> {
-        let won_sortition = sn.miner_pk_hash == Some(mining_pkh);
+        let won_sortition = sn.miner_pk_hash.as_ref() == Some(mining_pkh);
         if won_sortition || self.config.get_node_config(false).mock_mining {
             // a sortition happenend, and we won
             info!("Won sortition; begin tenure.";
@@ -652,7 +652,7 @@ impl RelayerThread {
                 .expect("FATAL: no sortition for canonical stacks tip");
 
         let won_ongoing_tenure_sortition =
-            canonical_stacks_snapshot.miner_pk_hash == Some(mining_pkh);
+            canonical_stacks_snapshot.miner_pk_hash.as_ref() == Some(mining_pkh);
         if won_ongoing_tenure_sortition {
             // we won the current ongoing tenure, but not the most recent sortition. Should we attempt to extend immediately or wait for the incoming miner?
             if let Ok(has_higher) = Self::has_higher_sortition_commits_to_stacks_tip_tenure(
@@ -705,7 +705,7 @@ impl RelayerThread {
     fn choose_directive_sortition_without_winner(
         &mut self,
         sn: BlockSnapshot,
-        mining_pk: Hash160,
+        mining_pk: &Hash160,
     ) -> Option<MinerDirective> {
         let (canonical_stacks_tip_ch, _) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
@@ -744,7 +744,8 @@ impl RelayerThread {
             return None;
         };
 
-        let won_last_winning_snapshot = last_winning_snapshot.miner_pk_hash == Some(mining_pk);
+        let won_last_winning_snapshot =
+            last_winning_snapshot.miner_pk_hash.as_ref() == Some(mining_pk);
         if won_last_winning_snapshot {
             debug!(
                 "Relayer: we won the last winning sortition {}",
@@ -784,7 +785,7 @@ impl RelayerThread {
         }
 
         let won_ongoing_tenure_sortition =
-            canonical_stacks_snapshot.miner_pk_hash == Some(mining_pk);
+            canonical_stacks_snapshot.miner_pk_hash.as_ref() == Some(mining_pk);
         if won_ongoing_tenure_sortition {
             info!("Relayer: No sortition, but we produced the canonical Stacks tip. Will extend tenure.");
             if !won_last_winning_snapshot {
@@ -861,9 +862,10 @@ impl RelayerThread {
             .expect("FATAL: failed to query sortition DB")
             .expect("FATAL: unknown consensus hash");
 
-        let was_winning_pkh = if let (Some(ref winning_pkh), Some(ref my_pkh)) =
-            (sn.miner_pk_hash, self.get_mining_key_pkh())
-        {
+        let was_winning_pkh = if let (Some(winning_pkh), Some(my_pkh)) = (
+            sn.miner_pk_hash.as_ref(),
+            self.get_mining_key_pkh().as_ref(),
+        ) {
             winning_pkh == my_pkh
         } else {
             false
@@ -899,20 +901,28 @@ impl RelayerThread {
                 .raise_initiative("process_sortition".to_string());
             return Ok(None);
         }
+
         // Reset the tenure extend time
         self.tenure_extend_time = None;
         let Some(mining_pk) = self.get_mining_key_pkh() else {
             debug!("No mining key, will not mine");
             return Ok(None);
         };
+
+        let epoch = SortitionDB::get_stacks_epoch(self.sortdb.conn(), sn.block_height)
+            .expect("FATAL: epoch not found for current snapshot")
+            .expect("FATAL: epoch not found for current snapshot");
+        if !epoch.epoch_id.uses_nakamoto_blocks() {
+            return Ok(None);
+        }
+
         let directive_opt = if sn.sortition {
-            self.choose_directive_sortition_with_winner(sn, mining_pk, committed_index_hash)
+            self.choose_directive_sortition_with_winner(sn, &mining_pk, committed_index_hash)
         } else {
-            self.choose_directive_sortition_without_winner(sn, mining_pk)
+            self.choose_directive_sortition_without_winner(sn, &mining_pk)
         };
         debug!(
-            "Relayer: Processed sortition {}: Miner directive is {:?}",
-            &consensus_hash, &directive_opt
+            "Relayer: Processed sortition {consensus_hash}: Miner directive is {directive_opt:?}"
         );
         Ok(directive_opt)
     }
@@ -926,7 +936,7 @@ impl RelayerThread {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: miner_pkh.as_bytes().to_vec(),
-            consensus_hash: *consensus_hash,
+            consensus_hash: consensus_hash.clone(),
             vtxindex: 0,
             txid: Txid([0u8; 32]),
             block_height: 0,
@@ -1139,7 +1149,7 @@ impl RelayerThread {
             key_block_ptr: u32::try_from(key.block_height)
                 .expect("FATAL: burn block height exceeded u32"),
             key_vtxindex: u16::try_from(key.op_vtxindex).expect("FATAL: vtxindex exceeded u16"),
-            memo: vec![STACKS_EPOCH_3_2_MARKER],
+            memo: vec![STACKS_EPOCH_LATEST_MARKER],
             new_seed: VRFSeed::from_proof(&tip_vrf_proof),
             parent_block_ptr: u32::try_from(commit_parent_block_burn_height)
                 .expect("FATAL: burn block height exceeded u32"),
@@ -1228,11 +1238,11 @@ impl RelayerThread {
         }
         Self::fault_injection_stall_miner_startup();
 
-        let burn_header_hash = burn_tip.burn_header_hash;
+        let burn_header_hash = burn_tip.burn_header_hash.clone();
         let burn_chain_sn = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.conn())
             .expect("FATAL: failed to query sortition DB for canonical burn chain tip");
 
-        let burn_chain_tip = burn_chain_sn.burn_header_hash;
+        let burn_chain_tip = burn_chain_sn.burn_header_hash.clone();
 
         if &burn_chain_sn.consensus_hash != burn_tip_at_start {
             info!(
@@ -1256,7 +1266,7 @@ impl RelayerThread {
             self,
             registered_key,
             burn_election_block,
-            burn_tip,
+            burn_tip.clone(),
             parent_tenure_id,
             burn_tip_at_start,
             reason,
@@ -1289,7 +1299,7 @@ impl RelayerThread {
             vrf_key,
             block_election_snapshot,
             burn_tip.clone(),
-            parent_tenure_start,
+            parent_tenure_start.clone(),
             reason,
             burn_tip_at_start,
         )?;
@@ -1574,7 +1584,7 @@ impl RelayerThread {
                 election_block,
                 late,
             } => match self.start_new_tenure(
-                parent_tenure_start,
+                parent_tenure_start.clone(),
                 election_block.clone(),
                 election_block.clone(),
                 MinerReason::BlockFound { late },
@@ -1919,7 +1929,7 @@ impl RelayerThread {
                     return;
                 };
                 let won_last_winning_snapshot =
-                    last_winning_snapshot.miner_pk_hash == Some(mining_pkh);
+                    last_winning_snapshot.miner_pk_hash.as_ref() == Some(&mining_pkh);
                 if won_last_winning_snapshot
                     && Self::need_block_found(&canonical_stacks_snapshot, &last_winning_snapshot)
                 {
@@ -1932,7 +1942,7 @@ impl RelayerThread {
         }
 
         let won_ongoing_tenure_sortition =
-            canonical_stacks_snapshot.miner_pk_hash == Some(mining_pkh);
+            canonical_stacks_snapshot.miner_pk_hash.as_ref() == Some(&mining_pkh);
         if !won_ongoing_tenure_sortition {
             debug!("Will not tenure extend. Did not win ongoing tenure sortition";
                 "burn_chain_sortition_tip_ch" => %burn_tip.consensus_hash,

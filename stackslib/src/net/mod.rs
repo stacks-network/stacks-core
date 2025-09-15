@@ -37,8 +37,7 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use {rusqlite, url};
 
 use self::dns::*;
-use crate::burnchains::affirmation::AffirmationMap;
-use crate::burnchains::{Burnchain, Error as burnchain_error, Txid};
+use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::coordinator::comm::CoordinatorChannels;
@@ -57,7 +56,8 @@ use crate::net::atlas::{Attachment, AttachmentInstance};
 use crate::net::http::error::{HttpNotFound, HttpServerError};
 use crate::net::http::{Error as HttpErr, HttpRequestContents, HttpRequestPreamble};
 use crate::net::httpcore::{
-    HttpRequestContentsExtensions, StacksHttp, StacksHttpRequest, StacksHttpResponse, TipRequest,
+    HttpRequestContentsExtensions as _, StacksHttp, StacksHttpRequest, StacksHttpResponse,
+    TipRequest,
 };
 use crate::net::p2p::{PeerNetwork, PendingMessages};
 use crate::util_lib::db::{DBConn, Error as db_error};
@@ -185,7 +185,7 @@ pub enum Error {
     /// server is not bound to a socket
     NotConnected,
     /// Remote peer is not connected
-    PeerNotConnected,
+    PeerNotConnected(String),
     /// Too many peers
     TooManyPeers,
     /// Peer already connected
@@ -335,7 +335,9 @@ impl fmt::Display for Error {
             Error::RegisterError => write!(f, "Failed to register socket with poller"),
             Error::SocketError => write!(f, "Socket error"),
             Error::NotConnected => write!(f, "Not connected to peer network"),
-            Error::PeerNotConnected => write!(f, "Remote peer is not connected to us"),
+            Error::PeerNotConnected(ref msg) => {
+                write!(f, "Remote peer is not connected to us: {}", msg)
+            }
             Error::TooManyPeers => write!(f, "Too many peer connections open"),
             Error::AlreadyConnected(ref _id, ref _nk) => write!(f, "Peer already connected"),
             Error::InProgress => write!(f, "Message already in progress"),
@@ -445,7 +447,7 @@ impl error::Error for Error {
             Error::RegisterError => None,
             Error::SocketError => None,
             Error::NotConnected => None,
-            Error::PeerNotConnected => None,
+            Error::PeerNotConnected(..) => None,
             Error::TooManyPeers => None,
             Error::AlreadyConnected(ref _id, ref _nk) => None,
             Error::InProgress => None,
@@ -692,10 +694,8 @@ impl<'a> StacksNodeState<'a> {
         res
     }
 
-    pub fn canonical_stacks_tip_height(&mut self) -> u32 {
-        self.with_node_state(|network, _, _, _, _| {
-            network.burnchain_tip.canonical_stacks_tip_height as u32
-        })
+    pub fn canonical_stacks_tip_height(&mut self) -> u64 {
+        self.with_node_state(|network, _, _, _, _| network.stacks_tip.height)
     }
 
     pub fn set_relay_message(&mut self, msg: StacksMessageType) {
@@ -806,6 +806,26 @@ impl<'a> StacksNodeState<'a> {
                 }
             }
         })
+    }
+
+    pub fn update_highest_stacks_neighbor(
+        &mut self,
+        new_address: &SocketAddr,
+        new_height: Option<u64>,
+    ) {
+        self.with_node_state(|network, _, _, _, _| {
+            if let Some(new_height) = new_height {
+                let current_height = network
+                    .highest_stacks_neighbor
+                    .as_ref()
+                    .map(|(_addr, height)| *height)
+                    .unwrap_or(0);
+
+                if new_height > current_height {
+                    network.highest_stacks_neighbor = Some((*new_address, new_height));
+                }
+            }
+        });
     }
 }
 
@@ -2208,27 +2228,6 @@ pub trait Requestable: std::fmt::Display {
     fn make_request_type(&self, peer_host: PeerHost) -> StacksHttpRequest;
 }
 
-// TODO: DRY up from PoxSyncWatchdog
-pub fn infer_initial_burnchain_block_download(
-    burnchain: &Burnchain,
-    last_processed_height: u64,
-    burnchain_height: u64,
-) -> bool {
-    let ibd = last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
-    if ibd {
-        debug!(
-            "PoX watchdog: {} + {} < {}, so initial block download",
-            last_processed_height, burnchain.stable_confirmations, burnchain_height
-        );
-    } else {
-        debug!(
-            "PoX watchdog: {} + {} >= {}, so steady-state",
-            last_processed_height, burnchain.stable_confirmations, burnchain_height
-        );
-    }
-    ibd
-}
-
 #[cfg(test)]
 pub mod test {
     use std::collections::HashMap;
@@ -2379,7 +2378,7 @@ pub mod test {
                 return Ok(0);
             }
             if let Some(ref e) = self.read_error {
-                return Err(io::Error::from((*e).clone()));
+                return Err(io::Error::from(*e));
             }
 
             let sz = self.c.read(buf)?;
@@ -2403,7 +2402,7 @@ pub mod test {
                 return Err(io::Error::from(ErrorKind::Other)); // EBADF
             }
             if let Some(ref e) = self.write_error {
-                return Err(io::Error::from((*e).clone()));
+                return Err(io::Error::from(*e));
             }
             self.c.write(buf)
         }
@@ -2512,10 +2511,10 @@ pub mod test {
             metadata: &StacksHeaderInfo,
             receipts: &[events::StacksTransactionReceipt],
             parent: &StacksBlockId,
-            winner_txid: Txid,
+            winner_txid: &Txid,
             matured_rewards: &[accounts::MinerReward],
             matured_rewards_info: Option<&MinerRewardInfo>,
-            parent_burn_block_hash: BurnchainHeaderHash,
+            parent_burn_block_hash: &BurnchainHeaderHash,
             parent_burn_block_height: u32,
             parent_burn_block_timestamp: u64,
             _anchor_block_cost: &ExecutionCost,
@@ -2531,7 +2530,7 @@ pub mod test {
                 metadata: metadata.clone(),
                 receipts: receipts.to_owned(),
                 parent: parent.clone(),
-                winner_txid,
+                winner_txid: winner_txid.clone(),
                 matured_rewards: matured_rewards.to_owned(),
                 matured_rewards_info: matured_rewards_info.cloned(),
                 reward_set_data: reward_set_data.clone(),
@@ -2675,7 +2674,7 @@ pub mod test {
 
             burnchain.pox_constants = PoxConstants::test_20_no_sunset();
             let mut spending_account = TestMinerFactory::new().next_miner(
-                &burnchain,
+                burnchain.clone(),
                 1,
                 1,
                 AddressHashMode::SerializeP2PKH,
@@ -2941,8 +2940,12 @@ pub mod test {
             let test_path = TestPeer::make_test_path(&config);
             let mut miner_factory = TestMinerFactory::new();
             miner_factory.chain_id = config.network_id;
-            let mut miner =
-                miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+            let mut miner = miner_factory.next_miner(
+                config.burnchain.clone(),
+                1,
+                1,
+                AddressHashMode::SerializeP2PKH,
+            );
             // manually set fees
             miner.test_with_tx_fees = false;
 
@@ -2965,7 +2968,7 @@ pub mod test {
             .unwrap();
 
             let first_burnchain_block_height = config.burnchain.first_block_height;
-            let first_burnchain_block_hash = config.burnchain.first_block_hash;
+            let first_burnchain_block_hash = config.burnchain.first_block_hash.clone();
 
             let _burnchain_blocks_db = BurnchainDB::connect(
                 &config.burnchain.get_burnchaindb_path(),
@@ -3319,6 +3322,28 @@ pub mod test {
             tx.commit().unwrap();
         }
 
+        // TODO: DRY up from PoxSyncWatchdog
+        pub fn infer_initial_burnchain_block_download(
+            burnchain: &Burnchain,
+            last_processed_height: u64,
+            burnchain_height: u64,
+        ) -> bool {
+            let ibd =
+                last_processed_height + (burnchain.stable_confirmations as u64) < burnchain_height;
+            if ibd {
+                debug!(
+                    "PoX watchdog: {} + {} < {}, so initial block download",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+            } else {
+                debug!(
+                    "PoX watchdog: {} + {} >= {}, so steady-state",
+                    last_processed_height, burnchain.stable_confirmations, burnchain_height
+                );
+            }
+            ibd
+        }
+
         pub fn step(&mut self) -> Result<NetworkResult, net_error> {
             let sortdb = self.sortdb.take().unwrap();
             let stacks_node = self.stacks_node.take().unwrap();
@@ -3332,7 +3357,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = infer_initial_burnchain_block_download(
+            let ibd = TestPeer::infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
@@ -3463,7 +3488,7 @@ pub mod test {
             .unwrap()
             .map(|hdr| hdr.anchored_header.height())
             .unwrap_or(0);
-            let ibd = infer_initial_burnchain_block_download(
+            let ibd = TestPeer::infer_initial_burnchain_block_download(
                 &self.config.burnchain,
                 stacks_tip_height,
                 burn_tip_height,
@@ -3530,7 +3555,7 @@ pub mod test {
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             self.network
-                .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
+                .refresh_burnchain_view(&sortdb, &mut stacks_node.chainstate, false)
                 .unwrap();
 
             self.sortdb = Some(sortdb);
@@ -3762,14 +3787,6 @@ pub mod test {
                     blockstack_ops,
                 )
                 .unwrap();
-
-            Burnchain::process_affirmation_maps(
-                burnchain,
-                &mut burnchain_db,
-                &indexer,
-                block_header.block_height,
-            )
-            .unwrap();
         }
 
         /// Generate and commit the next burnchain block with the given block operations.
@@ -4296,7 +4313,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -4354,7 +4371,7 @@ pub mod test {
                 &mut TestMiner,
                 &mut SortitionDB,
                 &mut StacksChainState,
-                VRFProof,
+                &VRFProof,
                 Option<&StacksBlock>,
                 Option<&StacksMicroblockHeader>,
             ) -> (StacksBlock, Vec<StacksMicroblock>),
@@ -4396,7 +4413,7 @@ pub mod test {
                 &mut self.miner,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
-                proof,
+                &proof,
                 parent_block_opt.as_ref(),
                 parent_microblock_header_opt.as_ref(),
             );
@@ -4427,7 +4444,6 @@ pub mod test {
                 &mut sortdb,
                 &self.config.burnchain,
                 &OnChainRewardSetProvider::new(),
-                true,
             ) {
                 Ok(recipients) => {
                     block_commit_op.commit_outs = match recipients {

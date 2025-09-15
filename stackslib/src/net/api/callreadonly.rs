@@ -33,8 +33,8 @@ use crate::net::http::{
     HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    request, HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler,
-    StacksHttpRequest, StacksHttpResponse,
+    request, HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest,
+    StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
@@ -231,21 +231,9 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                                 ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
                             })?;
 
-                        let clarity_version = clarity_tx
-                            .with_analysis_db_readonly(|analysis_db| {
-                                analysis_db.get_clarity_version(&contract_identifier)
-                            })
-                            .map_err(|_| {
-                                ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
-                                    "{}",
-                                    &contract_identifier
-                                )))
-                            })?;
-
                         clarity_tx.with_readonly_clarity_env(
                             mainnet,
                             chain_id,
-                            clarity_version,
                             sender,
                             sponsor,
                             cost_track,
@@ -307,8 +295,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
             }
         };
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&data_resp)?;
         Ok((preamble, body))
     }
