@@ -14,10 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use std::cmp;
 
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
@@ -2246,19 +2247,13 @@ impl BitcoinRegtestController {
             self.config.burnchain.max_unspent_utxos.clone(),
         )?;
 
-        let txids_to_filter = if let Some(utxos_to_exclude) = utxos_to_exclude {
-            utxos_to_exclude
-                .utxos
-                .iter()
-                .map(|utxo| utxo.txid.clone())
-                .collect::<Vec<_>>()
-        } else {
-            vec![]
-        };
+        let txids_to_exclude = utxos_to_exclude.as_ref().map_or_else(HashSet::new, |set| {
+            set.utxos.iter().map(|utxo| &utxo.txid).collect()
+        });
 
         let utxos = unspents
             .into_iter()
-            .filter(|each| !txids_to_filter.contains(&Self::to_bitcoin_tx_hash(&each.txid)))
+            .filter(|each| !txids_to_exclude.contains(&Self::to_bitcoin_tx_hash(&each.txid)))
             .filter(|each| each.amount >= minimum_sum_amount)
             .map(|each| UTXO {
                 txid: Self::to_bitcoin_tx_hash(&each.txid),
