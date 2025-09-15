@@ -185,7 +185,7 @@ impl ArithmeticOnlyChecker<'_> {
             IsStandard | PrincipalDestruct | PrincipalConstruct => {
                 Err(Error::FunctionNotPermitted(function))
             }
-            IntToAscii | IntToUtf8 | StringToInt | StringToUInt => {
+            IntToAscii | IntToUtf8 | StringToInt | StringToUInt | ToAscii => {
                 Err(Error::FunctionNotPermitted(function))
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
