@@ -676,15 +676,30 @@ impl BitcoinRegtestController {
     /// These methods are responsible for importing the necessary descriptors into the wallet.
     #[cfg(test)]
     pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
-        self.retrieve_utxo_set(
-            &self.get_miner_address(StacksEpochId::Epoch21, public_key),
-            true,
-            1,
-            &None,
-            0,
-        )
-        .unwrap_or_log_panic("retrieve all utxos")
-        .utxos
+        let address = self.get_miner_address(StacksEpochId::Epoch21, public_key);
+
+        let public_key_reviewed = if self.config.miner.segwit {
+            let mut p = public_key.clone();
+            p.set_compressed(true);
+            p
+        } else {
+            public_key.clone()
+        };
+
+        test_debug!("Import public key '{}'", &public_key_reviewed.to_hex());
+        self.import_public_key(&public_key_reviewed)
+            .unwrap_or_else(|error| {
+                panic!(
+                    "Import public key '{}' failed: {error:?}",
+                    public_key_reviewed.to_hex()
+                )
+            });
+
+        sleep_ms(1000);
+
+        self.retrieve_utxo_set(&address, true, 1, &None, 0)
+            .unwrap_or_log_panic("retrieve all utxos")
+            .utxos
     }
 
     /// Retrieve all loaded wallets.
@@ -3192,27 +3207,41 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_get_all_utxos_empty_for_other_pubkey() {
+    fn test_get_all_utxos_for_other_pubkey() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
         }
 
-        let miner_pubkey = utils::create_miner1_pubkey();
-        let other_pubkey = utils::create_miner2_pubkey();
+        let miner1_pubkey = utils::create_miner1_pubkey();
+        let miner2_pubkey = utils::create_miner2_pubkey();
 
         let mut config = utils::create_config();
-        config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
+        config.burnchain.local_mining_public_key = Some(miner1_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
             .start_bitcoind()
             .expect("bitcoind should be started!");
 
-        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
-        btc_controller.bootstrap_chain(101); // one utxo exists
+        let miner1_btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        miner1_btc_controller.bootstrap_chain(1); // one utxo for miner_pubkey related address
 
-        let utxos = btc_controller.get_all_utxos(&other_pubkey);
-        assert_eq!(0, utxos.len());
+        config.burnchain.local_mining_public_key = Some(miner2_pubkey.to_hex());
+        config.burnchain.wallet_name = "miner2_wallet".to_string();
+        let miner2_btc_controller = BitcoinRegtestController::new(config, None);
+        miner2_btc_controller.bootstrap_chain(102); // two utxo for other_pubkeys related address
+
+        let utxos = miner1_btc_controller.get_all_utxos(&miner1_pubkey);
+        assert_eq!(1, utxos.len(), "miner1 see its own utxos");
+
+        let utxos = miner1_btc_controller.get_all_utxos(&miner2_pubkey);
+        assert_eq!(2, utxos.len(), "miner1 see miner2 utxos");
+
+        let utxos = miner2_btc_controller.get_all_utxos(&miner2_pubkey);
+        assert_eq!(2, utxos.len(), "miner2 see its own utxos");
+
+        let utxos = miner2_btc_controller.get_all_utxos(&miner1_pubkey);
+        assert_eq!(1, utxos.len(), "miner2 see miner1 own utxos");
     }
 
     #[test]
