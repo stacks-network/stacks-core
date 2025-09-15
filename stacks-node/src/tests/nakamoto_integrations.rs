@@ -14945,15 +14945,23 @@ fn smaller_tenure_size_for_miner() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     let sender_sk = Secp256k1PrivateKey::random();
-    let sender_signer_sk = Secp256k1PrivateKey::random();
-    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
-
     let sender_addr = tests::to_addr(&sender_sk);
 
-    let stacker_sk = setup_stacker(&mut naka_conf);
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
 
     naka_conf.miner.max_tenure_bytes = 2 * 1024 * 1024; // 2MB
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        10000000000000,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        10000000000000,
+    );
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
@@ -15004,6 +15012,8 @@ fn smaller_tenure_size_for_miner() {
 
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut long_comment = String::from(";; ");
     long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
