@@ -1,11 +1,11 @@
 // Static cost analysis for Clarity expressions
 
 use clarity_serialization::representations::ContractName;
-use clarity_serialization::types::TraitIdentifier;
+use clarity_serialization::types::{CharType, SequenceData, TraitIdentifier};
 use clarity_serialization::Value;
 
 use crate::vm::ast::parser::v2::parse;
-use crate::vm::costs::cost_functions::CostValues;
+use crate::vm::costs::cost_functions::{linear, CostValues};
 use crate::vm::costs::costs_3::Costs3;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::errors::InterpreterResult;
@@ -13,8 +13,8 @@ use crate::vm::representations::{ClarityName, PreSymbolicExpression, PreSymbolic
 
 // TODO:
 // variable traverse for
-//   - if, is-*, match, etc
-// contract-call? - how to handle?
+//   - if, unwrap-*, match, etc
+// contract-call? - get source from database
 // type-checking
 // lookups
 // unwrap evaluates both branches (https://github.com/clarity-lang/reference/issues/59)
@@ -61,6 +61,75 @@ impl StaticCost {
     };
 }
 
+/// A type to track summed execution costs for different paths
+/// This allows us to compute min and max costs across different execution paths
+#[derive(Debug, Clone)]
+pub struct SummingExecutionCost {
+    pub costs: Vec<ExecutionCost>,
+}
+
+impl SummingExecutionCost {
+    pub fn new() -> Self {
+        Self { costs: Vec::new() }
+    }
+
+    pub fn from_single(cost: ExecutionCost) -> Self {
+        Self { costs: vec![cost] }
+    }
+
+    pub fn add_cost(&mut self, cost: ExecutionCost) {
+        self.costs.push(cost);
+    }
+
+    pub fn add_summing(&mut self, other: &SummingExecutionCost) {
+        self.costs.extend(other.costs.clone());
+    }
+
+    /// Get the minimum cost across all paths
+    pub fn min(&self) -> ExecutionCost {
+        if self.costs.is_empty() {
+            ExecutionCost::ZERO
+        } else {
+            self.costs
+                .iter()
+                .fold(self.costs[0].clone(), |acc, cost| ExecutionCost {
+                    runtime: acc.runtime.min(cost.runtime),
+                    write_length: acc.write_length.min(cost.write_length),
+                    write_count: acc.write_count.min(cost.write_count),
+                    read_length: acc.read_length.min(cost.read_length),
+                    read_count: acc.read_count.min(cost.read_count),
+                })
+        }
+    }
+
+    /// Get the maximum cost across all paths
+    pub fn max(&self) -> ExecutionCost {
+        if self.costs.is_empty() {
+            ExecutionCost::ZERO
+        } else {
+            self.costs
+                .iter()
+                .fold(self.costs[0].clone(), |acc, cost| ExecutionCost {
+                    runtime: acc.runtime.max(cost.runtime),
+                    write_length: acc.write_length.max(cost.write_length),
+                    write_count: acc.write_count.max(cost.write_count),
+                    read_length: acc.read_length.max(cost.read_length),
+                    read_count: acc.read_count.max(cost.read_count),
+                })
+        }
+    }
+
+    /// Combine costs by adding them (for non-branching operations)
+    pub fn add_all(&self) -> ExecutionCost {
+        self.costs
+            .iter()
+            .fold(ExecutionCost::ZERO, |mut acc, cost| {
+                let _ = acc.add(cost);
+                acc
+            })
+    }
+}
+
 /// Parse Clarity source code and calculate its static execution cost
 ///
 /// This function takes a Clarity expression as a string, parses it into symbolic
@@ -75,10 +144,12 @@ pub fn static_cost(source: &str) -> Result<StaticCost, String> {
 
     // TODO what happens if multiple expressions are selected?
     let pre_expr = &pre_expressions[0];
-    let _expr_tree = build_expr_tree(pre_expr)?;
-    let cost_tree = build_cost_tree(pre_expr)?;
+    let expr_tree = build_expr_tree(pre_expr)?;
+    let cost_tree = build_cost_tree(&expr_tree)?;
 
-    Ok(calculate_total_cost(&cost_tree))
+    // Use branching-aware cost calculation
+    let summing_cost = calculate_total_cost_with_branching(&expr_tree, &cost_tree);
+    Ok(summing_cost.into())
 }
 
 #[derive(Debug, Clone)]
@@ -238,63 +309,102 @@ fn is_branching_function(function_name: &ClarityName) -> bool {
     }
 }
 
-// TODO: Needs alternative traversals to get min/max
-fn build_cost_tree(expr: &PreSymbolicExpression) -> Result<StaticCostNode, String> {
-    match &expr.pre_expr {
-        PreSymbolicExpressionType::List(list) => {
-            let function_name = match &list[0].pre_expr {
-                PreSymbolicExpressionType::Atom(name) => name,
-                _ => {
-                    return Err("First element of list must be an atom (function name)".to_string())
-                }
-            };
-
-            // TODO this is wrong
-            let args = &list[1..];
-            let mut children = Vec::new();
-
-            for arg in args {
-                children.push(build_cost_tree(arg)?);
+/// Build a cost tree from an expression tree, using branching logic for min/max calculation
+fn build_cost_tree(expr_tree: &ExprTree) -> Result<StaticCostNode, String> {
+    let function_name = match &expr_tree.expr {
+        ExprNode::If => "if",
+        ExprNode::Match => "match",
+        ExprNode::Unwrap => "unwrap!",
+        ExprNode::Ok => "ok",
+        ExprNode::Err => "err",
+        ExprNode::GT => ">",
+        ExprNode::LT => "<",
+        ExprNode::GE => ">=",
+        ExprNode::LE => "<=",
+        ExprNode::EQ => "=",
+        ExprNode::Add => "+",
+        ExprNode::Sub => "-",
+        ExprNode::Mul => "*",
+        ExprNode::Div => "/",
+        ExprNode::Function(name) => name.as_str(),
+        ExprNode::AtomValue(value) => {
+            // String literals have cost based on length only when they're standalone (not function arguments)
+            if let Value::Sequence(SequenceData::String(CharType::UTF8(data))) = value {
+                let length = data.data.len() as u64;
+                let cost = linear(length, 36, 3);
+                let execution_cost = ExecutionCost::runtime(cost);
+                return Ok(StaticCostNode::leaf(
+                    vec![],
+                    StaticCost {
+                        min: execution_cost.clone(),
+                        max: execution_cost,
+                    },
+                ));
+            } else if let Value::Sequence(SequenceData::String(CharType::ASCII(data))) = value {
+                let length = data.data.len() as u64;
+                let cost = linear(length, 36, 3);
+                let execution_cost = ExecutionCost::runtime(cost);
+                return Ok(StaticCostNode::leaf(
+                    vec![],
+                    StaticCost {
+                        min: execution_cost.clone(),
+                        max: execution_cost,
+                    },
+                ));
             }
-
-            let cost = calculate_function_cost(function_name, args.len() as u64)?;
-
-            Ok(StaticCostNode::new(list.clone(), cost, children))
+            // Other atom values have zero cost
+            return Ok(StaticCostNode::leaf(vec![], StaticCost::ZERO));
         }
-        PreSymbolicExpressionType::AtomValue(_value) => {
-            Ok(StaticCostNode::leaf(vec![expr.clone()], StaticCost::ZERO))
+        ExprNode::Atom(_)
+        | ExprNode::SugaredContractIdentifier(_)
+        | ExprNode::SugaredFieldIdentifier(_, _)
+        | ExprNode::FieldIdentifier(_)
+        | ExprNode::TraitReference(_) => {
+            // Leaf nodes have zero cost
+            return Ok(StaticCostNode::leaf(vec![], StaticCost::ZERO));
         }
-        PreSymbolicExpressionType::Atom(_name) => {
-            Ok(StaticCostNode::leaf(vec![expr.clone()], StaticCost::ZERO))
-        }
-        PreSymbolicExpressionType::Tuple(tuple) => {
-            let function_name = match &tuple[0].pre_expr {
-                PreSymbolicExpressionType::Atom(name) => name,
-                _ => {
-                    return Err("First element of tuple must be an atom (function name)".to_string())
-                }
-            };
+    };
 
-            let args = &tuple[1..];
-            let mut children = Vec::new();
-
-            for arg in args {
-                children.push(build_cost_tree(arg)?);
+    let mut children = Vec::new();
+    for child_expr in &expr_tree.children {
+        // For certain functions like concat, string arguments should have zero cost
+        // since the function cost includes their processing
+        if function_name == "concat" {
+            if let ExprNode::AtomValue(Value::Sequence(SequenceData::String(_))) = &child_expr.expr
+            {
+                // String arguments to concat have zero cost
+                children.push(StaticCostNode::leaf(vec![], StaticCost::ZERO));
+                continue;
             }
-
-            let cost = calculate_function_cost(function_name, args.len() as u64)?;
-
-            Ok(StaticCostNode::new(tuple.clone(), cost, children))
         }
-        _ => Err("Unsupported expression type for cost analysis".to_string()),
+        children.push(build_cost_tree(child_expr)?);
     }
+
+    let cost = calculate_function_cost_from_name(function_name, expr_tree.children.len() as u64)?;
+
+    // Create a representative PreSymbolicExpression for the node
+    let function_expr = PreSymbolicExpression {
+        pre_expr: PreSymbolicExpressionType::Atom(ClarityName::from(function_name)),
+        id: 0, // We don't need accurate IDs for cost analysis
+    };
+    let mut expr_list = vec![function_expr];
+
+    // Add placeholder expressions for children (we don't need the actual child expressions)
+    for _ in &expr_tree.children {
+        expr_list.push(PreSymbolicExpression {
+            pre_expr: PreSymbolicExpressionType::Atom(ClarityName::from("placeholder")),
+            id: 0,
+        });
+    }
+
+    Ok(StaticCostNode::new(expr_list, cost, children))
 }
 
-fn calculate_function_cost(
-    function_name: &ClarityName,
+fn calculate_function_cost_from_name(
+    function_name: &str,
     arg_count: u64,
 ) -> Result<StaticCost, String> {
-    let cost_function = match get_cost_function_for_name(function_name) {
+    let cost_function = match get_cost_function_for_name_str(function_name) {
         Some(cost_fn) => cost_fn,
         None => {
             // TODO: zero cost for now
@@ -307,6 +417,123 @@ fn calculate_function_cost(
         min: cost.clone(),
         max: cost,
     })
+}
+
+fn calculate_function_cost(
+    function_name: &ClarityName,
+    arg_count: u64,
+) -> Result<StaticCost, String> {
+    calculate_function_cost_from_name(function_name.as_str(), arg_count)
+}
+
+/// Convert a function name string to its corresponding cost function
+fn get_cost_function_for_name_str(
+    name: &str,
+) -> Option<fn(u64) -> InterpreterResult<ExecutionCost>> {
+    // Map function names to their cost functions using the existing enum structure
+    match name {
+        "+" | "add" => Some(Costs3::cost_add),
+        "-" | "sub" => Some(Costs3::cost_sub),
+        "*" | "mul" => Some(Costs3::cost_mul),
+        "/" | "div" => Some(Costs3::cost_div),
+        "mod" => Some(Costs3::cost_mod),
+        "pow" => Some(Costs3::cost_pow),
+        "sqrti" => Some(Costs3::cost_sqrti),
+        "log2" => Some(Costs3::cost_log2),
+        "to-int" | "to-uint" | "int-cast" => Some(Costs3::cost_int_cast),
+        "is-eq" | "=" | "eq" => Some(Costs3::cost_eq),
+        ">=" | "geq" => Some(Costs3::cost_geq),
+        "<=" | "leq" => Some(Costs3::cost_leq),
+        ">" | "ge" => Some(Costs3::cost_ge),
+        "<" | "le" => Some(Costs3::cost_le),
+        "xor" => Some(Costs3::cost_xor),
+        "not" => Some(Costs3::cost_not),
+        "and" => Some(Costs3::cost_and),
+        "or" => Some(Costs3::cost_or),
+        "concat" => Some(Costs3::cost_concat),
+        "len" => Some(Costs3::cost_len),
+        "as-max-len?" => Some(Costs3::cost_as_max_len),
+        "list" => Some(Costs3::cost_list_cons),
+        "element-at" | "element-at?" => Some(Costs3::cost_element_at),
+        "index-of" | "index-of?" => Some(Costs3::cost_index_of),
+        "fold" => Some(Costs3::cost_fold),
+        "map" => Some(Costs3::cost_map),
+        "filter" => Some(Costs3::cost_filter),
+        "append" => Some(Costs3::cost_append),
+        "tuple-get" => Some(Costs3::cost_tuple_get),
+        "tuple-merge" => Some(Costs3::cost_tuple_merge),
+        "tuple" => Some(Costs3::cost_tuple_cons),
+        "some" => Some(Costs3::cost_some_cons),
+        "ok" => Some(Costs3::cost_ok_cons),
+        "err" => Some(Costs3::cost_err_cons),
+        "default-to" => Some(Costs3::cost_default_to),
+        "unwrap!" => Some(Costs3::cost_unwrap_ret),
+        "unwrap-err!" => Some(Costs3::cost_unwrap_err_or_ret),
+        "is-ok" => Some(Costs3::cost_is_okay),
+        "is-none" => Some(Costs3::cost_is_none),
+        "is-err" => Some(Costs3::cost_is_err),
+        "is-some" => Some(Costs3::cost_is_some),
+        "unwrap-panic" => Some(Costs3::cost_unwrap),
+        "unwrap-err-panic" => Some(Costs3::cost_unwrap_err),
+        "try!" => Some(Costs3::cost_try_ret),
+        "if" => Some(Costs3::cost_if),
+        "match" => Some(Costs3::cost_match),
+        "begin" => Some(Costs3::cost_begin),
+        "let" => Some(Costs3::cost_let),
+        "asserts!" => Some(Costs3::cost_asserts),
+        "hash160" => Some(Costs3::cost_hash160),
+        "sha256" => Some(Costs3::cost_sha256),
+        "sha512" => Some(Costs3::cost_sha512),
+        "sha512/256" => Some(Costs3::cost_sha512t256),
+        "keccak256" => Some(Costs3::cost_keccak256),
+        "secp256k1-recover?" => Some(Costs3::cost_secp256k1recover),
+        "secp256k1-verify" => Some(Costs3::cost_secp256k1verify),
+        "print" => Some(Costs3::cost_print),
+        "contract-call?" => Some(Costs3::cost_contract_call),
+        "contract-of" => Some(Costs3::cost_contract_of),
+        "principal-of?" => Some(Costs3::cost_principal_of),
+        "at-block" => Some(Costs3::cost_at_block),
+        "load-contract" => Some(Costs3::cost_load_contract),
+        "create-map" => Some(Costs3::cost_create_map),
+        "create-var" => Some(Costs3::cost_create_var),
+        "create-non-fungible-token" => Some(Costs3::cost_create_nft),
+        "create-fungible-token" => Some(Costs3::cost_create_ft),
+        "map-get?" => Some(Costs3::cost_fetch_entry),
+        "map-set!" => Some(Costs3::cost_set_entry),
+        "var-get" => Some(Costs3::cost_fetch_var),
+        "var-set!" => Some(Costs3::cost_set_var),
+        "contract-storage" => Some(Costs3::cost_contract_storage),
+        "get-block-info?" => Some(Costs3::cost_block_info),
+        "get-burn-block-info?" => Some(Costs3::cost_burn_block_info),
+        "stx-get-balance" => Some(Costs3::cost_stx_balance),
+        "stx-transfer?" => Some(Costs3::cost_stx_transfer),
+        "stx-transfer-memo?" => Some(Costs3::cost_stx_transfer_memo),
+        "stx-account" => Some(Costs3::cost_stx_account),
+        "ft-mint?" => Some(Costs3::cost_ft_mint),
+        "ft-transfer?" => Some(Costs3::cost_ft_transfer),
+        "ft-get-balance" => Some(Costs3::cost_ft_balance),
+        "ft-get-supply" => Some(Costs3::cost_ft_get_supply),
+        "ft-burn?" => Some(Costs3::cost_ft_burn),
+        "nft-mint?" => Some(Costs3::cost_nft_mint),
+        "nft-transfer?" => Some(Costs3::cost_nft_transfer),
+        "nft-get-owner?" => Some(Costs3::cost_nft_owner),
+        "nft-burn?" => Some(Costs3::cost_nft_burn),
+        "buff-to-int-le?" => Some(Costs3::cost_buff_to_int_le),
+        "buff-to-uint-le?" => Some(Costs3::cost_buff_to_uint_le),
+        "buff-to-int-be?" => Some(Costs3::cost_buff_to_int_be),
+        "buff-to-uint-be?" => Some(Costs3::cost_buff_to_uint_be),
+        "to-consensus-buff?" => Some(Costs3::cost_to_consensus_buff),
+        "from-consensus-buff?" => Some(Costs3::cost_from_consensus_buff),
+        "is-standard?" => Some(Costs3::cost_is_standard),
+        "principal-destruct" => Some(Costs3::cost_principal_destruct),
+        "principal-construct?" => Some(Costs3::cost_principal_construct),
+        "as-contract" => Some(Costs3::cost_as_contract),
+        "string-to-int?" => Some(Costs3::cost_string_to_int),
+        "string-to-uint?" => Some(Costs3::cost_string_to_uint),
+        "int-to-ascii" => Some(Costs3::cost_int_to_ascii),
+        "int-to-utf8?" => Some(Costs3::cost_int_to_utf8),
+        _ => None, // Unknown function name
+    }
 }
 
 /// Convert a function name to its corresponding cost function
@@ -443,20 +670,71 @@ fn get_max_input_size_for_function_name(function_name: &ClarityName, arg_count: 
 }
 
 fn calculate_total_cost(node: &StaticCostNode) -> StaticCost {
-    let mut min_total = node.cost.min.clone();
-    let mut max_total = node.cost.max.clone();
+    calculate_total_cost_with_summing(node).into()
+}
 
-    // Add costs from all children
-    // TODO: this should traverse different paths to get min and max costs
+/// Calculate total cost using SummingExecutionCost to handle branching properly
+fn calculate_total_cost_with_summing(node: &StaticCostNode) -> SummingExecutionCost {
+    let mut summing_cost = SummingExecutionCost::from_single(node.cost.min.clone());
+
+    // For each child, calculate its cost and combine appropriately
     for child in &node.children {
-        let child_cost = calculate_total_cost(child);
-        let _ = min_total.add(&child_cost.min);
-        let _ = max_total.add(&child_cost.max);
+        let child_summing = calculate_total_cost_with_summing(child);
+        summing_cost.add_summing(&child_summing);
     }
 
-    StaticCost {
-        min: min_total,
-        max: max_total,
+    summing_cost
+}
+
+/// Calculate total cost using branching logic from ExprTree
+fn calculate_total_cost_with_branching(
+    expr_tree: &ExprTree,
+    cost_node: &StaticCostNode,
+) -> SummingExecutionCost {
+    let mut summing_cost = SummingExecutionCost::new();
+
+    if expr_tree.branching {
+        // For branching, we need to create separate execution paths
+        // The first child is the condition, the rest are the branches
+        if cost_node.children.len() >= 2 {
+            let condition_cost = calculate_total_cost_with_summing(&cost_node.children[0]);
+            let condition_total = condition_cost.add_all();
+
+            // Add the root cost + condition cost to each branch
+            let mut root_and_condition = cost_node.cost.min.clone();
+            let _ = root_and_condition.add(&condition_total);
+
+            // For each branch (children 1+), create a complete path
+            for child_cost_node in cost_node.children.iter().skip(1) {
+                let branch_cost = calculate_total_cost_with_summing(child_cost_node);
+                let branch_total = branch_cost.add_all();
+
+                let mut path_cost = root_and_condition.clone();
+                let _ = path_cost.add(&branch_total);
+
+                summing_cost.add_cost(path_cost);
+            }
+        }
+    } else {
+        // For non-branching, add all costs sequentially
+        let mut total_cost = cost_node.cost.min.clone();
+        for child_cost_node in &cost_node.children {
+            let child_summing = calculate_total_cost_with_summing(child_cost_node);
+            let combined_cost = child_summing.add_all();
+            let _ = total_cost.add(&combined_cost);
+        }
+        summing_cost.add_cost(total_cost);
+    }
+
+    summing_cost
+}
+
+impl From<SummingExecutionCost> for StaticCost {
+    fn from(summing: SummingExecutionCost) -> Self {
+        StaticCost {
+            min: summing.min(),
+            max: summing.max(),
+        }
     }
 }
 
@@ -528,6 +806,21 @@ mod tests {
         // cost: 429 (constant) - len doesn't depend on string size
         assert_eq!(cost.min.runtime, 429);
         assert_eq!(cost.max.runtime, 429);
+    }
+
+    #[test]
+    fn test_branching() {
+        let source = "(if (> 3 0) (ok (concat \"hello\" \"world\")) (ok \"asdf\"))";
+        let cost = static_cost(source).unwrap();
+        // min: 147 raw string
+        // max: 294 (concat)
+
+        // ok = 199
+        // if = 168
+        // ge = (linear(n, 7, 128)))
+        let base_cost = 168 + ((2 * 7) + 128) + 199;
+        assert_eq!(cost.min.runtime, base_cost + 147);
+        assert_eq!(cost.max.runtime, base_cost + 294);
     }
 
     #[test]
