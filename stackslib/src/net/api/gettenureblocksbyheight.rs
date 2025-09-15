@@ -46,8 +46,7 @@ impl HttpRequest for RPCNakamotoTenureBlocksByHeightRequestHandler {
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/tenures/blocks/height/(?P<burnchain_block_height>[0-9]{1,20})$"#)
-            .unwrap()
+        Regex::new(r#"^/v3/tenures/blocks/height/(?P<burnchain_block_height>\d+)$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
