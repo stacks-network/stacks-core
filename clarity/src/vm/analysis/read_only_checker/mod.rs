@@ -427,6 +427,23 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 self.check_each_expression_is_read_only(&args[2..])
                     .map(|args_read_only| args_read_only && is_function_read_only)
             }
+            RestrictAssets => {
+                check_arguments_at_least(3, args)?;
+
+                // Check the asset owner argument.
+                let asset_owner_read_only = self.check_read_only(&args[0])?;
+
+                // Check the allowances argument.
+                let allowances = args[1]
+                    .match_list()
+                    .ok_or(CheckErrors::RestrictAssetsExpectedListOfAllowances)?;
+                let allowances_read_only = self.check_each_expression_is_read_only(allowances)?;
+
+                // Check the body expressions.
+                let body_read_only = self.check_each_expression_is_read_only(&args[2..])?;
+
+                Ok(asset_owner_read_only && allowances_read_only && body_read_only)
+            }
         }
     }
 

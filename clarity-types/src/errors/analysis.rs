@@ -307,6 +307,9 @@ pub enum CheckErrors {
 
     // time checker errors
     ExecutionTimeExpired,
+
+    // contract post-conditions
+    RestrictAssetsExpectedListOfAllowances,
 }
 
 #[derive(Debug, PartialEq)]
@@ -605,6 +608,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
             CheckErrors::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
             CheckErrors::ExecutionTimeExpired => "execution time expired".into(),
+            CheckErrors::RestrictAssetsExpectedListOfAllowances => "restrict-assets? expects a list of asset allowances as its second argument".into(),
         }
     }
 

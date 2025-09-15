@@ -165,6 +165,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetTenureInfo => "(get-tenure-info? time u1)",
         ContractHash => "(contract-hash? .contract-other)",
         ToAscii => "(to-ascii? 65)",
+        RestrictAssets => "(restrict-assets? tx-sender () (+ u1 u2))",
     }
 }
 

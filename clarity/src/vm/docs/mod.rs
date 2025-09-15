@@ -15,13 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
-use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
+use crate::vm::ClarityVersion;
 use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
-use crate::vm::functions::define::DefineFunctions;
+use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
 use crate::vm::functions::NativeFunctions;
+use crate::vm::functions::define::DefineFunctions;
 use crate::vm::types::{FixedFunction, FunctionType};
 use crate::vm::variables::NativeVariables;
-use crate::vm::ClarityVersion;
 
 #[cfg(feature = "rusqlite")]
 pub mod contracts;
@@ -102,8 +102,7 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     description: "Returns the current block height of the Stacks blockchain in Clarity 1 and 2.
 Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
 In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
-    example:
-        "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
+    example: "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -139,8 +138,7 @@ const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "stacks-block-height",
     output_type: "uint",
     description: "Returns the current block height of the Stacks blockchain.",
-    example:
-        "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
+    example: "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
 };
 
 const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -193,8 +191,7 @@ const REGTEST_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "is-in-regtest",
     output_type: "bool",
     description: "Returns whether or not the code is running in a regression test",
-    example:
-        "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
+    example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
 };
 
 const MAINNET_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -255,7 +252,7 @@ const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "to-uint ${1:int}",
     signature: "(to-uint i)",
     description: "Tries to convert the `int` argument to a `uint`. Will cause a runtime error and abort if the supplied argument is negative.",
-    example: "(to-uint 238) ;; Returns u238"
+    example: "(to-uint 238) ;; Returns u238",
 };
 
 const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -263,7 +260,7 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "to-int ${1:uint}",
     signature: "(to-int u)",
     description: "Tries to convert the `uint` argument to an `int`. Will cause a runtime error and abort if the supplied argument is >= `pow(2, 127)`",
-    example: "(to-int u238) ;; Returns 238"
+    example: "(to-int u238) ;; Returns 238",
 };
 
 const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -464,7 +461,7 @@ const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "+ ${1:expr-1} ${2:expr-2}",
     signature: "(+ i1 i2...)",
     description: "Adds a variable number of integer inputs and returns the result. In the event of an _overflow_, throws a runtime error.",
-    example: "(+ 1 2 3) ;; Returns 6"
+    example: "(+ 1 2 3) ;; Returns 6",
 };
 
 const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -474,7 +471,7 @@ const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
     description: "Subtracts a variable number of integer inputs and returns the result. In the event of an _underflow_, throws a runtime error.",
     example: "(- 2 1 1) ;; Returns 0
 (- 0 3) ;; Returns -3
-"
+",
 };
 
 const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -485,7 +482,7 @@ const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(/ 2 3) ;; Returns 0
 (/ 5 2) ;; Returns 2
 (/ 4 2 2) ;; Returns 1
-"
+",
 };
 
 const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -496,7 +493,7 @@ const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(* 2 3) ;; Returns 6
 (* 5 2) ;; Returns 10
 (* 2 2 2) ;; Returns 8
-"
+",
 };
 
 const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -507,7 +504,7 @@ const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(mod 2 3) ;; Returns 2
 (mod 5 2) ;; Returns 1
 (mod 7 1) ;; Returns 0
-"
+",
 };
 
 const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -569,8 +566,7 @@ const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-xor ${1:expr-1} ${2:expr-2}",
     signature: "(bit-xor i1 i2...)",
-    description:
-        "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
+    description: "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
     example: "(bit-xor 1 2) ;; Returns 3
 (bit-xor 120 280) ;; Returns 352
 (bit-xor -128 64) ;; Returns -64
@@ -596,8 +592,7 @@ const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-or ${1:expr-1} ${2:expr-2}",
     signature: "(bit-or i1 i2...)",
-    description:
-        "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
+    description: "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
     example: "(bit-or 4 8) ;; Returns 12
 (bit-or 1 2 4) ;; Returns 7
 (bit-or 64 -32 -16) ;; Returns -16
@@ -833,7 +828,9 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
                 let arg_sig = match pos {
                     0 => left,
                     1 => right,
-                    _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
+                    _ => panic!(
+                        "Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1)."
+                    ),
                 };
 
                 match arg_sig {
@@ -1360,7 +1357,7 @@ const KECCAK256_API: SpecialAPI = SpecialAPI {
 
 Note: this differs from the `NIST SHA-3` (that is, FIPS 202) standard. If an integer (128 bit)
 is supplied the hash is computed over the little-endian representation of the integer.",
-    example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
+    example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4",
 };
 
 const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
@@ -1433,7 +1430,8 @@ const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
     snippet: "principal-of? ${1:public-key}",
     output_type: "(response principal uint)",
     signature: "(principal-of? public-key)",
-    description: "The `principal-of?` function returns the principal derived from the provided public key.
+    description:
+        "The `principal-of?` function returns the principal derived from the provided public key.
 This function may fail with the error code:
 
 * `(err u1)` -- `public-key` is invalid
@@ -1444,7 +1442,7 @@ with Stacks 2.1, this bug is fixed, so that this function will return a principa
 the network it is called on. In particular, if this is called on the mainnet, it will
 return a single-signature mainnet principal.
     ",
-    example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)"
+    example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)",
 };
 
 const AT_BLOCK: SpecialAPI = SpecialAPI {
@@ -1580,8 +1578,7 @@ If the supplied argument is an `(ok ...)` value,
 };
 
 const MATCH_API: SpecialAPI = SpecialAPI {
-    input_type:
-        "(optional A) name expression expression | (response A B) name expression name expression",
+    input_type: "(optional A) name expression expression | (response A B) name expression name expression",
     snippet: "match ${1:algebraic-expr} ${2:some-binding-name} ${3:some-branch} ${4:none-branch}",
     output_type: "C",
     signature: "(match opt-input some-binding-name some-branch none-branch) |
@@ -2566,6 +2563,35 @@ characters.",
 "#,
 };
 
+const RESTRICT_ASSETS: SpecialAPI = SpecialAPI {
+    input_type: "principal, ((Allowance)*), AnyType, ... A",
+    snippet: "restrict-assets? ${1:asset-owner} (${2:allowance-1} ${3:allowance-2}) ${4:expr-1}",
+    output_type: "(response A int)",
+    signature: "(restrict-assets? asset-owner ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)",
+    description: "Executes the body expressions, then checks the asset
+outflows against the granted allowances, in declaration order. If any
+allowance is violated, the body expressions are reverted, an error is
+returned, and an event is emitted with the full details of the violation to
+help with debugging. Note that the `asset-owner` and allowance setup
+expressions are evaluated before executing the body expressions. The final
+body expression cannot return a `response` value in order to avoid returning
+a nested `response` value from `restrict-assets?` (nested responses are
+error-prone). Returns:
+* `(ok x)` if the outflows are within the allowances, where `x` is the
+    result of the final body expression and has type `A`.
+* `(err index)` if an allowance was violated, where `index` is the 0-based
+    index of the first violated allowance in the list of granted allowances,
+    or -1 if an asset with no allowance caused the violation.",
+    example: r#"
+(restrict-assets? tx-sender ()
+  (try! (stx-transfer? u1000000 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (err -1)
+(restrict-assets? tx-sender ()
+  (+ u1 u2)
+) ;; Returns (ok u3)
+"#,
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2680,6 +2706,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
         ContractHash => make_for_simple_native(&CONTRACT_HASH, function, name),
         ToAscii => make_for_special(&TO_ASCII, function),
+        RestrictAssets => make_for_special(&RESTRICT_ASSETS, function),
     }
 }
 
@@ -2791,11 +2818,11 @@ pub fn make_json_api_reference() -> String {
 #[cfg(test)]
 mod test {
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
+    use stacks_common::types::StacksEpochId;
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
-    use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
@@ -2806,13 +2833,13 @@ mod test {
         BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
     };
     use crate::vm::docs::get_output_type_string;
-    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
+    use crate::vm::types::signatures::{ASCII_40, FunctionArgSignature, FunctionReturnsSignature};
     use crate::vm::types::{
         FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     };
     use crate::vm::{
-        ast, eval_all, execute, ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker,
-        StacksEpoch, Value,
+        ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker, StacksEpoch, Value,
+        ast, eval_all, execute,
     };
 
     struct DocHeadersDB {}
@@ -3362,7 +3389,10 @@ mod test {
             ret,
         );
         result = get_input_type_string(&function_type);
-        assert_eq!(result, "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal");
+        assert_eq!(
+            result,
+            "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal"
+        );
     }
 
     #[test]

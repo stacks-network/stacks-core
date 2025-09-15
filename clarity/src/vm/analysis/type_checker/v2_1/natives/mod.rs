@@ -17,23 +17,23 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most,
-    compute_typecheck_cost, no_type, TypeChecker, TypingContext,
+    TypeChecker, TypingContext, check_argument_count, check_arguments_at_least,
+    check_arguments_at_most, compute_typecheck_cost, no_type,
 };
 use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTracker};
+use crate::vm::costs::{CostErrors, CostTracker, analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
-use crate::vm::functions::{handle_binding_list, NativeFunctions};
+use crate::vm::functions::{NativeFunctions, handle_binding_list};
 use crate::vm::types::signatures::{
-    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
+    ASCII_40, CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
     TO_ASCII_MAX_BUFF, TO_ASCII_RESPONSE_STRING, UTF8_40,
 };
 use crate::vm::types::{
-    BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
-    FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
-    TupleTypeSignature, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
-    MAX_VALUE_SIZE,
+    BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, BlockInfoProperty, BufferLength,
+    BurnBlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType,
+    MAX_VALUE_SIZE, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty, TupleTypeSignature,
+    TypeSignature, Value,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -819,6 +819,42 @@ fn check_get_tenure_info(
     Ok(TypeSignature::new_option(block_info_prop.type_result())?)
 }
 
+fn check_restrict_assets(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, CheckError> {
+    check_arguments_at_least(3, args)?;
+
+    let asset_owner = &args[0];
+    let allowance_list = args[1].match_list().ok_or(CheckError::new(
+        CheckErrors::RestrictAssetsExpectedListOfAllowances,
+    ))?;
+    let body_exprs = &args[2..];
+
+    runtime_cost(
+        ClarityCostFunction::AnalysisListItemsCheck,
+        checker,
+        allowance_list.len() + body_exprs.len(),
+    )?;
+
+    checker.type_check_expects(asset_owner, context, &TypeSignature::PrincipalType)?;
+
+    // TODO: type-check the allowances
+
+    // Check the body expressions, ensuring any intermediate responses are handled
+    let mut last_return = None;
+    for expr in body_exprs {
+        let type_return = checker.type_check(expr, context)?;
+        if type_return.is_response_type() {
+            return Err(CheckErrors::UncheckedIntermediaryResponses.into());
+        }
+        last_return = Some(type_return);
+    }
+
+    last_return.ok_or_else(|| CheckError::new(CheckErrors::CheckerImplementationFailure))
+}
+
 impl TypedNativeFunction {
     pub fn type_check_application(
         &self,
@@ -1209,6 +1245,7 @@ impl TypedNativeFunction {
                     CheckErrors::Expects("FATAL: Legal Clarity response type marked invalid".into())
                 })?,
             ))),
+            RestrictAssets => Special(SpecialNativeFunction(&check_restrict_assets)),
         };
 
         Ok(out)

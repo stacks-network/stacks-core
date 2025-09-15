@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use super::ExecutionCost;
 /// This file implements the cost functions from costs-4.clar in Rust.
 /// For Clarity 4, all cost functions are the same as in costs-3, except
 /// for the new `cost_contract_hash` function. To avoid duplication, this
@@ -20,7 +21,6 @@
 /// overrides only `cost_contract_hash`.
 use super::cost_functions::CostValues;
 use super::costs_3::Costs3;
-use super::ExecutionCost;
 use crate::vm::costs::cost_functions::linear;
 use crate::vm::errors::InterpreterResult;
 
@@ -446,7 +446,8 @@ impl CostValues for Costs4 {
         Costs3::cost_bitwise_right_shift(n)
     }
 
-    // New in costs-4
+    // --- New in costs-4 ---
+
     fn cost_contract_hash(_n: u64) -> InterpreterResult<ExecutionCost> {
         Ok(ExecutionCost {
             runtime: 100, // TODO: needs criterion benchmark
@@ -458,6 +459,11 @@ impl CostValues for Costs4 {
     }
 
     fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
+        // TODO: needs criterion benchmark
+        Ok(ExecutionCost::runtime(linear(n, 1, 100)))
+    }
+
+    fn cost_restrict_assets(n: u64) -> InterpreterResult<ExecutionCost> {
         // TODO: needs criterion benchmark
         Ok(ExecutionCost::runtime(linear(n, 1, 100)))
     }

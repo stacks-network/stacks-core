@@ -16,15 +16,15 @@
 
 use stacks_common::types::StacksEpochId;
 
-use super::{check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypingContext};
+use super::{TypeChecker, TypingContext, check_argument_count, check_arguments_at_least, no_type};
 use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
-use crate::vm::functions::{handle_binding_list, NativeFunctions};
+use crate::vm::functions::{NativeFunctions, handle_binding_list};
 use crate::vm::types::{
-    BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, BlockInfoProperty, FixedFunction, FunctionArg,
+    FunctionSignature, FunctionType, PrincipalData, TupleTypeSignature, TypeSignature, Value,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -782,7 +782,8 @@ impl TypedNativeFunction {
             | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash | ToAscii => {
+            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash | ToAscii
+            | RestrictAssets => {
                 return Err(CheckErrors::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
                 ));
