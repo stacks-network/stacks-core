@@ -207,7 +207,7 @@ impl SortitionData {
                 return Ok(false);
             }
 
-            let Some(first_block_mined) = tenure.first_block_mined else {
+            let Some(first_block_mined) = &tenure.first_block_mined else {
                 continue;
             };
             let Some(local_block_info) =

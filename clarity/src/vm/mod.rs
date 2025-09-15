@@ -55,6 +55,7 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
+pub use clarity_types::MAX_CALL_STACK_DEPTH;
 use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
 
@@ -85,8 +86,6 @@ pub use crate::vm::representations::{
 pub use crate::vm::types::Value;
 use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
-
-pub const MAX_CALL_STACK_DEPTH: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct ParsedContract {

@@ -673,6 +673,18 @@ CREATE TABLE IF NOT EXISTS block_rejection_signer_addrs (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;"#;
 
+static CREATE_BLOCK_PRE_COMMITS_TABLE: &str = r#"
+CREATE TABLE IF NOT EXISTS block_pre_commits (
+    -- The block sighash commits to all of the stacks and burnchain state as of its parent,
+    -- as well as the tenure itself so there's no need to include the reward cycle.  Just
+    -- the sighash is sufficient to uniquely identify the block across all burnchain, PoX,
+    -- and stacks forks.
+    signer_signature_hash TEXT NOT NULL,
+    -- signer address committing to sign the block
+    signer_addr TEXT NOT NULL,
+    PRIMARY KEY (signer_signature_hash, signer_addr)
+) STRICT;"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -786,6 +798,11 @@ static SCHEMA_16: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (16);",
 ];
 
+static SCHEMA_17: &[&str] = &[
+    CREATE_BLOCK_PRE_COMMITS_TABLE,
+    "INSERT INTO db_config (version) VALUES (17);",
+];
+
 struct Migration {
     version: u32,
     statements: &'static [&'static str],
@@ -856,11 +873,15 @@ static MIGRATIONS: &[Migration] = &[
         version: 16,
         statements: SCHEMA_16,
     },
+    Migration {
+        version: 17,
+        statements: SCHEMA_17,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 16;
+    pub const SCHEMA_VERSION: u32 = 17;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1830,6 +1851,62 @@ impl SignerDb {
 
         Ok(None)
     }
+
+    /// Record an observed block pre-commit
+    pub fn add_block_pre_commit(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        address: &StacksAddress,
+    ) -> Result<(), DBError> {
+        let qry = "INSERT OR REPLACE INTO block_pre_commits (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
+        let args = params![block_sighash, address.to_string()];
+
+        debug!("Inserting block pre-commit.";
+            "signer_signature_hash" => %block_sighash,
+            "signer_addr" => %address);
+
+        self.db.execute(qry, args)?;
+        Ok(())
+    }
+
+    /// Check if the given address has already committed to sign the block identified by block_sighash
+    pub fn has_committed(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+        address: &StacksAddress,
+    ) -> Result<bool, DBError> {
+        let qry_check = "
+            SELECT 1 FROM block_pre_commits
+            WHERE signer_signature_hash = ?1 AND signer_addr = ?2
+            LIMIT 1;";
+
+        let exists: Option<u8> = self
+            .db
+            .query_row(
+                qry_check,
+                params![block_sighash, address.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(exists.is_some())
+    }
+
+    /// Get all pre-committers for a block
+    pub fn get_block_pre_committers(
+        &self,
+        block_sighash: &Sha512Trunc256Sum,
+    ) -> Result<Vec<StacksAddress>, DBError> {
+        let qry = "SELECT signer_addr FROM block_pre_commits WHERE signer_signature_hash = ?1";
+        let args = params![block_sighash];
+        let addrs_txt: Vec<String> = query_rows(&self.db, qry, args)?;
+
+        let res: Result<Vec<_>, _> = addrs_txt
+            .into_iter()
+            .map(|addr| StacksAddress::from_string(&addr).ok_or(DBError::Corruption))
+            .collect();
+        res
+    }
 }
 
 fn try_deserialize<T>(s: Option<String>) -> Result<Option<T>, DBError>
@@ -2200,7 +2277,10 @@ pub mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         db.add_block_signature(&block_id, &address1, &sig1).unwrap();
-        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![sig1.clone()]
+        );
 
         db.add_block_signature(&block_id, &address2, &sig2).unwrap();
         assert_eq!(
@@ -2222,7 +2302,10 @@ pub mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         assert!(db.add_block_signature(&block_id, &address, &sig1).unwrap());
-        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![sig1.clone()]
+        );
 
         assert!(!db.add_block_signature(&block_id, &address, &sig2).unwrap());
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
@@ -2347,7 +2430,10 @@ pub mod tests {
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
         assert!(db.add_block_signature(&block_id, &address, &sig1).unwrap());
-        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![sig1]);
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![sig1.clone()]
+        );
         assert!(db
             .get_block_rejection_signer_addrs(&block_id)
             .unwrap()
@@ -2502,25 +2588,25 @@ pub mod tests {
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
         let consensus_hash_3 = ConsensusHash([0x03; 20]);
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x01; 65]);
             b.block.header.chain_length = 1;
             b.burn_height = 1;
         });
         let (mut block_info_2, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x02; 65]);
             b.block.header.chain_length = 2;
             b.burn_height = 2;
         });
         let (mut block_info_3, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 3;
         });
         let (mut block_info_4, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.consensus_hash = consensus_hash_2.clone();
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 4;
@@ -2592,7 +2678,7 @@ pub mod tests {
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x01; 65]);
             b.block.header.chain_length = 1;
             b.burn_height = 1;
@@ -2603,7 +2689,7 @@ pub mod tests {
         block_info_1.proposed_time = get_epoch_time_secs() + 500;
 
         let (mut block_info_2, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x02; 65]);
             b.block.header.chain_length = 2;
             b.burn_height = 2;
@@ -2613,7 +2699,7 @@ pub mod tests {
         block_info_2.proposed_time = block_info_1.proposed_time + 5;
 
         let (mut block_info_3, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 2;
@@ -2635,7 +2721,7 @@ pub mod tests {
         block_info_4.proposed_time = block_info_1.proposed_time + 15;
 
         let (mut block_info_5, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.consensus_hash = consensus_hash_2.clone();
             b.block.header.miner_signature = MessageSignature([0x05; 65]);
             b.block.header.chain_length = 4;
             b.burn_height = 3;
@@ -2670,22 +2756,22 @@ pub mod tests {
         let db_path = tmp_db_path();
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let block_infos = generate_tenure_blocks();
-        let consensus_hash_1 = block_infos[0].block.header.consensus_hash;
-        let consensus_hash_2 = block_infos.last().unwrap().block.header.consensus_hash;
+        let consensus_hash_1 = &block_infos[0].block.header.consensus_hash;
+        let consensus_hash_2 = &block_infos.last().unwrap().block.header.consensus_hash;
         let consensus_hash_3 = ConsensusHash([0x03; 20]);
 
         db.insert_block(&block_infos[0]).unwrap();
         db.insert_block(&block_infos[1]).unwrap();
 
         // Verify tenure consensus_hash_1
-        let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_1).unwrap();
+        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_1).unwrap();
         assert_eq!(start_time, block_infos[0].proposed_time);
         assert_eq!(processing_time, 3000);
 
         db.insert_block(&block_infos[2]).unwrap();
         db.insert_block(&block_infos[3]).unwrap();
 
-        let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_1).unwrap();
+        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_1).unwrap();
         assert_eq!(start_time, block_infos[2].proposed_time);
         assert_eq!(processing_time, 5000);
 
@@ -2693,7 +2779,7 @@ pub mod tests {
         db.insert_block(&block_infos[5]).unwrap();
 
         // Verify tenure consensus_hash_2
-        let (start_time, processing_time) = db.get_tenure_times(&consensus_hash_2).unwrap();
+        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_2).unwrap();
         assert_eq!(start_time, block_infos[4].proposed_time);
         assert_eq!(processing_time, 20000);
 
@@ -2822,7 +2908,7 @@ pub mod tests {
         let consensus_hash_1 = ConsensusHash([0x01; 20]);
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (mut block_info, _) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
         });
 
         assert!(matches!(
@@ -2891,7 +2977,7 @@ pub mod tests {
         let consensus_hash_2 = ConsensusHash([0x02; 20]);
         let mut db = SignerDb::new(db_path).expect("Failed to create signer db");
         let (mut block_info, _) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.chain_length = 1;
         });
 
@@ -2904,7 +2990,7 @@ pub mod tests {
         assert!(db.has_signed_block_in_tenure(&consensus_hash_1).unwrap());
         assert!(!db.has_signed_block_in_tenure(&consensus_hash_2).unwrap());
 
-        block_info.block.header.consensus_hash = consensus_hash_2;
+        block_info.block.header.consensus_hash = consensus_hash_2.clone();
         block_info.block.header.chain_length = 2;
         block_info.signed_over = false;
 
@@ -3244,7 +3330,7 @@ pub mod tests {
             0,
             3,
             StateMachineUpdateContent::V0 {
-                burn_block: burn_block_1,
+                burn_block: burn_block_1.clone(),
                 burn_block_height: 100,
                 current_miner: StateMachineUpdateMinerState::ActiveMiner {
                     current_miner_pkh: Hash160([0xab; 20]),
@@ -3262,7 +3348,7 @@ pub mod tests {
             0,
             4,
             StateMachineUpdateContent::V0 {
-                burn_block: burn_block_1,
+                burn_block: burn_block_1.clone(),
                 burn_block_height: 100,
                 current_miner: StateMachineUpdateMinerState::NoValidMiner,
             },
@@ -3274,7 +3360,7 @@ pub mod tests {
             0,
             2,
             StateMachineUpdateContent::V0 {
-                burn_block: burn_block_2,
+                burn_block: burn_block_2.clone(),
                 burn_block_height: 101,
                 current_miner: StateMachineUpdateMinerState::NoValidMiner,
             },
@@ -3341,21 +3427,21 @@ pub mod tests {
 
         // Create blocks with different burn heights and signed_self timestamps (seconds since epoch)
         let (mut block_info_1, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x01; 65]);
             b.block.header.chain_length = 1;
             b.burn_height = 1;
         });
         block_info_1.mark_locally_accepted(false).unwrap();
         let (mut block_info_2, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_1;
+            b.block.header.consensus_hash = consensus_hash_1.clone();
             b.block.header.miner_signature = MessageSignature([0x02; 65]);
             b.block.header.chain_length = 2;
             b.burn_height = 2;
         });
         block_info_2.mark_locally_accepted(false).unwrap();
         let (mut block_info_3, _block_proposal) = create_block_override(|b| {
-            b.block.header.consensus_hash = consensus_hash_2;
+            b.block.header.consensus_hash = consensus_hash_2.clone();
             b.block.header.miner_signature = MessageSignature([0x03; 65]);
             b.block.header.chain_length = 3;
             b.burn_height = 3;
@@ -3389,5 +3475,57 @@ pub mod tests {
             .unwrap();
 
         assert!(result_3.is_none());
+    }
+
+    #[test]
+    fn insert_and_get_state_block_pre_commits() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+        let block_sighash1 = Sha512Trunc256Sum([1u8; 32]);
+        let address1 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        let block_sighash2 = Sha512Trunc256Sum([2u8; 32]);
+        let address2 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        let address3 = StacksAddress::p2pkh(
+            false,
+            &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+        );
+        assert!(db
+            .get_block_pre_committers(&block_sighash1)
+            .unwrap()
+            .is_empty());
+
+        db.add_block_pre_commit(&block_sighash1, &address1).unwrap();
+        assert_eq!(
+            db.get_block_pre_committers(&block_sighash1).unwrap(),
+            vec![address1.clone()]
+        );
+
+        db.add_block_pre_commit(&block_sighash1, &address2).unwrap();
+        let commits = db.get_block_pre_committers(&block_sighash1).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert!(commits.contains(&address2));
+        assert!(commits.contains(&address1));
+
+        db.add_block_pre_commit(&block_sighash2, &address3).unwrap();
+        let commits = db.get_block_pre_committers(&block_sighash1).unwrap();
+        assert_eq!(commits.len(), 2);
+        assert!(commits.contains(&address2));
+        assert!(commits.contains(&address1));
+        let commits = db.get_block_pre_committers(&block_sighash2).unwrap();
+        assert_eq!(commits.len(), 1);
+        assert!(commits.contains(&address3));
+
+        assert!(db.has_committed(&block_sighash1, &address1).unwrap());
+        assert!(db.has_committed(&block_sighash1, &address2).unwrap());
+        assert!(!db.has_committed(&block_sighash1, &address3).unwrap());
+        assert!(!db.has_committed(&block_sighash2, &address1).unwrap());
+        assert!(!db.has_committed(&block_sighash2, &address2).unwrap());
+        assert!(db.has_committed(&block_sighash2, &address3).unwrap());
     }
 }

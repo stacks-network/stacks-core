@@ -156,7 +156,7 @@ impl StacksBlockHeader {
             parent_microblock,
             parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
-            state_index_root: state_index_root.clone(),
+            state_index_root: *state_index_root,
             microblock_pubkey_hash: microblock_pubkey_hash.clone(),
         }
     }
@@ -1723,8 +1723,7 @@ mod test {
 
             if *epoch_id < activation_epoch_id {
                 assert!(!StacksBlock::validate_transactions_static_epoch(
-                    txs,
-                    epoch_id.clone(),
+                    txs, *epoch_id,
                 ));
             } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
             {

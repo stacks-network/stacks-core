@@ -664,7 +664,10 @@ impl EventObserver {
             execution_cost: receipt.execution_cost.clone(),
             microblock_sequence: receipt.microblock_header.as_ref().map(|x| x.sequence),
             microblock_hash: receipt.microblock_header.as_ref().map(|x| x.block_hash()),
-            microblock_parent_hash: receipt.microblock_header.as_ref().map(|x| x.prev_block),
+            microblock_parent_hash: receipt
+                .microblock_header
+                .as_ref()
+                .map(|x| x.prev_block.clone()),
             vm_error: receipt.vm_error.clone(),
         }
     }
@@ -695,10 +698,10 @@ impl EventObserver {
     /// Serializes new microblocks data into a JSON payload and sends it off to the correct path
     fn send_new_microblocks(
         &self,
-        parent_index_block_hash: StacksBlockId,
-        filtered_events: Vec<(usize, &(bool, Txid, &StacksTransactionEvent))>,
-        serialized_txs: &Vec<TransactionEventPayload>,
-        burn_block_hash: BurnchainHeaderHash,
+        parent_index_block_hash: &StacksBlockId,
+        filtered_events: &[(usize, &(bool, Txid, &StacksTransactionEvent))],
+        serialized_txs: &[TransactionEventPayload],
+        burn_block_hash: &BurnchainHeaderHash,
         burn_block_height: u32,
         burn_block_timestamp: u64,
     ) {
@@ -758,7 +761,7 @@ impl EventObserver {
         parent_index_hash: &StacksBlockId,
         winner_txid: &Txid,
         mature_rewards: &serde_json::Value,
-        parent_burn_block_hash: BurnchainHeaderHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
@@ -1030,10 +1033,10 @@ impl BlockEventDispatcher for EventDispatcher {
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent: &StacksBlockId,
-        winner_txid: Txid,
+        winner_txid: &Txid,
         mature_rewards: &[MinerReward],
         mature_rewards_info: Option<&MinerRewardInfo>,
-        parent_burn_block_hash: BurnchainHeaderHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
@@ -1160,7 +1163,7 @@ impl EventDispatcher {
     #[allow(clippy::type_complexity)]
     fn create_dispatch_matrix_and_event_vector<'a>(
         &self,
-        receipts: &'a Vec<StacksTransactionReceipt>,
+        receipts: &'a [StacksTransactionReceipt],
     ) -> (
         Vec<HashSet<usize>>,
         Vec<(bool, Txid, &'a StacksTransactionEvent)>,
@@ -1239,7 +1242,7 @@ impl EventDispatcher {
                         );
                     }
                 }
-                events.push((!receipt.post_condition_aborted, tx_hash, event));
+                events.push((!receipt.post_condition_aborted, tx_hash.clone(), event));
                 for o_i in &self.any_event_observers_lookup {
                     dispatch_matrix[*o_i as usize].insert(i);
                 }
@@ -1257,10 +1260,10 @@ impl EventDispatcher {
         metadata: &StacksHeaderInfo,
         receipts: &[StacksTransactionReceipt],
         parent_index_hash: &StacksBlockId,
-        winner_txid: Txid,
+        winner_txid: &Txid,
         mature_rewards: &[MinerReward],
         mature_rewards_info: Option<&MinerRewardInfo>,
-        parent_burn_block_hash: BurnchainHeaderHash,
+        parent_burn_block_hash: &BurnchainHeaderHash,
         parent_burn_block_height: u32,
         parent_burn_block_timestamp: u64,
         anchored_consumed: &ExecutionCost,
@@ -1345,8 +1348,8 @@ impl EventDispatcher {
     /// sends the event to each interested observer.
     pub fn process_new_microblocks(
         &self,
-        parent_index_block_hash: StacksBlockId,
-        processed_unconfirmed_state: ProcessedUnconfirmedState,
+        parent_index_block_hash: &StacksBlockId,
+        processed_unconfirmed_state: &ProcessedUnconfirmedState,
     ) {
         // lazily assemble payload only if we have observers
         let interested_observers: Vec<_> = self
@@ -1364,7 +1367,7 @@ impl EventDispatcher {
         if interested_observers.is_empty() {
             return;
         }
-        let flattened_receipts = processed_unconfirmed_state
+        let flattened_receipts: Vec<_> = processed_unconfirmed_state
             .receipts
             .iter()
             .flat_map(|(_, _, r)| r.clone())
@@ -1393,10 +1396,10 @@ impl EventDispatcher {
                 .collect();
 
             observer.send_new_microblocks(
-                parent_index_block_hash,
-                filtered_events,
+                &parent_index_block_hash,
+                &filtered_events,
                 &serialized_txs,
-                processed_unconfirmed_state.burn_block_hash,
+                &processed_unconfirmed_state.burn_block_hash,
                 processed_unconfirmed_state.burn_block_height,
                 processed_unconfirmed_state.burn_block_timestamp,
             );
@@ -1521,7 +1524,7 @@ impl EventDispatcher {
             block_size: block_size_bytes,
             cost: consumed.clone(),
             tx_events,
-            miner_signature: block.header.miner_signature,
+            miner_signature: block.header.miner_signature.clone(),
             miner_signature_hash: block.header.miner_signature_hash(),
             signer_signature_hash: block.header.signer_signature_hash(),
             signer_signature: block.header.signer_signature.clone(),
@@ -1915,7 +1918,7 @@ mod test {
             &parent_index_hash,
             &winner_txid,
             &mature_rewards,
-            parent_burn_block_hash,
+            &parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
             &anchored_consumed,
@@ -1986,7 +1989,7 @@ mod test {
             &parent_index_hash,
             &winner_txid,
             &mature_rewards,
-            parent_burn_block_hash,
+            &parent_burn_block_hash,
             parent_burn_block_height,
             parent_burn_block_timestamp,
             &anchored_consumed,

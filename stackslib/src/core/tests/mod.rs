@@ -144,7 +144,6 @@ pub fn make_block(
         &new_index_hash,
         &new_tip_info,
         &ExecutionCost::ZERO,
-        block_height,
     )
     .unwrap();
 
@@ -228,7 +227,7 @@ fn mempool_walk_over_fork() {
             &block.0,
             &block.1,
             true,
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -471,7 +470,7 @@ fn mempool_walk_over_fork() {
         &block.0,
         &block.1,
         true,
-        txid,
+        &txid,
         tx_bytes,
         tx_fee,
         height,
@@ -519,7 +518,7 @@ fn mempool_walk_over_fork() {
         &block.0,
         &block.1,
         true,
-        txid,
+        &txid,
         tx_bytes,
         tx_fee,
         height,
@@ -599,7 +598,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
             &b_1.0,
             &b_1.1,
             true,
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -790,7 +789,7 @@ fn test_iterate_candidates_skipped_transaction() {
             &b_1.0,
             &b_1.1,
             true,
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -902,7 +901,7 @@ fn test_iterate_candidates_processing_error_transaction() {
             &b_1.0,
             &b_1.1,
             true,
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -1016,7 +1015,7 @@ fn test_iterate_candidates_problematic_transaction() {
             &b_1.0,
             &b_1.1,
             true,
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -1144,7 +1143,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
             &b_1.0,
             &b_1.1,
             true,
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -1296,7 +1295,7 @@ fn mempool_do_not_replace_tx() {
         &b_1.0,
         &b_1.1,
         true,
-        txid,
+        &txid,
         tx_bytes,
         tx_fee,
         height,
@@ -1325,7 +1324,7 @@ fn mempool_do_not_replace_tx() {
         &b_2.0,
         &b_2.1,
         true,
-        txid,
+        &txid,
         tx_bytes,
         tx_fee,
         height,
@@ -1398,7 +1397,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -1434,7 +1433,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
         assert_eq!(tx_info.metadata.coinbase_height, height);
 
         // test replace-by-fee with a higher fee
-        let old_txid = txid;
+        let old_txid = txid.clone();
 
         tx.set_tx_fee(124);
         assert!(txid != tx.txid());
@@ -1459,7 +1458,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -1506,7 +1505,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
         assert_eq!(tx_info.metadata.coinbase_height, height);
 
         // test replace-by-fee with a lower fee
-        let old_txid = txid;
+        let old_txid = txid.clone();
 
         tx.set_tx_fee(122);
         assert!(txid != tx.txid());
@@ -1523,7 +1522,7 @@ fn mempool_db_load_store_replace_tx(#[case] behavior: MempoolCollectionBehavior)
             &ConsensusHash([0x1; 20]),
             &BlockHeaderHash([0x2; 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -1665,7 +1664,7 @@ fn mempool_db_test_rbf() {
         &ConsensusHash([0x1; 20]),
         &BlockHeaderHash([0x2; 32]),
         false, // don't resolve the above chain tip since it doesn't exist
-        txid,
+        &txid,
         tx_bytes,
         tx_fee,
         height,
@@ -1683,7 +1682,7 @@ fn mempool_db_test_rbf() {
     let tx_info = tx_info_opt.unwrap();
 
     // test replace-by-fee with a higher fee, where the payload is smaller
-    let old_txid = txid;
+    let old_txid = txid.clone();
     let old_tx_fee = tx_fee;
 
     tx.set_tx_fee(124);
@@ -1715,7 +1714,7 @@ fn mempool_db_test_rbf() {
         &ConsensusHash([0x1; 20]),
         &BlockHeaderHash([0x2; 32]),
         false, // don't resolve the above chain tip since it doesn't exist
-        txid,
+        &txid,
         tx_bytes,
         tx_fee,
         height,
@@ -1795,7 +1794,7 @@ fn test_add_txs_bloom_filter() {
                 &ConsensusHash([0x1 + (block_height as u8); 20]),
                 &BlockHeaderHash([0x2 + (block_height as u8); 32]),
                 false, // don't resolve the above chain tip since it doesn't exist
-                txid,
+                &txid,
                 tx_bytes,
                 tx_fee,
                 block_height as u64,
@@ -1903,7 +1902,7 @@ fn test_txtags() {
                 &ConsensusHash([0x1 + (block_height as u8); 20]),
                 &BlockHeaderHash([0x2 + (block_height as u8); 32]),
                 false, // don't resolve the above chain tip since it doesn't exist
-                txid,
+                &txid,
                 tx_bytes,
                 tx_fee,
                 block_height as u64,
@@ -1993,7 +1992,7 @@ fn test_make_mempool_sync_data() {
                     &ConsensusHash([0x1 + (block_height as u8); 20]),
                     &BlockHeaderHash([0x2 + (block_height as u8); 32]),
                     false, // don't resolve the above chain tip since it doesn't exist
-                    txid.clone(),
+                    &txid,
                     tx_bytes,
                     tx_fee,
                     block_height as u64,
@@ -2166,7 +2165,7 @@ fn test_find_next_missing_transactions() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            &txid,
             tx_bytes,
             tx_fee,
             block_height,
@@ -2312,7 +2311,7 @@ fn test_find_next_missing_transactions() {
         }
 
         last_txid = mempool
-            .get_randomized_txid(&txs.last().clone().unwrap().txid())
+            .get_randomized_txid(&txs.last().unwrap().txid())
             .unwrap()
             .unwrap();
 
@@ -2351,7 +2350,7 @@ fn test_find_next_missing_transactions() {
         }
 
         last_txid = mempool
-            .get_randomized_txid(&txs.last().clone().unwrap().txid())
+            .get_randomized_txid(&txs.last().unwrap().txid())
             .unwrap()
             .unwrap();
 
@@ -2433,7 +2432,7 @@ fn test_drop_and_blacklist_txs_by_time() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            &txid,
             tx_bytes,
             tx_fee,
             block_height as u64,
@@ -2550,7 +2549,7 @@ fn test_drop_and_blacklist_txs_by_size() {
             &ConsensusHash([0x1 + (block_height as u8); 20]),
             &BlockHeaderHash([0x2 + (block_height as u8); 32]),
             false, // don't resolve the above chain tip since it doesn't exist
-            txid.clone(),
+            &txid,
             tx_bytes,
             tx_fee,
             block_height as u64,
@@ -2664,7 +2663,7 @@ fn test_filter_txs_by_type() {
             &b_2.0,
             &b_2.1,
             true,
-            txid.clone(),
+            &txid,
             tx_bytes,
             tx_fee,
             block_height as u64,

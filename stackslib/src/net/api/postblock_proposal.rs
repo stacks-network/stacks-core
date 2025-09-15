@@ -186,10 +186,10 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
 
 impl BlockValidateResponse {
     /// Get the signer signature hash from the response
-    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+    pub fn signer_signature_hash(&self) -> &Sha512Trunc256Sum {
         match self {
-            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
-            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+            BlockValidateResponse::Ok(o) => &o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => &r.signer_signature_hash,
         }
     }
 }
@@ -579,6 +579,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
 
         let mut miner_tenure_info =
@@ -725,6 +726,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
         let (mut replay_chainstate, _) =
             StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;
@@ -787,6 +789,7 @@ impl NakamotoBlockProposal {
                         match error {
                             ChainError::CostOverflowError(..)
                             | ChainError::BlockTooBigError
+                            | ChainError::BlockCostLimitError
                             | ChainError::ClarityError(ClarityError::CostError(..)) => {
                                 // block limit reached; add tx back to replay set.
                                 // BUT we know that the block should have ended at this point, so
@@ -865,6 +868,7 @@ impl NakamotoBlockProposal {
                             ChainError::CostOverflowError(..)
                                 | ChainError::BlockTooBigError
                                 | ChainError::ClarityError(ClarityError::CostError(..))
+                                | ChainError::BlockCostLimitError
                         )
                     }
                     TransactionResult::Success(_) => {

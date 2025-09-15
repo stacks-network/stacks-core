@@ -31,7 +31,7 @@ use crate::vm::{
         errors::{ParseError, ParseErrors},
     },
     errors::RuntimeErrorType,
-    types::{QualifiedContractIdentifier, TypeSignature, Value},
+    types::{QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _, Value},
     {execute, ClarityVersion},
 };
 

@@ -505,8 +505,8 @@ impl StacksChainState {
         // trying to store the same matured rewards for a common ancestor block.
         let cur_rewards = StacksChainState::inner_get_matured_miner_payments(
             tx,
-            &(*parent_block_id).into(),
-            &(*child_block_id).into(),
+            &parent_block_id.clone().into(),
+            &child_block_id.clone().into(),
         )?;
         if !cur_rewards.is_empty() {
             let mut present = false;
@@ -1193,7 +1193,6 @@ mod test {
             vec![],
             vec![],
             vec![],
-            parent_header_info.anchored_header.height() + 1,
         )
         .unwrap();
         tx.commit().unwrap();

@@ -15,8 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::BTreeMap;
-use std::fmt;
 
+use clarity_types::representations::ClarityName;
+pub use clarity_types::types::FunctionIdentifier;
 use stacks_common::types::StacksEpochId;
 
 use super::costs::{CostErrors, CostOverflowingMath};
@@ -28,7 +29,7 @@ use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
     SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
@@ -116,17 +117,6 @@ pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
                 .cost_overflow_add(sum)
         })
         .map_err(Error::from)
-}
-
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-pub struct FunctionIdentifier {
-    identifier: String,
-}
-
-impl fmt::Display for FunctionIdentifier {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.identifier)
-    }
 }
 
 impl DefinedFunction {
@@ -390,18 +380,6 @@ impl CallableType {
                 FunctionIdentifier::new_native_function(s)
             }
         }
-    }
-}
-
-impl FunctionIdentifier {
-    fn new_native_function(name: &str) -> FunctionIdentifier {
-        let identifier = format!("_native_:{name}");
-        FunctionIdentifier { identifier }
-    }
-
-    fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
-        let identifier = format!("{context}:{name}");
-        FunctionIdentifier { identifier }
     }
 }
 

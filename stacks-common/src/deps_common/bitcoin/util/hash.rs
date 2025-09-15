@@ -433,7 +433,7 @@ pub fn bitcoin_merkle_root(data: Vec<Sha256dHash>) -> Sha256dHash {
         return Default::default();
     }
     if data.len() == 1 {
-        return data[0];
+        return data[0].clone();
     }
     // Recursion
     let iterations = data.len().div_ceil(2);

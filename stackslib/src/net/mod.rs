@@ -37,7 +37,6 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
 use {rusqlite, url};
 
 use self::dns::*;
-use crate::burnchains::affirmation::AffirmationMap;
 use crate::burnchains::{Error as burnchain_error, Txid};
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::ConsensusHash;
@@ -823,7 +822,7 @@ impl<'a> StacksNodeState<'a> {
                     .unwrap_or(0);
 
                 if new_height > current_height {
-                    network.highest_stacks_neighbor = Some((new_address.clone(), new_height));
+                    network.highest_stacks_neighbor = Some((*new_address, new_height));
                 }
             }
         });
@@ -2379,7 +2378,7 @@ pub mod test {
                 return Ok(0);
             }
             if let Some(ref e) = self.read_error {
-                return Err(io::Error::from((*e).clone()));
+                return Err(io::Error::from(*e));
             }
 
             let sz = self.c.read(buf)?;
@@ -2403,7 +2402,7 @@ pub mod test {
                 return Err(io::Error::from(ErrorKind::Other)); // EBADF
             }
             if let Some(ref e) = self.write_error {
-                return Err(io::Error::from((*e).clone()));
+                return Err(io::Error::from(*e));
             }
             self.c.write(buf)
         }
@@ -2512,10 +2511,10 @@ pub mod test {
             metadata: &StacksHeaderInfo,
             receipts: &[events::StacksTransactionReceipt],
             parent: &StacksBlockId,
-            winner_txid: Txid,
+            winner_txid: &Txid,
             matured_rewards: &[accounts::MinerReward],
             matured_rewards_info: Option<&MinerRewardInfo>,
-            parent_burn_block_hash: BurnchainHeaderHash,
+            parent_burn_block_hash: &BurnchainHeaderHash,
             parent_burn_block_height: u32,
             parent_burn_block_timestamp: u64,
             _anchor_block_cost: &ExecutionCost,
@@ -2531,7 +2530,7 @@ pub mod test {
                 metadata: metadata.clone(),
                 receipts: receipts.to_owned(),
                 parent: parent.clone(),
-                winner_txid,
+                winner_txid: winner_txid.clone(),
                 matured_rewards: matured_rewards.to_owned(),
                 matured_rewards_info: matured_rewards_info.cloned(),
                 reward_set_data: reward_set_data.clone(),
@@ -2675,7 +2674,7 @@ pub mod test {
 
             burnchain.pox_constants = PoxConstants::test_20_no_sunset();
             let mut spending_account = TestMinerFactory::new().next_miner(
-                &burnchain,
+                burnchain.clone(),
                 1,
                 1,
                 AddressHashMode::SerializeP2PKH,
@@ -2941,8 +2940,12 @@ pub mod test {
             let test_path = TestPeer::make_test_path(&config);
             let mut miner_factory = TestMinerFactory::new();
             miner_factory.chain_id = config.network_id;
-            let mut miner =
-                miner_factory.next_miner(&config.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+            let mut miner = miner_factory.next_miner(
+                config.burnchain.clone(),
+                1,
+                1,
+                AddressHashMode::SerializeP2PKH,
+            );
             // manually set fees
             miner.test_with_tx_fees = false;
 
@@ -2965,7 +2968,7 @@ pub mod test {
             .unwrap();
 
             let first_burnchain_block_height = config.burnchain.first_block_height;
-            let first_burnchain_block_hash = config.burnchain.first_block_hash;
+            let first_burnchain_block_hash = config.burnchain.first_block_hash.clone();
 
             let _burnchain_blocks_db = BurnchainDB::connect(
                 &config.burnchain.get_burnchaindb_path(),
@@ -3552,7 +3555,7 @@ pub mod test {
             let indexer = BitcoinIndexer::new_unit_test(&self.config.burnchain.working_dir);
 
             self.network
-                .refresh_burnchain_view(&indexer, &sortdb, &mut stacks_node.chainstate, false)
+                .refresh_burnchain_view(&sortdb, &mut stacks_node.chainstate, false)
                 .unwrap();
 
             self.sortdb = Some(sortdb);
@@ -3784,14 +3787,6 @@ pub mod test {
                     blockstack_ops,
                 )
                 .unwrap();
-
-            Burnchain::process_affirmation_maps(
-                burnchain,
-                &mut burnchain_db,
-                &indexer,
-                block_header.block_height,
-            )
-            .unwrap();
         }
 
         /// Generate and commit the next burnchain block with the given block operations.
@@ -4318,7 +4313,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -4376,7 +4371,7 @@ pub mod test {
                 &mut TestMiner,
                 &mut SortitionDB,
                 &mut StacksChainState,
-                VRFProof,
+                &VRFProof,
                 Option<&StacksBlock>,
                 Option<&StacksMicroblockHeader>,
             ) -> (StacksBlock, Vec<StacksMicroblock>),
@@ -4418,7 +4413,7 @@ pub mod test {
                 &mut self.miner,
                 &mut sortdb,
                 &mut stacks_node.chainstate,
-                proof,
+                &proof,
                 parent_block_opt.as_ref(),
                 parent_microblock_header_opt.as_ref(),
             );
@@ -4449,7 +4444,6 @@ pub mod test {
                 &mut sortdb,
                 &self.config.burnchain,
                 &OnChainRewardSetProvider::new(),
-                true,
             ) {
                 Ok(recipients) => {
                     block_commit_op.commit_outs = match recipients {

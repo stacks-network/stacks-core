@@ -1,5 +1,10 @@
 pub mod lexer;
 
+use clarity_types::representations::{ClarityName, ContractName};
+use clarity_types::types::{
+    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, UTF8Data,
+    Value,
+};
 use stacks_common::util::hash::hex_bytes;
 
 use self::lexer::token::{PlacedToken, Token};
@@ -7,11 +12,7 @@ use self::lexer::Lexer;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult, PlacedError};
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
-use crate::vm::representations::{ClarityName, ContractName, PreSymbolicExpression, Span};
-use crate::vm::types::{
-    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, UTF8Data,
-    Value,
-};
+use crate::vm::representations::{PreSymbolicExpression, Span};
 use crate::vm::MAX_CALL_STACK_DEPTH;
 
 pub struct Parser<'a> {

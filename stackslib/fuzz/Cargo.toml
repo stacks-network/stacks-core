@@ -16,6 +16,7 @@ path = ".."
 [dependencies.stacks-common]
 path = "../../stacks-common"
 
+# Prevent this from interfering with workspaces
 [workspace]
 members = ["."]
 

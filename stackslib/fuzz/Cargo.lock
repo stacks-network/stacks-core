@@ -143,7 +143,7 @@ dependencies = [
 name = "clarity"
 version = "0.0.1"
 dependencies = [
- "hashbrown 0.15.3",
+ "clarity-types",
  "integer-sqrt",
  "lazy_static",
  "regex",
@@ -152,6 +152,20 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_stacker",
+ "slog",
+ "stacks-common",
+]
+
+[[package]]
+name = "clarity-types"
+version = "0.0.1"
+dependencies = [
+ "lazy_static",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
  "slog",
  "stacks-common",
 ]
@@ -1273,7 +1287,6 @@ version = "0.0.1"
 dependencies = [
  "clarity",
  "ed25519-dalek",
- "hashbrown 0.15.3",
  "lazy_static",
  "libstackerdb",
  "mio",

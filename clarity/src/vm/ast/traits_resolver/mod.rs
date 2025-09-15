@@ -14,7 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::HashMap;
+use std::collections::HashMap;
+
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};
@@ -22,8 +25,7 @@ use crate::vm::functions::define::DefineFunctions;
 use crate::vm::representations::PreSymbolicExpressionType::{
     Atom, FieldIdentifier, List, SugaredFieldIdentifier, TraitReference, Tuple,
 };
-use crate::vm::representations::{ClarityName, PreSymbolicExpression, TraitDefinition};
-use crate::vm::types::{QualifiedContractIdentifier, TraitIdentifier};
+use crate::vm::representations::{PreSymbolicExpression, TraitDefinition};
 use crate::vm::ClarityVersion;
 
 pub struct TraitsResolver {}

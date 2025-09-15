@@ -14,18 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{error, fmt};
+pub use clarity_types::errors::{
+    Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
+    ShortReturnType,
+};
 
-#[cfg(feature = "rusqlite")]
-use rusqlite::Error as SqliteError;
-use serde_json::Error as SerdeJSONErr;
-use stacks_common::types::chainstate::BlockHeaderHash;
-
-use super::ast::errors::ParseErrors;
 pub use crate::vm::analysis::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
     SyntaxBindingError, SyntaxBindingErrorType,
 };
+
 use crate::vm::ast::errors::ParseError;
 use crate::vm::contexts::StackTrace;
 use crate::vm::costs::CostErrors;
@@ -242,9 +240,9 @@ impl From<ShortReturnType> for Value {
     }
 }
 
+
 #[cfg(test)]
 mod test {
-    use super::*;
 
     #[test]
     #[cfg(feature = "developer-mode")]
@@ -256,21 +254,5 @@ _native_:native_div
 ";
 
         assert_eq!(format!("{}", crate::vm::execute(t).unwrap_err()), expected);
-    }
-
-    #[test]
-    fn equality() {
-        assert_eq!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true))),
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true)))
-        );
-        assert_eq!(
-            Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
-            Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
-        );
-        assert!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true)))
-                != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
-        );
     }
 }

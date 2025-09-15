@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-use hashbrown::{HashMap, HashSet};
+pub use clarity_types::errors::StackTrace;
+use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -39,7 +40,7 @@ use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::events::*;
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
@@ -247,8 +248,6 @@ pub struct CallStack {
     set: HashSet<FunctionIdentifier>,
     apply_depth: usize,
 }
-
-pub type StackTrace = Vec<FunctionIdentifier>;
 
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 

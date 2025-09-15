@@ -578,10 +578,11 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
- "hashbrown 0.15.2",
+ "clarity-types",
  "integer-sqrt",
  "lazy_static",
  "mutants",
+ "proptest",
  "regex",
  "rstest",
  "rstest_reuse",
@@ -618,18 +619,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "clarity-serialization"
+name = "clarity-types"
 version = "0.0.1"
 dependencies = [
  "lazy_static",
  "mutants",
  "regex",
  "rstest",
+ "rusqlite",
  "serde",
  "serde_derive",
+ "serde_json",
  "slog",
  "stacks-common 0.0.1",
- "thiserror",
 ]
 
 [[package]]
@@ -3276,7 +3278,6 @@ dependencies = [
  "chrono",
  "clarity 0.0.1",
  "ed25519-dalek",
- "hashbrown 0.15.2",
  "lazy_static",
  "libstackerdb 0.0.1",
  "mio 0.6.23",

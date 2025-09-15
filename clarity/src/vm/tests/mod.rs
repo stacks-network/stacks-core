@@ -23,15 +23,14 @@ use super::ClarityVersion;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::SymbolicExpression;
-#[cfg(test)]
-use crate::{vm::errors::Error, vm::types::Value};
 
 mod assets;
 mod contracts;
 mod datamaps;
 mod defines;
 mod principals;
+#[cfg(test)]
+mod representations;
 mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
@@ -101,6 +100,16 @@ macro_rules! clarity_template {
                 (StacksEpochId::Epoch23, ClarityVersion::Clarity3) => (),
                 (StacksEpochId::Epoch24, ClarityVersion::Clarity3) => (),
                 (StacksEpochId::Epoch25, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch20, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch2_05, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch21, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch22, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch23, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch24, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch25, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch30, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch31, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch32, ClarityVersion::Clarity4) => (),
                 // this will lead to a compile time failure if a pair is left out
                 //  of the clarity_template! macro list
                 $((StacksEpochId::$epoch, ClarityVersion::$clarity))|* => (),
@@ -127,6 +136,7 @@ epochs_template! {
     Epoch30,
     Epoch31,
     Epoch32,
+    Epoch33,
 }
 
 clarity_template! {
@@ -151,13 +161,10 @@ clarity_template! {
     (Epoch32, Clarity1),
     (Epoch32, Clarity2),
     (Epoch32, Clarity3),
-}
-
-#[cfg(test)]
-impl Value {
-    pub fn list_from(list_data: Vec<Value>) -> Result<Value, Error> {
-        Value::cons_list_unsanitized(list_data)
-    }
+    (Epoch33, Clarity1),
+    (Epoch33, Clarity2),
+    (Epoch33, Clarity3),
+    (Epoch33, Clarity4),
 }
 
 #[fixture]
@@ -222,12 +229,5 @@ pub fn test_only_mainnet_to_chain_id(mainnet: bool) -> u32 {
         CHAIN_ID_MAINNET
     } else {
         CHAIN_ID_TESTNET
-    }
-}
-
-impl SymbolicExpression {
-    pub fn with_id(mut self, id: u64) -> Self {
-        self.id = id;
-        self
     }
 }

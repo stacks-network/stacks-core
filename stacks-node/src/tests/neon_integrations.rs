@@ -2656,7 +2656,7 @@ fn stack_stx_burn_op_test() {
         reward_addr: pox_addr.clone(),
         stacked_ustx: 10000000000000,
         num_cycles: 6,
-        signer_key: Some(signer_key),
+        signer_key: Some(signer_key.clone()),
         max_amount: Some(u128::MAX),
         auth_id: Some(auth_id),
         // to be filled in
@@ -3043,7 +3043,7 @@ fn vote_for_aggregate_key_burn_op_test() {
             sender: spender_stx_addr.clone(),
             round: 0,
             reward_cycle,
-            aggregate_key,
+            aggregate_key: aggregate_key.clone(),
             // to be filled in
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -5180,9 +5180,6 @@ fn pox_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    // required for testing post-sunset behavior
-    conf.node.always_use_affirmation_maps = false;
-
     let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
     let second_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
     let third_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
@@ -5686,8 +5683,6 @@ fn atlas_integration_test() {
         .initial_balances
         .push(initial_balance_user_1.clone());
 
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
-
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -5711,8 +5706,6 @@ fn atlas_integration_test() {
             timeout_ms: 1000,
             disable_retries: false,
         });
-
-    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
@@ -6220,8 +6213,6 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
-
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6255,8 +6246,6 @@ fn antientropy_integration_test() {
     conf_follower_node.miner.subsequent_attempt_time_ms = 1_000_000;
     conf_follower_node.burnchain.max_rbf = 1000000;
     conf_follower_node.node.wait_time_for_blocks = 1_000;
-
-    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
@@ -6425,9 +6414,9 @@ fn wait_for_mined(
         let ibh = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
 
         if let Some(last_ibh) = index_block_hashes.last() {
-            if *last_ibh != ibh {
-                index_block_hashes.push(ibh);
+            if last_ibh != &ibh {
                 eprintln!("Tip is now {ibh}");
+                index_block_hashes.push(ibh);
             }
         }
 
@@ -6493,8 +6482,6 @@ fn atlas_stress_integration_test() {
     conf_bootstrap_node.miner.subsequent_attempt_time_ms = 2_000_000;
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
-
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
 
     let user_1 = users.pop().unwrap();
     let initial_balance_user_1 = initial_balances.pop().unwrap();
@@ -7065,7 +7052,7 @@ fn atlas_stress_integration_test() {
             )
             .unwrap();
             if !indexes.is_empty() {
-                attachment_indexes.insert(*ibh, indexes.clone());
+                attachment_indexes.insert(ibh.clone(), indexes.clone());
             }
 
             for index in indexes.iter() {
@@ -7077,7 +7064,7 @@ fn atlas_stress_integration_test() {
                 .unwrap();
                 if !hashes.is_empty() {
                     assert_eq!(hashes.len(), 1);
-                    attachment_hashes.insert((*ibh, *index), hashes.pop());
+                    attachment_hashes.insert((ibh.clone(), *index), hashes.pop());
                 }
             }
         }
@@ -7133,7 +7120,7 @@ fn atlas_stress_integration_test() {
                 continue;
             }
             let content_hash = attachment_hashes
-                .get(&(*ibh, *attachment))
+                .get(&(ibh.clone(), *attachment))
                 .cloned()
                 .unwrap()
                 .unwrap();
@@ -7448,7 +7435,7 @@ fn use_latest_tip_integration_test() {
                 .sortdb_ref()
                 .index_handle_at_block(&chainstate, &tip_hash)
                 .unwrap(),
-            tip_hash,
+            tip_hash.clone(),
         )
         .unwrap();
 
@@ -7953,8 +7940,6 @@ fn spawn_follower_node(
     conf.burnchain.ast_precheck_size_height = initial_conf.burnchain.ast_precheck_size_height;
 
     conf.connection_options.inv_sync_interval = 3;
-
-    conf.node.always_use_affirmation_maps = false;
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();

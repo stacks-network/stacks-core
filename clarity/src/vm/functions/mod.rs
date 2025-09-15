@@ -58,6 +58,8 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch31 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 3.2.
                 StacksEpochId::Epoch32 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 3.3.
+                StacksEpochId::Epoch33 => $Epoch205Version(args, env, context),
             }
         }
     };
@@ -189,6 +191,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     ReplaceAt("replace-at?", ClarityVersion::Clarity2, None),
     GetStacksBlockInfo("get-stacks-block-info?", ClarityVersion::Clarity3, None),
     GetTenureInfo("get-tenure-info?", ClarityVersion::Clarity3, None),
+    ContractHash("contract-hash?", ClarityVersion::Clarity4, None),
 });
 
 ///
@@ -557,6 +560,9 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
                 ClarityCostFunction::Xor,
             ),
+            ContractHash => {
+                SpecialFunction("special_contract_hash", &database::special_contract_hash)
+            }
         };
         Some(callable)
     } else {

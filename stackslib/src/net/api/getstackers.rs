@@ -165,7 +165,7 @@ impl RPCRequestHandler for GetStackersRequestHandler {
                 return error_resp.try_into_contents().map_err(NetError::from);
             }
         };
-        let Some(cycle_number) = self.cycle_number.clone() else {
+        let Some(cycle_number) = self.cycle_number else {
             return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpBadRequest::new_json(json!({"response": "error", "err_msg": "Failed to read cycle number in request"}))
