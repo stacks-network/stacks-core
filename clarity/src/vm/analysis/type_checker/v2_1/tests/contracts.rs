@@ -283,7 +283,7 @@ fn test_names_tokens_contracts_interface() {
                     {{ "name": "tn1", "type": "bool" }},
                     {{ "name": "tn2", "type": "int128" }},
                     {{ "name": "tn3", "type": {{ "buffer": {{ "length": 1 }} }}}}
-                ] }} }} 
+                ] }} }}
             }},
             {{ "name": "f11",
                 "access": "private",
@@ -416,7 +416,7 @@ fn test_names_tokens_contracts_interface() {
                                     "name": "n2",
                                     "type": "bool"
                                 }}
-                            ] 
+                            ]
                         }}
                     }}]
                 }}
@@ -3374,43 +3374,43 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             "(contract-hash? 123)",
             "int type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::IntType,
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::IntType),
             )),
         ),
         (
             "(contract-hash? u123)",
             "uint type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::UIntType,
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::UIntType),
             )),
         ),
         (
             "(contract-hash? true)",
             "bool type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::BoolType,
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::BoolType),
             )),
         ),
         (
             "(contract-hash? 0x1234)",
             "buffer type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
                     BufferLength::try_from(2u32).unwrap(),
-                )),
+                ))),
             )),
         ),
         (
             "(contract-hash? \"60 percent of the time, it works every time\")",
             "ascii string",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-                    BufferLength::try_from(43u32).unwrap(),
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::ASCII(BufferLength::try_from(43u32).unwrap()),
                 ))),
             )),
         ),
@@ -3418,9 +3418,9 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             "(contract-hash? u\"I am serious, and don't call me Shirley.\")",
             "utf8 string",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-                    StringUTF8Length::try_from(40u32).unwrap(),
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::UTF8(StringUTF8Length::try_from(40u32).unwrap()),
                 ))),
             )),
         ),
@@ -3428,49 +3428,51 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             "(contract-hash? (list 1 2 3))",
             "list type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::ListType(
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::ListType(
                     ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
-                )),
+                ))),
             )),
         ),
         (
             "(contract-hash? { a: 1, b: u2 })",
             "tuple type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::TupleType(
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::TupleType(
                     vec![
                         (ClarityName::from("a"), TypeSignature::IntType),
                         (ClarityName::from("b"), TypeSignature::UIntType),
                     ]
                     .try_into()
                     .unwrap(),
-                ),
+                )),
             )),
         ),
         (
             "(contract-hash? (some u789))",
             "optional type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::new_option(TypeSignature::UIntType).unwrap()),
             )),
         ),
         (
             "(contract-hash? (ok true))",
             "response type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
-                    .unwrap(),
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(
+                    TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
+                        .unwrap(),
+                ),
             )),
         ),
     ];
 
     for (source, description, clarity4_expected) in test_cases.iter() {
         let result = mem_run_analysis(source, version, epoch);
-        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| e.err);
+        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| *e.err);
 
         let expected = if version >= ClarityVersion::Clarity4 {
             clarity4_expected

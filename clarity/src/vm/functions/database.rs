@@ -1186,7 +1186,9 @@ pub fn special_contract_hash(
         Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
         _ => {
             // If the value is not a principal, we return a check error.
-            return Err(CheckErrors::ExpectedContractPrincipalValue(contract_value).into());
+            return Err(
+                CheckErrors::ExpectedContractPrincipalValue(Box::new(contract_value)).into(),
+            );
         }
     };
 

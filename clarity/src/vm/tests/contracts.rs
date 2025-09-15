@@ -1382,8 +1382,8 @@ fn test_contract_hash_type_check(
         .unwrap_err();
     assert_eq!(
         err,
-        Error::Unchecked(CheckErrors::ExpectedContractPrincipalValue(Value::UInt(
-            123
+        Error::Unchecked(CheckErrors::ExpectedContractPrincipalValue(Box::new(
+            Value::UInt(123)
         )))
     );
 }

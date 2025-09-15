@@ -195,7 +195,7 @@ pub enum CheckErrors {
     CouldNotDetermineResponseErrType,
     CouldNotDetermineSerializationType,
     UncheckedIntermediaryResponses,
-    ExpectedContractPrincipalValue(Value),
+    ExpectedContractPrincipalValue(Box<Value>),
 
     CouldNotDetermineMatchTypes,
     CouldNotDetermineType,
