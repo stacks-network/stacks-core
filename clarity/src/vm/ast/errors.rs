@@ -14,4 +14,4 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub use clarity_serialization::errors::ast::{ParseError, ParseErrors, ParseResult, PlacedError};
+pub use clarity_types::errors::ast::{ParseError, ParseErrors, ParseResult, PlacedError};

@@ -16,7 +16,7 @@
 
 use std::str;
 
-pub use clarity_serialization::types::serialization::{
+pub use clarity_types::types::serialization::{
     SerializationError, TypePrefix, NONE_SERIALIZATION_LEN,
 };
 use stacks_common::util::hash::{hex_bytes, to_hex};

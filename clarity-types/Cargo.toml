@@ -1,8 +1,8 @@
 [package]
-name = "clarity-serialization"
+name = "clarity-types"
 version = "0.0.1"
 edition = "2024"
-description = "Serialization and deserialization for Stacks Clarity smart contract language types."
+description = "Canonical Rust representations for Clarity's core data types, error definitions, and serialization format."
 license = "GPLv3"
 homepage = "https://github.com/stacks-network/stacks-core"
 repository = "https://github.com/stacks-network/stacks-core"
