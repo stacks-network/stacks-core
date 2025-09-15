@@ -671,22 +671,16 @@ impl BitcoinRegtestController {
     /// Automatically imports descriptors into the wallet for the public_key
     #[cfg(test)]
     pub fn get_all_utxos(&self, public_key: &Secp256k1PublicKey) -> Vec<UTXO> {
-        let address = self.get_miner_address(StacksEpochId::Epoch21, public_key);
+        const EPOCH: StacksEpochId = StacksEpochId::Epoch21;
+        let address = self.get_miner_address(EPOCH, public_key);
+        let pub_key_rev = self.to_epoch_aware_pubkey(EPOCH, public_key);
 
-        let public_key_reviewed = if self.config.miner.segwit {
-            let mut p = public_key.clone();
-            p.set_compressed(true);
-            p
-        } else {
-            public_key.clone()
-        };
-
-        test_debug!("Import public key '{}'", &public_key_reviewed.to_hex());
-        self.import_public_key(&public_key_reviewed)
+        test_debug!("Import public key '{}'", &pub_key_rev.to_hex());
+        self.import_public_key(&pub_key_rev)
             .unwrap_or_else(|error| {
                 panic!(
                     "Import public key '{}' failed: {error:?}",
-                    public_key_reviewed.to_hex()
+                    pub_key_rev.to_hex()
                 )
             });
 
@@ -721,17 +715,11 @@ impl BitcoinRegtestController {
         utxos_to_exclude: Option<UTXOSet>,
         block_height: u64,
     ) -> Option<UTXOSet> {
-        let pubk = if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
-            let mut p = public_key.clone();
-            p.set_compressed(true);
-            p
-        } else {
-            public_key.clone()
-        };
+        let pub_key_rev = self.to_epoch_aware_pubkey(epoch_id, public_key);
 
         // Configure UTXO filter
-        let address = self.get_miner_address(epoch_id, &pubk);
-        test_debug!("Get UTXOs for {} ({address})", pubk.to_hex());
+        let address = self.get_miner_address(epoch_id, &pub_key_rev);
+        test_debug!("Get UTXOs for {} ({address})", pub_key_rev.to_hex());
 
         let mut utxos = loop {
             let result = self.retrieve_utxo_set(
@@ -763,9 +751,9 @@ impl BitcoinRegtestController {
                     // Assuming that miners are in charge of correctly operating their bitcoind nodes sounds
                     // reasonable to me.
                     // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
-                    let result = self.import_public_key(&pubk);
+                    let result = self.import_public_key(&pub_key_rev);
                     if let Err(error) = result {
-                        warn!("Import public key '{}' failed: {error:?}", &pubk.to_hex());
+                        warn!("Import public key '{}' failed: {error:?}", &pub_key_rev.to_hex());
                     }
                     sleep_ms(1000);
                 }
@@ -804,7 +792,7 @@ impl BitcoinRegtestController {
         if total_unspent < total_required {
             warn!(
                 "Total unspent {total_unspent} < {total_required} for {:?}",
-                &pubk.to_hex()
+                &pub_key_rev.to_hex()
             );
             return None;
         }
@@ -2194,6 +2182,30 @@ impl BitcoinRegtestController {
         Sha256dHash(txid_bytes)
     }
 
+    /// Returns a copy of the given public key adjusted to the current epoch rules.
+    ///
+    /// In particular:
+    /// - For epochs **before** [`StacksEpochId::Epoch21`], the public key is returned
+    ///   unchanged.
+    /// - Starting with [`StacksEpochId::Epoch21`], if **SegWit** is enabled in the miner
+    ///   configuration, the key is forced into compressed form.
+    ///
+    /// # Arguments
+    /// * `epoch_id` — The epoch identifier to check against protocol upgrade rules.
+    /// * `public_key` — The original public key to adjust.
+    ///
+    /// # Returns
+    /// A [`Secp256k1PublicKey`] that is either the same as the input or compressed,
+    /// depending on the epoch and miner configuration.
+    fn to_epoch_aware_pubkey(&self, epoch_id: StacksEpochId, public_key: &Secp256k1PublicKey) -> Secp256k1PublicKey
+    {
+        let mut reviewed = public_key.clone();
+        if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
+            reviewed.set_compressed(true);
+        }
+        return reviewed;
+    }
+
     /// Retrieves the set of UTXOs for a given address at a specific block height.
     ///
     /// This method queries all unspent outputs belonging to the provided address:
@@ -3015,6 +3027,28 @@ mod tests {
         debug!("send_block_commit_operation:\n{block_commit:#?}");
         assert_eq!(block_commit.output[3].value, 323507);
         assert_eq!(serialize_hex(&block_commit).unwrap(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
+    }
+
+    #[test]
+    fn test_to_epoch_aware_pubkey() {
+        let mut config = utils::create_config();
+        let pubkey = utils::create_miner1_pubkey();
+        
+        config.miner.segwit = false;
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        
+        let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
+        assert_eq!(false, reviewed.compressed(), "Segwit disabled with Epoch < 2.1: not compressed");
+        let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
+        assert_eq!(false, reviewed.compressed(), "Segwit disabled with Epoch >= 2.1: not compressed");
+
+        config.miner.segwit = true;
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+        
+        let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
+        assert_eq!(false, reviewed.compressed(), "Segwit enabled with Epoch < 2.1: not compressed");
+        let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
+        assert_eq!(true, reviewed.compressed(), "Segwit enabled with Epoch > 2.1: compressed");
     }
 
     #[test]
