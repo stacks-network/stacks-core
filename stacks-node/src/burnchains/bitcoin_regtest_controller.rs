@@ -753,7 +753,10 @@ impl BitcoinRegtestController {
                     // $ bitcoin-cli importaddress mxVFsFW5N4mu1HPkxPttorvocvzeZ7KZyk
                     let result = self.import_public_key(&pub_key_rev);
                     if let Err(error) = result {
-                        warn!("Import public key '{}' failed: {error:?}", &pub_key_rev.to_hex());
+                        warn!(
+                            "Import public key '{}' failed: {error:?}",
+                            &pub_key_rev.to_hex()
+                        );
                     }
                     sleep_ms(1000);
                 }
@@ -2197,8 +2200,11 @@ impl BitcoinRegtestController {
     /// # Returns
     /// A [`Secp256k1PublicKey`] that is either the same as the input or compressed,
     /// depending on the epoch and miner configuration.
-    fn to_epoch_aware_pubkey(&self, epoch_id: StacksEpochId, public_key: &Secp256k1PublicKey) -> Secp256k1PublicKey
-    {
+    fn to_epoch_aware_pubkey(
+        &self,
+        epoch_id: StacksEpochId,
+        public_key: &Secp256k1PublicKey,
+    ) -> Secp256k1PublicKey {
         let mut reviewed = public_key.clone();
         if self.config.miner.segwit && epoch_id >= StacksEpochId::Epoch21 {
             reviewed.set_compressed(true);
@@ -2679,6 +2685,13 @@ mod tests {
             .expect("Public key incorrect")
         }
 
+        pub fn to_address_segwit_p2wpkh(pub_key: &Secp256k1PublicKey) -> BitcoinAddress {
+            // pub_key.to_byte_compressed() equivalent to pub_key.set_compressed(true) + pub_key.to_bytes()
+            let hash160 = Hash160::from_data(&pub_key.to_bytes_compressed());
+            BitcoinAddress::from_bytes_segwit_p2wpkh(BitcoinNetworkType::Regtest, &hash160.0)
+                .expect("Public key incorrect")
+        }
+
         pub fn mine_tx(btc_controller: &BitcoinRegtestController, tx: &Transaction) {
             btc_controller
                 .send_transaction(tx)
@@ -3033,22 +3046,78 @@ mod tests {
     fn test_to_epoch_aware_pubkey() {
         let mut config = utils::create_config();
         let pubkey = utils::create_miner1_pubkey();
-        
+
         config.miner.segwit = false;
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
-        
+
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
-        assert_eq!(false, reviewed.compressed(), "Segwit disabled with Epoch < 2.1: not compressed");
+        assert_eq!(
+            false,
+            reviewed.compressed(),
+            "Segwit disabled with Epoch < 2.1: not compressed"
+        );
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
-        assert_eq!(false, reviewed.compressed(), "Segwit disabled with Epoch >= 2.1: not compressed");
+        assert_eq!(
+            false,
+            reviewed.compressed(),
+            "Segwit disabled with Epoch >= 2.1: not compressed"
+        );
 
         config.miner.segwit = true;
         let btc_controller = BitcoinRegtestController::new(config.clone(), None);
-        
+
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch20, &pubkey);
-        assert_eq!(false, reviewed.compressed(), "Segwit enabled with Epoch < 2.1: not compressed");
+        assert_eq!(
+            false,
+            reviewed.compressed(),
+            "Segwit enabled with Epoch < 2.1: not compressed"
+        );
         let reviewed = btc_controller.to_epoch_aware_pubkey(StacksEpochId::Epoch21, &pubkey);
-        assert_eq!(true, reviewed.compressed(), "Segwit enabled with Epoch > 2.1: compressed");
+        assert_eq!(
+            true,
+            reviewed.compressed(),
+            "Segwit enabled with Epoch >= 2.1: compressed"
+        );
+    }
+
+    #[test]
+    fn test_get_miner_address() {
+        let mut config = utils::create_config();
+        let pub_key = utils::create_miner1_pubkey();
+
+        config.miner.segwit = false;
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+
+        let expected = utils::to_address_legacy(&pub_key);
+        let address = btc_controller.get_miner_address(StacksEpochId::Epoch20, &pub_key);
+        assert_eq!(
+            expected, address,
+            "Segwit disabled with Epoch < 2.1: legacy addr"
+        );
+
+        let expected = utils::to_address_legacy(&pub_key);
+        let address = btc_controller.get_miner_address(StacksEpochId::Epoch21, &pub_key);
+        assert_eq!(
+            expected, address,
+            "Segwit disabled with Epoch >= 2.1: legacy addr"
+        );
+
+        config.miner.segwit = true;
+        let btc_controller = BitcoinRegtestController::new(config.clone(), None);
+
+        let expected = utils::to_address_legacy(&pub_key);
+        let address = btc_controller.get_miner_address(StacksEpochId::Epoch20, &pub_key);
+        assert_eq!(
+            expected, address,
+            "Segwit enabled with Epoch < 2.1: legacy addr"
+        );
+
+        let expected = utils::to_address_segwit_p2wpkh(&pub_key);
+        let address = btc_controller.get_miner_address(StacksEpochId::Epoch21, &pub_key);
+        assert_eq!(
+            expected, address,
+            "Segwit enabled with Epoch >= 2.1: segwit addr"
+        );
     }
 
     #[test]
