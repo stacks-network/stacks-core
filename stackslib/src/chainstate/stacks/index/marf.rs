@@ -35,7 +35,6 @@ use crate::util_lib::db::Error as db_error;
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
 pub const BLOCK_HEIGHT_TO_HASH_MAPPING_KEY: &str = "__MARF_BLOCK_HEIGHT_TO_HASH";
 pub const OWN_BLOCK_HEIGHT_KEY: &str = "__MARF_BLOCK_HEIGHT_SELF";
-pub const OWN_BLOCK_TIME_KEY: &str = "__MARF_BLOCK_TIME_SELF";
 
 /// Merklized Adaptive-Radix Forest -- a collection of Merklized Adaptive-Radix Tries.
 pub struct MARF<T: MarfTrieId> {
@@ -1258,14 +1257,6 @@ impl<T: MarfTrieId> MARF<T> {
         };
 
         Ok(marf_value.map(u32::from))
-    }
-
-    pub fn get_block_time_miner_tip(
-        storage: &mut TrieStorageConnection<T>,
-        current_block_hash: &T,
-    ) -> Result<Option<u64>, Error> {
-        let marf_value = MARF::get_by_key(storage, current_block_hash, OWN_BLOCK_TIME_KEY)?;
-        Ok(marf_value.map(u64::from))
     }
 
     pub fn get_block_height(
