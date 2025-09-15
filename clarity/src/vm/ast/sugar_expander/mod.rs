@@ -16,8 +16,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use clarity_serialization::representations::ClarityName;
-use clarity_serialization::types::{
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
 
