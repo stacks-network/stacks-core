@@ -404,7 +404,8 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
             StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => {
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => {
                 // Epoch 2.5, 3.0, 3.1 and 3.2 compute reward sets, but *only* if PoX-4 is active
                 if burnchain
                     .pox_constants

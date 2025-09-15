@@ -178,7 +178,7 @@ impl ArithmeticOnlyChecker<'_> {
             | StxGetAccount => Err(Error::FunctionNotPermitted(function)),
             Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
             | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
-            | Fold | Slice | ReplaceAt => Err(Error::FunctionNotPermitted(function)),
+            | Fold | Slice | ReplaceAt | ContractHash => Err(Error::FunctionNotPermitted(function)),
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 Err(Error::FunctionNotPermitted(function))
             }

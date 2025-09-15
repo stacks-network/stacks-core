@@ -113,6 +113,7 @@ fn ClarityVersion_consensus_serialize<W: Write>(
         ClarityVersion::Clarity1 => write_next(fd, &1u8)?,
         ClarityVersion::Clarity2 => write_next(fd, &2u8)?,
         ClarityVersion::Clarity3 => write_next(fd, &3u8)?,
+        ClarityVersion::Clarity4 => write_next(fd, &4u8)?,
     }
     Ok(())
 }
@@ -125,6 +126,7 @@ fn ClarityVersion_consensus_deserialize<R: Read>(
         1u8 => Ok(ClarityVersion::Clarity1),
         2u8 => Ok(ClarityVersion::Clarity2),
         3u8 => Ok(ClarityVersion::Clarity3),
+        4u8 => Ok(ClarityVersion::Clarity4),
         _ => Err(codec_error::DeserializeError(format!(
             "Unrecognized ClarityVersion byte {}",
             &version_byte
@@ -1201,7 +1203,9 @@ mod test {
 
     use clarity::types::StacksEpochId;
     use clarity::vm::representations::{ClarityName, ContractName};
+    use clarity::vm::tests::test_clarity_versions;
     use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+    use rstest::rstest;
     use stacks_common::util::hash::*;
     use stacks_common::util::retry::LogReader;
 
@@ -1937,156 +1941,147 @@ mod test {
         }
     }
 
-    #[test]
-    fn tx_stacks_transaction_payload_tokens() {
-        let addr = PrincipalData::from(StacksAddress::new(1, Hash160([0xff; 20])).unwrap());
-
-        let tt_stx =
-            TransactionPayload::TokenTransfer(addr.clone(), 123, TokenTransferMemo([1u8; 34]));
-
-        // wire encodings of the same
-        let mut tt_stx_bytes = vec![];
-        tt_stx_bytes.push(TransactionPayloadID::TokenTransfer as u8);
-        addr.consensus_serialize(&mut tt_stx_bytes).unwrap();
-        tt_stx_bytes.append(&mut vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123]);
-        tt_stx_bytes.append(&mut vec![1u8; 34]);
-
-        check_codec_and_corruption::<TransactionPayload>(&tt_stx, &tt_stx_bytes);
-
-        let addr = PrincipalData::from(QualifiedContractIdentifier {
-            issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
-            name: "foo-contract".into(),
-        });
-
-        let tt_stx =
-            TransactionPayload::TokenTransfer(addr.clone(), 123, TokenTransferMemo([1u8; 34]));
-
-        // wire encodings of the same
-        let mut tt_stx_bytes = vec![];
-        tt_stx_bytes.push(TransactionPayloadID::TokenTransfer as u8);
-        addr.consensus_serialize(&mut tt_stx_bytes).unwrap();
-        tt_stx_bytes.append(&mut vec![0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 123]);
-        tt_stx_bytes.append(&mut vec![1u8; 34]);
-
-        check_codec_and_corruption::<TransactionPayload>(&tt_stx, &tt_stx_bytes);
+    fn create_token_transfer_bytes(
+        addr: &PrincipalData,
+        amount: u64,
+        memo: &TokenTransferMemo,
+    ) -> Vec<u8> {
+        let mut bytes = vec![];
+        bytes.push(TransactionPayloadID::TokenTransfer as u8);
+        addr.consensus_serialize(&mut bytes).unwrap();
+        bytes.extend_from_slice(&amount.to_be_bytes());
+        bytes.extend_from_slice(&memo.0);
+        bytes
     }
 
-    #[test]
-    fn tx_stacks_transaction_payload_contracts() {
-        let hello_contract_call = "hello-contract-call";
-        let hello_contract_name = "hello-contract-name";
-        let hello_function_name = "hello-function-name";
-        let hello_contract_body = "hello contract code body";
+    #[rstest]
+    #[case::standard_address(
+        PrincipalData::from(StacksAddress::new(1, Hash160([0xff; 20])).unwrap())
+    )]
+    #[case::contract_address(
+        PrincipalData::from(QualifiedContractIdentifier {
+            issuer: StacksAddress::new(1, Hash160([0xff; 20])).unwrap().into(),
+            name: "foo-contract".into(),
+        })
+    )]
+    fn test_transaction_payload_token_transfer(#[case] addr: PrincipalData) {
+        let memo = TokenTransferMemo([1u8; 34]);
+        let amount = 123u64;
+        let payload = TransactionPayload::TokenTransfer(addr.clone(), amount, memo.clone());
+        let expected_bytes = create_token_transfer_bytes(&addr, amount, &memo);
+        check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
+    }
 
-        let contract_call = TransactionContractCall {
+    #[apply(test_clarity_versions)]
+    fn clarity_version_codec_is_consistent(
+        #[case] version: ClarityVersion,
+        #[case] _epoch: StacksEpochId,
+    ) {
+        use std::io::Cursor;
+
+        let mut buf = vec![];
+        ClarityVersion_consensus_serialize(&version, &mut buf).unwrap();
+        let mut cursor = Cursor::new(&buf);
+        let decoded = ClarityVersion_consensus_deserialize(&mut cursor).unwrap();
+        assert_eq!(version, decoded, "Roundtrip mismatch for {:?}", version);
+    }
+
+    // Helper functions for test data creation
+    fn sample_contract_call() -> TransactionContractCall {
+        TransactionContractCall {
             address: StacksAddress::new(1, Hash160([0xff; 20])).unwrap(),
-            contract_name: ContractName::try_from(hello_contract_name).unwrap(),
-            function_name: ClarityName::try_from(hello_function_name).unwrap(),
+            contract_name: ContractName::try_from("hello-contract-name").unwrap(),
+            function_name: ClarityName::try_from("hello-function-name").unwrap(),
             function_args: vec![Value::Int(0)],
-        };
+        }
+    }
 
-        let smart_contract = TransactionSmartContract {
-            name: ContractName::try_from(hello_contract_name).unwrap(),
-            code_body: StacksString::from_str(hello_contract_body).unwrap(),
-        };
+    fn sample_smart_contract() -> TransactionSmartContract {
+        TransactionSmartContract {
+            name: ContractName::try_from("hello-contract-name").unwrap(),
+            code_body: StacksString::from_str("hello contract code body").unwrap(),
+        }
+    }
 
-        let mut contract_call_bytes = vec![];
+    fn serialize_contract_call(contract_call: &TransactionContractCall) -> Vec<u8> {
+        let mut bytes = vec![];
         contract_call
             .address
-            .consensus_serialize(&mut contract_call_bytes)
+            .consensus_serialize(&mut bytes)
             .unwrap();
         contract_call
             .contract_name
-            .consensus_serialize(&mut contract_call_bytes)
+            .consensus_serialize(&mut bytes)
             .unwrap();
         contract_call
             .function_name
-            .consensus_serialize(&mut contract_call_bytes)
+            .consensus_serialize(&mut bytes)
             .unwrap();
         contract_call
             .function_args
-            .consensus_serialize(&mut contract_call_bytes)
+            .consensus_serialize(&mut bytes)
             .unwrap();
+        bytes
+    }
 
-        let mut smart_contract_bytes = vec![];
-        smart_contract
-            .name
-            .consensus_serialize(&mut smart_contract_bytes)
-            .unwrap();
-        smart_contract
-            .code_body
-            .consensus_serialize(&mut smart_contract_bytes)
-            .unwrap();
-
-        let mut version_1_smart_contract_bytes = vec![];
-        ClarityVersion_consensus_serialize(
-            &ClarityVersion::Clarity1,
-            &mut version_1_smart_contract_bytes,
-        )
-        .unwrap();
-        smart_contract
-            .name
-            .consensus_serialize(&mut version_1_smart_contract_bytes)
-            .unwrap();
+    fn serialize_smart_contract(smart_contract: &TransactionSmartContract) -> Vec<u8> {
+        let mut bytes = vec![];
+        smart_contract.name.consensus_serialize(&mut bytes).unwrap();
         smart_contract
             .code_body
-            .consensus_serialize(&mut version_1_smart_contract_bytes)
+            .consensus_serialize(&mut bytes)
             .unwrap();
+        bytes
+    }
 
-        let mut version_2_smart_contract_bytes = vec![];
-        ClarityVersion_consensus_serialize(
-            &ClarityVersion::Clarity2,
-            &mut version_2_smart_contract_bytes,
-        )
-        .unwrap();
-        smart_contract
-            .name
-            .consensus_serialize(&mut version_2_smart_contract_bytes)
-            .unwrap();
+    fn serialize_versioned_smart_contract(
+        smart_contract: &TransactionSmartContract,
+        version: &ClarityVersion,
+    ) -> Vec<u8> {
+        let mut bytes = vec![];
+        ClarityVersion_consensus_serialize(version, &mut bytes).unwrap();
+        smart_contract.name.consensus_serialize(&mut bytes).unwrap();
         smart_contract
             .code_body
-            .consensus_serialize(&mut version_2_smart_contract_bytes)
+            .consensus_serialize(&mut bytes)
             .unwrap();
+        bytes
+    }
 
-        let mut transaction_contract_call = vec![TransactionPayloadID::ContractCall as u8];
-        transaction_contract_call.append(&mut contract_call_bytes.clone());
+    fn create_transaction_payload_bytes(
+        payload_id: TransactionPayloadID,
+        mut payload_bytes: Vec<u8>,
+    ) -> Vec<u8> {
+        let mut bytes = vec![payload_id as u8];
+        bytes.append(&mut payload_bytes);
+        bytes
+    }
 
-        let mut transaction_smart_contract = vec![TransactionPayloadID::SmartContract as u8];
-        transaction_smart_contract.append(&mut smart_contract_bytes.clone());
+    #[test]
+    fn test_transaction_contract_call_codec() {
+        let contract_call = sample_contract_call();
+        let expected_bytes = serialize_contract_call(&contract_call);
+        check_codec_and_corruption::<TransactionContractCall>(&contract_call, &expected_bytes);
+    }
 
-        let mut v1_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
-        v1_smart_contract.append(&mut version_1_smart_contract_bytes.clone());
+    #[test]
+    fn test_transaction_smart_contract_codec() {
+        let smart_contract = sample_smart_contract();
+        let expected_bytes = serialize_smart_contract(&smart_contract);
+        check_codec_and_corruption::<TransactionSmartContract>(&smart_contract, &expected_bytes);
+    }
 
-        let mut v2_smart_contract = vec![TransactionPayloadID::VersionedSmartContract as u8];
-        v2_smart_contract.append(&mut version_2_smart_contract_bytes.clone());
-
-        check_codec_and_corruption::<TransactionContractCall>(&contract_call, &contract_call_bytes);
-        check_codec_and_corruption::<TransactionSmartContract>(
-            &smart_contract,
-            &smart_contract_bytes,
+    #[apply(test_clarity_versions)]
+    fn test_transaction_payload_versioned_contracts_codec(
+        #[case] version: ClarityVersion,
+        _epoch: StacksEpochId,
+    ) {
+        let payload = TransactionPayload::SmartContract(sample_smart_contract(), Some(version));
+        let expected_bytes = create_transaction_payload_bytes(
+            TransactionPayloadID::VersionedSmartContract,
+            serialize_versioned_smart_contract(&sample_smart_contract(), &version),
         );
-        check_codec_and_corruption::<TransactionPayload>(
-            &TransactionPayload::ContractCall(contract_call.clone()),
-            &transaction_contract_call,
-        );
-        check_codec_and_corruption::<TransactionPayload>(
-            &TransactionPayload::SmartContract(smart_contract.clone(), None),
-            &transaction_smart_contract,
-        );
-        check_codec_and_corruption::<TransactionPayload>(
-            &TransactionPayload::SmartContract(
-                smart_contract.clone(),
-                Some(ClarityVersion::Clarity1),
-            ),
-            &v1_smart_contract,
-        );
-        check_codec_and_corruption::<TransactionPayload>(
-            &TransactionPayload::SmartContract(
-                smart_contract.clone(),
-                Some(ClarityVersion::Clarity2),
-            ),
-            &v2_smart_contract,
-        );
+        check_codec_and_corruption::<TransactionPayload>(&payload, &expected_bytes);
     }
 
     #[test]

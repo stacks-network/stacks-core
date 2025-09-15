@@ -1604,6 +1604,11 @@ check if the associated microblocks can be downloaded
         dump_consts();
     }
 
+    if argv[1] == "contract-hash" {
+        cli::command_contract_hash(&argv[1..], common_opts.config.as_ref());
+        process::exit(0);
+    }
+
     if argv.len() < 4 {
         eprintln!("Usage: {} blockchain network working_dir", argv[0]);
         process::exit(1);

@@ -3088,6 +3088,7 @@ impl SortitionDB {
             StacksEpochId::Epoch30 => version_u32 >= 3,
             StacksEpochId::Epoch31 => version_u32 >= 3,
             StacksEpochId::Epoch32 => version_u32 >= 3,
+            StacksEpochId::Epoch33 => version_u32 >= 3,
         }
     }
 

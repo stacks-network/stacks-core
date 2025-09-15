@@ -32,8 +32,11 @@ use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::CallableSubtype;
-use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
-use crate::vm::{ClarityVersion, SymbolicExpression};
+use crate::vm::types::{
+    BufferLength, ListTypeData, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
+    StringUTF8Length, TypeSignature,
+};
+use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
 
 fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
@@ -218,220 +221,220 @@ fn test_names_tokens_contracts_interface() {
     let test_contract_json: serde_json::Value =
         serde_json::from_str(&test_contract_json_str).unwrap();
 
-    let test_contract_json_expected: serde_json::Value = serde_json::from_str(r#"{
+    let test_contract_json_expected: serde_json::Value = serde_json::from_str(&format!(r#"{{
         "functions": [
-            { "name": "f00",
+            {{ "name": "f00",
                 "access": "private",
-                "args": [{ "name": "a1", "type": "int128" }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f01",
+                "args": [{{ "name": "a1", "type": "int128" }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f01",
                 "access": "private",
-                "args": [{ "name": "a1", "type": "bool" }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f02",
+                "args": [{{ "name": "a1", "type": "bool" }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f02",
                 "access": "private",
-                "args": [{ "name": "a1", "type": "principal" }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f03",
+                "args": [{{ "name": "a1", "type": "principal" }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f03",
                 "access": "private",
-                "args": [{ "name": "a1", "type": { "buffer": { "length": 54 } } }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f04",
+                "args": [{{ "name": "a1", "type": {{ "buffer": {{ "length": 54 }} }} }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f04",
                 "access": "private",
-                "args": [{ "name": "a1", "type": { "tuple": [
-                    { "name": "t-name1", "type": "bool" },
-                    { "name": "t-name2", "type": "int128" }
-                ] } }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f05",
+                "args": [{{ "name": "a1", "type": {{ "tuple": [
+                    {{ "name": "t-name1", "type": "bool" }},
+                    {{ "name": "t-name2", "type": "int128" }}
+                ] }} }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f05",
                 "access": "private",
-                "args": [{ "name": "a1", "type": { "list": { "type": { "list": { "type": "int128", "length": 3 } }, "length": 7 } } }],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f06",
-                "access": "private",
-                "args": [],
-                "outputs": { "type": "int128" }
-            },
-            { "name": "f07",
+                "args": [{{ "name": "a1", "type": {{ "list": {{ "type": {{ "list": {{ "type": "int128", "length": 3 }} }}, "length": 7 }} }} }}],
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f06",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": "bool" }
-            },
-            { "name": "f08",
+                "outputs": {{ "type": "int128" }}
+            }},
+            {{ "name": "f07",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": "principal" }
-            },
-            { "name": "f09",
+                "outputs": {{ "type": "bool" }}
+            }},
+            {{ "name": "f08",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "buffer": { "length": 4 } } }
-            },
-            { "name": "f10",
+                "outputs": {{ "type": "principal" }}
+            }},
+            {{ "name": "f09",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "tuple": [
-                    { "name": "tn1", "type": "bool" },
-                    { "name": "tn2", "type": "int128" },
-                    { "name": "tn3", "type": { "buffer": { "length": 1 } }}
-                ] } }
-            },
-            { "name": "f11",
+                "outputs": {{ "type": {{ "buffer": {{ "length": 4 }} }} }}
+            }},
+            {{ "name": "f10",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "optional": { "tuple": [ {
+                "outputs": {{ "type": {{ "tuple": [
+                    {{ "name": "tn1", "type": "bool" }},
+                    {{ "name": "tn2", "type": "int128" }},
+                    {{ "name": "tn3", "type": {{ "buffer": {{ "length": 1 }} }}}}
+                ] }} }} 
+            }},
+            {{ "name": "f11",
+                "access": "private",
+                "args": [],
+                "outputs": {{ "type": {{ "optional": {{ "tuple": [ {{
                     "name": "owner",
                     "type": "principal"
-                 } ] } } }
-            },
-            { "name": "f12",
+                 }} ] }} }} }}
+            }},
+            {{ "name": "f12",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "int128", "error": "none" } } }
-            },
-            { "name": "f13",
+                "outputs": {{ "type": {{ "response": {{ "ok": "int128", "error": "none" }} }} }}
+            }},
+            {{ "name": "f13",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "none", "error": "int128" } } }
-            },
-            { "name": "f14",
+                "outputs": {{ "type": {{ "response": {{ "ok": "none", "error": "int128" }} }} }}
+            }},
+            {{ "name": "f14",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "int128", "error": "int128" } } }
-            },
-            { "name": "f15",
+                "outputs": {{ "type": {{ "response": {{ "ok": "int128", "error": "int128" }} }} }}
+            }},
+            {{ "name": "f15",
                 "access": "private",
                 "args": [],
-                "outputs": { "type": { "list": { "type": "int128", "length": 3 } } }
-            },
-            { "name": "f16",
+                "outputs": {{ "type": {{ "list": {{ "type": "int128", "length": 3 }} }} }}
+            }},
+            {{ "name": "f16",
                 "access": "private",
                 "args": [],
-                "outputs": {
-                  "type": { "list": {
-                      "type": { "list": {
-                            "type": { "list": { "type": "int128", "length": 1 } },
-                            "length": 1 }
-                              },
-                      "length": 2 }
-                          }
-                }
-            },
-            { "name": "pub-f01",
+                "outputs": {{
+                  "type": {{ "list": {{
+                      "type": {{ "list": {{
+                            "type": {{ "list": {{ "type": "int128", "length": 1 }} }},
+                            "length": 1 }}
+                              }},
+                      "length": 2 }}
+                          }}
+                }}
+            }},
+            {{ "name": "pub-f01",
                 "access": "public",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "int128", "error": "none" } } }
-            },
-            { "name": "pub-f02",
+                "outputs": {{ "type": {{ "response": {{ "ok": "int128", "error": "none" }} }} }}
+            }},
+            {{ "name": "pub-f02",
                 "access": "public",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "bool", "error": "none" } } }
-            },
-            { "name": "pub-f03",
+                "outputs": {{ "type": {{ "response": {{ "ok": "bool", "error": "none" }} }} }}
+            }},
+            {{ "name": "pub-f03",
                 "access": "public",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "none", "error": "bool" } } }
-            },
-            { "name": "pub-f04",
+                "outputs": {{ "type": {{ "response": {{ "ok": "none", "error": "bool" }} }} }}
+            }},
+            {{ "name": "pub-f04",
                 "access": "public",
                 "args": [],
-                "outputs": { "type": { "response": { "ok": "int128", "error": "int128" } } }
-            },
-            { "name": "pub-f05",
+                "outputs": {{ "type": {{ "response": {{ "ok": "int128", "error": "int128" }} }} }}
+            }},
+            {{ "name": "pub-f05",
                 "access": "public",
-                "args": [{ "name": "a1", "type": "int128" }],
-                "outputs": { "type": { "response": { "ok": "bool", "error": "none" } } }
-            },
-            { "name": "ro-f01",
+                "args": [{{ "name": "a1", "type": "int128" }}],
+                "outputs": {{ "type": {{ "response": {{ "ok": "bool", "error": "none" }} }} }}
+            }},
+            {{ "name": "ro-f01",
                 "access": "read_only",
                 "args": [],
-                "outputs": { "type": "int128" }
-            },
-            { "name": "ro-f02",
+                "outputs": {{ "type": "int128" }}
+            }},
+            {{ "name": "ro-f02",
                 "access": "read_only",
-                "args": [{ "name": "a1", "type": "int128" }],
-                "outputs": { "type": "int128" }
-            }
+                "args": [{{ "name": "a1", "type": "int128" }}],
+                "outputs": {{ "type": "int128" }}
+            }}
         ],
         "maps": [
-            {
+            {{
                 "name": "map1",
-                "key": {
-                    "tuple": [{
+                "key": {{
+                    "tuple": [{{
                         "name": "name",
                         "type": "int128"
-                    }]
-                },
-                "value": {
-                    "tuple": [{
+                    }}]
+                }},
+                "value": {{
+                    "tuple": [{{
                         "name": "owner",
                         "type": "principal"
-                    }]
-                }
-            },
-            {
+                    }}]
+                }}
+            }},
+            {{
                 "name": "map2",
-                "key": {
-                    "tuple": [{
+                "key": {{
+                    "tuple": [{{
                         "name": "k-name-1",
                         "type": "bool"
-                    }]
-                },
-                "value": {
-                    "tuple": [{
+                    }}]
+                }},
+                "value": {{
+                    "tuple": [{{
                         "name": "v-name-1",
-                        "type": {
-                            "buffer": { "length": 33 }
-                        }
-                    }]
-                }
-            },
-            {
+                        "type": {{
+                            "buffer": {{ "length": 33 }}
+                        }}
+                    }}]
+                }}
+            }},
+            {{
                 "name": "map3",
-                "key": {
-                    "tuple": [{
+                "key": {{
+                    "tuple": [{{
                         "name": "k-name-2",
                         "type": "bool"
-                    }]
-                },
-                "value": {
-                    "tuple": [{
+                    }}]
+                }},
+                "value": {{
+                    "tuple": [{{
                         "name": "v-name-2",
-                        "type": {
+                        "type": {{
                             "tuple": [
-                                {
+                                {{
                                     "name": "n1",
                                     "type": "int128"
-                                },
-                                {
+                                }},
+                                {{
                                     "name": "n2",
                                     "type": "bool"
-                                }
-                            ]
-                        }
-                    }]
-                }
-            }
+                                }}
+                            ] 
+                        }}
+                    }}]
+                }}
+            }}
         ],
         "variables": [
-            { "name": "var1", "access": "constant", "type": "principal" },
-            { "name": "var2", "access": "constant", "type": "bool" },
-            { "name": "var3", "access": "constant", "type": "int128" },
-            { "name": "d-var1", "access": "variable", "type": "bool" },
-            { "name": "d-var2", "access": "variable", "type": "int128" },
-            { "name": "d-var3", "access": "variable", "type": { "buffer": { "length": 5 } } }
+            {{ "name": "var1", "access": "constant", "type": "principal" }},
+            {{ "name": "var2", "access": "constant", "type": "bool" }},
+            {{ "name": "var3", "access": "constant", "type": "int128" }},
+            {{ "name": "d-var1", "access": "variable", "type": "bool" }},
+            {{ "name": "d-var2", "access": "variable", "type": "int128" }},
+            {{ "name": "d-var3", "access": "variable", "type": {{ "buffer": {{ "length": 5 }} }} }}
         ],
         "fungible_tokens": [],
         "non_fungible_tokens": [],
-        "epoch": "Epoch21",
-        "clarity_version": "Clarity3"
-    }"#).unwrap();
+        "epoch": "{:?}",
+        "clarity_version": "{:?}"
+}}"#, StacksEpochId::latest(), ClarityVersion::latest())).unwrap();
 
     eprintln!("{test_contract_json_str}");
 
@@ -2734,7 +2737,7 @@ fn clarity_trait_experiments_downcast_literal_2(
         })
         .unwrap_err();
     match version {
-        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 => {
+        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => {
             assert!(err.starts_with("ExpectedCallableType(PrincipalType)"))
         }
         ClarityVersion::Clarity1 => {
@@ -2931,7 +2934,7 @@ fn clarity_trait_experiments_trait_cast_incompatible(
                 assert!(err.starts_with("TypeError(CallableType(Trait(TraitIdentifier"))
             }
         }
-        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 => {
+        ClarityVersion::Clarity2 | ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => {
             assert!(err.starts_with("IncompatibleTrait"))
         }
     }
@@ -3532,4 +3535,146 @@ fn clarity_trait_experiments_cross_epochs(
         Ok(_) => (),
         res => panic!("expected success, got {res:?}"),
     };
+}
+
+/// Pass various types to `contract-hash?`
+#[apply(test_clarity_versions)]
+fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let test_cases = [
+        (
+            "(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)",
+            "valid contract principal",
+            Ok(Some(
+                TypeSignature::new_response(
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(32u32).unwrap(),
+                    )),
+                    TypeSignature::UIntType,
+                )
+                .unwrap(),
+            )),
+        ),
+        (
+            "(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)",
+            "standard principal",
+            Ok(Some(
+                TypeSignature::new_response(
+                    TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                        BufferLength::try_from(32u32).unwrap(),
+                    )),
+                    TypeSignature::UIntType,
+                )
+                .unwrap(),
+            )),
+        ),
+        (
+            "(contract-hash? 123)",
+            "int type",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::IntType,
+            )),
+        ),
+        (
+            "(contract-hash? u123)",
+            "uint type",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::UIntType,
+            )),
+        ),
+        (
+            "(contract-hash? true)",
+            "bool type",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::BoolType,
+            )),
+        ),
+        (
+            "(contract-hash? 0x1234)",
+            "buffer type",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                    BufferLength::try_from(2u32).unwrap(),
+                )),
+            )),
+        ),
+        (
+            "(contract-hash? \"60 percent of the time, it works every time\")",
+            "ascii string",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+                    BufferLength::try_from(43u32).unwrap(),
+                ))),
+            )),
+        ),
+        (
+            "(contract-hash? u\"I am serious, and don't call me Shirley.\")",
+            "utf8 string",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+                    StringUTF8Length::try_from(40u32).unwrap(),
+                ))),
+            )),
+        ),
+        (
+            "(contract-hash? (list 1 2 3))",
+            "list type",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::SequenceType(SequenceSubtype::ListType(
+                    ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
+                )),
+            )),
+        ),
+        (
+            "(contract-hash? { a: 1, b: u2 })",
+            "tuple type",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::TupleType(
+                    vec![
+                        (ClarityName::from("a"), TypeSignature::IntType),
+                        (ClarityName::from("b"), TypeSignature::UIntType),
+                    ]
+                    .try_into()
+                    .unwrap(),
+                ),
+            )),
+        ),
+        (
+            "(contract-hash? (some u789))",
+            "optional type",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
+            )),
+        ),
+        (
+            "(contract-hash? (ok true))",
+            "response type",
+            Err(CheckErrors::TypeError(
+                TypeSignature::PrincipalType,
+                TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
+                    .unwrap(),
+            )),
+        ),
+    ];
+
+    for (source, description, clarity4_expected) in test_cases.iter() {
+        let result = mem_run_analysis(source, version, epoch);
+        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| e.err);
+
+        let expected = if version >= ClarityVersion::Clarity4 {
+            clarity4_expected
+        } else {
+            &Err(CheckErrors::UnknownFunction("contract-hash?".to_string()))
+        };
+
+        assert_eq!(&actual, expected, "Failed for test case: {description}");
+    }
 }
