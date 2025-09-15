@@ -108,7 +108,7 @@ pub enum RuntimeErrorType {
     DefunctPoxContract,
     PoxAlreadyLocked,
     MetadataAlreadySet,
-    BlockTimeNotFound,
+    BlockTimeNotAvailable,
 }
 
 #[derive(Debug, PartialEq)]

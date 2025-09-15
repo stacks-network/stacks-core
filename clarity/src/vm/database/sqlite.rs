@@ -357,10 +357,6 @@ impl ClarityBackingStore for MemoryBackingStore {
         1
     }
 
-    fn get_current_block_time(&mut self) -> Result<u64> {
-        Ok(1)
-    }
-
     fn get_cc_special_cases_handler(&self) -> Option<SpecialCaseHandler> {
         None
     }

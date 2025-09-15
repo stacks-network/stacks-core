@@ -3431,7 +3431,6 @@ impl NakamotoChainState {
             &index_block_hash,
             &marf_keys,
             &marf_values,
-            Some(new_tip.timestamp),
         )?;
         test_debug!("Headers index_indexed_all finished {parent_hash}-{index_block_hash}");
 
@@ -4023,7 +4022,6 @@ impl NakamotoChainState {
             parent_header_hash,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
-            timestamp,
         );
 
         // now that we have access to the ClarityVM, we can account for reward deductions from
@@ -4041,6 +4039,22 @@ impl NakamotoChainState {
             .flatten();
 
         clarity_tx.reset_cost(initial_cost);
+
+        // Setup block metadata in Clarity storage
+        clarity_tx
+            .connection()
+            .as_free_transaction(|clarity_tx_conn| {
+                clarity_tx_conn.with_clarity_db(|db| {
+                    db.setup_block_metadata(timestamp)?;
+                    Ok(())
+                })
+            })
+            .inspect_err(|e| {
+                error!("Failed to setup block metadata during block setup";
+                    "error" => ?e,
+                    "timestamp" => timestamp,
+                );
+            })?;
 
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
@@ -4069,11 +4083,10 @@ impl NakamotoChainState {
                         Ok(())
                     })
                 })
-                .map_err(|e| {
+                .inspect_err(|e| {
                     error!("Failed to set tenure height during block setup";
                         "error" => ?e,
                     );
-                    e
                 })?;
         }
 

@@ -90,14 +90,20 @@ fn new_block<'a, 'b>(
     header_db: &'b dyn HeadersDB,
     burn_state_db: &'b dyn BurnStateDB,
 ) -> ClarityBlockConnection<'a, 'b> {
-    let mut block = clarity.begin_block(current, next, header_db, burn_state_db, None);
+    let mut block = clarity.begin_block(current, next, header_db, burn_state_db);
     block.as_free_transaction(|tx_conn| {
         tx_conn
             .with_clarity_db(|db| {
-                if db.get_clarity_epoch_version().unwrap() >= StacksEpochId::Epoch30 {
+                let epoch = db.get_clarity_epoch_version().unwrap();
+                if epoch.uses_nakamoto_blocks() {
                     let tenure_height = db.get_tenure_height().unwrap_or(0);
                     db.set_tenure_height(tenure_height + 1).unwrap();
                 }
+                if epoch.uses_marfed_block_time() {
+                    db.setup_block_metadata(Some(get_epoch_time_secs()))
+                        .unwrap();
+                }
+
                 Ok(())
             })
             .unwrap();

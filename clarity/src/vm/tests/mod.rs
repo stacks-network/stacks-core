@@ -47,6 +47,15 @@ impl OwnedEnvironment<'_, '_> {
             .unwrap();
         self.context.database.commit().unwrap();
     }
+
+    pub fn setup_block_metadata(&mut self, block_time: u64) {
+        self.context.database.begin();
+        self.context
+            .database
+            .setup_block_metadata(Some(block_time))
+            .unwrap();
+        self.context.database.commit().unwrap();
+    }
 }
 
 macro_rules! epochs_template {
@@ -189,6 +198,11 @@ impl MemoryEnvironmentGenerator {
             db.set_tenure_height(1).unwrap();
             db.commit().unwrap();
         }
+        if epoch.uses_marfed_block_time() {
+            db.begin();
+            db.setup_block_metadata(Some(1)).unwrap();
+            db.commit().unwrap();
+        }
         let mut owned_env = OwnedEnvironment::new(db, epoch);
         // start an initial transaction.
         owned_env.begin();
@@ -206,6 +220,11 @@ impl TopLevelMemoryEnvironmentGenerator {
         if epoch.clarity_uses_tip_burn_block() {
             db.begin();
             db.set_tenure_height(1).unwrap();
+            db.commit().unwrap();
+        }
+        if epoch.uses_marfed_block_time() {
+            db.begin();
+            db.setup_block_metadata(Some(1)).unwrap();
             db.commit().unwrap();
         }
         OwnedEnvironment::new(db, epoch)

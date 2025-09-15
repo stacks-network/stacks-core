@@ -81,11 +81,6 @@ pub trait ClarityBackingStore {
     ///   return data about the chain tip that is currently open for writing.
     fn get_current_block_height(&mut self) -> u32;
 
-    /// this function returns the current block's timestamp, as viewed by this marfed-kv structure,
-    ///  i.e., it changes on time-shifted evaluation. the open_chain_tip functions always
-    ///   return data about the chain tip that is currently open for writing.
-    fn get_current_block_time(&mut self) -> Result<u64>;
-
     fn get_open_chain_tip_height(&mut self) -> u32;
     fn get_open_chain_tip(&mut self) -> StacksBlockId;
 
@@ -245,10 +240,6 @@ impl ClarityBackingStore for NullBackingStore {
 
     fn get_current_block_height(&mut self) -> u32 {
         panic!("NullBackingStore can't get current block height")
-    }
-
-    fn get_current_block_time(&mut self) -> Result<u64> {
-        panic!("NullBackingStore can't get current block time")
     }
 
     fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {

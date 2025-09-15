@@ -6196,7 +6196,6 @@ impl SortitionHandleTx<'_> {
                 &snapshot.sortition_id,
                 &keys,
                 &values,
-                None,
             )?
         } else {
             TrieHash([0x00; 32])

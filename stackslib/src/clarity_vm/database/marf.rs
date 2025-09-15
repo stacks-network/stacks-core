@@ -194,7 +194,6 @@ impl MarfedKV {
         &'a mut self,
         current: &StacksBlockId,
         next: &StacksBlockId,
-        timestamp: Option<u64>,
     ) -> WritableMarfStore<'a> {
         let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
             panic!(
@@ -202,7 +201,7 @@ impl MarfedKV {
                 current, next
             )
         });
-        tx.begin(current, next, timestamp).unwrap_or_else(|_| {
+        tx.begin(current, next).unwrap_or_else(|_| {
             panic!(
                 "ERROR: Failed to begin new MARF block {} - {})",
                 current, next
@@ -355,27 +354,6 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             Err(e) => {
                 let msg = format!(
                     "Unexpected MARF failure: Failed to get current block height of {}: {:?}",
-                    &self.chain_tip, &e
-                );
-                error!("{}", &msg);
-                panic!("{}", &msg);
-            }
-        }
-    }
-
-    fn get_current_block_time(&mut self) -> InterpreterResult<u64> {
-        match self
-            .marf
-            .get_block_time_of(&self.chain_tip, &self.chain_tip)
-        {
-            Ok(Some(x)) => Ok(x),
-            Ok(None) => {
-                debug!("Failed to obtain current block time of {}", &self.chain_tip);
-                Err(RuntimeErrorType::BlockTimeNotFound.into())
-            }
-            Err(e) => {
-                let msg = format!(
-                    "Unexpected MARF failure: Failed to get current block time of {}: {:?}",
                     &self.chain_tip, &e
                 );
                 error!("{}", &msg);
@@ -830,27 +808,6 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
             Err(e) => {
                 let msg = format!(
                     "Unexpected MARF failure: Failed to get current block height of {}: {:?}",
-                    &self.chain_tip, &e
-                );
-                error!("{}", &msg);
-                panic!("{}", &msg);
-            }
-        }
-    }
-
-    fn get_current_block_time(&mut self) -> InterpreterResult<u64> {
-        match self
-            .marf
-            .get_block_time_of(&self.chain_tip, &self.chain_tip)
-        {
-            Ok(Some(x)) => Ok(x),
-            Ok(None) => {
-                debug!("Failed to obtain current block time of {}", &self.chain_tip);
-                Err(RuntimeErrorType::BlockTimeNotFound.into())
-            }
-            Err(e) => {
-                let msg = format!(
-                    "Unexpected MARF failure: Failed to get current block time of {}: {:?}",
                     &self.chain_tip, &e
                 );
                 error!("{}", &msg);

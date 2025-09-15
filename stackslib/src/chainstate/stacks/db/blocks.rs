@@ -5031,7 +5031,6 @@ impl StacksChainState {
             parent_header_hash,
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
-            None,
         );
 
         clarity_tx.reset_cost(parent_block_cost.clone());

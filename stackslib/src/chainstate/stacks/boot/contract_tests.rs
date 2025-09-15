@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use clarity::util::get_epoch_time_secs;
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
 use clarity::vm::ast::ASTRules;
@@ -107,7 +108,6 @@ impl ClarityTestSim {
             let mut store = marf.begin(
                 &StacksBlockId::sentinel(),
                 &StacksBlockId(test_sim_height_to_hash(0, 0)),
-                None,
             );
 
             let mut db = store.as_clarity_db(&TEST_HEADER_DB, &TEST_BURN_STATE_DB);
@@ -145,7 +145,6 @@ impl ClarityTestSim {
             let mut store = self.marf.begin(
                 &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
                 &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-                None,
             );
 
             self.block_height += 1;
@@ -173,6 +172,14 @@ impl ClarityTestSim {
                     .expect("FAIL: unable to commit tenure height in Clarity database");
             }
 
+            if cur_epoch.uses_marfed_block_time() {
+                db.begin();
+                db.setup_block_metadata(Some(get_epoch_time_secs()))
+                    .expect("FAIL: unable to set block time in Clarity database");
+                db.commit()
+                    .expect("FAIL: unable to commit block time in Clarity database");
+            }
+
             let mut block_conn =
                 ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
             let r = f(&mut block_conn);
@@ -198,7 +205,6 @@ impl ClarityTestSim {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-            None,
         );
 
         self.block_height += 1;
@@ -227,6 +233,15 @@ impl ClarityTestSim {
                 db.commit()
                     .expect("FAIL: unable to commit tenure height in Clarity database");
             }
+
+            if cur_epoch.uses_marfed_block_time() {
+                db.begin();
+                db.setup_block_metadata(Some(get_epoch_time_secs()))
+                    .expect("FAIL: unable to set block time in Clarity database");
+                db.commit()
+                    .expect("FAIL: unable to commit block time in Clarity database");
+            }
+
             let mut owned_env = OwnedEnvironment::new_toplevel(db);
             f(&mut owned_env)
         };
@@ -274,7 +289,6 @@ impl ClarityTestSim {
         let mut store = self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(parent_height + 1, self.fork + 1)),
-            None,
         );
 
         let r = {
