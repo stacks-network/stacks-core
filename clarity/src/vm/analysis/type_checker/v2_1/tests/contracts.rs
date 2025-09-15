@@ -3682,85 +3682,54 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
 /// Pass various types to `to-ascii?`
 #[apply(test_clarity_versions)]
 fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let to_ascii_response_type = Some(
+        TypeSignature::new_response(TO_ASCII_RESPONSE_STRING.clone(), TypeSignature::UIntType)
+            .unwrap(),
+    );
+    let to_ascii_expected_types = vec![
+        TypeSignature::IntType,
+        TypeSignature::UIntType,
+        TypeSignature::BoolType,
+        TypeSignature::PrincipalType,
+        TO_ASCII_MAX_BUFF.clone(),
+        TypeSignature::max_string_utf8().unwrap(),
+    ];
     let test_cases = [
         (
             "(to-ascii? 123)",
             "int type",
-            Ok(Some(
-                TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            )),
+            Ok(to_ascii_response_type.clone()),
         ),
         (
             "(to-ascii? u123)",
             "uint type",
-            Ok(Some(
-                TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            )),
+            Ok(to_ascii_response_type.clone()),
         ),
         (
             "(to-ascii? true)",
             "bool type",
-            Ok(Some(
-                TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            )),
+            Ok(to_ascii_response_type.clone()),
         ),
         (
             "(to-ascii? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)",
             "standard principal",
-            Ok(Some(
-                TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            )),
+            Ok(to_ascii_response_type.clone()),
         ),
         (
             "(to-ascii? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)",
             "contract principal",
-            Ok(Some(
-                TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            )),
+            Ok(to_ascii_response_type.clone()),
         ),
         (
             "(to-ascii? 0x1234)",
             "buffer type",
-            Ok(Some(
-                TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            )),
+            Ok(to_ascii_response_type.clone()),
         ),
         (
             &format!("(to-ascii? 0x{})", "ff".repeat(524285)),
             "oversized buffer type",
             Err(CheckErrors::UnionTypeError(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                    TypeSignature::BoolType,
-                    TypeSignature::PrincipalType,
-                    TO_ASCII_MAX_BUFF.clone(),
-                    TypeSignature::max_string_utf8().unwrap(),
-                ],
+                to_ascii_expected_types.clone(),
                 TypeSignature::SequenceType(SequenceSubtype::BufferType(
                     BufferLength::try_from(524285u32).unwrap(),
                 )),
@@ -3769,26 +3738,13 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         (
             "(to-ascii? u\"I am serious, and don't call me Shirley.\")",
             "utf8 string",
-            Ok(Some(
-                TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
-                    TypeSignature::UIntType,
-                )
-                .unwrap(),
-            )),
+            Ok(to_ascii_response_type),
         ),
         (
             "(to-ascii? \"60 percent of the time, it works every time\")",
             "ascii string",
             Err(CheckErrors::UnionTypeError(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                    TypeSignature::BoolType,
-                    TypeSignature::PrincipalType,
-                    TO_ASCII_MAX_BUFF.clone(),
-                    TypeSignature::max_string_utf8().unwrap(),
-                ],
+                to_ascii_expected_types.clone(),
                 TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
                     BufferLength::try_from(43u32).unwrap(),
                 ))),
@@ -3798,14 +3754,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "(to-ascii? (list 1 2 3))",
             "list type",
             Err(CheckErrors::UnionTypeError(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                    TypeSignature::BoolType,
-                    TypeSignature::PrincipalType,
-                    TO_ASCII_MAX_BUFF.clone(),
-                    TypeSignature::max_string_utf8().unwrap(),
-                ],
+                to_ascii_expected_types.clone(),
                 TypeSignature::SequenceType(SequenceSubtype::ListType(
                     ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
                 )),
@@ -3815,14 +3764,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "(to-ascii? { a: 1, b: u2 })",
             "tuple type",
             Err(CheckErrors::UnionTypeError(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                    TypeSignature::BoolType,
-                    TypeSignature::PrincipalType,
-                    TO_ASCII_MAX_BUFF.clone(),
-                    TypeSignature::max_string_utf8().unwrap(),
-                ],
+                to_ascii_expected_types.clone(),
                 TypeSignature::TupleType(
                     vec![
                         (ClarityName::from("a"), TypeSignature::IntType),
@@ -3837,14 +3779,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "(to-ascii? (some u789))",
             "optional type",
             Err(CheckErrors::UnionTypeError(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                    TypeSignature::BoolType,
-                    TypeSignature::PrincipalType,
-                    TO_ASCII_MAX_BUFF.clone(),
-                    TypeSignature::max_string_utf8().unwrap(),
-                ],
+                to_ascii_expected_types.clone(),
                 TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
             )),
         ),
@@ -3852,14 +3787,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "(to-ascii? (ok true))",
             "response type",
             Err(CheckErrors::UnionTypeError(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                    TypeSignature::BoolType,
-                    TypeSignature::PrincipalType,
-                    TO_ASCII_MAX_BUFF.clone(),
-                    TypeSignature::max_string_utf8().unwrap(),
-                ],
+                to_ascii_expected_types.clone(),
                 TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
                     .unwrap(),
             )),
