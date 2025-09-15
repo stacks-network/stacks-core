@@ -1102,7 +1102,7 @@ paths:
       operationId: getTenureBlocksByHash
       description: |
         Get the list of Nakamoto blocks in a tenure given the Bitcoin block hash. The blocks will be
-        shown in order from highest to lowest.
+        shown in order from highest to lowest. This is only for Nakamoto blocks, Epoch2 ones will not be shown.
       parameters:
         - name: burnchain_block_hash
           in: path
@@ -1136,7 +1136,7 @@ paths:
       operationId: getTenureBlocksByHeight
       description: |
         Get the list of Nakamoto blocks in a tenure given the Bitcoin block height. The blocks will be
-        shown in order from highest to lowest.
+        shown in order from highest to lowest. This is only for Nakamoto blocks, Epoch2 ones will not be shown.
       parameters:
         - name: burnchain_block_height
           in: path
