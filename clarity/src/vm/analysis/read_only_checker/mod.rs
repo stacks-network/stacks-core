@@ -16,8 +16,8 @@
 
 use std::collections::HashMap;
 
-use clarity_serialization::representations::ClarityName;
-use clarity_serialization::types::{PrincipalData, Value};
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{

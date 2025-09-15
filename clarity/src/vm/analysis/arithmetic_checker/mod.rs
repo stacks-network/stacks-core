@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_serialization::representations::ClarityName;
+use clarity_types::representations::ClarityName;
 
 pub use super::errors::{
     check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,

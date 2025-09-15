@@ -1,1 +1,1 @@
-pub use clarity_serialization::token::{PlacedToken, Token};
+pub use clarity_types::token::{PlacedToken, Token};
