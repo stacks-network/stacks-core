@@ -14,8 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_serialization::representations::ClarityName;
-use clarity_serialization::types::TypeSignature;
+use clarity_types::representations::ClarityName;
+use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
 use super::{

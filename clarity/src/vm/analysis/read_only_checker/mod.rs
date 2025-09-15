@@ -16,8 +16,8 @@
 
 use std::collections::HashMap;
 
-use clarity_serialization::representations::ClarityName;
-use clarity_serialization::types::{PrincipalData, Value};
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{
@@ -295,7 +295,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
             | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice | ReplaceAt
             | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift | BitwiseXor2
-            | ElementAtAlias | IndexOfAlias | ContractHash => {
+            | ElementAtAlias | IndexOfAlias | ContractHash | ToAscii => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }

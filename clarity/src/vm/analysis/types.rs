@@ -16,8 +16,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use clarity_serialization::representations::ClarityName;
-use clarity_serialization::types::{QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::analysis_db::AnalysisDatabase;

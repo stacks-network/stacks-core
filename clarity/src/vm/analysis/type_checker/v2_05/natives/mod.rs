@@ -780,7 +780,7 @@ impl TypedNativeFunction {
             | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash => {
+            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash | ToAscii => {
                 return Err(CheckErrors::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
                 ));
