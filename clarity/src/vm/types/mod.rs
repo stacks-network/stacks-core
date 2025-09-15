@@ -19,7 +19,7 @@ pub mod signatures;
 
 use std::str;
 
-pub use clarity_serialization::types::{
+pub use clarity_types::types::{
     byte_len_of_serialization, ASCIIData, BuffData, CallableData, CharType, ContractIdentifier,
     ListData, OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, SequenceData,
     SequencedValue, StacksAddressExtensions, TraitIdentifier, TupleData, UTF8Data, Value,
@@ -38,7 +38,7 @@ pub use crate::vm::types::signatures::{
 use crate::vm::ClarityVersion;
 
 mod std_principals {
-    pub use clarity_serialization::types::StandardPrincipalData;
+    pub use clarity_types::types::StandardPrincipalData;
 }
 
 // Properties for "get-block-info".
