@@ -22,13 +22,13 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
+    ClarityVersion, ContractContext,
     analysis::type_checker::v2_1::tests::contracts::type_check_version,
-    ast::{parse, ASTRules},
+    ast::{ASTRules, parse},
     database::MemoryBackingStore,
     errors::{CheckErrors, Error},
-    tests::{tl_env_factory, TopLevelMemoryEnvironmentGenerator},
+    tests::{TopLevelMemoryEnvironmentGenerator, tl_env_factory},
     types::{PrincipalData, QualifiedContractIdentifier, Value},
-    ClarityVersion, ContractContext,
 };
 
 #[apply(test_clarity_versions)]
@@ -1155,8 +1155,6 @@ fn test_current_contract(
     } else {
         assert!(analysis.is_ok());
     }
-
-    println!("epoch: {epoch}, version: {version}");
 
     // Initialize the contract
     // Note that we're ignoring the analysis failure here so that we can test
