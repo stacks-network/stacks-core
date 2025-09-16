@@ -18,8 +18,8 @@ use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_05::{
-    check_argument_count, check_arguments_at_least, CheckErrors, CheckResult, TypeChecker,
-    TypeResult, TypingContext,
+    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, TypeChecker,
+    TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
@@ -34,7 +34,7 @@ use crate::vm::ClarityVersion;
 fn get_simple_native_or_user_define(
     function_name: &str,
     checker: &mut TypeChecker,
-) -> CheckResult<FunctionType> {
+) -> Result<FunctionType, CheckError> {
     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
     if let Some(ref native_function) =
         NativeFunctions::lookup_by_name_at_version(function_name, &ClarityVersion::Clarity1)
@@ -57,7 +57,7 @@ pub fn check_special_map(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
     let function_name = args[0]
@@ -114,7 +114,7 @@ pub fn check_special_filter(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let function_name = args[0]
@@ -152,7 +152,7 @@ pub fn check_special_fold(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(3, args)?;
 
     let function_name = args[0]
@@ -199,7 +199,7 @@ pub fn check_special_concat(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let lhs_type = checker.type_check(&args[0], context)?;
@@ -260,7 +260,7 @@ pub fn check_special_append(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
@@ -292,7 +292,7 @@ pub fn check_special_as_max_len(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let expected_len = match args[1].expr {
@@ -345,7 +345,7 @@ pub fn check_special_len(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let collection_type = checker.type_check(&args[0], context)?;
@@ -363,7 +363,7 @@ pub fn check_special_element_at(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let _index_type = checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
@@ -399,7 +399,7 @@ pub fn check_special_index_of(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;

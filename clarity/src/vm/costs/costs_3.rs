@@ -767,4 +767,8 @@ impl CostValues for Costs3 {
     fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost> {
         Err(RuntimeErrorType::NotImplemented.into())
     }
+
+    fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeErrorType::NotImplemented.into())
+    }
 }

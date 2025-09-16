@@ -139,7 +139,7 @@ dependencies = [
 name = "clarity"
 version = "0.0.1"
 dependencies = [
- "clarity-serialization",
+ "clarity-types",
  "integer-sqrt",
  "lazy_static",
  "regex",
@@ -153,7 +153,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "clarity-serialization"
+name = "clarity-types"
 version = "0.0.1"
 dependencies = [
  "lazy_static",

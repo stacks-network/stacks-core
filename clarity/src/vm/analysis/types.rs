@@ -16,13 +16,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use clarity_serialization::representations::ClarityName;
-use clarity_serialization::types::{QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier, TypeSignature};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
 use crate::vm::analysis::contract_interface_builder::ContractInterface;
-use crate::vm::analysis::errors::{CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckError, CheckErrors};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::types::signatures::FunctionSignature;
@@ -39,7 +39,7 @@ pub trait AnalysisPass {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-    ) -> CheckResult<()>;
+    ) -> Result<(), CheckError>;
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -230,7 +230,7 @@ impl ContractAnalysis {
         epoch: &StacksEpochId,
         trait_identifier: &TraitIdentifier,
         trait_definition: &BTreeMap<ClarityName, FunctionSignature>,
-    ) -> CheckResult<()> {
+    ) -> Result<(), CheckError> {
         let trait_name = trait_identifier.name.to_string();
 
         for (func_name, expected_sig) in trait_definition.iter() {

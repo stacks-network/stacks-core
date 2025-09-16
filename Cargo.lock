@@ -584,7 +584,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
- "clarity-serialization",
+ "clarity-types",
  "integer-sqrt",
  "lazy_static",
  "mutants",
@@ -625,7 +625,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "clarity-serialization"
+name = "clarity-types"
 version = "0.0.1"
 dependencies = [
  "lazy_static",
