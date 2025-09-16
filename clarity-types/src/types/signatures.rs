@@ -971,26 +971,43 @@ impl TypeSignature {
         }
     }
 
-    /// This function returns the most-restrictive type that admits _both_ A and B (something like a least common supertype),
-    /// or Errors if no such type exists. On error, it throws NoSuperType(A,B), unless a constructor error'ed -- in which case,
-    /// it throws the constructor's error.
+    /// Returns the most-restrictive type that admits _both_ A and B (something like a least common supertype),
+    /// or Errors if no such type exists. On error, it throws TypeError(A,B), unless a constructor error'ed,
+    /// in which case, it throws SupertypeTooLarge.
     ///
-    ///  For two Tuples:
-    ///      least_supertype(A, B) := (tuple \for_each(key k) least_supertype(type_a_k, type_b_k))
-    ///  For two Lists:
-    ///      least_supertype(A, B) := (list max_len: max(max_len A, max_len B), entry: least_supertype(entry_a, entry_b))
-    ///        if max_len A | max_len B is 0: entry := Non-empty list entry
-    ///  For two responses:
-    ///      least_supertype(A, B) := (response least_supertype(ok_a, ok_b), least_supertype(err_a, err_b))
-    ///        if any entries are NoType, use the other type's entry
-    ///  For two options:
-    ///      least_supertype(A, B) := (option least_supertype(some_a, some_b))
-    ///        if some_a | some_b is NoType, use the other type's entry.
-    ///  For buffers:
-    ///      least_supertype(A, B) := (buff len: max(len A, len B))
-    ///  For ints, uints, principals, bools:
-    ///      least_supertype(A, B) := if A != B, error, else A
+    /// The behavior varies by epoch:
+    /// - Epoch 2.0/2.05: Uses [`TypeSignature::least_supertype_v2_0`]
+    /// - Epoch 2.1+: Uses [`TypeSignature::least_supertype_v2_1`], Adds support for CallableTypes and ListUnionTypes
     ///
+    /// For two Tuples:
+    ///     least_supertype(A, B) := (tuple \for_each(key k) least_supertype(type_a_k, type_b_k))
+    ///     Note: `A`'s keys must be a subset of `B`'s.
+    /// For two Lists:
+    ///     least_supertype(A, B) := (list max_len: max(max_len A, max_len B), entry: least_supertype(entry_a, entry_b))
+    ///     If max_len A | max_len B is 0: entry := Non-empty list entry
+    /// For two Responses:
+    ///     least_supertype(A, B) := (response least_supertype(ok_a, ok_b), least_supertype(err_a, err_b))
+    ///     If any entries are NoType, use the other type's entry
+    /// For two Options:
+    ///     least_supertype(A, B) := (option least_supertype(some_a, some_b))
+    ///     If some_a | some_b is NoType, use the other type's entry
+    /// For Buffers:
+    ///     least_supertype(A, B) := (buff len: max(len A, len B))
+    /// For ASCII/UTF8 Strings:
+    ///     least_supertype(A, B) := (string len: max(len A, len B))
+    ///     Note: ASCII and UTF8 strings cannot be unified
+    /// For NoType:
+    ///     least_supertype(NoType, X) := X
+    /// For CallableTypes (v2.1+ only):
+    ///     - Two identical CallableTypes unify to themselves
+    ///     - Two different CallableTypes unify to a ListUnionType containing both
+    ///     - CallableType and ListUnionType unify by adding the callable to the union
+    ///     - Principal type unifies with CallableSubtype::Principal(_) to PrincipalType
+    ///     - Principal type unifies with ListUnionType if all members are principals
+    /// For ListUnionTypes (v2.1+ only):
+    ///     least_supertype(A, B) := ListUnionType with the union of both sets
+    /// For other types (ints, uints, principals, bools):
+    ///     least_supertype(A, B) := if A != B, error, else A
     pub fn least_supertype(
         epoch: &StacksEpochId,
         a: &TypeSignature,
