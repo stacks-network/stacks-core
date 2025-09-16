@@ -28,7 +28,7 @@ use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
@@ -280,10 +280,43 @@ pub mod request {
         Ok(ch)
     }
 
+    /// Get and parse a BurnchainHeaderHash from a path's captures, given the name of the regex field.
+    pub fn get_burnchain_header_hash(
+        captures: &Captures,
+        key: &str,
+    ) -> Result<BurnchainHeaderHash, HttpError> {
+        let ch = if let Some(ch_str) = captures.name(key) {
+            match BurnchainHeaderHash::from_hex(ch_str.as_str()) {
+                Ok(ch) => ch,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(ch)
+    }
+
     /// Get and parse a u32 from a path's captures, given the name of the regex field.
     pub fn get_u32(captures: &Captures, key: &str) -> Result<u32, HttpError> {
         let u = if let Some(u32_str) = captures.name(key) {
             match u32_str.as_str().parse::<u32>() {
+                Ok(x) => x,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(u)
+    }
+
+    /// Get and parse a u64 from a path's captures, given the name of the regex field.
+    pub fn get_u64(captures: &Captures, key: &str) -> Result<u64, HttpError> {
+        let u = if let Some(u64_str) = captures.name(key) {
+            match u64_str.as_str().parse::<u64>() {
                 Ok(x) => x,
                 Err(_e) => {
                     return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
