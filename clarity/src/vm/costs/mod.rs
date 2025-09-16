@@ -17,8 +17,8 @@
 use std::collections::HashMap;
 use std::{cmp, fmt};
 
-pub use clarity_serialization::errors::CostErrors;
-pub use clarity_serialization::execution_cost::{CostOverflowingMath, ExecutionCost};
+pub use clarity_types::errors::CostErrors;
+pub use clarity_types::execution_cost::{CostOverflowingMath, ExecutionCost};
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;

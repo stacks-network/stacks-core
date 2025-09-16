@@ -26,6 +26,8 @@ use crate::vm::database::MemoryBackingStore;
 
 mod assets;
 mod contracts;
+#[cfg(test)]
+mod conversions;
 mod datamaps;
 mod defines;
 mod principals;
@@ -83,12 +85,12 @@ macro_rules! epochs_template {
 }
 
 macro_rules! clarity_template {
-    ($(($epoch:ident, $clarity:ident),)*) => {
+    ($($case_name:ident: ($epoch:ident, $clarity:ident),)*) => {
         #[template]
         #[export]
         #[rstest]
         $(
-            #[case::$epoch(ClarityVersion::$clarity, StacksEpochId::$epoch)]
+            #[case::$case_name(ClarityVersion::$clarity, StacksEpochId::$epoch)]
         )*
         pub fn test_clarity_versions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
@@ -149,31 +151,31 @@ epochs_template! {
 }
 
 clarity_template! {
-    (Epoch20, Clarity1),
-    (Epoch2_05, Clarity1),
-    (Epoch21, Clarity1),
-    (Epoch21, Clarity2),
-    (Epoch22, Clarity1),
-    (Epoch22, Clarity2),
-    (Epoch23, Clarity1),
-    (Epoch23, Clarity2),
-    (Epoch24, Clarity1),
-    (Epoch24, Clarity2),
-    (Epoch25, Clarity1),
-    (Epoch25, Clarity2),
-    (Epoch30, Clarity1),
-    (Epoch30, Clarity2),
-    (Epoch30, Clarity3),
-    (Epoch31, Clarity1),
-    (Epoch31, Clarity2),
-    (Epoch31, Clarity3),
-    (Epoch32, Clarity1),
-    (Epoch32, Clarity2),
-    (Epoch32, Clarity3),
-    (Epoch33, Clarity1),
-    (Epoch33, Clarity2),
-    (Epoch33, Clarity3),
-    (Epoch33, Clarity4),
+    Epoch20_Clarity1: (Epoch20, Clarity1),
+    Epoch2_05_Clarity1: (Epoch2_05, Clarity1),
+    Epoch21_Clarity1: (Epoch21, Clarity1),
+    Epoch21_Clarity2: (Epoch21, Clarity2),
+    Epoch22_Clarity1: (Epoch22, Clarity1),
+    Epoch22_Clarity2: (Epoch22, Clarity2),
+    Epoch23_Clarity1: (Epoch23, Clarity1),
+    Epoch23_Clarity2: (Epoch23, Clarity2),
+    Epoch24_Clarity1: (Epoch24, Clarity1),
+    Epoch24_Clarity2: (Epoch24, Clarity2),
+    Epoch25_Clarity1: (Epoch25, Clarity1),
+    Epoch25_Clarity2: (Epoch25, Clarity2),
+    Epoch30_Clarity1: (Epoch30, Clarity1),
+    Epoch30_Clarity2: (Epoch30, Clarity2),
+    Epoch30_Clarity3: (Epoch30, Clarity3),
+    Epoch31_Clarity1: (Epoch31, Clarity1),
+    Epoch31_Clarity2: (Epoch31, Clarity2),
+    Epoch31_Clarity3: (Epoch31, Clarity3),
+    Epoch32_Clarity1: (Epoch32, Clarity1),
+    Epoch32_Clarity2: (Epoch32, Clarity2),
+    Epoch32_Clarity3: (Epoch32, Clarity3),
+    Epoch33_Clarity1: (Epoch33, Clarity1),
+    Epoch33_Clarity2: (Epoch33, Clarity2),
+    Epoch33_Clarity3: (Epoch33, Clarity3),
+    Epoch33_Clarity4: (Epoch33, Clarity4),
 }
 
 #[fixture]

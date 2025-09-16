@@ -21,6 +21,7 @@
 use super::cost_functions::CostValues;
 use super::costs_3::Costs3;
 use super::ExecutionCost;
+use crate::vm::costs::cost_functions::linear;
 use crate::vm::errors::InterpreterResult;
 
 pub struct Costs4;
@@ -454,5 +455,10 @@ impl CostValues for Costs4 {
             read_count: 1,
             read_length: 32,
         })
+    }
+
+    fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
+        // TODO: needs criterion benchmark
+        Ok(ExecutionCost::runtime(linear(n, 1, 100)))
     }
 }
