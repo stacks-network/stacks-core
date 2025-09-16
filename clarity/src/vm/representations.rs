@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub use clarity_serialization::representations::{
+pub use clarity_types::representations::{
     depth_traverse, ClarityName, ContractName, PreSymbolicExpression, PreSymbolicExpressionType,
     Span, SymbolicExpression, SymbolicExpressionCommon, SymbolicExpressionType, TraitDefinition,
     CLARITY_NAME_REGEX, CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH,

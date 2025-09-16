@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -65,8 +64,7 @@ use stacks_common::deps_common::bitcoin::blockdata::script::{Builder, Script};
 use stacks_common::deps_common::bitcoin::blockdata::transaction::{
     OutPoint, Transaction, TxIn, TxOut,
 };
-use stacks_common::deps_common::bitcoin::network::encodable::ConsensusEncodable;
-use stacks_common::deps_common::bitcoin::network::serialize::RawEncoder;
+use stacks_common::deps_common::bitcoin::network::serialize::{serialize, serialize_hex};
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::net::PeerHost;
@@ -983,10 +981,7 @@ impl BitcoinRegtestController {
                 self.build_transfer_stacks_tx(epoch_id, payload, op_signer, utxo)
             }
         }?;
-
-        let ser_transaction = SerializedTx::new(transaction.clone());
-
-        self.send_transaction(ser_transaction).map(|_| transaction)
+        self.send_transaction(&transaction).map(|_| transaction)
     }
 
     #[cfg(test)]
@@ -1511,16 +1506,13 @@ impl BitcoinRegtestController {
             signer,
             true, // block commit op requires change output to exist
         );
-
-        let serialized_tx = SerializedTx::new(tx.clone());
-
-        let tx_size = serialized_tx.bytes.len() as u64;
-        estimated_fees.register_replacement(tx_size);
-        let mut txid = tx.txid().as_bytes().to_vec();
-        txid.reverse();
-
         debug!("Transaction relying on UTXOs: {utxos:?}");
-        let txid = Txid::from_bytes(&txid[..]).unwrap();
+
+        let serialized_tx = serialize(&tx).expect("BUG: failed to serialize to a vec");
+        let tx_size = serialized_tx.len() as u64;
+        estimated_fees.register_replacement(tx_size);
+
+        let txid = Txid::from_bitcoin_tx_hash(&tx.txid());
         let mut txids = previous_txids.to_vec();
         txids.push(txid.clone());
         let ongoing_block_commit = OngoingBlockCommit {
@@ -1787,8 +1779,8 @@ impl BitcoinRegtestController {
                 signer,
                 force_change_output,
             );
-            let serialized_tx = SerializedTx::new(tx_cloned);
-            cmp::max(min_tx_size, serialized_tx.bytes.len() as u64)
+            let serialized_tx = serialize(&tx_cloned).expect("BUG: failed to serialize to a vec");
+            cmp::max(min_tx_size, serialized_tx.len() as u64)
         };
 
         let rbf_fee = if spent_in_rbf == 0 {
@@ -1928,18 +1920,30 @@ impl BitcoinRegtestController {
         true
     }
 
-    /// Send a serialized tx to the Bitcoin node.  Return Some(txid) on successful send; None on
-    /// failure.
-    pub fn send_transaction(
-        &self,
-        transaction: SerializedTx,
-    ) -> Result<Txid, BurnchainControllerError> {
-        debug!("Sending raw transaction: {}", transaction.to_hex());
+    /// Broadcast a signed raw [`Transaction`] to the underlying Bitcoin node.
+    ///
+    /// The transaction is submitted with following parameters:
+    /// - `max_fee_rate = 0.0` (uncapped, accept any fee rate),
+    /// - `max_burn_amount = 1_000_000` (in sats).
+    ///
+    /// # Arguments
+    /// * `transaction` - A fully signed raw [`Transaction`] to broadcast.
+    ///
+    /// # Returns
+    /// On success, returns the [`Txid`] of the broadcasted transaction.
+    pub fn send_transaction(&self, tx: &Transaction) -> Result<Txid, BurnchainControllerError> {
+        debug!(
+            "Sending raw transaction: {}",
+            serialize_hex(tx).unwrap_or("SERIALIZATION FAILED".to_string())
+        );
 
-        BitcoinRPCRequest::send_raw_transaction(&self.config, transaction.to_hex())
-            .map(|_| {
-                debug!("Transaction {} sent successfully", &transaction.txid());
-                transaction.txid()
+        const UNCAPPED_FEE: f64 = 0.0;
+        const MAX_BURN_AMOUNT: u64 = 1_000_000;
+        self.rpc_client
+            .send_raw_transaction(tx, Some(UNCAPPED_FEE), Some(MAX_BURN_AMOUNT))
+            .map(|txid| {
+                debug!("Transaction {txid} sent successfully");
+                txid
             })
             .map_err(|e| {
                 error!("Bitcoin RPC error: transaction submission failed - {e:?}");
@@ -2086,8 +2090,8 @@ impl BitcoinRegtestController {
         epoch_id: StacksEpochId,
         operation: BlockstackOperationType,
         op_signer: &mut BurnchainOpSigner,
-    ) -> Result<SerializedTx, BurnchainControllerError> {
-        let transaction = match operation {
+    ) -> Result<Transaction, BurnchainControllerError> {
+        match operation {
             BlockstackOperationType::LeaderBlockCommit(payload) => {
                 self.build_leader_block_commit_tx(epoch_id, payload, op_signer)
             }
@@ -2109,9 +2113,7 @@ impl BitcoinRegtestController {
             BlockstackOperationType::VoteForAggregateKey(payload) => {
                 self.build_vote_for_aggregate_key_tx(epoch_id, payload, op_signer, None)
             }
-        };
-
-        transaction.map(SerializedTx::new)
+        }
     }
 
     /// Retrieves a raw [`Transaction`] by its [`Txid`]
@@ -2350,7 +2352,7 @@ impl BurnchainController for BitcoinRegtestController {
         op_signer: &mut BurnchainOpSigner,
     ) -> Result<Txid, BurnchainControllerError> {
         let transaction = self.make_operation_tx(epoch_id, operation, op_signer)?;
-        self.send_transaction(transaction)
+        self.send_transaction(&transaction)
     }
 
     #[cfg(test)]
@@ -2388,33 +2390,6 @@ impl UTXOSet {
 
     pub fn num_utxos(&self) -> usize {
         self.utxos.len()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SerializedTx {
-    pub bytes: Vec<u8>,
-    pub txid: Txid,
-}
-
-impl SerializedTx {
-    pub fn new(tx: Transaction) -> SerializedTx {
-        let txid = Txid::from_vec_be(tx.txid().as_bytes()).unwrap();
-        let mut encoder = RawEncoder::new(Cursor::new(vec![]));
-        tx.consensus_encode(&mut encoder)
-            .expect("BUG: failed to serialize to a vec");
-        let bytes: Vec<u8> = encoder.into_inner().into_inner();
-
-        SerializedTx { txid, bytes }
-    }
-
-    pub fn txid(&self) -> Txid {
-        self.txid.clone()
-    }
-
-    pub fn to_hex(&self) -> String {
-        let formatted_bytes: Vec<String> = self.bytes.iter().map(|b| format!("{b:02x}")).collect();
-        formatted_bytes.join("")
     }
 }
 
@@ -2696,26 +2671,6 @@ impl BitcoinRPCRequest {
         Ok(UTXOSet { bhh, utxos })
     }
 
-    pub fn send_raw_transaction(config: &Config, tx: String) -> RPCResult<()> {
-        let payload = BitcoinRPCRequest {
-            method: "sendrawtransaction".to_string(),
-            // set maxfee (as uncapped) and maxburncap (new in bitcoin 25)
-            params: vec![tx.into(), 0.into(), 1_000_000.into()],
-            id: "stacks".to_string(),
-            jsonrpc: "2.0".to_string(),
-        };
-
-        let json_resp = BitcoinRPCRequest::send(config, payload)?;
-
-        if let Some(e) = json_resp.get("error") {
-            if !e.is_null() {
-                error!("Error submitting transaction: {json_resp}");
-                return Err(RPCError::Bitcoind(json_resp.to_string()));
-            }
-        }
-        Ok(())
-    }
-
     pub fn send(config: &Config, payload: BitcoinRPCRequest) -> RPCResult<serde_json::Value> {
         let request = BitcoinRPCRequest::build_rpc_request(config, &payload);
         let timeout = Duration::from_secs(u64::from(config.burnchain.timeout));
@@ -2804,10 +2759,9 @@ mod tests {
             create_keychain_with_seed(2).get_pub_key()
         }
 
-        pub fn mine_tx(btc_controller: &BitcoinRegtestController, tx: Transaction) {
-            let ser = SerializedTx::new(tx);
+        pub fn mine_tx(btc_controller: &BitcoinRegtestController, tx: &Transaction) {
             btc_controller
-                .send_transaction(ser)
+                .send_transaction(tx)
                 .expect("Tx should be sent to the burnchain!");
             btc_controller.build_next_block(1); // Now tx is confirmed
         }
@@ -3151,10 +3105,8 @@ mod tests {
             .unwrap();
 
         debug!("send_block_commit_operation:\n{block_commit:#?}");
-        debug!("{}", &SerializedTx::new(block_commit.clone()).to_hex());
         assert_eq!(block_commit.output[3].value, 323507);
-
-        assert_eq!(&SerializedTx::new(block_commit).to_hex(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
+        assert_eq!(serialize_hex(&block_commit).unwrap(), "0100000002eeda098987728e4a2e21b34b74000dcb0bd0e4d20e55735492ec3cba3afbead3030000006a4730440220558286e20e10ce31537f0625dae5cc62fac7961b9d2cf272c990de96323d7e2502202255adbea3d2e0509b80c5d8a3a4fe6397a87bcf18da1852740d5267d89a0cb20121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff243b0b329a5889ab8801b315eea19810848d4c2133e0245671cc984a2d2f1301000000006a47304402206d9f8de107f9e1eb15aafac66c2bb34331a7523260b30e18779257e367048d34022013c7dabb32a5c281aa00d405e2ccbd00f34f03a65b2336553a4acd6c52c251ef0121035379aa40c02890d253cfa577964116eb5295570ae9f7287cbae5f2585f5b2c7cfdffffff040000000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015a10270000000000001976a914000000000000000000000000000000000000000088ac10270000000000001976a914000000000000000000000000000000000000000088acb3ef0400000000001976a9141dc27eba0247f8cc9575e7d45e50a0bc7e72427d88ac00000000");
     }
 
     #[test]
@@ -3685,7 +3637,7 @@ mod tests {
                 )
                 .expect("At first, building leader block commit should work");
 
-            utils::mine_tx(&btc_controller, first_tx_ok); // Now tx is confirmed
+            utils::mine_tx(&btc_controller, &first_tx_ok); // Now tx is confirmed
 
             // re-submitting same commit while previous it is confirmed by the burnchain
             let resubmit = btc_controller.build_leader_block_commit_tx(
@@ -3741,7 +3693,7 @@ mod tests {
             let first_txid = first_tx_ok.txid();
 
             // Now tx is confirmed: prev utxo is updated and one more utxo is generated
-            utils::mine_tx(&btc_controller, first_tx_ok);
+            utils::mine_tx(&btc_controller, &first_tx_ok);
 
             // re-gen signer othewise fails because it will be disposed during previous commit tx.
             let mut signer = keychain.generate_op_signer();
@@ -3886,7 +3838,7 @@ mod tests {
             commit_op.sunset_burn = 5_500;
             commit_op.burn_fee = 110_000;
 
-            let ser_tx = btc_controller
+            let tx = btc_controller
                 .make_operation_tx(
                     StacksEpochId::Epoch31,
                     BlockstackOperationType::LeaderBlockCommit(commit_op),
@@ -3897,8 +3849,8 @@ mod tests {
             assert!(op_signer.is_disposed());
 
             assert_eq!(
-                "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008b483045022100e4f934cf20a42ae5709f96505b73ad4e7ab19f41931940257089bfe6935840780220503af1cafd02e42ed008ad473dd619ee591d6926333413275168cf2697ce91430141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff047c15000000000000536a4c5054335be88c3d30cb59a142f83de3b27f897a43bbb0f13316911bb98a3229973dae32afd5b9f21bc1f40f24e2c101ecd13c55b8619e5e03dad81de2c62a1cc1d8c1b375000008a300010000059800015ad8d60000000000001976a914000000000000000000000000000000000000000088acd8d60000000000001976a914000000000000000000000000000000000000000088acd4e3032a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
-                ser_tx.to_hex()
+                "1a74106bd760117892fbd90fca11646b4de46f99fd2b065c9e0706cfdcea0336",
+                tx.txid().to_string()
             );
         }
 
@@ -4062,7 +4014,7 @@ mod tests {
 
             let leader_key_op = utils::create_templated_leader_key_op();
 
-            let ser_tx = btc_controller
+            let tx = btc_controller
                 .make_operation_tx(
                     StacksEpochId::Epoch31,
                     BlockstackOperationType::LeaderKeyRegister(leader_key_op),
@@ -4073,8 +4025,8 @@ mod tests {
             assert!(op_signer.is_disposed());
 
             assert_eq!(
-                "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008b483045022100c8694688b4269585ef63bfeb96d017bafae02621ebd0b5012e7564d3efcb71f70220070528674f75ca3503246030f064a85d2010256336372b246100f29ba21bf28b0141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff020000000000000000396a3754335e00000000000000000000000000000000000000003b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29e0a3052a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
-                ser_tx.to_hex()
+                "4ecd7ba71bebd1aaed49dd63747ee424473f1c571bb9a576361607a669191024",
+                tx.txid().to_string()
             );
         }
 
@@ -4228,7 +4180,7 @@ mod tests {
             let mut pre_stx_op = utils::create_templated_pre_stx_op();
             pre_stx_op.output = keychain.get_address(false);
 
-            let ser_tx = btc_controller
+            let tx = btc_controller
                 .make_operation_tx(
                     StacksEpochId::Epoch31,
                     BlockstackOperationType::PreStx(pre_stx_op),
@@ -4239,8 +4191,8 @@ mod tests {
             assert!(op_signer.is_disposed());
 
             assert_eq!(
-                "01000000014d9e9dc7d126446e90dd013f023937eba9cb2c88f4d12707400a3ede994a62c5000000008a47304402203351a9351e887f4b66023893f55e308c3c345aec6f50dd3bd11fc90b7049703102200fbbf08747e4961ec8e0a5f5e991fa5f709cac9083d22772cd48e9325a48bba30141044227d7e5c0997524ce011c126f0464d43e7518872a9b1ad29436ac5142d73eab5fb48d764676900fc2fac56917412114bf7dfafe51f715cf466fe0c1a6c69d11fdffffff030000000000000000056a03543370b45f0000000000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac9c5b052a010000001976a9145e52c53cb96b55f0e3d719adbca21005bc54cb2e88ac00000000",
-                ser_tx.to_hex()
+                "2d061c42c6f13a62fd9d80dc9fdcd19bdb4f9e4a07f786e42530c64c52ed9d1d",
+                tx.txid().to_string()
             );
         }
 
