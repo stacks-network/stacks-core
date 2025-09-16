@@ -2037,7 +2037,7 @@ fn test_marf_read_only() {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ],
     );
-    let value = MARFValue::from(0x1234);
+    let value = MARFValue::from(0x1234u32);
 
     // functions that require a transaction _cannot_ be called on a readonly marf, because
     //   both the storage function for initiating a tx _and_ sqlite will have errored before

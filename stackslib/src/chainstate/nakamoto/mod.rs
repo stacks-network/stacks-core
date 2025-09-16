@@ -3918,6 +3918,7 @@ impl NakamotoChainState {
         block_bitvec: &BitVec<4000>,
         tenure_block_commit: &LeaderBlockCommitOp,
         active_reward_set: &RewardSet,
+        timestamp: Option<u64>,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         // this block's bitvec header must match the miner's block commit punishments
         Self::check_pox_bitvector(block_bitvec, tenure_block_commit, active_reward_set)?;
@@ -3935,6 +3936,7 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            timestamp,
         )
     }
 
@@ -4033,6 +4035,7 @@ impl NakamotoChainState {
             block_bitvec,
             &tenure_block_commit,
             active_reward_set,
+            Some(block.header.timestamp),
         )
     }
 
@@ -4079,6 +4082,7 @@ impl NakamotoChainState {
         new_tenure: bool,
         coinbase_height: u64,
         tenure_extend: bool,
+        timestamp: Option<u64>,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let parent_index_hash = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
         let parent_sortition_id = sortition_dbconn
@@ -4154,6 +4158,22 @@ impl NakamotoChainState {
 
         clarity_tx.reset_cost(initial_cost);
 
+        // Setup block metadata in Clarity storage
+        clarity_tx
+            .connection()
+            .as_free_transaction(|clarity_tx_conn| {
+                clarity_tx_conn.with_clarity_db(|db| {
+                    db.setup_block_metadata(timestamp)?;
+                    Ok(())
+                })
+            })
+            .inspect_err(|e| {
+                error!("Failed to setup block metadata during block setup";
+                    "error" => ?e,
+                    "timestamp" => timestamp,
+                );
+            })?;
+
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
             StacksChainState::process_epoch_transition(
@@ -4181,11 +4201,10 @@ impl NakamotoChainState {
                         Ok(())
                     })
                 })
-                .map_err(|e| {
+                .inspect_err(|e| {
                     error!("Failed to set tenure height during block setup";
                         "error" => ?e,
                     );
-                    e
                 })?;
         }
 

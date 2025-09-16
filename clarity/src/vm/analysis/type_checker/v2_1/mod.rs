@@ -1023,6 +1023,7 @@ fn type_reserved_variable(
             Mainnet => TypeSignature::BoolType,
             ChainId => TypeSignature::UIntType,
             CurrentContract => TypeSignature::PrincipalType,
+            BlockTime => TypeSignature::UIntType,
         };
         Ok(Some(var_type))
     } else {

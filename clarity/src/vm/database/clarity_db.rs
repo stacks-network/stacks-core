@@ -49,6 +49,7 @@ use crate::vm::types::{
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
 const TENURE_HEIGHT_KEY: &str = "_stx-data::tenure_height";
+const CLARITY_STORAGE_BLOCK_TIME_KEY: &str = "_stx-data::clarity_storage::block_time";
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 
@@ -883,6 +884,28 @@ impl<'a> ClarityDatabase<'a> {
     /// Should be called _after_ all of the epoch's initialization has been invoked
     pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) -> Result<()> {
         self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
+    }
+
+    /// Setup block metadata at the beginning of a block
+    /// This stores block-specific data that can be accessed during Clarity execution
+    pub fn setup_block_metadata(&mut self, block_time: Option<u64>) -> Result<()> {
+        let epoch = self.get_clarity_epoch_version()?;
+        if epoch.uses_marfed_block_time() {
+            let block_time = block_time.ok_or_else(|| {
+                InterpreterError::Expect(
+                    "FATAL: Marfed block time not provided to Clarity DB setup".into(),
+                )
+            })?;
+            self.put_data(CLARITY_STORAGE_BLOCK_TIME_KEY, &block_time)?;
+        }
+        Ok(())
+    }
+
+    pub fn get_current_block_time(&mut self) -> Result<u64> {
+        match self.get_data(CLARITY_STORAGE_BLOCK_TIME_KEY)? {
+            Some(value) => Ok(value),
+            None => Err(RuntimeErrorType::BlockTimeNotAvailable.into()),
+        }
     }
 
     /// Returns the _current_ total liquid ustx

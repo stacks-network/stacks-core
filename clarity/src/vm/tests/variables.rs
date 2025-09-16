@@ -1109,6 +1109,117 @@ fn reuse_builtin_name(
 }
 
 #[apply(test_clarity_versions)]
+fn test_block_time(
+    version: ClarityVersion,
+    epoch: StacksEpochId,
+    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
+) {
+    let contract = "(define-read-only (test-func) block-time)";
+
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    let mut owned_env = tl_env_factory.get_env(epoch);
+    let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+
+    let mut exprs = parse(&contract_identifier, contract, version, epoch).unwrap();
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let analysis = db.execute(|db| {
+        type_check_version(&contract_identifier, &mut exprs, db, true, epoch, version)
+    });
+
+    // block-time should only be available in Clarity 4
+    if version < ClarityVersion::Clarity4 {
+        let err = analysis.unwrap_err();
+        assert_eq!(
+            CheckErrors::UndefinedVariable("block-time".to_string()),
+            *err.err
+        );
+    } else {
+        assert!(analysis.is_ok());
+    }
+
+    // Initialize the contract
+    // Note that we're ignoring the analysis failure here so that we can test
+    // the runtime behavior. In earlier versions, if this case somehow gets past the
+    // analysis, it should fail at runtime.
+    let result = owned_env.initialize_versioned_contract(
+        contract_identifier.clone(),
+        version,
+        contract,
+        None,
+        ASTRules::PrecheckSize,
+    );
+
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    // Call the function
+    let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
+
+    // In versions before Clarity 4, this should trigger a runtime error
+    if version < ClarityVersion::Clarity4 {
+        let err = eval_result.unwrap_err();
+        assert_eq!(
+            Error::Unchecked(CheckErrors::UndefinedVariable("block-time".to_string(),)),
+            err
+        );
+    } else {
+        // Always 1 in the testing environment
+        assert_eq!(Ok(Value::UInt(1)), eval_result);
+    }
+}
+
+#[test]
+fn test_block_time_in_expressions() {
+    let version = ClarityVersion::Clarity4;
+    let epoch = StacksEpochId::Epoch33;
+    let mut tl_env_factory = tl_env_factory();
+
+    let contract = r#"
+        (define-read-only (time-comparison (threshold uint))
+            (>= block-time threshold))
+        (define-read-only (time-arithmetic)
+            (+ block-time u100))
+        (define-read-only (time-in-response)
+            (ok block-time))
+    "#;
+
+    let placeholder_context =
+        ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+    let mut owned_env = tl_env_factory.get_env(epoch);
+    let contract_identifier = QualifiedContractIdentifier::local("test-contract").unwrap();
+
+    // Initialize the contract
+    let result = owned_env.initialize_versioned_contract(
+        contract_identifier.clone(),
+        version,
+        contract,
+        None,
+        ASTRules::PrecheckSize,
+    );
+    assert!(result.is_ok());
+
+    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+
+    // Test comparison: 1 >= 0 should be true
+    let eval_result = env.eval_read_only(&contract_identifier, "(time-comparison u0)");
+    info!("time-comparison result: {:?}", eval_result);
+    assert_eq!(Ok(Value::Bool(true)), eval_result);
+
+    // Test arithmetic: 1 + 100 = 101
+    let eval_result = env.eval_read_only(&contract_identifier, "(time-arithmetic)");
+    info!("time-arithmetic result: {:?}", eval_result);
+    assert_eq!(Ok(Value::UInt(101)), eval_result);
+
+    // Test in response: (ok 1)
+    let eval_result = env.eval_read_only(&contract_identifier, "(time-in-response)");
+    info!("time-in-response result: {:?}", eval_result);
+    assert_eq!(Ok(Value::okay(Value::UInt(1)).unwrap()), eval_result);
+}
+
+#[apply(test_clarity_versions)]
 fn reuse_tenure_height(
     version: ClarityVersion,
     epoch: StacksEpochId,

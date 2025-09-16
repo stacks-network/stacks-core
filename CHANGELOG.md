@@ -17,6 +17,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Adds support for new Clarity 4 builtins (not activated until epoch 3.3):
   - `contract-hash?`
   - `current-contract`
+  - `block-time`
   - `to-ascii?`
 - Added `contract_cost_limit_percentage` to the miner config file — sets the percentage of a block’s execution cost at which, if a large non-boot contract call would cause a BlockTooBigError, the miner will stop adding further non-boot contract calls and only include STX transfers and boot contract calls for the remainder of the block.
 
