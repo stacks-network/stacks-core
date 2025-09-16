@@ -82,7 +82,7 @@ pub enum RuntimeErrorType {
     // error in parsing types
     ParseError(String),
     // error in parsing the AST
-    ASTError(ParseError),
+    ASTError(Box<ParseError>),
     MaxStackDepthReached,
     MaxContextDepthReached,
     BadTypeConstruction,
@@ -103,8 +103,8 @@ pub enum RuntimeErrorType {
 
 #[derive(Debug, PartialEq)]
 pub enum ShortReturnType {
-    ExpectedValue(Value),
-    AssertionFailed(Value),
+    ExpectedValue(Box<Value>),
+    AssertionFailed(Box<Value>),
 }
 
 pub type InterpreterResult<R> = Result<R, Error>;
@@ -165,11 +165,11 @@ impl error::Error for RuntimeErrorType {
 
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        match &err.err {
+        match *err.err {
             ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
-            _ => Error::from(RuntimeErrorType::ASTError(err)),
+            _ => Error::from(RuntimeErrorType::ASTError(Box::new(err))),
         }
     }
 }
@@ -226,8 +226,8 @@ impl From<Error> for () {
 impl From<ShortReturnType> for Value {
     fn from(val: ShortReturnType) -> Self {
         match val {
-            ShortReturnType::ExpectedValue(v) => v,
-            ShortReturnType::AssertionFailed(v) => v,
+            ShortReturnType::ExpectedValue(v) => *v,
+            ShortReturnType::AssertionFailed(v) => *v,
         }
     }
 }
@@ -239,15 +239,15 @@ mod test {
     #[test]
     fn equality() {
         assert_eq!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true))),
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true)))
+            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true)))),
+            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
         );
         assert_eq!(
             Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
             Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
         assert!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true)))
+            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
                 != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
     }

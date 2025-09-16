@@ -2818,7 +2818,7 @@ mod tests {
                 panic!("Expects a AbortedByCallback error")
             };
 
-            assert_eq!(result_value, Value::okay(Value::Int(10)).unwrap());
+            assert_eq!(*result_value, Value::okay(Value::Int(10)).unwrap());
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(

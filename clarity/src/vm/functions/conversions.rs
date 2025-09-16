@@ -58,10 +58,11 @@ pub fn buff_to_int_generic(
                     .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?
             {
                 Err(CheckErrors::TypeValueError(
-                    SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
-                        |_| InterpreterError::Expect("Failed to construct".into()),
-                    )?)),
-                    value,
+                    Box::new(SequenceType(BufferType(
+                        BufferLength::try_from(16_u32)
+                            .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?,
+                    ))),
+                    Box::new(value),
                 )
                 .into())
             } else {
@@ -83,10 +84,11 @@ pub fn buff_to_int_generic(
             }
         }
         _ => Err(CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).map_err(
-                |_| InterpreterError::Expect("Failed to construct".into()),
-            )?)),
-            value,
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32)
+                    .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?,
+            ))),
+            Box::new(value),
         )
         .into()),
     }
@@ -152,7 +154,7 @@ pub fn native_string_to_int_generic(
                 TypeSignature::max_string_ascii()?,
                 TypeSignature::max_string_utf8()?,
             ],
-            value,
+            Box::new(value),
         )
         .into()),
     }
@@ -205,7 +207,7 @@ pub fn native_int_to_string_generic(
         }
         _ => Err(CheckErrors::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            value,
+            Box::new(value),
         )
         .into()),
     }
@@ -278,7 +280,7 @@ pub fn special_to_ascii(
                 TO_ASCII_MAX_BUFF.clone(),
                 TypeSignature::max_string_utf8()?,
             ],
-            value,
+            Box::new(value),
         )
         .into()),
     }
@@ -323,8 +325,8 @@ pub fn from_consensus_buff(
         Ok(buff_data.data)
     } else {
         Err(CheckErrors::TypeValueError(
-            TypeSignature::max_buffer()?,
-            value,
+            Box::new(TypeSignature::max_buffer()?),
+            Box::new(value),
         ))
     }?;
 
@@ -344,7 +346,7 @@ pub fn from_consensus_buff(
     ) {
         Ok(value) => value,
         Err(SerializationError::UnexpectedSerialization) => {
-            return Err(CheckErrors::Expects("UnexpectedSerialization".into()).into())
+            return Err(CheckErrors::Expects("UnexpectedSerialization".into()).into());
         }
         Err(_) => return Ok(Value::none()),
     };
