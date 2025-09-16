@@ -312,6 +312,63 @@ impl<'a> EphemeralMarfStore<'a> {
             self.commit_to_processed_block(&bhh).unwrap();
         }
     }
+
+    /// Helper function to cast a Result<Option<T>, Error> into InterpreterResult<Option<T>>
+    fn handle_marf_result<T>(res: Result<Option<T>, Error>) -> InterpreterResult<Option<T>> {
+        match res {
+            Ok(result_opt) => Ok(result_opt),
+            Err(Error::NotFoundError) => {
+                trace!("Ephemeral MarfedKV get not found",);
+                Ok(None)
+            }
+            Err(e) => Err(InterpreterError::Expect(format!(
+                "ERROR: Unexpected MARF failure: {e:?}"
+            ))
+            .into()),
+        }
+    }
+
+    /// Helper function to implement a generic getter over the MARF for data that could be stored
+    /// in the ephemeral MARF, but if not, could be stored in the read-only MARF.  `tx_getter`
+    /// reads from the ephemeral MARF, and `marf_getter` reads from the read-only MARF.
+    ///
+    /// Returns Ok(Some(V)) if the key was mapped in eiher MARF
+    /// Returns Ok(None) if the key was not mapped in either MARF
+    /// Returns Err(InterpreterError(..)) on failure.
+    fn get_with_fn<Key, V, TxGetter, MarfGetter>(
+        &mut self,
+        key: Key,
+        tx_getter: TxGetter,
+        marf_getter: MarfGetter,
+    ) -> InterpreterResult<Option<V>>
+    where
+        TxGetter: FnOnce(
+            &mut MarfTransaction<StacksBlockId>,
+            &StacksBlockId,
+            Key,
+        ) -> InterpreterResult<Option<V>>,
+        MarfGetter: FnOnce(&mut ReadOnlyMarfStore, Key) -> InterpreterResult<Option<V>>,
+        Key: std::fmt::Debug + Copy,
+    {
+        let value_opt = if let EphemeralTip::RAM(tip) = &self.open_tip {
+            // try the ephemeral MARF first
+            tx_getter(&mut self.ephemeral_marf, tip, key)?
+        } else {
+            None
+        };
+
+        if let Some(value) = value_opt {
+            // found in ephemeral MARF
+            return Ok(Some(value));
+        }
+
+        // Due to the way we implemented `.set_block_hash()`, the read-only
+        // MARF's tip will be set to `base_tip` if the open tip was ephemeral.
+        // Otherwise, it'll be set to the tip that was last opeend.  Either way,
+        // the correct tip has been set in `self.read_only_marf` that `.get_data_from_path()`
+        // will work as expected.
+        marf_getter(&mut self.read_only_marf, key)
+    }
 }
 
 impl ClarityBackingStore for EphemeralMarfStore<'_> {
@@ -371,58 +428,27 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
     /// Returns Ok(None) if the key was not mapped to the given value at the opened chain tip.
     /// Returns Err(..) on all other failures.
     fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
-        let value_res: InterpreterResult<Option<String>> = if let EphemeralTip::RAM(tip) =
+        trace!(
+            "Ephemeral MarfedKV get_data: {key:?} tip={:?}",
             &self.open_tip
-        {
-            // try the ephemeral MARF first
-            self.ephemeral_marf
-                .get(tip, key)
-                .or_else(|e| match e {
-                    Error::NotFoundError => {
-                        test_debug!(
-                            "Ephemeral MarfedKV get {:?} off of {:?}: not found",
-                            key,
-                            tip
-                        );
-                        Ok(None)
-                    }
-                    _ => {
-                        test_debug!(
-                            "Ephemeral MarfedKV failed to get {:?} off of {:?}: {:?}",
-                            key,
-                            tip,
-                            &e
-                        );
-                        Err(e)
-                    }
-                })
-                .map_err(|_| InterpreterError::Expect("ERROR: Unexpected Ephemeral MARF Failure on GET".into()))?
-                .map(|marf_value| {
-                    let side_key = marf_value.to_hex();
-                    SqliteConnection::get(self.ephemeral_marf.sqlite_conn(), &side_key)?.ok_or_else(|| {
+        );
+        self.get_with_fn(
+            key,
+            |ephemeral_marf, tip, key| {
+                let Some(marf_value) = Self::handle_marf_result(ephemeral_marf.get(tip, key))? else {
+                    return Ok(None)
+                };
+                let side_key = marf_value.to_hex();
+                let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
+                    .ok_or_else(|| {
                         InterpreterError::Expect(format!(
-                            "ERROR: Ephemeral MARF contained value_hash not found in side storage: {}",
-                            side_key
+                            "ERROR: MARF contained value_hash not found in side storage: {side_key}",
                         ))
-                        .into()
-                    })
-                })
-                .transpose()
-        } else {
-            Ok(None)
-        };
-
-        if let Some(value) = value_res? {
-            // found in ephemeral MARF
-            return Ok(Some(value));
-        }
-
-        // Due to the way we implemented `.set_block_hash()`, the read-only
-        // MARF's tip will be set to `base_tip` if the open tip was ephemeral.
-        // Otherwise, it'll be set to the tip that was last opeend.  Either way,
-        // the correct tip has been set in `self.read_only_marf` that `.get_data()`
-        // will work as expected.
-        self.read_only_marf.get_data(key)
+                    })?;
+                Ok(Some(data))
+            },
+            |read_only_marf, key| read_only_marf.get_data(key)
+        )
     }
 
     /// Get data from the MARF given a trie hash.
@@ -435,51 +461,31 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
             hash,
             &self.open_tip
         );
-        let value_res: InterpreterResult<Option<String>> = if let EphemeralTip::RAM(tip) =
-            &self.open_tip
-        {
-            // try the ephemeral MARF first
-            self.ephemeral_marf
-                .get_from_hash(tip, hash)
-                .or_else(|e| match e {
-                    Error::NotFoundError => {
-                        trace!(
-                            "Ephemeral MarfedKV get {:?} off of {:?}: not found",
-                            hash,
-                            tip
-                        );
-                        Ok(None)
-                    }
-                    _ => Err(e),
-                })
-                .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on get-by-path".into()))?
-                .map(|marf_value| {
-                    let side_key = marf_value.to_hex();
-                    trace!("Ephemeral MarfedKV get side-key for {:?}: {:?}", hash, &side_key);
-                    SqliteConnection::get(self.ephemeral_marf.sqlite_conn(), &side_key)?.ok_or_else(|| {
+        self.get_with_fn(
+            hash,
+            |ephemeral_marf, tip, hash| {
+                let Some(marf_value) =
+                    Self::handle_marf_result(ephemeral_marf.get_from_hash(tip, hash))?
+                else {
+                    return Ok(None);
+                };
+                let side_key = marf_value.to_hex();
+                trace!(
+                    "Ephemeral MarfedKV get side-key for {:?}: {:?}",
+                    hash,
+                    &side_key
+                );
+                let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
+                    .ok_or_else(|| {
                         InterpreterError::Expect(format!(
-                            "ERROR: Ephemeral MARF contained value_hash not found in side storage: {}",
-                            side_key
-                        ))
-                        .into()
-                    })
-                })
-                .transpose()
-        } else {
-            Ok(None)
-        };
-
-        if let Some(value) = value_res? {
-            // found in ephemeral MARF
-            return Ok(Some(value));
-        }
-
-        // Due to the way we implemented `.set_block_hash()`, the read-only
-        // MARF's tip will be set to `base_tip` if the open tip was ephemeral.
-        // Otherwise, it'll be set to the tip that was last opeend.  Either way,
-        // the correct tip has been set in `self.read_only_marf` that `.get_data_from_path()`
-        // will work as expected.
-        self.read_only_marf.get_data_from_path(hash)
+                        "ERROR: Ephemeral MARF contained value_hash not found in side storage: {}",
+                        side_key
+                    ))
+                    })?;
+                Ok(Some(data))
+            },
+            |read_only_marf, path| read_only_marf.get_data_from_path(path),
+        )
     }
 
     /// Get data from the MARF as well as a Merkle proof-of-inclusion.
@@ -492,55 +498,26 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
             key,
             &self.open_tip
         );
-        let value_res: InterpreterResult<Option<(String, Vec<u8>)>> =
-            if let EphemeralTip::RAM(tip) = &self.open_tip {
-                // try the ephemeral MARF first
-                self.ephemeral_marf
-                    .get_with_proof(tip, key)
-                    .or_else(|e| match e {
-                        Error::NotFoundError => {
-                            trace!(
-                                "Ephemeral MarfedKV get-with-proof '{}' off of {:?}: not found",
-                                key,
-                                tip
-                            );
-                            Ok(None)
-                        }
-                        _ => Err(e),
-                    })
-                    .map_err(|_| {
-                        InterpreterError::Expect(
-                            "ERROR: Unexpected Ephemeral MARF Failure on get-with-proof".into(),
-                        )
-                    })?
-                    .map(|(marf_value, proof)| {
-                        let side_key = marf_value.to_hex();
-                        let data =
-                            SqliteConnection::get(self.ephemeral_marf.sqlite_conn(), &side_key)?
-                                .ok_or_else(|| {
-                                    InterpreterError::Expect(format!(
-                                "ERROR: MARF contained value_hash not found in side storage: {}",
-                                side_key
-                            ))
-                                })?;
-                        Ok((data, proof.serialize_to_vec()))
-                    })
-                    .transpose()
-            } else {
-                Ok(None)
-            };
-
-        if let Some(value) = value_res? {
-            // found in ephemeral MARF
-            return Ok(Some(value));
-        }
-
-        // Due to the way we implemented `.set_block_hash()`, the read-only
-        // MARF's tip will be set to `base_tip` if the open tip was ephemeral.
-        // Otherwise, it'll be set to the tip that was last opeend.  Either way,
-        // the correct tip has been set in `self.read_only_marf` that `.get_data_with_proof()`
-        // will work as expected.
-        self.read_only_marf.get_data_with_proof(key)
+        self.get_with_fn(
+            key,
+            |ephemeral_marf, tip, key| {
+                let Some((marf_value, proof)) =
+                    Self::handle_marf_result(ephemeral_marf.get_with_proof(tip, key))?
+                else {
+                    return Ok(None);
+                };
+                let side_key = marf_value.to_hex();
+                let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
+                    .ok_or_else(|| {
+                        InterpreterError::Expect(format!(
+                            "ERROR: MARF contained value_hash not found in side storage: {}",
+                            side_key
+                        ))
+                    })?;
+                Ok(Some((data, proof.serialize_to_vec())))
+            },
+            |read_only_marf, key| read_only_marf.get_data_with_proof(key),
+        )
     }
 
     /// Get data and a Merkle proof-of-inclusion for it from the MARF given a trie hash.
@@ -556,56 +533,26 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
             hash,
             &self.open_tip
         );
-        let value_res: InterpreterResult<Option<(String, Vec<u8>)>> =
-            if let EphemeralTip::RAM(tip) = &self.open_tip {
-                self.ephemeral_marf
-                    .get_with_proof_from_hash(tip, hash)
-                    .or_else(|e| match e {
-                        Error::NotFoundError => {
-                            trace!(
-                                "Ephemeral MarfedKV get-with-proof {:?} off of {:?}: not found",
-                                hash,
-                                tip
-                            );
-                            Ok(None)
-                        }
-                        _ => Err(e),
-                    })
-                    .map_err(|_| {
-                        InterpreterError::Expect(
-                            "ERROR: Unexpected ephemeral MARF Failure on get-data-with-proof"
-                                .into(),
-                        )
-                    })?
-                    .map(|(marf_value, proof)| {
-                        let side_key = marf_value.to_hex();
-                        let data =
-                            SqliteConnection::get(self.ephemeral_marf.sqlite_conn(), &side_key)?
-                                .ok_or_else(|| {
-                                    InterpreterError::Expect(format!(
-                                "ERROR: MARF contained value_hash not found in side storage: {}",
-                                side_key
-                            ))
-                                })?;
-                        Ok((data, proof.serialize_to_vec()))
-                    })
-                    .transpose()
-            } else {
-                Ok(None)
-            };
-
-        if let Some(value) = value_res? {
-            // found in ephemeral MARF
-            return Ok(Some(value));
-        }
-
-        // Due to the way we implemented `.set_block_hash()`, the read-only
-        // MARF's tip will be set to `base_tip` if the open tip was ephemeral.
-        // Otherwise, it'll be set to the tip that was last opeend.  Either way,
-        // the correct tip has been set in `self.read_only_marf` that
-        // `.get_data_with_proof_from_path()`
-        // will work as expected.
-        self.read_only_marf.get_data_with_proof_from_path(hash)
+        self.get_with_fn(
+            hash,
+            |ephemeral_marf, tip, path| {
+                let Some((marf_value, proof)) =
+                    Self::handle_marf_result(ephemeral_marf.get_with_proof_from_hash(tip, path))?
+                else {
+                    return Ok(None);
+                };
+                let side_key = marf_value.to_hex();
+                let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
+                    .ok_or_else(|| {
+                        InterpreterError::Expect(format!(
+                            "ERROR: MARF contained value_hash not found in side storage: {}",
+                            side_key
+                        ))
+                    })?;
+                Ok(Some((data, proof.serialize_to_vec())))
+            },
+            |read_only_marf, path| read_only_marf.get_data_with_proof_from_path(path),
+        )
     }
 
     /// Get a sqlite connection to the MARF side-store.

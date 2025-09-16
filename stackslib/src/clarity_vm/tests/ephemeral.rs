@@ -342,6 +342,7 @@ fn replay_block(
         coinbase,
         original_block.header.pox_treatment.len(),
         None,
+        Some(100),
     )
     .unwrap();
 
