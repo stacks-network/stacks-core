@@ -28,7 +28,7 @@ use stacks_common::types::StacksEpochId;
 pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
-pub use self::errors::{CheckError, CheckErrors, CheckResult};
+pub use self::errors::{CheckError, CheckErrors};
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
@@ -52,7 +52,7 @@ pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast_with_rules(
         &contract_identifier,
@@ -106,7 +106,7 @@ pub fn type_check(
     insert_contract: bool,
     epoch: &StacksEpochId,
     version: &ClarityVersion,
-) -> CheckResult<ContractAnalysis> {
+) -> Result<ContractAnalysis, CheckError> {
     run_analysis(
         contract_identifier,
         expressions,

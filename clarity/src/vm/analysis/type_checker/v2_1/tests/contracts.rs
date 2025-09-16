@@ -24,7 +24,7 @@ use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
-    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError, CheckResult,
+    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError,
     ContractAnalysis,
 };
 use crate::vm::ast::parse;
@@ -38,7 +38,9 @@ use crate::vm::types::{
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
 
-fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+fn mem_type_check_v1(
+    snippet: &str,
+) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
 }
 
