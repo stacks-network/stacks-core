@@ -26,7 +26,6 @@ pub use cost::CostErrors;
 pub use lexer::LexerError;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Error as SqliteError;
-use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
 use crate::representations::SymbolicExpression;
@@ -86,25 +85,20 @@ pub enum RuntimeErrorType {
     ASTError(ParseError),
     MaxStackDepthReached,
     MaxContextDepthReached,
-    ListDimensionTooHigh,
     BadTypeConstruction,
-    ValueTooLarge,
     BadBlockHeight(String),
-    TransferNonPositiveAmount,
     NoSuchToken,
     NotImplemented,
     NoCallerInContext,
     NoSenderInContext,
-    NonPositiveTokenSupply,
-    JSONParseError(IncomparableError<SerdeJSONErr>),
-    AttemptToFetchInTransientContext,
     BadNameValue(&'static str, String),
     UnknownBlockHeaderHash(BlockHeaderHash),
     BadBlockHash(Vec<u8>),
     UnwrapFailure,
+    MetadataAlreadySet,
+    // pox-locking errors
     DefunctPoxContract,
     PoxAlreadyLocked,
-    MetadataAlreadySet,
 }
 
 #[derive(Debug, PartialEq)]
