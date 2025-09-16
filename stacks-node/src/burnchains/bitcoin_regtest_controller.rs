@@ -2242,12 +2242,15 @@ impl BitcoinRegtestController {
         )?;
 
         let txids_to_exclude = utxos_to_exclude.as_ref().map_or_else(HashSet::new, |set| {
-            set.utxos.iter().map(|utxo| &utxo.txid).collect()
+            set.utxos
+                .iter()
+                .map(|utxo| Txid::from_bitcoin_tx_hash(&utxo.txid))
+                .collect()
         });
 
         let utxos = unspents
             .into_iter()
-            .filter(|each| !txids_to_exclude.contains(&Txid::to_bitcoin_tx_hash(&each.txid)))
+            .filter(|each| !txids_to_exclude.contains(&each.txid))
             .filter(|each| each.amount >= minimum_sum_amount)
             .map(|each| UTXO {
                 txid: Txid::to_bitcoin_tx_hash(&each.txid),
