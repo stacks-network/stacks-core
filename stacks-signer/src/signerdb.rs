@@ -40,6 +40,8 @@ use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+#[cfg(test)]
+use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::{debug, define_u8_enum, error, warn};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1993,6 +1995,7 @@ pub mod tests {
         TransactionVersion,
     };
     use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+    use clarity::types::PrivateKey;
     use clarity::util::hash::Hash160;
     use clarity::util::secp256k1::MessageSignature;
     use libsigner::v0::messages::{StateMachineUpdateContent, StateMachineUpdateMinerState};
@@ -2447,6 +2450,75 @@ pub mod tests {
             .get_block_rejection_signer_addrs(&block_id)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn add_and_get_block_signatures_with_multiple_secp256k1_nonces() {
+        let db_path = tmp_db_path();
+        let db = SignerDb::new(db_path).expect("Failed to create signer db");
+
+        let block_id = Sha512Trunc256Sum::from_data("foo".as_bytes());
+
+        let private_key1 = Secp256k1PrivateKey::from_slice(&[0x99u8; 32]).unwrap();
+        let private_key2 = Secp256k1PrivateKey::from_slice(&[0xAAu8; 32]).unwrap();
+
+        let public_key1 = StacksPublicKey::from_private(&private_key1);
+        let public_key2 = StacksPublicKey::from_private(&private_key2);
+
+        let address1 = StacksAddress::p2pkh(false, &public_key1);
+        let address2 = StacksAddress::p2pkh(false, &public_key2);
+
+        let nonce1 = [0x11u8; 32];
+        let signature1 = private_key1
+            .sign_with_noncedata(&block_id.0, &nonce1)
+            .unwrap();
+
+        let nonce2 = [0x22u8; 32];
+        let signature2 = private_key1
+            .sign_with_noncedata(&block_id.0, &nonce2)
+            .unwrap();
+
+        let nonce3 = [0x33u8; 32];
+        let signature3 = private_key1
+            .sign_with_noncedata(&block_id.0, &nonce3)
+            .unwrap();
+
+        let nonce4 = [0x44u8; 32];
+        let signature4 = private_key2
+            .sign_with_noncedata(&block_id.0, &nonce4)
+            .unwrap();
+
+        assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
+
+        db.add_block_signature(&block_id, &address1, &signature1)
+            .unwrap();
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![signature1.clone()]
+        );
+
+        db.add_block_signature(&block_id, &address1, &signature2)
+            .unwrap();
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![signature1.clone()]
+        );
+
+        db.add_block_signature(&block_id, &address1, &signature3)
+            .unwrap();
+        assert_eq!(
+            db.get_block_signatures(&block_id).unwrap(),
+            vec![signature1.clone()]
+        );
+
+        db.add_block_signature(&block_id, &address2, &signature4)
+            .unwrap();
+        // sort them as ordering is not enforced in get_block_signatures
+        let mut block_signatures = db.get_block_signatures(&block_id).unwrap();
+        block_signatures.sort();
+        let mut signatures = [signature1, signature4];
+        signatures.sort();
+        assert_eq!(block_signatures, signatures);
     }
 
     #[test]

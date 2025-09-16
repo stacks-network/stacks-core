@@ -20,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{env, thread};
 
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use libsigner::v0::messages::{
     BlockAccepted, BlockRejection, BlockResponse, MessageSlotID, MinerSlotID, PeerInfo, RejectCode,
@@ -3891,40 +3892,47 @@ fn tx_replay_btc_on_stx_invalidation() {
         .expect("Timed out waiting for tx replay set to be updated");
 
     info!("---- Waiting for tx replay set to be cleared ----");
-
-    let stacks_height_before = get_chain_info(&conf).stacks_tip_height;
-
+    test_observer::clear();
     fault_injection_unstall_miner();
-
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
 
-    // Ensure that only one block was mined
-    wait_for(30, || {
-        let new_tip = get_chain_info(&conf).stacks_tip_height;
-        Ok(new_tip == stacks_height_before + 1)
-    })
-    .expect("Timed out waiting for block to advance by 1");
+    let mut found_block = false;
+    // Ensure that we don't mine any of the replay transactions in a sufficient amount of elapsed time
+    let _ = wait_for(30, || {
+        let blocks = test_observer::get_blocks();
+        for block in blocks {
+            let block: StacksBlockEvent =
+                serde_json::from_value(block).expect("Failed to parse block");
+            for tx in block.transactions {
+                match tx.payload {
+                    TransactionPayload::TenureChange(TenureChangePayload {
+                        cause: TenureChangeCause::BlockFound,
+                        ..
+                    })
+                    | TransactionPayload::Coinbase(..) => {
+                        found_block = true;
+                    }
+                    TransactionPayload::TenureChange(TenureChangePayload {
+                        cause: TenureChangeCause::Extended,
+                        ..
+                    }) => {
+                        continue;
+                    }
+                    _ => {
+                        panic!("We should not see any transactions mined beyond tenure change or coinbase txs");
+                    }
+                }
+            }
+        }
+        Ok(false)
+    });
 
+    assert!(found_block, "Failed to mine the tenure change block");
+    // Ensure that in the 30 seconds, the nonce did not increase. This also asserts that no tx replays were mined.
     let account = get_account(&_http_origin, &recipient_addr);
     assert_eq!(account.nonce, 0, "Expected recipient nonce to be 0");
-
-    let blocks = test_observer::get_blocks();
-    let block: StacksBlockEvent =
-        serde_json::from_value(blocks.last().unwrap().clone()).expect("Failed to parse block");
-    assert_eq!(block.transactions.len(), 2);
-    assert!(matches!(
-        block.transactions[0].payload,
-        TransactionPayload::TenureChange(TenureChangePayload {
-            cause: TenureChangeCause::BlockFound,
-            ..
-        })
-    ));
-    assert!(matches!(
-        block.transactions[1].payload,
-        TransactionPayload::Coinbase(..)
-    ));
 
     signer_test.shutdown();
 }
@@ -5466,7 +5474,7 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
     signer_test
         .wait_for_signer_state_check(60, |state| {
             let tx_replay_set = state.get_tx_replay_set();
-            Ok(tx_replay_set.is_none())
+            Ok(tx_replay_set.is_none() && get_account(&http_origin, &sender1_addr).nonce >= 3)
         })
         .expect("Timed out waiting for tx replay set to be cleared");
 
@@ -6539,6 +6547,8 @@ fn tx_replay_budget_exceeded_tenure_extend() {
 
     signer_test.wait_for_replay_set_eq(30, vec![txid1, txid2.clone()]);
 
+    // Clear the test observer so we know that if we see txid1 and txid2 again, that it means they were remined
+    test_observer::clear();
     fault_injection_unstall_miner();
 
     info!("---- Waiting for replay set to be cleared ----");
@@ -6547,25 +6557,25 @@ fn tx_replay_budget_exceeded_tenure_extend() {
     signer_test
         .wait_for_signer_state_check(30, |state| Ok(state.get_tx_replay_set().is_none()))
         .expect("Timed out waiting for tx replay set to be cleared");
-
-    let blocks = test_observer::get_blocks();
     let mut found_block: Option<StacksBlockEvent> = None;
-    // To reduce flakiness, we're just looking for the block containing `txid2`,
-    // which may or may not be the last block.
-    let last_blocks = blocks.iter().rev().take(3).collect::<Vec<_>>();
-    for block in last_blocks {
-        let block: StacksBlockEvent =
-            serde_json::from_value(block.clone()).expect("Failed to parse block");
-        if block
-            .transactions
-            .iter()
-            .find(|tx| tx.txid().to_hex() == txid2)
-            .is_some()
-        {
-            found_block = Some(block);
-            break;
+    wait_for(60, || {
+        let blocks = test_observer::get_blocks();
+        for block in blocks {
+            let block: StacksBlockEvent =
+                serde_json::from_value(block.clone()).expect("Failed to parse block");
+            if block
+                .transactions
+                .iter()
+                .find(|tx| tx.txid().to_hex() == txid2)
+                .is_some()
+            {
+                found_block = Some(block);
+                return Ok(true);
+            }
         }
-    }
+        Ok(false)
+    })
+    .expect("Failed to mine the replay txs");
     let block = found_block.expect("Failed to find block with txid2");
     assert_eq!(block.transactions.len(), 2);
     assert!(matches!(
@@ -18373,6 +18383,94 @@ fn multiversioned_signer_protocol_version_calculation() {
         Ok(nmb_accept == num_signers)
     })
     .unwrap();
+    signer_test.shutdown();
+}
+
+/// This is a test for backwards compatibility regarding
+/// how contracts with an undefined top-level variable are handled.
+///
+/// Critically, we want to ensure that the cost of the block, along with
+/// the resulting block hash, are the same.
+#[test]
+#[ignore]
+fn contract_with_undefined_variable_compat() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let num_signers = 5;
+    let sender_sk = Secp256k1PrivateKey::from_seed("sender_1".as_bytes());
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let deploy_fee = 1000000;
+    let call_fee = 1000;
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(
+                sender_addr.clone(),
+                (send_amt + send_fee) * 10 + deploy_fee + call_fee,
+            )],
+            |c| {
+                c.validate_with_replay_tx = true;
+            },
+            |node_config| {
+                node_config.miner.block_commit_delay = Duration::from_secs(1);
+                node_config.miner.replay_transactions = true;
+                node_config.miner.activated_vrf_key_path =
+                    Some(format!("{}/vrf_key", node_config.node.working_dir));
+            },
+            None,
+            None,
+            Some(function_name!()),
+        );
+
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return;
+    }
+
+    info!("------------------------- Beginning test -------------------------");
+
+    signer_test.mine_nakamoto_block(Duration::from_secs(30), true);
+
+    let (txid, deploy_nonce) = signer_test
+        .submit_contract_deploy(&sender_sk, deploy_fee, "foo", "undefined-var")
+        .expect("Failed to submit contract deploy");
+
+    signer_test
+        .wait_for_nonce_increase(&sender_addr, deploy_nonce)
+        .expect("Failed to wait for nonce increase");
+
+    let blocks = test_observer::get_mined_nakamoto_blocks();
+
+    let block = blocks.last().unwrap();
+
+    let tx_event = block
+        .tx_events
+        .iter()
+        .find(|event| event.txid().to_hex() == txid)
+        .expect("Failed to find deploy event");
+
+    info!("Tx event: {:?}", tx_event);
+
+    let TransactionEvent::Success(success_event) = tx_event else {
+        panic!("Failed: Expected success event");
+    };
+
+    let block_cost = block.cost.clone();
+    let expected_cost = ExecutionCost {
+        runtime: 346,
+        write_length: 2,
+        write_count: 1,
+        read_length: 1,
+        read_count: 1,
+    };
+
+    assert_eq!(block_cost, expected_cost.clone());
+    assert_eq!(success_event.execution_cost, expected_cost);
+
     signer_test.shutdown();
 }
 

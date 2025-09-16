@@ -1745,8 +1745,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 stx_balance: STXBalance::zero(),
             };
 
-            let costs_4_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let costs_4_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let costs_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -2819,7 +2818,7 @@ mod tests {
                 panic!("Expects a AbortedByCallback error")
             };
 
-            assert_eq!(result_value, Value::okay(Value::Int(10)).unwrap());
+            assert_eq!(*result_value, Value::okay(Value::Int(10)).unwrap());
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
