@@ -21,8 +21,6 @@ use crate::execution_cost::ExecutionCost;
 use crate::representations::SymbolicExpression;
 use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 
-pub type CheckResult<T> = Result<T, CheckError>;
-
 /// What kind of syntax binding was found to be in error?
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum SyntaxBindingErrorType {
@@ -164,7 +162,7 @@ pub enum CheckErrors {
     // match errors
     BadMatchOptionSyntax(Box<CheckErrors>),
     BadMatchResponseSyntax(Box<CheckErrors>),
-    BadMatchInput(TypeSignature),
+    BadMatchInput(Box<TypeSignature>),
 
     // list typing errors
     UnknownListConstructionFailure,
@@ -172,30 +170,30 @@ pub enum CheckErrors {
     ConstructedListTooLarge,
 
     // simple type expectation mismatch
-    TypeError(TypeSignature, TypeSignature),
-    TypeLiteralError(TypeSignature, TypeSignature),
-    TypeValueError(TypeSignature, Value),
+    TypeError(Box<TypeSignature>, Box<TypeSignature>),
+    TypeLiteralError(Box<TypeSignature>, Box<TypeSignature>),
+    TypeValueError(Box<TypeSignature>, Box<Value>),
 
-    NoSuperType(TypeSignature, TypeSignature),
+    NoSuperType(Box<TypeSignature>, Box<TypeSignature>),
     InvalidTypeDescription,
     UnknownTypeName(String),
 
     // union type mismatch
-    UnionTypeError(Vec<TypeSignature>, TypeSignature),
-    UnionTypeValueError(Vec<TypeSignature>, Value),
+    UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>),
+    UnionTypeValueError(Vec<TypeSignature>, Box<Value>),
 
     ExpectedLiteral,
-    ExpectedOptionalType(TypeSignature),
-    ExpectedResponseType(TypeSignature),
-    ExpectedOptionalOrResponseType(TypeSignature),
-    ExpectedOptionalValue(Value),
-    ExpectedResponseValue(Value),
-    ExpectedOptionalOrResponseValue(Value),
+    ExpectedOptionalType(Box<TypeSignature>),
+    ExpectedResponseType(Box<TypeSignature>),
+    ExpectedOptionalOrResponseType(Box<TypeSignature>),
+    ExpectedOptionalValue(Box<Value>),
+    ExpectedResponseValue(Box<Value>),
+    ExpectedOptionalOrResponseValue(Box<Value>),
     CouldNotDetermineResponseOkType,
     CouldNotDetermineResponseErrType,
     CouldNotDetermineSerializationType,
     UncheckedIntermediaryResponses,
-    ExpectedContractPrincipalValue(Value),
+    ExpectedContractPrincipalValue(Box<Value>),
 
     CouldNotDetermineMatchTypes,
     CouldNotDetermineType,
@@ -220,7 +218,7 @@ pub enum CheckErrors {
 
     // tuples
     BadTupleFieldName,
-    ExpectedTuple(TypeSignature),
+    ExpectedTuple(Box<TypeSignature>),
     NoSuchTupleField(String, TupleTypeSignature),
     EmptyTuplesNotAllowed,
     BadTupleConstruction(String),
@@ -236,9 +234,9 @@ pub enum CheckErrors {
     DefineFunctionBadSignature,
     BadFunctionName,
     BadMapTypeDefinition,
-    PublicFunctionMustReturnResponse(TypeSignature),
+    PublicFunctionMustReturnResponse(Box<TypeSignature>),
     DefineVariableBadSignature,
-    ReturnTypesMustMatch(TypeSignature, TypeSignature),
+    ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
 
     CircularReference(Vec<String>),
 
@@ -248,7 +246,7 @@ pub enum CheckErrors {
     PublicFunctionNotReadOnly(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
-    ExpectedCallableType(TypeSignature),
+    ExpectedCallableType(Box<TypeSignature>),
 
     // get-block-info? errors
     NoSuchBlockInfoProperty(String),
@@ -266,7 +264,7 @@ pub enum CheckErrors {
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,
-    ExpectedSequence(TypeSignature),
+    ExpectedSequence(Box<TypeSignature>),
     MaxLengthOverflow,
 
     // let syntax
@@ -283,9 +281,9 @@ pub enum CheckErrors {
     RequiresAtLeastArguments(usize, usize),
     RequiresAtMostArguments(usize, usize),
     IncorrectArgumentCount(usize, usize),
-    IfArmsMustMatch(TypeSignature, TypeSignature),
-    MatchArmsMustMatch(TypeSignature, TypeSignature),
-    DefaultTypesMustMatch(TypeSignature, TypeSignature),
+    IfArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+    MatchArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+    DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
     TooManyExpressions,
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
@@ -303,7 +301,7 @@ pub enum CheckErrors {
     UnexpectedTraitOrFieldReference,
     TraitBasedContractCallInReadOnly,
     ContractOfExpectsTrait,
-    IncompatibleTrait(TraitIdentifier, TraitIdentifier),
+    IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>),
 
     // strings
     InvalidCharactersDetected,
@@ -321,7 +319,7 @@ pub enum CheckErrors {
 
 #[derive(Debug, PartialEq)]
 pub struct CheckError {
-    pub err: CheckErrors,
+    pub err: Box<CheckErrors>,
     pub expressions: Option<Vec<SymbolicExpression>>,
     pub diagnostic: Diagnostic,
 }
@@ -341,7 +339,7 @@ impl CheckError {
     pub fn new(err: CheckErrors) -> CheckError {
         let diagnostic = Diagnostic::err(&err);
         CheckError {
-            err,
+            err: Box::new(err),
             expressions: None,
             diagnostic,
         }
@@ -456,7 +454,6 @@ impl From<CheckErrors> for String {
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() != expected {
         Err(CheckErrors::IncorrectArgumentCount(expected, args.len()))
@@ -465,7 +462,6 @@ pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckE
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() < expected {
         Err(CheckErrors::RequiresAtLeastArguments(expected, args.len()))
@@ -474,7 +470,6 @@ pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), Ch
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() > expected {
         Err(CheckErrors::RequiresAtMostArguments(expected, args.len()))

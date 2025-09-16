@@ -23,9 +23,9 @@ pub enum Error {
     AbortedByCallback {
         /// What the output value of the transaction would have been.
         /// This will be a Some for contract-calls, and None for contract initialization txs.
-        output: Option<Value>,
+        output: Option<Box<Value>>,
         /// The asset map which was evaluated by the abort callback
-        assets_modified: AssetMap,
+        assets_modified: Box<AssetMap>,
         /// The events from the transaction processing
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction
@@ -65,7 +65,7 @@ impl std::error::Error for Error {
 
 impl From<CheckError> for Error {
     fn from(e: CheckError) -> Self {
-        match e.err {
+        match *e.err {
             CheckErrors::CostOverflow => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
@@ -100,7 +100,7 @@ impl From<InterpreterError> for Error {
 
 impl From<ParseError> for Error {
     fn from(e: ParseError) -> Self {
-        match e.err {
+        match *e.err {
             ParseErrors::CostOverflow => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
@@ -242,7 +242,7 @@ pub trait TransactionConnection: ClarityConnection {
                     let cost_track = contract_analysis.take_contract_cost_tracker();
                     (cost_track, Ok((contract_ast, contract_analysis)))
                 }
-                Err((e, cost_track)) => (cost_track, Err(e.into())),
+                Err(e) => (e.1, Err(e.0.into())),
             }
         })
     }
@@ -345,8 +345,8 @@ pub trait TransactionConnection: ClarityConnection {
         .and_then(|(value, assets_modified, tx_events, reason)| {
             if let Some(reason) = reason {
                 Err(Error::AbortedByCallback {
-                    output: Some(value),
-                    assets_modified,
+                    output: Some(Box::new(value)),
+                    assets_modified: Box::new(assets_modified),
                     tx_events,
                     reason,
                 })
@@ -397,7 +397,7 @@ pub trait TransactionConnection: ClarityConnection {
         if let Some(reason) = reason {
             Err(Error::AbortedByCallback {
                 output: None,
-                assets_modified,
+                assets_modified: Box::new(assets_modified),
                 tx_events,
                 reason,
             })

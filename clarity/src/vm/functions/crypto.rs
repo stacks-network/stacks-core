@@ -43,7 +43,7 @@ macro_rules! native_hash_func {
                         TypeSignature::UIntType,
                         TypeSignature::max_buffer()?,
                     ],
-                    input,
+                    Box::new(input),
                 )),
             }?;
             let hash = <$module>::from_data(&bytes);
@@ -102,11 +102,19 @@ pub fn special_principal_of(
     let pub_key = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(CheckErrors::TypeValueError(BUFF_33.clone(), param0).into());
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(BUFF_33.clone()),
+                    Box::new(param0),
+                )
+                .into());
             }
             data
         }
-        _ => return Err(CheckErrors::TypeValueError(BUFF_33.clone(), param0).into()),
+        _ => {
+            return Err(
+                CheckErrors::TypeValueError(Box::new(BUFF_33.clone()), Box::new(param0)).into(),
+            )
+        }
     };
 
     if let Ok(pub_key) = Secp256k1PublicKey::from_slice(pub_key) {
@@ -140,25 +148,41 @@ pub fn special_secp256k1_recover(
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(CheckErrors::TypeValueError(BUFF_32.clone(), param0).into());
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(BUFF_32.clone()),
+                    Box::new(param0),
+                )
+                .into());
             }
             data
         }
-        _ => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), param0).into()),
+        _ => {
+            return Err(
+                CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(param0)).into(),
+            )
+        }
     };
 
     let param1 = eval(&args[1], env, context)?;
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
-                return Err(CheckErrors::TypeValueError(BUFF_65.clone(), param1).into());
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(BUFF_65.clone()),
+                    Box::new(param1),
+                )
+                .into());
             }
             if data.len() < 65 || data[64] > 3 {
                 return Ok(Value::err_uint(2));
             }
             data
         }
-        _ => return Err(CheckErrors::TypeValueError(BUFF_65.clone(), param1).into()),
+        _ => {
+            return Err(
+                CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
+            )
+        }
     };
 
     match secp256k1_recover(message, signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature) {
@@ -186,18 +210,30 @@ pub fn special_secp256k1_verify(
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(CheckErrors::TypeValueError(BUFF_32.clone(), param0).into());
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(BUFF_32.clone()),
+                    Box::new(param0),
+                )
+                .into());
             }
             data
         }
-        _ => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), param0).into()),
+        _ => {
+            return Err(
+                CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(param0)).into(),
+            )
+        }
     };
 
     let param1 = eval(&args[1], env, context)?;
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
-                return Err(CheckErrors::TypeValueError(BUFF_65.clone(), param1).into());
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(BUFF_65.clone()),
+                    Box::new(param1),
+                )
+                .into());
             }
             if data.len() < 64 {
                 return Ok(Value::Bool(false));
@@ -207,18 +243,30 @@ pub fn special_secp256k1_verify(
             }
             data
         }
-        _ => return Err(CheckErrors::TypeValueError(BUFF_65.clone(), param1).into()),
+        _ => {
+            return Err(
+                CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
+            )
+        }
     };
 
     let param2 = eval(&args[2], env, context)?;
     let pubkey = match param2 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(CheckErrors::TypeValueError(BUFF_33.clone(), param2).into());
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(BUFF_33.clone()),
+                    Box::new(param2),
+                )
+                .into());
             }
             data
         }
-        _ => return Err(CheckErrors::TypeValueError(BUFF_33.clone(), param2).into()),
+        _ => {
+            return Err(
+                CheckErrors::TypeValueError(Box::new(BUFF_33.clone()), Box::new(param2)).into(),
+            )
+        }
     };
 
     Ok(Value::Bool(

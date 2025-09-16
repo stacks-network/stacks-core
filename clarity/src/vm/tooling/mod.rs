@@ -3,7 +3,7 @@ use stacks_common::types::StacksEpochId;
 use super::analysis::ContractAnalysis;
 use super::types::TypeSignature;
 use super::ClarityVersion;
-use crate::vm::analysis::{run_analysis, CheckResult};
+use crate::vm::analysis::{run_analysis, CheckError};
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
@@ -14,7 +14,7 @@ pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
         .unwrap()
@@ -43,6 +43,6 @@ pub fn mem_type_check(
                 .cloned();
             Ok((first_type, x))
         }
-        Err((e, _)) => Err(e),
+        Err(e) => Err(e.0),
     }
 }

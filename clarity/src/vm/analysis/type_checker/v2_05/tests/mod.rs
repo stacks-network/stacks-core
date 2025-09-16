@@ -16,9 +16,8 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckErrors, SyntaxBindingError};
+use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check;
-use crate::vm::analysis::type_checker::v2_05::TypeResult;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::types::SequenceSubtype::*;
@@ -32,7 +31,7 @@ use crate::vm::ClarityVersion;
 mod assets;
 mod contracts;
 
-fn type_check_helper(exp: &str) -> TypeResult {
+fn type_check_helper(exp: &str) -> Result<TypeSignature, CheckError> {
     mem_type_check(exp, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
         .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
@@ -72,8 +71,8 @@ fn test_get_block_info() {
     ];
     let bad_expected = [
         CheckErrors::NoSuchBlockInfoProperty("none".to_string()),
-        CheckErrors::TypeError(UIntType, BoolType),
-        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(Box::new(UIntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(UIntType), Box::new(IntType)),
         CheckErrors::RequiresAtLeastArguments(2, 1),
     ];
 
@@ -85,7 +84,7 @@ fn test_get_block_info() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -122,7 +121,7 @@ fn test_define_trait() {
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 
     let bad = ["(define-trait trait-1)", "(define-trait)"];
@@ -141,7 +140,7 @@ fn test_define_trait() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert_eq!(expected, &res.err);
+        assert_eq!(*expected, *res.err);
     }
 }
 
@@ -170,7 +169,7 @@ fn test_use_trait() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert_eq!(expected, &res.err);
+        assert_eq!(*expected, *res.err);
     }
 }
 
@@ -192,7 +191,7 @@ fn test_impl_trait() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert_eq!(expected, &res.err);
+        assert_eq!(*expected, *res.err);
     }
 }
 
@@ -219,14 +218,14 @@ fn test_stx_ops() {
     ];
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(3, 2),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(PrincipalType, UIntType),
-        CheckErrors::TypeError(PrincipalType, BoolType),
+        CheckErrors::TypeError(Box::new(UIntType), Box::new(IntType)),
+        CheckErrors::TypeError(Box::new(PrincipalType), Box::new(UIntType)),
+        CheckErrors::TypeError(Box::new(PrincipalType), Box::new(BoolType)),
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(PrincipalType, BoolType),
+        CheckErrors::TypeError(Box::new(UIntType), Box::new(IntType)),
+        CheckErrors::TypeError(Box::new(PrincipalType), Box::new(BoolType)),
         CheckErrors::IncorrectArgumentCount(2, 3),
-        CheckErrors::TypeError(PrincipalType, BoolType),
+        CheckErrors::TypeError(Box::new(PrincipalType), Box::new(BoolType)),
         CheckErrors::IncorrectArgumentCount(1, 2),
     ];
 
@@ -238,7 +237,7 @@ fn test_stx_ops() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -293,11 +292,11 @@ fn test_destructuring_opts() {
     let bad = [
         (
             "(unwrap-err! (some 2) 2)",
-            CheckErrors::ExpectedResponseType(TypeSignature::from_string(
+            CheckErrors::ExpectedResponseType(Box::new(TypeSignature::from_string(
                 "(optional int)",
                 ClarityVersion::Clarity1,
                 StacksEpochId::Epoch2_05,
-            )),
+            ))),
         ),
         (
             "(unwrap! (err 3) 2)",
@@ -334,11 +333,17 @@ fn test_destructuring_opts() {
         (
             "(define-private (foo) (if (> 1 0) (ok 1) (err u8)))
          (match (foo) ok-val (+ 1 ok-val) err-val (/ err-val u0))",
-            CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::UIntType),
+            CheckErrors::MatchArmsMustMatch(
+                Box::new(TypeSignature::IntType),
+                Box::new(TypeSignature::UIntType),
+            ),
         ),
         (
             "(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
-            CheckErrors::MatchArmsMustMatch(TypeSignature::IntType, TypeSignature::BoolType),
+            CheckErrors::MatchArmsMustMatch(
+                Box::new(TypeSignature::IntType),
+                Box::new(TypeSignature::BoolType),
+            ),
         ),
         (
             "(match (some 1) inner-value (+ 1 inner-value))",
@@ -365,15 +370,11 @@ fn test_destructuring_opts() {
         ("(match)", CheckErrors::RequiresAtLeastArguments(1, 0)),
         (
             "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
-            CheckErrors::BadMatchInput(TypeSignature::from_string(
-                "int",
-                ClarityVersion::Clarity1,
-                StacksEpochId::Epoch2_05,
-            )),
+            CheckErrors::BadMatchInput(Box::new(TypeSignature::IntType)),
         ),
         (
             "(default-to 3 5)",
-            CheckErrors::ExpectedOptionalType(TypeSignature::IntType),
+            CheckErrors::ExpectedOptionalType(Box::new(TypeSignature::IntType)),
         ),
         (
             "(define-private (foo (x int))
@@ -389,10 +390,14 @@ fn test_destructuring_opts() {
                (err u3)
                (ok (+ u2 (try! (t1 x))))))",
             CheckErrors::ReturnTypesMustMatch(
-                TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType)
-                    .unwrap(),
-                TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType)
-                    .unwrap(),
+                Box::new(
+                    TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType)
+                        .unwrap(),
+                ),
+                Box::new(
+                    TypeSignature::new_response(TypeSignature::UIntType, TypeSignature::UIntType)
+                        .unwrap(),
+                ),
             ),
         ),
         (
@@ -400,9 +405,11 @@ fn test_destructuring_opts() {
          (define-private (t2 (x uint))
            (> u2 (try! (t1 x))))",
             CheckErrors::ReturnTypesMustMatch(
-                TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType)
-                    .unwrap(),
-                TypeSignature::BoolType,
+                Box::new(
+                    TypeSignature::new_response(TypeSignature::NoType, TypeSignature::BoolType)
+                        .unwrap(),
+                ),
+                Box::new(TypeSignature::BoolType),
             ),
         ),
         (
@@ -416,7 +423,7 @@ fn test_destructuring_opts() {
         ),
         (
             "(try! 3)",
-            CheckErrors::ExpectedOptionalOrResponseType(TypeSignature::IntType),
+            CheckErrors::ExpectedOptionalOrResponseType(Box::new(TypeSignature::IntType)),
         ),
         ("(try! (ok 3) 4)", CheckErrors::IncorrectArgumentCount(1, 2)),
     ];
@@ -430,8 +437,8 @@ fn test_destructuring_opts() {
 
     for (bad_test, expected) in bad.iter() {
         assert_eq!(
-            expected,
-            &mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+            *expected,
+            *mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
                 .unwrap_err()
                 .err
         );
@@ -445,7 +452,7 @@ fn test_at_block() {
     let bad = [
         (
             "(at-block (sha512 u0) u1)",
-            CheckErrors::TypeError(BUFF_32.clone(), BUFF_64.clone()),
+            CheckErrors::TypeError(Box::new(BUFF_32.clone()), Box::new(BUFF_64.clone())),
         ),
         (
             "(at-block (sha256 u0) u1 u2)",
@@ -461,7 +468,7 @@ fn test_at_block() {
     }
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -482,7 +489,7 @@ fn test_trait_reference_unknown() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert_eq!(expected, &res.err);
+        assert_eq!(*expected, *res.err);
     }
 }
 
@@ -494,7 +501,7 @@ fn test_unexpected_use_of_field_or_trait_reference() {
     )];
 
     for (bad_test, expected) in bad.iter() {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -515,12 +522,12 @@ fn test_simple_arithmetic_checks() {
         "(and (or true false) (+ 1 2 3))",
     ];
     let bad_expected = [
-        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
         CheckErrors::RequiresAtLeastArguments(1, 0),
         CheckErrors::IncorrectArgumentCount(2, 1),
         CheckErrors::UndefinedVariable("x".to_string()),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -531,7 +538,7 @@ fn test_simple_arithmetic_checks() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -580,14 +587,14 @@ fn test_simple_hash_checks() {
 
     for bad_test in bad_types.iter() {
         assert!(matches!(
-            type_check_helper(bad_test).unwrap_err().err,
+            *type_check_helper(bad_test).unwrap_err().err,
             CheckErrors::UnionTypeError(_, _)
         ));
     }
 
     for bad_test in invalid_args.iter() {
         assert!(matches!(
-            type_check_helper(bad_test).unwrap_err().err,
+            *type_check_helper(bad_test).unwrap_err().err,
             CheckErrors::IncorrectArgumentCount(_, _)
         ));
     }
@@ -611,10 +618,10 @@ fn test_simple_ifs() {
     ];
 
     let bad_expected = [
-        CheckErrors::IfArmsMustMatch(BoolType, IntType),
-        CheckErrors::IfArmsMustMatch(ascii_type(1), BoolType),
+        CheckErrors::IfArmsMustMatch(Box::new(BoolType), Box::new(IntType)),
+        CheckErrors::IfArmsMustMatch(Box::new(ascii_type(1)), Box::new(BoolType)),
         CheckErrors::IncorrectArgumentCount(3, 0),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -625,7 +632,7 @@ fn test_simple_ifs() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -649,7 +656,10 @@ fn test_simple_lets() {
     let bad_expected = [
         CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_invalid_length(0)),
         CheckErrors::BadSyntaxBinding(SyntaxBindingError::let_binding_not_atom(0)),
-        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrors::TypeError(
+            Box::new(TypeSignature::IntType),
+            Box::new(TypeSignature::UIntType),
+        ),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -660,7 +670,7 @@ fn test_simple_lets() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -701,19 +711,22 @@ fn test_index_of() {
     ];
 
     let bad_expected = [
-        CheckErrors::ExpectedSequence(TypeSignature::IntType),
-        CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
+        CheckErrors::ExpectedSequence(Box::new(TypeSignature::IntType)),
         CheckErrors::TypeError(
-            TypeSignature::min_buffer().unwrap(),
-            TypeSignature::min_string_ascii().unwrap(),
+            Box::new(TypeSignature::IntType),
+            Box::new(TypeSignature::UIntType),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_utf8().unwrap(),
-            TypeSignature::min_string_ascii().unwrap(),
+            Box::new(TypeSignature::min_buffer().unwrap()),
+            Box::new(TypeSignature::min_string_ascii().unwrap()),
         ),
         CheckErrors::TypeError(
-            TypeSignature::min_string_ascii().unwrap(),
-            TypeSignature::min_string_utf8().unwrap(),
+            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::min_string_ascii().unwrap()),
+        ),
+        CheckErrors::TypeError(
+            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::min_string_utf8().unwrap()),
         ),
         CheckErrors::CouldNotDetermineType,
         CheckErrors::CouldNotDetermineType,
@@ -721,7 +734,7 @@ fn test_index_of() {
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -746,8 +759,11 @@ fn test_element_at() {
     let bad = ["(element-at (list 1 2 3 4 5) 100)", "(element-at 3 u100)"];
 
     let bad_expected = [
-        CheckErrors::TypeError(TypeSignature::UIntType, TypeSignature::IntType),
-        CheckErrors::ExpectedSequence(TypeSignature::IntType),
+        CheckErrors::TypeError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(TypeSignature::IntType),
+        ),
+        CheckErrors::ExpectedSequence(Box::new(TypeSignature::IntType)),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -758,7 +774,7 @@ fn test_element_at() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -779,19 +795,22 @@ fn test_eqs() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(BoolType, IntType),
-        CheckErrors::TypeError(TypeSignature::list_of(IntType, 1).unwrap(), IntType),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
         CheckErrors::TypeError(
-            TypeSignature::from_string(
+            Box::new(TypeSignature::list_of(IntType, 1).unwrap()),
+            Box::new(IntType),
+        ),
+        CheckErrors::TypeError(
+            Box::new(TypeSignature::from_string(
                 "(optional bool)",
                 ClarityVersion::Clarity1,
                 StacksEpochId::Epoch2_05,
-            ),
-            TypeSignature::from_string(
+            )),
+            Box::new(TypeSignature::from_string(
                 "(optional int)",
                 ClarityVersion::Clarity1,
                 StacksEpochId::Epoch2_05,
-            ),
+            )),
         ),
     ];
 
@@ -803,7 +822,7 @@ fn test_eqs() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -824,7 +843,7 @@ fn test_asserts() {
 
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
         CheckErrors::IncorrectArgumentCount(2, 3),
     ];
 
@@ -836,7 +855,7 @@ fn test_asserts() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -889,23 +908,23 @@ fn test_lists() {
         "(map + (list 1 2 3 4 5) (list true true true true true))",
     ];
     let bad_expected = [
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, buff_type(20)),
-        CheckErrors::TypeError(BoolType, buff_type(20)),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
         CheckErrors::IncorrectArgumentCount(2, 3),
         CheckErrors::UnknownFunction("ynot".to_string()),
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedSequence(UIntType),
-        CheckErrors::ExpectedSequence(IntType),
-        CheckErrors::TypeError(IntType, BoolType),
+        CheckErrors::UnionTypeError(vec![IntType, UIntType], Box::new(BoolType)),
+        CheckErrors::ExpectedSequence(Box::new(UIntType)),
+        CheckErrors::ExpectedSequence(Box::new(IntType)),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -916,7 +935,7 @@ fn test_lists() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -946,20 +965,20 @@ fn test_buff() {
         "(len 1)",
     ];
     let bad_expected = [
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
         CheckErrors::IncorrectArgumentCount(1, 2),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, buff_type(20)),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(buff_type(20))),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
         CheckErrors::IncorrectArgumentCount(2, 3),
         CheckErrors::UnknownFunction("ynot".to_string()),
         CheckErrors::IllegalOrUnknownFunctionApplication("if".to_string()),
         CheckErrors::IncorrectArgumentCount(2, 1),
-        CheckErrors::UnionTypeError(vec![IntType, UIntType], BoolType),
-        CheckErrors::ExpectedSequence(UIntType),
-        CheckErrors::ExpectedSequence(IntType),
+        CheckErrors::UnionTypeError(vec![IntType, UIntType], Box::new(BoolType)),
+        CheckErrors::ExpectedSequence(Box::new(UIntType)),
+        CheckErrors::ExpectedSequence(Box::new(IntType)),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -970,7 +989,7 @@ fn test_buff() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1039,7 +1058,7 @@ fn test_native_as_max_len() {
         CheckErrors::ValueTooLarge,
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1080,12 +1099,12 @@ fn test_native_append() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(IntType, UIntType),
-        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(UIntType)),
+        CheckErrors::TypeError(Box::new(UIntType), Box::new(IntType)),
         CheckErrors::IncorrectArgumentCount(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1108,12 +1127,12 @@ fn test_native_concat() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(IntType, UIntType),
-        CheckErrors::TypeError(UIntType, IntType),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(UIntType)),
+        CheckErrors::TypeError(Box::new(UIntType), Box::new(IntType)),
         CheckErrors::IncorrectArgumentCount(2, 1),
     ];
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1206,8 +1225,8 @@ fn test_tuples() {
     ];
 
     let bad_expected = [
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(BoolType, IntType),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(BoolType), Box::new(IntType)),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1218,7 +1237,7 @@ fn test_tuples() {
     }
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
-        assert_eq!(expected, &type_check_helper(bad_test).unwrap_err().err);
+        assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 }
 
@@ -1230,7 +1249,7 @@ fn test_empty_tuple_should_fail() {
     "#;
 
     assert_eq!(
-        mem_type_check(
+        *mem_type_check(
             contract_src,
             ClarityVersion::Clarity1,
             StacksEpochId::Epoch2_05
@@ -1333,9 +1352,9 @@ fn test_simple_uints() {
     let bad = ["(> u1 1)", "(to-uint true)", "(to-int false)"];
 
     let bad_expected = [
-        CheckErrors::TypeError(UIntType, IntType),
-        CheckErrors::TypeError(IntType, BoolType),
-        CheckErrors::TypeError(UIntType, BoolType),
+        CheckErrors::TypeError(Box::new(UIntType), Box::new(IntType)),
+        CheckErrors::TypeError(Box::new(IntType), Box::new(BoolType)),
+        CheckErrors::TypeError(Box::new(UIntType), Box::new(BoolType)),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -1352,10 +1371,10 @@ fn test_simple_uints() {
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(
-            &mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+            *expected,
+            *mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
                 .unwrap_err()
-                .err,
-            expected
+                .err
         );
     }
 }
@@ -1397,14 +1416,14 @@ fn test_response_inference() {
 
     let bad_expected = [
         CheckErrors::TypeError(
-            TypeSignature::from_string(
+            Box::new(TypeSignature::from_string(
                 "(response bool int)",
                 ClarityVersion::Clarity1,
                 StacksEpochId::Epoch2_05,
-            ),
-            BoolType,
+            )),
+            Box::new(BoolType),
         ),
-        CheckErrors::ReturnTypesMustMatch(IntType, BoolType),
+        CheckErrors::ReturnTypesMustMatch(Box::new(IntType), Box::new(BoolType)),
         CheckErrors::CouldNotDetermineResponseOkType,
     ];
 
@@ -1422,10 +1441,10 @@ fn test_response_inference() {
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(
-            &mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+            *expected,
+            *mem_type_check(bad_test, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
                 .unwrap_err()
-                .err,
-            expected
+                .err
         );
     }
 }
@@ -1539,16 +1558,16 @@ fn test_options() {
          ";
 
     assert!(
-        match mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
+        match *mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
             .unwrap_err()
             .err
         {
             CheckErrors::TypeError(t1, t2) => {
-                t1 == TypeSignature::from_string(
+                *t1 == TypeSignature::from_string(
                     "(optional bool)",
                     ClarityVersion::Clarity1,
                     StacksEpochId::Epoch2_05,
-                ) && t2
+                ) && *t2
                     == TypeSignature::from_string(
                         "(optional int)",
                         ClarityVersion::Clarity1,
@@ -1693,7 +1712,10 @@ fn test_missing_value_on_declaration_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::IncorrectArgumentCount(_, _)));
+    assert!(matches!(
+        *res.err,
+        CheckErrors::IncorrectArgumentCount(_, _)
+    ));
 }
 
 #[test]
@@ -1708,7 +1730,7 @@ fn test_mismatching_type_on_declaration_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(*res.err, CheckErrors::TypeError(_, _)));
 }
 
 #[test]
@@ -1729,7 +1751,7 @@ fn test_mismatching_type_on_update_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(*res.err, CheckErrors::TypeError(_, _)));
 }
 
 #[test]
@@ -1746,7 +1768,7 @@ fn test_direct_access_to_persisted_var_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+    assert!(matches!(*res.err, CheckErrors::UndefinedVariable(_)));
 }
 
 #[test]
@@ -1766,7 +1788,7 @@ fn test_data_var_shadowed_by_let_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(*res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -1784,7 +1806,7 @@ fn test_mutating_unknown_data_var_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NoSuchDataVariable(_)));
+    assert!(matches!(*res.err, CheckErrors::NoSuchDataVariable(_)));
 }
 
 #[test]
@@ -1800,7 +1822,7 @@ fn test_accessing_unknown_data_var_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NoSuchDataVariable(_)));
+    assert!(matches!(*res.err, CheckErrors::NoSuchDataVariable(_)));
 }
 
 #[test]
@@ -1816,7 +1838,7 @@ fn test_let_shadowed_by_let_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(*res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -1833,7 +1855,7 @@ fn test_let_shadowed_by_nested_let_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(*res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -1851,7 +1873,7 @@ fn test_define_constant_shadowed_by_let_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(*res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -1868,7 +1890,7 @@ fn test_define_constant_shadowed_by_argument_should_fail() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert!(matches!(res.err, CheckErrors::NameAlreadyUsed(_)));
+    assert!(matches!(*res.err, CheckErrors::NameAlreadyUsed(_)));
 }
 
 #[test]
@@ -2090,7 +2112,7 @@ fn test_fetch_entry_mismatching_type_signatures() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(*res.err, CheckErrors::TypeError(_, _)));
     }
 }
 
@@ -2110,7 +2132,7 @@ fn test_fetch_entry_unbound_variables() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+        assert!(matches!(*res.err, CheckErrors::UndefinedVariable(_)));
     }
 }
 
@@ -2162,7 +2184,7 @@ fn test_insert_entry_mismatching_type_signatures() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(*res.err, CheckErrors::TypeError(_, _)));
     }
 }
 
@@ -2185,7 +2207,7 @@ fn test_insert_entry_unbound_variables() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+        assert!(matches!(*res.err, CheckErrors::UndefinedVariable(_)));
     }
 }
 
@@ -2235,7 +2257,7 @@ fn test_delete_entry_mismatching_type_signatures() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(*res.err, CheckErrors::TypeError(_, _)));
     }
 }
 
@@ -2255,7 +2277,7 @@ fn test_delete_entry_unbound_variables() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+        assert!(matches!(*res.err, CheckErrors::UndefinedVariable(_)));
     }
 }
 
@@ -2309,7 +2331,7 @@ fn test_set_entry_mismatching_type_signatures() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(matches!(res.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(*res.err, CheckErrors::TypeError(_, _)));
     }
 }
 
@@ -2332,7 +2354,7 @@ fn test_set_entry_unbound_variables() {
             StacksEpochId::Epoch2_05,
         )
         .unwrap_err();
-        assert!(matches!(res.err, CheckErrors::UndefinedVariable(_)));
+        assert!(matches!(*res.err, CheckErrors::UndefinedVariable(_)));
     }
 }
 
@@ -2467,7 +2489,7 @@ fn test_buff_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
+    assert_eq!(*res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -2481,7 +2503,7 @@ fn test_string_ascii_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
+    assert_eq!(*res.err, CheckErrors::ValueOutOfBounds);
 }
 
 #[test]
@@ -2495,5 +2517,5 @@ fn test_string_utf8_negative_len() {
         StacksEpochId::Epoch2_05,
     )
     .unwrap_err();
-    assert_eq!(res.err, CheckErrors::ValueOutOfBounds);
+    assert_eq!(*res.err, CheckErrors::ValueOutOfBounds);
 }

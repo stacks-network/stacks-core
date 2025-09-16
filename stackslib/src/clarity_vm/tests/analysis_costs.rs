@@ -14,13 +14,15 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::clarity::TransactionConnection;
+use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
 use clarity::vm::costs::ExecutionCost;
+use clarity::vm::errors::CheckErrors;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::test_util::TEST_HEADER_DB;
 use clarity::vm::tests::{test_only_mainnet_to_chain_id, UnitTestBurnStateDB};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::{execute as vm_execute, ClarityVersion, ContractName};
+use rstest::rstest;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
@@ -281,4 +283,46 @@ fn epoch_205_test_all_mainnet() {
 #[test]
 fn epoch_205_test_all_testnet() {
     epoch_205_test_all(false);
+}
+
+#[rstest]
+#[case(true, StacksEpochId::Epoch21)]
+#[case(true, StacksEpochId::Epoch2_05)]
+#[case(false, StacksEpochId::Epoch21)]
+#[case(false, StacksEpochId::Epoch2_05)]
+fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: StacksEpochId) {
+    let mut clarity_instance =
+        setup_tracked_cost_test(use_mainnet, epoch, ClarityVersion::Clarity1);
+    let contract_self = "foo";
+
+    let self_contract_id =
+        QualifiedContractIdentifier::local("undefined-top-variable-error").unwrap();
+
+    let burn_state_db = UnitTestBurnStateDB { epoch_id: epoch };
+
+    {
+        let mut conn = clarity_instance.begin_block(
+            &StacksBlockId([3; 32]),
+            &StacksBlockId([4; 32]),
+            &TEST_HEADER_DB,
+            &burn_state_db,
+        );
+
+        conn.as_transaction(|conn| {
+            let analysis_result = conn.analyze_smart_contract(
+                &self_contract_id,
+                ClarityVersion::Clarity1,
+                &contract_self,
+            );
+            let Err(ClarityError::Analysis(check_error)) = analysis_result else {
+                panic!("Bad analysis result: {analysis_result:?}");
+            };
+            let CheckErrors::UndefinedVariable(var_name) = *check_error.err else {
+                panic!("Bad analysis error: {check_error:?}");
+            };
+            assert_eq!(var_name, "foo".to_string());
+        });
+
+        conn.commit_block();
+    }
 }

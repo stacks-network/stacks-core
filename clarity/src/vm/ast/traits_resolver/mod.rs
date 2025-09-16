@@ -16,8 +16,8 @@
 
 use std::collections::HashMap;
 
-use clarity_serialization::representations::ClarityName;
-use clarity_serialization::types::{QualifiedContractIdentifier, TraitIdentifier};
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST};

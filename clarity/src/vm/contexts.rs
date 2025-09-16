@@ -19,8 +19,8 @@ use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-pub use clarity_serialization::errors::StackTrace;
-use clarity_serialization::representations::ClarityName;
+pub use clarity_types::errors::StackTrace;
+use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -1101,7 +1101,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                         self.epoch(),
                         &expected_type,
                         value.clone(),
-                    ).ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
+                    ).ok_or_else(|| CheckErrors::TypeValueError(
+                            Box::new(expected_type),
+                            Box::new(value.clone()),
+                        )
+                    )?;
 
                     Ok(sanitized_value)
                 })
@@ -1727,10 +1731,10 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 self.commit()?;
                 Ok(result)
             } else {
-                Err(
-                    CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)?)
-                        .into(),
-                )
+                Err(CheckErrors::PublicFunctionMustReturnResponse(Box::new(
+                    TypeSignature::type_of(&result)?,
+                ))
+                .into())
             }
         } else {
             self.roll_back()?;

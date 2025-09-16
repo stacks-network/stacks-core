@@ -55,7 +55,7 @@ fn test_block_height(
         let err = analysis.unwrap_err();
         assert_eq!(
             CheckErrors::UndefinedVariable("block-height".to_string()),
-            err.err
+            *err.err
         );
     } else {
         assert!(analysis.is_ok());
@@ -112,7 +112,7 @@ fn test_stacks_block_height(
         let err = analysis.unwrap_err();
         assert_eq!(
             CheckErrors::UndefinedVariable("stacks-block-height".to_string()),
-            err.err
+            *err.err
         );
     } else {
         assert!(analysis.is_ok());
@@ -171,7 +171,7 @@ fn test_tenure_height(
         let err = analysis.unwrap_err();
         assert_eq!(
             CheckErrors::UndefinedVariable("tenure-height".to_string()),
-            err.err
+            *err.err
         );
     } else {
         assert!(analysis.is_ok());
@@ -243,7 +243,7 @@ fn expect_contract_error(
     for (when, err_condition, expected_error) in expected_errors {
         if *when == WhenError::Analysis && err_condition(version, epoch) {
             let err = analysis.unwrap_err();
-            assert_eq!(*expected_error, err.err);
+            assert_eq!(*expected_error, *err.err);
 
             // Do not continue with the test if the analysis failed.
             return;

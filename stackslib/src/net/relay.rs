@@ -1805,7 +1805,7 @@ impl Relayer {
                 ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
             match ast_res {
                 Ok(_) => {}
-                Err(parse_error) => match parse_error.err {
+                Err(parse_error) => match *parse_error.err {
                     ParseErrors::ExpressionStackDepthTooDeep
                     | ParseErrors::VaryExpressionStackDepthTooDeep => {
                         // don't include this block

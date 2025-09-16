@@ -327,7 +327,7 @@ mod test {
             cost_addition_count: 1,
         };
 
-        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_err, *err.err);
         assert_eq!(expected_list_cost_state, cost_track);
 
         let mut cost_track = UnitTestTracker::new();
@@ -347,7 +347,7 @@ mod test {
             cost_addition_count: 1,
         };
 
-        assert_eq!(&expected_err, &err.err);
+        assert_eq!(expected_err, *err.err);
         assert_eq!(expected_list_cost_state, cost_track);
     }
 
@@ -389,7 +389,7 @@ mod test {
                 cost_addition_count: 1,
             };
 
-            assert_eq!(&expected_err, &err.err);
+            assert_eq!(expected_err, *err.err);
             assert_eq!(expected_list_cost_state, cost_track);
 
             let mut cost_track = UnitTestTracker::new();
@@ -409,7 +409,7 @@ mod test {
                 cost_addition_count: 1,
             };
 
-            assert_eq!(&expected_err, &err.err);
+            assert_eq!(expected_err, *err.err);
             assert_eq!(expected_list_cost_state, cost_track);
         }
     }

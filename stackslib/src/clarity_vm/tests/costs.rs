@@ -164,6 +164,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetStacksBlockInfo => "(get-stacks-block-info? time u1)",
         GetTenureInfo => "(get-tenure-info? time u1)",
         ContractHash => "(contract-hash? .contract-other)",
+        ToAscii => "(to-ascii? 65)",
     }
 }
 

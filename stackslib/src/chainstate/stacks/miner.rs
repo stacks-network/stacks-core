@@ -439,6 +439,18 @@ pub enum TransactionEvent {
     Problematic(TransactionProblematicEvent),
 }
 
+impl TransactionEvent {
+    /// Get the txid of the transaction result
+    pub fn txid(&self) -> &Txid {
+        match self {
+            TransactionEvent::Success(TransactionSuccessEvent { txid, .. }) => txid,
+            TransactionEvent::ProcessingError(TransactionErrorEvent { txid, .. }) => txid,
+            TransactionEvent::Skipped(TransactionSkippedEvent { txid, .. }) => txid,
+            TransactionEvent::Problematic(TransactionProblematicEvent { txid, .. }) => txid,
+        }
+    }
+}
+
 impl TransactionResult {
     /// Logs a queryable message for the case where `txid` has succeeded.
     pub fn log_transaction_success(tx: &StacksTransaction) {
@@ -645,7 +657,7 @@ impl TransactionResult {
                 ClarityRuntimeTxError::Acceptable { error, .. } => {
                     if let clarity_error::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
-                        match &parse_err.err {
+                        match *parse_err.err {
                             ParseErrors::ExpressionStackDepthTooDeep
                             | ParseErrors::VaryExpressionStackDepthTooDeep => {
                                 info!("Problematic transaction failed AST depth check"; "txid" => %tx.txid());
@@ -677,8 +689,8 @@ impl TransactionResult {
                     tx_events,
                     reason,
                 } => Error::ClarityError(clarity_error::AbortedByCallback {
-                    output,
-                    assets_modified,
+                    output: output.map(Box::new),
+                    assets_modified: Box::new(assets_modified),
                     tx_events,
                     reason,
                 }),

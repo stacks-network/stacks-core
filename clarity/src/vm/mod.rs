@@ -13,8 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#![allow(clippy::result_large_err)]
-
 pub mod diagnostic;
 pub mod errors;
 
@@ -55,7 +53,7 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
-pub use clarity_serialization::MAX_CALL_STACK_DEPTH;
+pub use clarity_types::MAX_CALL_STACK_DEPTH;
 use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
 

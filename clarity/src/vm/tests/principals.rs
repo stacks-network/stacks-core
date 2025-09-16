@@ -25,7 +25,7 @@ fn test_simple_is_standard_check_inputs() {
             true
         )
         .unwrap_err(),
-        CheckErrors::TypeValueError(PrincipalType, Value::UInt(10)).into()
+        CheckErrors::TypeValueError(Box::new(PrincipalType), Box::new(Value::UInt(10)),).into()
     );
 }
 
@@ -906,10 +906,10 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct? 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            BUFF_1.clone(),
-            Value::Sequence(SequenceData::Buffer(BuffData {
+            Box::new(BUFF_1.clone()),
+            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("590493").unwrap()
-            }))
+            }))),
         )
         .into()),
         execute_with_parameters(
@@ -924,7 +924,10 @@ fn test_principal_construct_check_errors() {
     // `CheckErrors`.
     let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(BUFF_1.clone(), Value::UInt(22)).into()),
+        Err(
+            CheckErrors::TypeValueError(Box::new(BUFF_1.clone()), Box::new(Value::UInt(22)),)
+                .into()
+        ),
         execute_with_parameters(
             input,
             ClarityVersion::Clarity2,
@@ -945,10 +948,10 @@ fn test_principal_construct_check_errors() {
         )
         .unwrap_err(),
         CheckErrors::TypeValueError(
-            BUFF_20.clone(),
-            Value::Sequence(SequenceData::Buffer(BuffData {
+            Box::new(BUFF_20.clone()),
+            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
-            }))
+            }))),
         )
         .into()
     );
@@ -957,12 +960,14 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            TypeSignature::contract_name_string_ascii_type().unwrap(),
-            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-                data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                    .as_bytes()
-                    .to_vec()
-            })))
+            Box::new(TypeSignature::contract_name_string_ascii_type().unwrap()),
+            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
+                ASCIIData {
+                    data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                        .as_bytes()
+                        .to_vec()
+                }
+            ))))
         )
         .into()),
         execute_with_parameters(
