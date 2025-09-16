@@ -15316,7 +15316,7 @@ fn check_block_time_keyword() {
     .result()
     .expect_err("Expected error, got ");
     info!("Invalid time: {err}");
-    assert!(err.starts_with("BlockTimeNotFound"));
+    assert!(err.starts_with("BlockTimeNotAvailable"));
 
     coord_channel
         .lock()
