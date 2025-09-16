@@ -99,6 +99,8 @@ pub enum RuntimeErrorType {
     // pox-locking errors
     DefunctPoxContract,
     PoxAlreadyLocked,
+
+    BlockTimeNotAvailable,
 }
 
 #[derive(Debug, PartialEq)]
