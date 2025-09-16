@@ -1119,7 +1119,6 @@ fn test_block_time(
         version,
         contract,
         None,
-        ASTRules::PrecheckSize,
     );
 
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
@@ -1167,7 +1166,6 @@ fn test_block_time_in_expressions() {
         version,
         contract,
         None,
-        ASTRules::PrecheckSize,
     );
     assert!(result.is_ok());
 
