@@ -92,7 +92,7 @@ jobs:
         run: |
           cargo hack check \
             -p clarity \
-            -p clarity-serialization \
+            -p clarity-types \
             -p stacks-common \
             --each-feature \
             --no-dev-deps \
@@ -102,7 +102,7 @@ jobs:
       - name: Run cargo hack check (WASM Deterministic)
         run: |
           cargo hack check \
-            -p clarity-serialization \
+            -p clarity-types \
             -p stacks-common \
             --each-feature \
             --no-dev-deps \

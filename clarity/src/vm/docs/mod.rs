@@ -2537,6 +2537,25 @@ is not a contract or the specified contract does not exist. Returns:
 "#,
 };
 
+const TO_ASCII: SpecialAPI = SpecialAPI {
+    input_type: "int|uint|bool|principal|(buff 524284)|(string-utf8 1048571)",
+    snippet: "to-ascii? ${1:value}",
+    output_type: "(response (string-ascii 1048571) uint)",
+    signature: "(to-ascii? value)",
+    description: "The `to-ascii?` function converts the input value to its ASCII representation.
+If the input is a `string-utf8`, it will fail with `(err u1)` if the string contains non-ASCII
+characters.",
+    example: r#"
+(to-ascii? 123) ;; Returns (ok "123")
+(to-ascii? u456) ;; Returns (ok "u456")
+(to-ascii? false) ;; Returns (ok "false")
+(to-ascii? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4) ;; Returns (ok "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4")
+(to-ascii? 0x00112233) ;; Returns (ok "0x00112233")
+(to-ascii? u"An ASCII smiley face: :)") ;; Returns (ok "An ASCII smiley face: :)")
+(to-ascii? u"A smiley face emoji: \u{1F600}") ;; Returns (err u1)
+"#,
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2650,6 +2669,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, function, name),
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
         ContractHash => make_for_simple_native(&CONTRACT_HASH, function, name),
+        ToAscii => make_for_special(&TO_ASCII, function),
     }
 }
 

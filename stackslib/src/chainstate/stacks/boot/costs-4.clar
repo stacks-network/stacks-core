@@ -660,3 +660,6 @@
         read_count: u1,
         read_length: u32
     })
+
+(define-read-only (cost_to_ascii (n uint))
+    (runtime (linear n u1 u100))) ;; TODO: needs criterion benchmark

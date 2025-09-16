@@ -18,7 +18,7 @@ name = "clarity"
 path = "./src/libclarity.rs"
 
 [dependencies]
-clarity-serialization = { package = "clarity-serialization", path = "../clarity-serialization", default-features = false }
+clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
@@ -33,7 +33,7 @@ rusqlite = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
-clarity-serialization = { package = "clarity-serialization", path = "../clarity-serialization", default-features = false, features = ["testing"] }
+clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false, features = ["testing"] }
 mutants = "0.0.3"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = { version = "0.17.0" }
@@ -48,11 +48,11 @@ serde_stacker = "0.1"
 
 [features]
 default = ["rusqlite"]
-developer-mode = ["stacks_common/developer-mode", "clarity-serialization/developer-mode"]
+developer-mode = ["stacks_common/developer-mode", "clarity-types/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
-rusqlite = ["stacks_common/rusqlite", "clarity-serialization/rusqlite", "dep:rusqlite"]
-testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-serialization/testing"]
+rusqlite = ["stacks_common/rusqlite", "clarity-types/rusqlite", "dep:rusqlite"]
+testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing"]
 devtools = []
 rollback_value_check = []
 disable-costs = []
-wasm-web = ["stacks_common/wasm-web", "clarity-serialization/wasm-web"]
+wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web"]
