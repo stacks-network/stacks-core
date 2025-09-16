@@ -1108,7 +1108,7 @@ fn test_block_time(
         let err = analysis.unwrap_err();
         assert_eq!(
             CheckErrors::UndefinedVariable("block-time".to_string()),
-            err.err
+            *err.err
         );
     } else {
         assert!(analysis.is_ok());
