@@ -228,8 +228,8 @@ impl DefinedFunction {
                     _ => {
                         if !type_sig.admits(env.epoch(), value)? {
                             return Err(CheckErrors::TypeValueError(
-                                type_sig.clone(),
-                                value.clone(),
+                                Box::new(type_sig.clone()),
+                                Box::new(value.clone()),
                             )
                             .into());
                         }
@@ -272,9 +272,11 @@ impl DefinedFunction {
                     }
                     _ => {
                         if !type_sig.admits(env.epoch(), &cast_value)? {
-                            return Err(
-                                CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
-                            );
+                            return Err(CheckErrors::TypeValueError(
+                                Box::new(type_sig.clone()),
+                                Box::new(cast_value),
+                            )
+                            .into());
                         }
                     }
                 }
@@ -447,9 +449,11 @@ fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Val
                     Some(ty) => ty,
                     None => {
                         // This should be unreachable if the type-checker has already run successfully
-                        return Err(
-                            CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
-                        );
+                        return Err(CheckErrors::TypeValueError(
+                            Box::new(type_sig.clone()),
+                            Box::new(value.clone()),
+                        )
+                        .into());
                     }
                 };
                 cast_data_map.insert(name.clone(), clarity2_implicit_cast(to_type, field_value)?);

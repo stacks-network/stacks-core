@@ -753,8 +753,8 @@ impl TypeSignature {
                         CallableSubtype::Principal(_) => {
                             if is_trait.is_some() {
                                 return Err(CheckErrors::TypeError(
-                                    TypeSignature::CallableType(partial.clone()),
-                                    TypeSignature::PrincipalType,
+                                    Box::new(TypeSignature::CallableType(partial.clone())),
+                                    Box::new(TypeSignature::PrincipalType),
                                 ));
                             } else {
                                 is_principal = true;
@@ -763,8 +763,8 @@ impl TypeSignature {
                         CallableSubtype::Trait(t) => {
                             if is_principal {
                                 return Err(CheckErrors::TypeError(
-                                    TypeSignature::PrincipalType,
-                                    TypeSignature::CallableType(partial.clone()),
+                                    Box::new(TypeSignature::PrincipalType),
+                                    Box::new(TypeSignature::CallableType(partial.clone())),
                                 ));
                             } else {
                                 is_trait = Some(t.clone());
@@ -1039,9 +1039,10 @@ impl TypeSignature {
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
-                    let entry_b = types_b
-                        .get(name)
-                        .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
+                    let entry_b = types_b.get(name).ok_or(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))?;
                     let entry_out = Self::least_supertype_v2_0(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
@@ -1127,7 +1128,10 @@ impl TypeSignature {
                 if x == y {
                     Ok(x.clone())
                 } else {
-                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                    Err(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))
                 }
             }
         }
@@ -1144,9 +1148,10 @@ impl TypeSignature {
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
-                    let entry_b = types_b
-                        .get(name)
-                        .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
+                    let entry_b = types_b.get(name).ok_or(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))?;
                     let entry_out = Self::least_supertype_v2_1(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
@@ -1254,7 +1259,10 @@ impl TypeSignature {
                 if all_principals {
                     Ok(PrincipalType)
                 } else {
-                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                    Err(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))
                 }
             }
             (ListUnionType(l1), ListUnionType(l2)) => {
@@ -1264,7 +1272,10 @@ impl TypeSignature {
                 if x == y {
                     Ok(x.clone())
                 } else {
-                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                    Err(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))
                 }
             }
         }

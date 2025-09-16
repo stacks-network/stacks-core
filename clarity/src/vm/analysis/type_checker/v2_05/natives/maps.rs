@@ -56,8 +56,8 @@ pub fn check_special_fetch_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch2_05, &key_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_key_type.clone(),
-            key_type,
+            Box::new(expected_key_type.clone()),
+            Box::new(key_type),
         )))
     } else {
         Ok(option_type)
@@ -89,8 +89,8 @@ pub fn check_special_delete_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch2_05, &key_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_key_type.clone(),
-            key_type,
+            Box::new(expected_key_type.clone()),
+            Box::new(key_type),
         )))
     } else {
         Ok(TypeSignature::BoolType)
@@ -130,13 +130,13 @@ fn check_set_or_insert_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch2_05, &key_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_key_type.clone(),
-            key_type,
+            Box::new(expected_key_type.clone()),
+            Box::new(key_type),
         )))
     } else if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_value_type.clone(),
-            value_type,
+            Box::new(expected_value_type.clone()),
+            Box::new(value_type),
         )))
     } else {
         Ok(TypeSignature::BoolType)
