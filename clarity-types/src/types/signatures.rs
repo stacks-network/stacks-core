@@ -31,8 +31,6 @@ use crate::types::{
     WRAPPER_VALUE_SIZE,
 };
 
-type Result<R> = std::result::Result<R, CheckErrors>;
-
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
 pub struct AssetIdentifier {
     pub contract_identifier: QualifiedContractIdentifier,
@@ -152,7 +150,7 @@ pub enum SequenceSubtype {
 }
 
 impl SequenceSubtype {
-    pub fn unit_type(&self) -> Result<TypeSignature> {
+    pub fn unit_type(&self) -> Result<TypeSignature, CheckErrors> {
         match &self {
             SequenceSubtype::ListType(list_data) => Ok(list_data.clone().destruct().0),
             SequenceSubtype::BufferType(_) => TypeSignature::min_buffer(),
@@ -299,7 +297,7 @@ impl From<BufferLength> for u32 {
 
 impl TryFrom<u32> for BufferLength {
     type Error = CheckErrors;
-    fn try_from(data: u32) -> Result<BufferLength> {
+    fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
         if data > MAX_VALUE_SIZE {
             Err(CheckErrors::ValueTooLarge)
         } else {
@@ -310,7 +308,7 @@ impl TryFrom<u32> for BufferLength {
 
 impl TryFrom<usize> for BufferLength {
     type Error = CheckErrors;
-    fn try_from(data: usize) -> Result<BufferLength> {
+    fn try_from(data: usize) -> Result<BufferLength, CheckErrors> {
         if data > (MAX_VALUE_SIZE as usize) {
             Err(CheckErrors::ValueTooLarge)
         } else {
@@ -321,7 +319,7 @@ impl TryFrom<usize> for BufferLength {
 
 impl TryFrom<i128> for BufferLength {
     type Error = CheckErrors;
-    fn try_from(data: i128) -> Result<BufferLength> {
+    fn try_from(data: i128) -> Result<BufferLength, CheckErrors> {
         if data > (MAX_VALUE_SIZE as i128) {
             Err(CheckErrors::ValueTooLarge)
         } else if data < 0 {
@@ -346,7 +344,7 @@ impl From<StringUTF8Length> for u32 {
 
 impl TryFrom<u32> for StringUTF8Length {
     type Error = CheckErrors;
-    fn try_from(data: u32) -> Result<StringUTF8Length> {
+    fn try_from(data: u32) -> Result<StringUTF8Length, CheckErrors> {
         let len = data
             .checked_mul(4)
             .ok_or_else(|| CheckErrors::ValueTooLarge)?;
@@ -360,7 +358,7 @@ impl TryFrom<u32> for StringUTF8Length {
 
 impl TryFrom<usize> for StringUTF8Length {
     type Error = CheckErrors;
-    fn try_from(data: usize) -> Result<StringUTF8Length> {
+    fn try_from(data: usize) -> Result<StringUTF8Length, CheckErrors> {
         let len = data
             .checked_mul(4)
             .ok_or_else(|| CheckErrors::ValueTooLarge)?;
@@ -374,7 +372,7 @@ impl TryFrom<usize> for StringUTF8Length {
 
 impl TryFrom<i128> for StringUTF8Length {
     type Error = CheckErrors;
-    fn try_from(data: i128) -> Result<StringUTF8Length> {
+    fn try_from(data: i128) -> Result<StringUTF8Length, CheckErrors> {
         let len = data
             .checked_mul(4)
             .ok_or_else(|| CheckErrors::ValueTooLarge)?;
@@ -389,7 +387,7 @@ impl TryFrom<i128> for StringUTF8Length {
 }
 
 impl ListTypeData {
-    pub fn new_list(entry_type: TypeSignature, max_len: u32) -> Result<ListTypeData> {
+    pub fn new_list(entry_type: TypeSignature, max_len: u32) -> Result<ListTypeData, CheckErrors> {
         let would_be_depth = 1 + entry_type.depth();
         if would_be_depth > MAX_TYPE_DEPTH {
             return Err(CheckErrors::TypeSignatureTooDeep);
@@ -431,7 +429,7 @@ impl ListTypeData {
 }
 
 impl TypeSignature {
-    pub fn new_option(inner_type: TypeSignature) -> Result<TypeSignature> {
+    pub fn new_option(inner_type: TypeSignature) -> Result<TypeSignature, CheckErrors> {
         let new_size = WRAPPER_VALUE_SIZE + inner_type.size()?;
         let new_depth = 1 + inner_type.depth();
         if new_size > MAX_VALUE_SIZE {
@@ -443,7 +441,10 @@ impl TypeSignature {
         }
     }
 
-    pub fn new_response(ok_type: TypeSignature, err_type: TypeSignature) -> Result<TypeSignature> {
+    pub fn new_response(
+        ok_type: TypeSignature,
+        err_type: TypeSignature,
+    ) -> Result<TypeSignature, CheckErrors> {
         let new_size = WRAPPER_VALUE_SIZE + cmp::max(ok_type.size()?, err_type.size()?);
         let new_depth = 1 + cmp::max(ok_type.depth(), err_type.depth());
 
@@ -456,14 +457,14 @@ impl TypeSignature {
         }
     }
 
-    pub fn new_string_ascii(len: usize) -> Result<TypeSignature> {
+    pub fn new_string_ascii(len: usize) -> Result<TypeSignature, CheckErrors> {
         let len = BufferLength::try_from(len)?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(len),
         )))
     }
 
-    pub fn new_string_utf8(len: usize) -> Result<TypeSignature> {
+    pub fn new_string_utf8(len: usize) -> Result<TypeSignature, CheckErrors> {
         let len = StringUTF8Length::try_from(len)?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(len),
@@ -478,12 +479,16 @@ impl TypeSignature {
         &TypeSignature::NoType == self
     }
 
-    pub fn admits(&self, epoch: &StacksEpochId, x: &Value) -> Result<bool> {
+    pub fn admits(&self, epoch: &StacksEpochId, x: &Value) -> Result<bool, CheckErrors> {
         let x_type = TypeSignature::type_of(x)?;
         self.admits_type(epoch, &x_type)
     }
 
-    pub fn admits_type(&self, epoch: &StacksEpochId, other: &TypeSignature) -> Result<bool> {
+    pub fn admits_type(
+        &self,
+        epoch: &StacksEpochId,
+        other: &TypeSignature,
+    ) -> Result<bool, CheckErrors> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => self.admits_type_v2_0(other),
             StacksEpochId::Epoch21
@@ -499,7 +504,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn admits_type_v2_0(&self, other: &TypeSignature) -> Result<bool> {
+    pub fn admits_type_v2_0(&self, other: &TypeSignature) -> Result<bool, CheckErrors> {
         match self {
             SequenceType(SequenceSubtype::ListType(my_list_type)) => {
                 if let SequenceType(SequenceSubtype::ListType(other_list_type)) = other {
@@ -592,7 +597,7 @@ impl TypeSignature {
         }
     }
 
-    fn admits_type_v2_1(&self, other: &TypeSignature) -> Result<bool> {
+    fn admits_type_v2_1(&self, other: &TypeSignature) -> Result<bool, CheckErrors> {
         let other = match other.concretize() {
             Ok(other) => other,
             Err(_) => {
@@ -738,7 +743,7 @@ impl TypeSignature {
     /// Concretize the type. The input to this method may include
     /// `ListUnionType` and the `CallableType` variant for a `principal.
     /// This method turns these "temporary" types into actual types.
-    pub fn concretize(&self) -> Result<TypeSignature> {
+    pub fn concretize(&self) -> Result<TypeSignature, CheckErrors> {
         match self {
             ListUnionType(types) => {
                 let mut is_trait = None;
@@ -748,8 +753,8 @@ impl TypeSignature {
                         CallableSubtype::Principal(_) => {
                             if is_trait.is_some() {
                                 return Err(CheckErrors::TypeError(
-                                    TypeSignature::PrincipalType,
-                                    TypeSignature::CallableType(partial.clone()),
+                                    Box::new(TypeSignature::CallableType(partial.clone())),
+                                    Box::new(TypeSignature::PrincipalType),
                                 ));
                             } else {
                                 is_principal = true;
@@ -758,8 +763,8 @@ impl TypeSignature {
                         CallableSubtype::Trait(t) => {
                             if is_principal {
                                 return Err(CheckErrors::TypeError(
-                                    TypeSignature::PrincipalType,
-                                    TypeSignature::CallableType(partial.clone()),
+                                    Box::new(TypeSignature::PrincipalType),
+                                    Box::new(TypeSignature::CallableType(partial.clone())),
                                 ));
                             } else {
                                 is_trait = Some(t.clone());
@@ -781,7 +786,9 @@ impl TypeSignature {
 
 impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
     type Error = CheckErrors;
-    fn try_from(type_data: Vec<(ClarityName, TypeSignature)>) -> Result<TupleTypeSignature> {
+    fn try_from(
+        type_data: Vec<(ClarityName, TypeSignature)>,
+    ) -> Result<TupleTypeSignature, CheckErrors> {
         if type_data.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
@@ -800,7 +807,9 @@ impl TryFrom<Vec<(ClarityName, TypeSignature)>> for TupleTypeSignature {
 
 impl TryFrom<BTreeMap<ClarityName, TypeSignature>> for TupleTypeSignature {
     type Error = CheckErrors;
-    fn try_from(type_map: BTreeMap<ClarityName, TypeSignature>) -> Result<TupleTypeSignature> {
+    fn try_from(
+        type_map: BTreeMap<ClarityName, TypeSignature>,
+    ) -> Result<TupleTypeSignature, CheckErrors> {
         if type_map.is_empty() {
             return Err(CheckErrors::EmptyTuplesNotAllowed);
         }
@@ -841,7 +850,11 @@ impl TupleTypeSignature {
         &self.type_map
     }
 
-    pub fn admits(&self, epoch: &StacksEpochId, other: &TupleTypeSignature) -> Result<bool> {
+    pub fn admits(
+        &self,
+        epoch: &StacksEpochId,
+        other: &TupleTypeSignature,
+    ) -> Result<bool, CheckErrors> {
         if self.type_map.len() != other.type_map.len() {
             return Ok(false);
         }
@@ -865,7 +878,7 @@ impl TupleTypeSignature {
 }
 
 impl TypeSignature {
-    pub fn empty_buffer() -> Result<TypeSignature> {
+    pub fn empty_buffer() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::BufferType(
             0_u32.try_into().map_err(|_| {
                 CheckErrors::Expects("FAIL: Empty clarity value size is not realizable".into())
@@ -873,7 +886,7 @@ impl TypeSignature {
         )))
     }
 
-    pub fn min_buffer() -> Result<TypeSignature> {
+    pub fn min_buffer() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::BufferType(
             1_u32.try_into().map_err(|_| {
                 CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
@@ -881,7 +894,7 @@ impl TypeSignature {
         )))
     }
 
-    pub fn min_string_ascii() -> Result<TypeSignature> {
+    pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(1_u32.try_into().map_err(|_| {
                 CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
@@ -889,7 +902,7 @@ impl TypeSignature {
         )))
     }
 
-    pub fn min_string_utf8() -> Result<TypeSignature> {
+    pub fn min_string_utf8() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(1_u32.try_into().map_err(|_| {
                 CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
@@ -897,7 +910,7 @@ impl TypeSignature {
         )))
     }
 
-    pub fn max_string_ascii() -> Result<TypeSignature> {
+    pub fn max_string_ascii() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(BufferLength::try_from(MAX_VALUE_SIZE).map_err(|_| {
                 CheckErrors::Expects(
@@ -907,7 +920,7 @@ impl TypeSignature {
         )))
     }
 
-    pub fn max_string_utf8() -> Result<TypeSignature> {
+    pub fn max_string_utf8() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(StringUTF8Length::try_from(MAX_VALUE_SIZE / 4).map_err(|_| {
                 CheckErrors::Expects(
@@ -917,7 +930,7 @@ impl TypeSignature {
         )))
     }
 
-    pub fn max_buffer() -> Result<TypeSignature> {
+    pub fn max_buffer() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::BufferType(
             BufferLength::try_from(MAX_VALUE_SIZE).map_err(|_| {
                 CheckErrors::Expects(
@@ -927,13 +940,13 @@ impl TypeSignature {
         )))
     }
 
-    pub fn contract_name_string_ascii_type() -> Result<TypeSignature> {
+    pub fn contract_name_string_ascii_type() -> Result<TypeSignature, CheckErrors> {
         TypeSignature::bound_string_ascii_type(CONTRACT_MAX_NAME_LENGTH.try_into().map_err(
             |_| CheckErrors::Expects("FAIL: contract name max length exceeds u32 space".into()),
         )?)
     }
 
-    pub fn bound_string_ascii_type(max_len: u32) -> Result<TypeSignature> {
+    pub fn bound_string_ascii_type(max_len: u32) -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(BufferLength::try_from(max_len).map_err(|_| {
                 CheckErrors::Expects(
@@ -948,7 +961,7 @@ impl TypeSignature {
         epoch: &StacksEpochId,
         a: &TypeSignature,
         b: &TypeSignature,
-    ) -> Result<TypeSignature> {
+    ) -> Result<TypeSignature, CheckErrors> {
         if a.is_no_type() {
             Ok(b.clone())
         } else if b.is_no_type() {
@@ -982,7 +995,7 @@ impl TypeSignature {
         epoch: &StacksEpochId,
         a: &TypeSignature,
         b: &TypeSignature,
-    ) -> Result<TypeSignature> {
+    ) -> Result<TypeSignature, CheckErrors> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => Self::least_supertype_v2_0(a, b),
             StacksEpochId::Epoch21
@@ -998,7 +1011,10 @@ impl TypeSignature {
         }
     }
 
-    pub fn least_supertype_v2_0(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn least_supertype_v2_0(
+        a: &TypeSignature,
+        b: &TypeSignature,
+    ) -> Result<TypeSignature, CheckErrors> {
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
@@ -1006,9 +1022,10 @@ impl TypeSignature {
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
-                    let entry_b = types_b
-                        .get(name)
-                        .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
+                    let entry_b = types_b.get(name).ok_or(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))?;
                     let entry_out = Self::least_supertype_v2_0(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
@@ -1094,13 +1111,19 @@ impl TypeSignature {
                 if x == y {
                     Ok(x.clone())
                 } else {
-                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                    Err(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))
                 }
             }
         }
     }
 
-    pub fn least_supertype_v2_1(a: &TypeSignature, b: &TypeSignature) -> Result<TypeSignature> {
+    pub fn least_supertype_v2_1(
+        a: &TypeSignature,
+        b: &TypeSignature,
+    ) -> Result<TypeSignature, CheckErrors> {
         match (a, b) {
             (
                 TupleType(TupleTypeSignature { type_map: types_a }),
@@ -1108,9 +1131,10 @@ impl TypeSignature {
             ) => {
                 let mut type_map_out = BTreeMap::new();
                 for (name, entry_a) in types_a.iter() {
-                    let entry_b = types_b
-                        .get(name)
-                        .ok_or(CheckErrors::TypeError(a.clone(), b.clone()))?;
+                    let entry_b = types_b.get(name).ok_or(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))?;
                     let entry_out = Self::least_supertype_v2_1(entry_a, entry_b)?;
                     type_map_out.insert(name.clone(), entry_out);
                 }
@@ -1218,7 +1242,10 @@ impl TypeSignature {
                 if all_principals {
                     Ok(PrincipalType)
                 } else {
-                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                    Err(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))
                 }
             }
             (ListUnionType(l1), ListUnionType(l2)) => {
@@ -1228,13 +1255,16 @@ impl TypeSignature {
                 if x == y {
                     Ok(x.clone())
                 } else {
-                    Err(CheckErrors::TypeError(a.clone(), b.clone()))
+                    Err(CheckErrors::TypeError(
+                        Box::new(a.clone()),
+                        Box::new(b.clone()),
+                    ))
                 }
             }
         }
     }
 
-    pub fn list_of(item_type: TypeSignature, max_len: u32) -> Result<TypeSignature> {
+    pub fn list_of(item_type: TypeSignature, max_len: u32) -> Result<TypeSignature, CheckErrors> {
         ListTypeData::new_list(item_type, max_len).map(|x| x.into())
     }
 
@@ -1245,7 +1275,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn type_of(x: &Value) -> Result<TypeSignature> {
+    pub fn type_of(x: &Value) -> Result<TypeSignature, CheckErrors> {
         let out = match x {
             Value::Principal(_) => PrincipalType,
             Value::Int(_v) => IntType,
@@ -1274,7 +1304,7 @@ impl TypeSignature {
         Ok(out)
     }
 
-    pub fn literal_type_of(x: &Value) -> Result<TypeSignature> {
+    pub fn literal_type_of(x: &Value) -> Result<TypeSignature, CheckErrors> {
         match x {
             Value::Principal(PrincipalData::Contract(contract_id)) => Ok(CallableType(
                 CallableSubtype::Principal(contract_id.clone()),
@@ -1284,14 +1314,13 @@ impl TypeSignature {
     }
 
     // Checks if resulting type signature is of valid size.
-    pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData> {
-        let children_types: Result<Vec<_>> = args.iter().map(TypeSignature::type_of).collect();
+    pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData, CheckErrors> {
+        let children_types: Result<Vec<_>, CheckErrors> =
+            args.iter().map(TypeSignature::type_of).collect();
         TypeSignature::parent_list_type(&children_types?)
     }
 
-    pub fn parent_list_type(
-        children: &[TypeSignature],
-    ) -> std::result::Result<ListTypeData, CheckErrors> {
+    pub fn parent_list_type(children: &[TypeSignature]) -> Result<ListTypeData, CheckErrors> {
         if let Some((first, rest)) = children.split_first() {
             let mut current_entry_type = first.clone();
             for next_entry in rest.iter() {
@@ -1337,7 +1366,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn size(&self) -> Result<u32> {
+    pub fn size(&self) -> Result<u32, CheckErrors> {
         self.inner_size()?.ok_or_else(|| {
             CheckErrors::Expects(
                 "FAIL: .size() overflowed on too large of a type. construction should have failed!"
@@ -1346,7 +1375,7 @@ impl TypeSignature {
         })
     }
 
-    fn inner_size(&self) -> Result<Option<u32>> {
+    fn inner_size(&self) -> Result<Option<u32>, CheckErrors> {
         let out = match self {
             // NoType's may be asked for their size at runtime --
             //  legal constructions like `(ok 1)` have NoType parts (if they have unknown error variant types).
@@ -1379,7 +1408,7 @@ impl TypeSignature {
         Ok(out)
     }
 
-    pub fn type_size(&self) -> Result<u32> {
+    pub fn type_size(&self) -> Result<u32, CheckErrors> {
         self.inner_type_size()
             .ok_or_else(|| CheckErrors::ValueTooLarge)
     }
@@ -1411,7 +1440,7 @@ impl TypeSignature {
 
 impl ListTypeData {
     /// List Size: type_signature_size + max_len * entry_type.size()
-    fn inner_size(&self) -> Result<Option<u32>> {
+    fn inner_size(&self) -> Result<Option<u32>, CheckErrors> {
         let total_size = self
             .entry_type
             .size()?
@@ -1460,7 +1489,7 @@ impl TupleTypeSignature {
         }
     }
 
-    pub fn size(&self) -> Result<u32> {
+    pub fn size(&self) -> Result<u32, CheckErrors> {
         self.inner_size()?
             .ok_or_else(|| CheckErrors::Expects("size() overflowed on a constructed type.".into()))
     }
@@ -1476,7 +1505,7 @@ impl TupleTypeSignature {
     /// Tuple Size:
     ///    size( btreemap<name, value> ) + type_size
     ///    size( btreemap<name, value> ) = 2*map.len() + sum(names) + sum(values)
-    fn inner_size(&self) -> Result<Option<u32>> {
+    fn inner_size(&self) -> Result<Option<u32>, CheckErrors> {
         let Some(mut total_size) = u32::try_from(self.type_map.len())
             .ok()
             .and_then(|x| x.checked_mul(2))

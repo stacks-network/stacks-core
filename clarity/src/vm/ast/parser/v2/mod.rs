@@ -3533,7 +3533,7 @@ mod tests {
     fn test_parse_fail_fast() {
         match parse("42g !ok") {
             Ok(_) => panic!("fail_fast mode should have returned an error"),
-            Err(e) => assert_eq!(e.err, ParseErrors::Lexer(LexerError::InvalidCharInt('g'))),
+            Err(e) => assert_eq!(*e.err, ParseErrors::Lexer(LexerError::InvalidCharInt('g'))),
         }
     }
 
@@ -3560,7 +3560,7 @@ mod tests {
             ")".repeat(stack_limit + 1)
         );
 
-        assert!(match parse(&exceeds_stack_depth_list).unwrap_err().err {
+        assert!(match *(parse(&exceeds_stack_depth_list).unwrap_err().err) {
             ParseErrors::ExpressionStackDepthTooDeep => true,
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
@@ -3583,7 +3583,7 @@ mod tests {
             }
         );
 
-        assert!(match parse(&exceeds_stack_depth_tuple).unwrap_err().err {
+        assert!(match *parse(&exceeds_stack_depth_tuple).unwrap_err().err {
             ParseErrors::ExpressionStackDepthTooDeep => true,
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });

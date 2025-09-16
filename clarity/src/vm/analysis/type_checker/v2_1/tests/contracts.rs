@@ -24,7 +24,7 @@ use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
-    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError, CheckResult,
+    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError,
     ContractAnalysis,
 };
 use crate::vm::ast::parse;
@@ -38,7 +38,9 @@ use crate::vm::types::{
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
 
-fn mem_type_check_v1(snippet: &str) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+fn mem_type_check_v1(
+    snippet: &str,
+) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
 }
 
@@ -83,7 +85,7 @@ pub fn type_check_version(
         version,
         false,
     )
-    .map_err(|(e, _)| e)
+    .map_err(|e| e.0)
 }
 
 const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance: uint })
@@ -283,7 +285,7 @@ fn test_names_tokens_contracts_interface() {
                     {{ "name": "tn1", "type": "bool" }},
                     {{ "name": "tn2", "type": "int128" }},
                     {{ "name": "tn3", "type": {{ "buffer": {{ "length": 1 }} }}}}
-                ] }} }} 
+                ] }} }}
             }},
             {{ "name": "f11",
                 "access": "private",
@@ -416,7 +418,7 @@ fn test_names_tokens_contracts_interface() {
                                     "name": "n2",
                                     "type": "bool"
                                 }}
-                            ] 
+                            ]
                         }}
                     }}]
                 }}
@@ -492,7 +494,7 @@ fn test_names_tokens_contracts_bad(#[case] version: ClarityVersion, #[case] epoc
     let err = db
         .execute(|db| type_check(&names_contract_id, &mut names_contract, db, true))
         .unwrap_err();
-    assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(*err.err, CheckErrors::TypeError(_, _)));
 }
 
 #[test]
@@ -533,11 +535,11 @@ fn test_bad_map_usage() {
 
     for contract in tests.iter() {
         let err = mem_type_check(contract).unwrap_err();
-        assert!(matches!(err.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(*err.err, CheckErrors::TypeError(_, _)));
     }
 
     assert!(matches!(
-        mem_type_check(unhandled_option).unwrap_err().err,
+        *mem_type_check(unhandled_option).unwrap_err().err,
         CheckErrors::UnionTypeError(_, _)
     ));
 }
@@ -625,24 +627,24 @@ fn test_expects() {
     for unmatched_return_types in bad_return_types_tests.iter() {
         let err = mem_type_check(unmatched_return_types).unwrap_err();
         eprintln!("unmatched_return_types returned check error: {err}");
-        assert!(matches!(err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
+        assert!(matches!(*err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
     }
 
     let err = mem_type_check(bad_default_type).unwrap_err();
     eprintln!("bad_default_types returned check error: {err}");
-    assert!(matches!(err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
+    assert!(matches!(*err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
 
     let err = mem_type_check(notype_response_type).unwrap_err();
     eprintln!("notype_response_type returned check error: {err}");
     assert!(matches!(
-        err.err,
+        *err.err,
         CheckErrors::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(notype_response_type_2).unwrap_err();
     eprintln!("notype_response_type_2 returned check error: {err}");
     assert!(matches!(
-        err.err,
+        *err.err,
         CheckErrors::CouldNotDetermineResponseOkType
     ));
 }
@@ -678,26 +680,19 @@ fn test_trait_to_compatible_trait() {
 
     mem_type_check(trait_to_compatible_trait).unwrap();
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-2");
-                    assert_eq!(found_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-2");
+                assert_eq!(found_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Pass a principal to a trait parameter
@@ -712,45 +707,31 @@ fn test_bad_principal_to_trait() {
         (contract-call? contract get-1 u1))";
 
     let err = mem_type_check(bad_principal_to_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::PrincipalType,
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::PrincipalType,
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(bad_principal_to_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::PrincipalType,
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::PrincipalType,
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Pass a trait to a trait parameter which is not compatible
@@ -768,39 +749,27 @@ fn test_bad_other_trait() {
         (contract-call? contract get-2 u1))";
 
     let err = mem_type_check(bad_other_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(actual.name.as_str(), "trait-1");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(bad_other_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-2");
-                    assert_eq!(found_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, actual) => match (&*expected, &*actual) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-2");
+                assert_eq!(found_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {actual:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Pass a trait embedded in a compound type
@@ -821,17 +790,12 @@ fn test_embedded_trait() {
 
     mem_type_check(embedded_trait).unwrap();
     let err = mem_type_check_v1(embedded_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "contract");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Pass a trait embedded in a compound type to a parameter with a compatible
@@ -856,17 +820,12 @@ fn test_embedded_trait_compatible() {
 
     mem_type_check(embedded_trait_compatible).unwrap();
     let err = mem_type_check_v1(embedded_trait_compatible).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "contract");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Pass a trait embedded in a compound type to a parameter with an
@@ -894,30 +853,20 @@ fn test_bad_embedded_trait() {
     )";
 
     let err = mem_type_check(bad_embedded_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-12");
             assert_eq!(actual.name.as_str(), "trait-1");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(bad_embedded_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "contract");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Bind a trait in a let expression
@@ -934,17 +883,12 @@ fn test_let_trait() {
 
     mem_type_check(let_trait).unwrap();
     let err = mem_type_check_v1(let_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "t1");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Bind a trait in transitively in multiple let expressions
@@ -965,17 +909,12 @@ fn test_let3_trait() {
 
     mem_type_check(let3_trait).unwrap();
     let err = mem_type_check_v1(let3_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "t3");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Bind a trait transitively in multiple let expressions with compound types
@@ -1025,17 +964,12 @@ fn test_let3_compound_trait_call() {
 
     mem_type_check(let3_compound_trait_call).unwrap();
     let err = mem_type_check_v1(let3_compound_trait_call).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TraitReferenceUnknown(name),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::TraitReferenceUnknown(name) => {
             assert_eq!(name.as_str(), "t4");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Check for compatibility between traits where the function parameter type
@@ -1054,39 +988,27 @@ fn test_trait_args_differ() {
         (ok true))";
 
     let err = mem_type_check(trait_args_differ).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(actual.name.as_str(), "trait-1");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(trait_args_differ).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-2");
-                    assert_eq!(found_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-2");
+                assert_eq!(found_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Pass a trait to a trait parameter with an compatible trait type
@@ -1104,39 +1026,27 @@ fn test_trait_arg_counts_differ1() {
         (ok true))";
 
     let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, found) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(found.name.as_str(), "trait-1");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-2");
-                    assert_eq!(found_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-2");
+                assert_eq!(found_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Pass a trait to a trait parameter with an compatible trait type
@@ -1154,39 +1064,27 @@ fn test_trait_arg_counts_differ2() {
         (ok true))";
 
     let err = mem_type_check(trait_to_compatible_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, found) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(found.name.as_str(), "trait-1");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(trait_to_compatible_trait).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-2");
-                    assert_eq!(found_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-2");
+                assert_eq!(found_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Check for compatibility between traits where the response types differ
@@ -1204,39 +1102,27 @@ fn test_trait_ret_ty_differ() {
         (contract-call? contract echo u1))";
 
     let err = mem_type_check(trait_ret_ty_differ).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(actual.name.as_str(), "trait-1");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(trait_ret_ty_differ).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-2");
-                    assert_eq!(found_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-2");
+                assert_eq!(found_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Check for compatibility of traits where a function parameter has a
@@ -1262,26 +1148,19 @@ fn test_trait_with_compatible_trait_arg() {
 
     mem_type_check(trait_with_compatible_trait_arg).unwrap();
     let err = mem_type_check_v1(trait_with_compatible_trait_arg).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-b");
-                    assert_eq!(found_trait.name.as_str(), "trait-a");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-b");
+                assert_eq!(found_trait.name.as_str(), "trait-a");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Check for compatibility of traits where a function parameter has an
@@ -1306,39 +1185,27 @@ fn test_trait_with_bad_trait_arg() {
         (contract-call? contract echo callee))";
 
     let err = mem_type_check(trait_with_bad_trait_arg).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-b");
             assert_eq!(actual.name.as_str(), "trait-a");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(trait_with_bad_trait_arg).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-b");
-                    assert_eq!(found_trait.name.as_str(), "trait-a");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-b");
+                assert_eq!(found_trait.name.as_str(), "trait-a");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Check for compatibility of traits where a function parameter from one trait
@@ -1364,39 +1231,29 @@ fn test_trait_with_superset_trait_arg() {
         (contract-call? contract echo callee))";
 
     let err = mem_type_check(trait_with_superset_trait_arg).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-b");
             assert_eq!(actual.name.as_str(), "trait-a");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
+
     let err = mem_type_check_v1(trait_with_superset_trait_arg).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-b");
-                    assert_eq!(found_trait.name.as_str(), "trait-a");
-                    true
-                }
-                _ => false,
+
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-b");
+                assert_eq!(found_trait.name.as_str(), "trait-a");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected TypeSignatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    }
 }
 
 /// Check for compatibility of traits where a function parameter from one trait
@@ -1423,26 +1280,19 @@ fn test_trait_with_subset_trait_arg() {
 
     mem_type_check(trait_with_subset_trait_arg).unwrap();
     let err = mem_type_check_v1(trait_with_subset_trait_arg).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-a");
-                    assert_eq!(found_trait.name.as_str(), "trait-b");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-a");
+                assert_eq!(found_trait.name.as_str(), "trait-b");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Define a trait with a duplicated method name
@@ -1454,17 +1304,12 @@ fn test_trait_with_duplicate_method() {
       ))";
 
     let err = mem_type_check(trait_with_duplicate_method).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::DefineTraitDuplicateMethod(method_name),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::DefineTraitDuplicateMethod(method_name) => {
             assert_eq!(method_name.as_str(), "foo");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     mem_type_check_v1(trait_with_duplicate_method).unwrap();
 }
 
@@ -1488,39 +1333,27 @@ fn test_trait_to_subtrait_and_back() {
         true)";
 
     let err = mem_type_check(trait_to_subtrait_and_back).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IncompatibleTrait(expected, actual),
-            expressions: _,
-            diagnostic: _,
-        } => {
+    match *err.err {
+        CheckErrors::IncompatibleTrait(expected, actual) => {
             assert_eq!(expected.name.as_str(), "trait-2");
             assert_eq!(actual.name.as_str(), "trait-1");
-            true
         }
-        _ => false,
-    });
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(trait_to_subtrait_and_back).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::TypeError(expected, found),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (expected, found) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
-                ) => {
-                    assert_eq!(expected_trait.name.as_str(), "trait-2");
-                    assert_eq!(found_trait.name.as_str(), "trait-1");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::TypeError(expected, found) => match (&*expected, &*found) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(expected_trait)),
+                TypeSignature::CallableType(CallableSubtype::Trait(found_trait)),
+            ) => {
+                assert_eq!(expected_trait.name.as_str(), "trait-2");
+                assert_eq!(found_trait.name.as_str(), "trait-1");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {expected:?} {found:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Use `map` on a list of traits
@@ -1555,47 +1388,33 @@ fn test_if_branches_with_incompatible_trait_types() {
         )
     )";
     let err = mem_type_check(if_branches_with_incompatible_trait_types).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IfArmsMustMatch(type1, type2),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (type1, type2) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
-                ) => {
-                    assert_eq!(trait1.name.as_str(), "trait-1");
-                    assert_eq!(trait2.name.as_str(), "trait-2");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+            ) => {
+                assert_eq!(trait1.name.as_str(), "trait-1");
+                assert_eq!(trait2.name.as_str(), "trait-2");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {type1:?} {type2:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(if_branches_with_incompatible_trait_types).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IfArmsMustMatch(type1, type2),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (type1, type2) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
-                ) => {
-                    assert_eq!(trait1.name.as_str(), "trait-1");
-                    assert_eq!(trait2.name.as_str(), "trait-2");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+            ) => {
+                assert_eq!(trait1.name.as_str(), "trait-1");
+                assert_eq!(trait2.name.as_str(), "trait-2");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {type1:?} {type2:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// If branches with compatible trait types
@@ -1615,47 +1434,33 @@ fn test_if_branches_with_compatible_trait_types() {
         )";
 
     let err = mem_type_check(if_branches_with_compatible_trait_types).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IfArmsMustMatch(type1, type2),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (type1, type2) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
-                ) => {
-                    assert_eq!(trait1.name.as_str(), "trait-1");
-                    assert_eq!(trait2.name.as_str(), "trait-2");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+            ) => {
+                assert_eq!(trait1.name.as_str(), "trait-1");
+                assert_eq!(trait2.name.as_str(), "trait-2");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {type1:?} {type2:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
     let err = mem_type_check_v1(if_branches_with_compatible_trait_types).unwrap_err();
-    assert!(match err {
-        CheckError {
-            err: CheckErrors::IfArmsMustMatch(type1, type2),
-            expressions: _,
-            diagnostic: _,
-        } => {
-            match (type1, type2) {
-                (
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
-                    TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
-                ) => {
-                    assert_eq!(trait1.name.as_str(), "trait-1");
-                    assert_eq!(trait2.name.as_str(), "trait-2");
-                    true
-                }
-                _ => false,
+    match *err.err {
+        CheckErrors::IfArmsMustMatch(type1, type2) => match (&*type1, &*type2) {
+            (
+                TypeSignature::CallableType(CallableSubtype::Trait(trait1)),
+                TypeSignature::CallableType(CallableSubtype::Trait(trait2)),
+            ) => {
+                assert_eq!(trait1.name.as_str(), "trait-1");
+                assert_eq!(trait2.name.as_str(), "trait-2");
             }
-        }
-        _ => false,
-    });
+            _ => panic!("Unexpected type signatures: {type1:?} {type2:?}"),
+        },
+        _ => panic!("Unexpected error: {err:?}"),
+    };
 }
 
 /// Based on issue #3215 from sskeirik
@@ -1682,7 +1487,7 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
 
-    match db.execute(|db| {
+    let result = db.execute(|db| {
         type_check_version(
             &trait_contract_id,
             &mut trait_contract,
@@ -1699,17 +1504,17 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
             StacksEpochId::Epoch21,
             version,
         )
-    }) {
-        Err(CheckError {
-            err: CheckErrors::TraitMethodUnknown(trait_name, function),
-            expressions: _,
-            diagnostic: _,
-        }) if version < ClarityVersion::Clarity2 => {
-            assert_eq!(trait_name.as_str(), "a");
-            assert_eq!(function.as_str(), "do-it");
-        }
+    });
+    match result {
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        res => panic!("{res:?}"),
+        Err(CheckError { err, .. }) if version < ClarityVersion::Clarity2 => match *err {
+            CheckErrors::TraitMethodUnknown(trait_name, function) => {
+                assert_eq!(trait_name.as_str(), "a");
+                assert_eq!(function.as_str(), "do-it");
+            }
+            _ => panic!("Unexpected error: {err:?}"),
+        },
+        _ => panic!("Unexpected result: {result:?}"),
     }
 }
 
@@ -3537,6 +3342,19 @@ fn clarity_trait_experiments_cross_epochs(
     };
 }
 
+#[apply(test_clarity_versions)]
+fn clarity_trait_experiments_undefined_top_variable(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let err = db
+        .execute(|db| load_versioned(db, "undefined-top-variable", version, epoch))
+        .unwrap_err();
+    assert!(err.starts_with("UndefinedVariable(\"foo\")"));
+}
+
 /// Pass various types to `contract-hash?`
 #[apply(test_clarity_versions)]
 fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
@@ -3571,43 +3389,43 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             "(contract-hash? 123)",
             "int type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::IntType,
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::IntType),
             )),
         ),
         (
             "(contract-hash? u123)",
             "uint type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::UIntType,
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::UIntType),
             )),
         ),
         (
             "(contract-hash? true)",
             "bool type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::BoolType,
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::BoolType),
             )),
         ),
         (
             "(contract-hash? 0x1234)",
             "buffer type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
                     BufferLength::try_from(2u32).unwrap(),
-                )),
+                ))),
             )),
         ),
         (
             "(contract-hash? \"60 percent of the time, it works every time\")",
             "ascii string",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-                    BufferLength::try_from(43u32).unwrap(),
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::ASCII(BufferLength::try_from(43u32).unwrap()),
                 ))),
             )),
         ),
@@ -3615,9 +3433,9 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             "(contract-hash? u\"I am serious, and don't call me Shirley.\")",
             "utf8 string",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-                    StringUTF8Length::try_from(40u32).unwrap(),
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::UTF8(StringUTF8Length::try_from(40u32).unwrap()),
                 ))),
             )),
         ),
@@ -3625,49 +3443,51 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             "(contract-hash? (list 1 2 3))",
             "list type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::SequenceType(SequenceSubtype::ListType(
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::ListType(
                     ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
-                )),
+                ))),
             )),
         ),
         (
             "(contract-hash? { a: 1, b: u2 })",
             "tuple type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::TupleType(
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::TupleType(
                     vec![
                         (ClarityName::from("a"), TypeSignature::IntType),
                         (ClarityName::from("b"), TypeSignature::UIntType),
                     ]
                     .try_into()
                     .unwrap(),
-                ),
+                )),
             )),
         ),
         (
             "(contract-hash? (some u789))",
             "optional type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(TypeSignature::new_option(TypeSignature::UIntType).unwrap()),
             )),
         ),
         (
             "(contract-hash? (ok true))",
             "response type",
             Err(CheckErrors::TypeError(
-                TypeSignature::PrincipalType,
-                TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
-                    .unwrap(),
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(
+                    TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
+                        .unwrap(),
+                ),
             )),
         ),
     ];
 
     for (source, description, clarity4_expected) in test_cases.iter() {
         let result = mem_run_analysis(source, version, epoch);
-        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| e.err);
+        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| *e.err);
 
         let expected = if version >= ClarityVersion::Clarity4 {
             clarity4_expected
@@ -3730,9 +3550,9 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "oversized buffer type",
             Err(CheckErrors::UnionTypeError(
                 to_ascii_expected_types.clone(),
-                TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
                     BufferLength::try_from(524285u32).unwrap(),
-                )),
+                ))),
             )),
         ),
         (
@@ -3745,8 +3565,8 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "ascii string",
             Err(CheckErrors::UnionTypeError(
                 to_ascii_expected_types.clone(),
-                TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-                    BufferLength::try_from(43u32).unwrap(),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
+                    StringSubtype::ASCII(BufferLength::try_from(43u32).unwrap()),
                 ))),
             )),
         ),
@@ -3755,9 +3575,9 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "list type",
             Err(CheckErrors::UnionTypeError(
                 to_ascii_expected_types.clone(),
-                TypeSignature::SequenceType(SequenceSubtype::ListType(
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::ListType(
                     ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
-                )),
+                ))),
             )),
         ),
         (
@@ -3765,14 +3585,14 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "tuple type",
             Err(CheckErrors::UnionTypeError(
                 to_ascii_expected_types.clone(),
-                TypeSignature::TupleType(
+                Box::new(TypeSignature::TupleType(
                     vec![
                         (ClarityName::from("a"), TypeSignature::IntType),
                         (ClarityName::from("b"), TypeSignature::UIntType),
                     ]
                     .try_into()
                     .unwrap(),
-                ),
+                )),
             )),
         ),
         (
@@ -3780,7 +3600,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "optional type",
             Err(CheckErrors::UnionTypeError(
                 to_ascii_expected_types.clone(),
-                TypeSignature::new_option(TypeSignature::UIntType).unwrap(),
+                Box::new(TypeSignature::new_option(TypeSignature::UIntType).unwrap()),
             )),
         ),
         (
@@ -3788,15 +3608,17 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             "response type",
             Err(CheckErrors::UnionTypeError(
                 to_ascii_expected_types.clone(),
-                TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
-                    .unwrap(),
+                Box::new(
+                    TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
+                        .unwrap(),
+                ),
             )),
         ),
     ];
 
     for (source, description, clarity4_expected) in test_cases.iter() {
         let result = mem_run_analysis(source, version, epoch);
-        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| e.err);
+        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| *e.err);
 
         let expected = if version >= ClarityVersion::Clarity4 {
             clarity4_expected

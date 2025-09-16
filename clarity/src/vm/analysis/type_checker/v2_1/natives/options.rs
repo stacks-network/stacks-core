@@ -19,7 +19,7 @@ use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
 use super::{
-    check_argument_count, check_arguments_at_least, no_type, CheckErrors, TypeChecker, TypeResult,
+    check_argument_count, check_arguments_at_least, no_type, CheckError, CheckErrors, TypeChecker,
 };
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -30,7 +30,7 @@ pub fn check_special_okay(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
@@ -44,7 +44,7 @@ pub fn check_special_some(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
@@ -58,7 +58,7 @@ pub fn check_special_error(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisOptionCons, checker, 0)?;
@@ -72,7 +72,7 @@ pub fn check_special_is_response(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -82,7 +82,7 @@ pub fn check_special_is_response(
     if let TypeSignature::ResponseType(_types) = input {
         Ok(TypeSignature::BoolType)
     } else {
-        Err(CheckErrors::ExpectedResponseType(input.clone()).into())
+        Err(CheckErrors::ExpectedResponseType(Box::new(input.clone())).into())
     }
 }
 
@@ -90,7 +90,7 @@ pub fn check_special_is_optional(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -100,7 +100,7 @@ pub fn check_special_is_optional(
     if let TypeSignature::OptionalType(_type) = input {
         Ok(TypeSignature::BoolType)
     } else {
-        Err(CheckErrors::ExpectedOptionalType(input.clone()).into())
+        Err(CheckErrors::ExpectedOptionalType(Box::new(input.clone())).into())
     }
 }
 
@@ -108,7 +108,7 @@ pub fn check_special_default_to(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let default = checker.type_check(&args[0], context)?;
@@ -118,10 +118,14 @@ pub fn check_special_default_to(
 
     if let TypeSignature::OptionalType(input_type) = input {
         let contained_type = *input_type;
-        TypeSignature::least_supertype(&StacksEpochId::Epoch21, &default, &contained_type)
-            .map_err(|_| CheckErrors::DefaultTypesMustMatch(default, contained_type).into())
+        TypeSignature::least_supertype(&StacksEpochId::Epoch21, &default, &contained_type).map_err(
+            |_| {
+                CheckErrors::DefaultTypesMustMatch(Box::new(default), Box::new(contained_type))
+                    .into()
+            },
+        )
     } else {
-        Err(CheckErrors::ExpectedOptionalType(input).into())
+        Err(CheckErrors::ExpectedOptionalType(Box::new(input)).into())
     }
 }
 
@@ -129,7 +133,7 @@ pub fn check_special_asserts(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
@@ -140,7 +144,10 @@ pub fn check_special_asserts(
     Ok(TypeSignature::BoolType)
 }
 
-fn inner_unwrap(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
+fn inner_unwrap(
+    input: TypeSignature,
+    checker: &mut TypeChecker,
+) -> Result<TypeSignature, CheckError> {
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     match input {
@@ -159,11 +166,14 @@ fn inner_unwrap(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
                 Ok(ok_type)
             }
         }
-        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(input).into()),
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(Box::new(input)).into()),
     }
 }
 
-fn inner_unwrap_err(input: TypeSignature, checker: &mut TypeChecker) -> TypeResult {
+fn inner_unwrap_err(
+    input: TypeSignature,
+    checker: &mut TypeChecker,
+) -> Result<TypeSignature, CheckError> {
     runtime_cost(ClarityCostFunction::AnalysisOptionCheck, checker, 0)?;
 
     if let TypeSignature::ResponseType(response_type) = input {
@@ -174,7 +184,7 @@ fn inner_unwrap_err(input: TypeSignature, checker: &mut TypeChecker) -> TypeResu
             Ok(err_type)
         }
     } else {
-        Err(CheckErrors::ExpectedResponseType(input).into())
+        Err(CheckErrors::ExpectedResponseType(Box::new(input)).into())
     }
 }
 
@@ -182,7 +192,7 @@ pub fn check_special_unwrap_or_ret(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -197,7 +207,7 @@ pub fn check_special_unwrap_err_or_ret(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -212,7 +222,7 @@ pub fn check_special_try_ret(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -242,7 +252,7 @@ pub fn check_special_try_ret(
                 Ok(ok_type)
             }
         }
-        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(input).into()),
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(Box::new(input)).into()),
     }
 }
 
@@ -250,7 +260,7 @@ pub fn check_special_unwrap(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -262,7 +272,7 @@ pub fn check_special_unwrap_err(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -277,7 +287,7 @@ fn eval_with_new_binding(
     bind_type: TypeSignature,
     checker: &mut TypeChecker,
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     let mut inner_context = context.extend()?;
 
     runtime_cost(
@@ -312,7 +322,7 @@ fn check_special_match_opt(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     if args.len() != 3 {
         Err(CheckErrors::BadMatchOptionSyntax(Box::new(
             CheckErrors::IncorrectArgumentCount(4, args.len() + 1),
@@ -341,7 +351,10 @@ fn check_special_match_opt(
         &some_branch_type,
         &none_branch_type,
     )
-    .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
+    .map_err(|_| {
+        CheckErrors::MatchArmsMustMatch(Box::new(some_branch_type), Box::new(none_branch_type))
+            .into()
+    })
 }
 
 fn check_special_match_resp(
@@ -349,7 +362,7 @@ fn check_special_match_resp(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     if args.len() != 4 {
         Err(CheckErrors::BadMatchResponseSyntax(Box::new(
             CheckErrors::IncorrectArgumentCount(5, args.len() + 1),
@@ -380,14 +393,17 @@ fn check_special_match_resp(
     analysis_typecheck_cost(checker, &ok_branch_type, &err_branch_type)?;
 
     TypeSignature::least_supertype(&StacksEpochId::Epoch21, &ok_branch_type, &err_branch_type)
-        .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())
+        .map_err(|_| {
+            CheckErrors::MatchArmsMustMatch(Box::new(ok_branch_type), Box::new(err_branch_type))
+                .into()
+        })
 }
 
 pub fn check_special_match(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(1, args)?;
 
     let input = checker.type_check(&args[0], context)?;
@@ -399,6 +415,6 @@ pub fn check_special_match(
         TypeSignature::ResponseType(resp_type) => {
             check_special_match_resp(*resp_type, checker, &args[1..], context)
         }
-        _ => Err(CheckErrors::BadMatchInput(input).into()),
+        _ => Err(CheckErrors::BadMatchInput(Box::new(input)).into()),
     }
 }
