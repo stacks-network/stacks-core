@@ -977,8 +977,7 @@ impl TypeSignature {
     ///
     /// The behavior varies by epoch:
     /// - Epoch 2.0/2.05: Uses [`TypeSignature::least_supertype_v2_0`]
-    /// - Epoch 2.1+: Uses [`TypeSignature::least_supertype_v2_1`],
-    ///               Adds support for CallableTypes and ListUnionTypes
+    /// - Epoch 2.1+: Uses [`TypeSignature::least_supertype_v2_1`], Adds support for CallableTypes and ListUnionTypes
     ///
     /// For two Tuples:
     ///     least_supertype(A, B) := (tuple \for_each(key k) least_supertype(type_a_k, type_b_k))
