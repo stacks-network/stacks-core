@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_serialization::types::PrincipalData;
+use clarity_types::types::PrincipalData;
 use stacks_common::types::StacksEpochId;
 
 use super::errors::InterpreterError;
+use crate::vm::ClarityVersion;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
 use crate::vm::types::Value;
-use crate::vm::ClarityVersion;
 
 define_versioned_named_enum_with_max!(NativeVariables(ClarityVersion) {
     ContractCaller("contract-caller", ClarityVersion::Clarity1, None),
