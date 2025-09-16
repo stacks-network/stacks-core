@@ -17,7 +17,6 @@
 use std::collections::{HashMap, HashSet};
 
 use clarity::vm::analysis::types::ContractAnalysis;
-use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
@@ -1288,19 +1287,6 @@ impl StacksChainState {
                                 ));
                             }
                             other_error => {
-                                // a [Vary]ExpressionDepthTooDeep error in this situation
-                                // invalidates the block, since this should have prevented the
-                                // block from getting relayed in the first place
-                                if let clarity_error::Parse(ref parse_error) = &other_error {
-                                    match *parse_error.err {
-                                        ParseErrors::ExpressionStackDepthTooDeep
-                                        | ParseErrors::VaryExpressionStackDepthTooDeep => {
-                                            info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
-                                            return Err(Error::ClarityError(other_error));
-                                        }
-                                        _ => {}
-                                    }
-                                }
                                 if let clarity_error::Parse(err) = &other_error {
                                     if err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
