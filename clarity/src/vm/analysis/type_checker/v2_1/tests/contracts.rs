@@ -283,7 +283,7 @@ fn test_names_tokens_contracts_interface() {
                     {{ "name": "tn1", "type": "bool" }},
                     {{ "name": "tn2", "type": "int128" }},
                     {{ "name": "tn3", "type": {{ "buffer": {{ "length": 1 }} }}}}
-                ] }} }} 
+                ] }} }}
             }},
             {{ "name": "f11",
                 "access": "private",
@@ -416,7 +416,7 @@ fn test_names_tokens_contracts_interface() {
                                     "name": "n2",
                                     "type": "bool"
                                 }}
-                            ] 
+                            ]
                         }}
                     }}]
                 }}
@@ -3535,6 +3535,19 @@ fn clarity_trait_experiments_cross_epochs(
         Ok(_) => (),
         res => panic!("expected success, got {res:?}"),
     };
+}
+
+#[apply(test_clarity_versions)]
+fn clarity_trait_experiments_undefined_top_variable(
+    #[case] version: ClarityVersion,
+    #[case] epoch: StacksEpochId,
+) {
+    let mut marf = MemoryBackingStore::new();
+    let mut db = marf.as_analysis_db();
+    let err = db
+        .execute(|db| load_versioned(db, "undefined-top-variable", version, epoch))
+        .unwrap_err();
+    assert!(err.starts_with("UndefinedVariable(\"foo\")"));
 }
 
 /// Pass various types to `contract-hash?`
