@@ -14935,6 +14935,10 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
 #[test]
 #[ignore]
 /// Tests that the tenure size limit is correctly accounted.
+/// Deploys 10 (big) contracts (each 512K)
+/// The block limit is 2MB, the tenure limit is 3MB
+/// One block will contains 3 of the deployed contracts (the block size will be reached at it)
+/// The following one will contains 2 of the deployed contract (tenure size limit will be reached)
 fn smaller_tenure_size_for_miner() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -14944,27 +14948,41 @@ fn smaller_tenure_size_for_miner() {
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
-    let sender_sk = Secp256k1PrivateKey::random();
-    let sender_addr = tests::to_addr(&sender_sk);
+    let mut senders: Vec<(Secp256k1PrivateKey, StacksAddress)> = vec![];
 
-    let sender_signer_sk = Secp256k1PrivateKey::random();
-    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    // number of deploys to submit in the test
+    let num_deploys = 10;
 
-    naka_conf.miner.max_tenure_bytes = 2 * 1024 * 1024; // 2MB
+    for _ in 0..num_deploys {
+        let sender_sk = Secp256k1PrivateKey::random();
+        let sender_addr = tests::to_addr(&sender_sk);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_addr.clone()).to_string(),
+            10000000000000,
+        );
+
+        senders.push((sender_sk, sender_addr));
+    }
+
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+
+    naka_conf.miner.max_tenure_bytes = 3 * 1024 * 1024; // 3MB
+    naka_conf.miner.log_skipped_transactions = true;
+
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr.clone()).to_string(),
+        PrincipalData::from(signer_addr.clone()).to_string(),
         10000000000000,
     );
-    naka_conf.add_initial_balance(
-        PrincipalData::from(sender_signer_addr.clone()).to_string(),
-        10000000000000,
-    );
-    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
-    test_observer::register_any(&mut naka_conf);
+    test_observer::register(
+        &mut naka_conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
@@ -14976,9 +14994,7 @@ fn smaller_tenure_size_for_miner() {
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
     let Counters {
-        blocks_processed,
-        naka_submitted_commits: commits_submitted,
-        ..
+        blocks_processed, ..
     } = run_loop.counters();
     let counters = run_loop.counters();
 
@@ -14989,31 +15005,20 @@ fn smaller_tenure_size_for_miner() {
         .spawn(move || run_loop.start(None, 0))
         .unwrap();
     wait_for_runloop(&blocks_processed);
+
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
         &[stacker_sk.clone()],
-        &[sender_signer_sk],
+        &[signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
 
     info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
 
-    let burnchain = naka_conf.get_burnchain();
-    let sortdb = burnchain.open_sortition_db(true).unwrap();
-    let (mut chainstate, _) = StacksChainState::open(
-        naka_conf.is_mainnet(),
-        naka_conf.burnchain.chain_id,
-        &naka_conf.get_chainstate_path_str(),
-        None,
-    )
-    .unwrap();
-
     info!("Nakamoto miner started...");
     blind_signer(&naka_conf, &signers, &counters);
-
-    wait_for_first_naka_block_commit(60, &commits_submitted);
 
     let mut long_comment = String::from(";; ");
     long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
@@ -15027,10 +15032,6 @@ fn smaller_tenure_size_for_miner() {
     );
 
     let deploy_fee = 524504;
-    // number of deploys to submit in the test
-    let num_deploys = 10;
-
-    let mut nonce = 0;
 
     test_observer::clear();
 
@@ -15039,8 +15040,8 @@ fn smaller_tenure_size_for_miner() {
         let contract_name = format!("test-{deploy}");
 
         let contract_tx = make_contract_publish(
-            &sender_sk,
-            nonce,
+            &senders[deploy].0,
+            0,
             deploy_fee,
             naka_conf.burnchain.chain_id,
             &contract_name,
@@ -15048,28 +15049,269 @@ fn smaller_tenure_size_for_miner() {
         );
 
         submit_tx(&http_origin, &contract_tx);
-        nonce += 1;
     }
 
-    wait_for(
-        60,
-        || Ok(get_account(&http_origin, &sender_addr).nonce >= 3),
-    )
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
+        if !nakamoto_block_events.is_empty() {
+            let nakamoto_block_event = nakamoto_block_events.last().unwrap();
+            let mut skipped_transactions = 0;
+            for tx_event in &nakamoto_block_event.tx_events {
+                match tx_event {
+                    TransactionEvent::Skipped(reason) => {
+                        if reason.error == "Too much data in tenure" {
+                            skipped_transactions += 1;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            // assume 2 blocks, the first one with 3 transactions the second with 2
+            // that means we will have 5 skipped transactions at the end
+            if skipped_transactions == 5 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
     .unwrap();
 
-    // 3 of the deploys should have been mined, and the
-    // 4th should have been rejected.
-    let sender_account = get_account(&http_origin, &to_addr(&sender_sk));
-
-    assert_eq!(sender_account.nonce, 3, "Should have signed 3 deploys");
+    // wait for signers
+    wait_for(30, || Ok(test_observer::get_blocks().len() >= 3))
+        .expect("Timed out waiting for signers");
 
     let blocks = test_observer::get_blocks();
 
     assert_eq!(
         blocks.len(),
-        1,
-        "Should have successfully mined one block, but got {}",
+        3,
+        "Should have successfully mined three blocks, but got {}",
         blocks.len()
+    );
+
+    let mut deployed_contracts = 0;
+    for deploy in 0..num_deploys {
+        if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+            deployed_contracts += 1;
+        }
+    }
+
+    assert_eq!(
+        deployed_contracts, 5,
+        "Should have successfully deployes 5 contracts, but got {}",
+        deployed_contracts
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Tests that the tenure size limit is correctly accounted.
+/// Deploys 10 (big) contracts (each 512K)
+/// The block limit is 2MB, the tenure limit is 3MB
+/// One block will contains 3 of the deployed contracts (the block size will be reached at it)
+/// The following one will contains 2 of the deployed contract (tenure size limit will be reached)
+/// Start a new tenure to process the remaining transactions.
+fn smaller_tenure_size_for_miner_on_two_tenures() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let mut senders: Vec<(Secp256k1PrivateKey, StacksAddress)> = vec![];
+
+    // number of deploys to submit in the test
+    let num_deploys = 10;
+
+    for _ in 0..num_deploys {
+        let sender_sk = Secp256k1PrivateKey::random();
+        let sender_addr = tests::to_addr(&sender_sk);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_addr.clone()).to_string(),
+            10000000000000,
+        );
+
+        senders.push((sender_sk, sender_addr));
+    }
+
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+
+    naka_conf.miner.max_tenure_bytes = 3 * 1024 * 1024; // 3MB
+    naka_conf.miner.log_skipped_transactions = true;
+
+    naka_conf.add_initial_balance(
+        PrincipalData::from(signer_addr.clone()).to_string(),
+        10000000000000,
+    );
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register(
+        &mut naka_conf,
+        &[
+            EventKeyType::AnyEvent,
+            EventKeyType::MinedBlocks,
+            EventKeyType::MemPoolTransactions,
+        ],
+    );
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    let mut long_comment = String::from(";; ");
+    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    let contract = format!(
+        r#"
+        {long_comment}
+        (define-public (test-fn)
+          (ok "Hello, world!")
+        )
+     "#
+    );
+
+    let deploy_fee = 524504;
+
+    test_observer::clear();
+
+    for deploy in 0..num_deploys {
+        info!("Submitting deploy {deploy}");
+        let contract_name = format!("test-{deploy}");
+
+        let contract_tx = make_contract_publish(
+            &senders[deploy].0,
+            0,
+            deploy_fee,
+            naka_conf.burnchain.chain_id,
+            &contract_name,
+            &contract,
+        );
+
+        submit_tx(&http_origin, &contract_tx);
+    }
+
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
+        if !nakamoto_block_events.is_empty() {
+            let nakamoto_block_event = nakamoto_block_events.last().unwrap();
+            let mut skipped_transactions = 0;
+            for tx_event in &nakamoto_block_event.tx_events {
+                match tx_event {
+                    TransactionEvent::Skipped(reason) => {
+                        if reason.error == "Too much data in tenure" {
+                            skipped_transactions += 1;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            // assume 2 blocks, the first one with 3 transactions the second with 2
+            // that means we will have 5 skipped transactions at the end
+            if skipped_transactions == 5 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .unwrap();
+
+    // wait for signers
+    wait_for(30, || Ok(test_observer::get_blocks().len() >= 3))
+        .expect("Timed out waiting for signers");
+
+    // start the second tenure and wait till no more transactions are skipped
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
+        if !nakamoto_block_events.is_empty() {
+            let nakamoto_block_event = nakamoto_block_events.last().unwrap();
+            let mut skipped_transactions = 0;
+            for tx_event in &nakamoto_block_event.tx_events {
+                match tx_event {
+                    TransactionEvent::Skipped(reason) => {
+                        if reason.error == "Too much data in tenure" {
+                            skipped_transactions += 1;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            if skipped_transactions == 0 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .unwrap();
+
+    // wait for signers
+    wait_for(30, || Ok(test_observer::get_blocks().len() >= 6))
+        .expect("Timed out waiting for signers");
+
+    let blocks = test_observer::get_blocks();
+
+    assert_eq!(
+        blocks.len(),
+        6,
+        "Should have successfully mined six blocks, but got {}",
+        blocks.len()
+    );
+
+    let mut deployed_contracts = 0;
+    for deploy in 0..num_deploys {
+        if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+            deployed_contracts += 1;
+        }
+    }
+
+    assert_eq!(
+        deployed_contracts, 10,
+        "Should have successfully deployes 10 contracts, but got {}",
+        deployed_contracts
     );
 
     coord_channel

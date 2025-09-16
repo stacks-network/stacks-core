@@ -1145,6 +1145,7 @@ impl Config {
                 tenure_cost_limit_per_block_percentage: miner_config
                     .tenure_cost_limit_per_block_percentage,
                 contract_cost_limit_percentage: miner_config.contract_cost_limit_percentage,
+                log_skipped_transactions: miner_config.log_skipped_transactions,
             },
             miner_status,
             confirm_microblocks: false,
@@ -1193,6 +1194,7 @@ impl Config {
                 tenure_cost_limit_per_block_percentage: miner_config
                     .tenure_cost_limit_per_block_percentage,
                 contract_cost_limit_percentage: miner_config.contract_cost_limit_percentage,
+                log_skipped_transactions: miner_config.log_skipped_transactions,
             },
             miner_status,
             confirm_microblocks: true,
@@ -3073,6 +3075,8 @@ pub struct MinerConfig {
     /// Defines them maximum numnber of bytes to allow in a tenure.
     /// The miner will stop mining if the limit is reached.
     pub max_tenure_bytes: u64,
+    /// Enable logging of skipped transactions (generally used for tests)
+    pub log_skipped_transactions: bool,
 }
 
 impl Default for MinerConfig {
@@ -3129,6 +3133,7 @@ impl Default for MinerConfig {
             replay_transactions: false,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
+            log_skipped_transactions: false,
         }
     }
 }
@@ -4253,7 +4258,8 @@ impl MinerConfigFile {
             max_execution_time_secs: self.max_execution_time_secs,
             replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
-            max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes)
+            max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
+            log_skipped_transactions: false
         })
     }
 }
