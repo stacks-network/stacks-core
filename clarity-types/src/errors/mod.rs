@@ -20,13 +20,12 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckError, CheckErrors, CheckResult};
+pub use analysis::{CheckError, CheckErrors};
 pub use ast::{ParseError, ParseErrors, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Error as SqliteError;
-use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
 use crate::representations::SymbolicExpression;
@@ -54,10 +53,8 @@ pub enum Error {
 /// Test executions may trigger these errors.
 #[derive(Debug, PartialEq)]
 pub enum InterpreterError {
-    BadSender(Box<Value>),
     BadSymbolicRepresentation(String),
     InterpreterError(String),
-    UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
     #[cfg(feature = "rusqlite")]
@@ -68,7 +65,6 @@ pub enum InterpreterError {
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
     InsufficientBalance,
-    CostContractLoadFailure,
     DBError(String),
     Expect(String),
 }
@@ -89,25 +85,20 @@ pub enum RuntimeErrorType {
     ASTError(Box<ParseError>),
     MaxStackDepthReached,
     MaxContextDepthReached,
-    ListDimensionTooHigh,
     BadTypeConstruction,
-    ValueTooLarge,
     BadBlockHeight(String),
-    TransferNonPositiveAmount,
     NoSuchToken,
     NotImplemented,
     NoCallerInContext,
     NoSenderInContext,
-    NonPositiveTokenSupply,
-    JSONParseError(IncomparableError<SerdeJSONErr>),
-    AttemptToFetchInTransientContext,
     BadNameValue(&'static str, String),
     UnknownBlockHeaderHash(BlockHeaderHash),
     BadBlockHash(Vec<u8>),
     UnwrapFailure,
+    MetadataAlreadySet,
+    // pox-locking errors
     DefunctPoxContract,
     PoxAlreadyLocked,
-    MetadataAlreadySet,
 }
 
 #[derive(Debug, PartialEq)]

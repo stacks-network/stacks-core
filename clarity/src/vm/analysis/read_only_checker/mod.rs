@@ -21,8 +21,7 @@ use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
-    SyntaxBindingError,
+    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, SyntaxBindingError,
 };
 use super::AnalysisDatabase;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
@@ -55,7 +54,7 @@ impl AnalysisPass for ReadOnlyChecker<'_, '_> {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-    ) -> CheckResult<()> {
+    ) -> Result<(), CheckError> {
         let mut command =
             ReadOnlyChecker::new(analysis_db, epoch, &contract_analysis.clarity_version);
         command.run(contract_analysis)?;
@@ -84,7 +83,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// # Errors
     /// - `CheckErrors::WriteAttemptedInReadOnly`
     /// - Contract parsing errors
-    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
             let mut result = self.check_top_level_expression(exp);
@@ -108,7 +107,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// # Errors
     /// - CheckErrors::WriteAttemptedInReadOnly
     /// - Contract parsing errors
-    fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
+    fn check_top_level_expression(
+        &mut self,
+        expression: &SymbolicExpression,
+    ) -> Result<(), CheckError> {
         use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
@@ -166,7 +168,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         &mut self,
         signature: &[SymbolicExpression],
         body: &SymbolicExpression,
-    ) -> CheckResult<(ClarityName, bool)> {
+    ) -> Result<(ClarityName, bool), CheckError> {
         let function_name = signature
             .first()
             .ok_or(CheckErrors::DefineFunctionBadSignature)?
@@ -178,7 +180,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok((function_name.clone(), is_read_only))
     }
 
-    fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
+    fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> Result<(), CheckError> {
         use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
             match define_type {
@@ -223,7 +225,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///   (1) for whether or not they are valid with respect to read-only requirements.
     ///   (2) if valid, returns whether or not they are read only.
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
-    fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
+    fn check_read_only(&mut self, expr: &SymbolicExpression) -> Result<bool, CheckError> {
         match expr.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
             List(ref expression) => self.check_expression_application_is_read_only(expression),
@@ -240,7 +242,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn check_each_expression_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
-    ) -> CheckResult<bool> {
+    ) -> Result<bool, CheckError> {
         let mut result = true;
         for expression in expressions.iter() {
             let expr_read_only = self.check_read_only(expression)?;
@@ -263,7 +265,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         &mut self,
         function: &str,
         args: &[SymbolicExpression],
-    ) -> Option<CheckResult<bool>> {
+    ) -> Option<Result<bool, CheckError>> {
         NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
             .map(|function| self.check_native_function_is_read_only(&function, args))
     }
@@ -276,7 +278,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         &mut self,
         function: &NativeFunctions,
         args: &[SymbolicExpression],
-    ) -> CheckResult<bool> {
+    ) -> Result<bool, CheckError> {
         use crate::vm::functions::NativeFunctions::*;
 
         match function {
@@ -293,7 +295,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
             | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice | ReplaceAt
             | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift | BitwiseXor2
-            | ElementAtAlias | IndexOfAlias | ContractHash => {
+            | ElementAtAlias | IndexOfAlias | ContractHash | ToAscii => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }
@@ -441,7 +443,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
-    ) -> CheckResult<bool> {
+    ) -> Result<bool, CheckError> {
         let (function_name, args) = expressions
             .split_first()
             .ok_or(CheckErrors::NonFunctionApplication)?;

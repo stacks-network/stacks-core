@@ -192,6 +192,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     GetStacksBlockInfo("get-stacks-block-info?", ClarityVersion::Clarity3, None),
     GetTenureInfo("get-tenure-info?", ClarityVersion::Clarity3, None),
     ContractHash("contract-hash?", ClarityVersion::Clarity4, None),
+    ToAscii("to-ascii?", ClarityVersion::Clarity4, None),
 });
 
 ///
@@ -563,6 +564,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             ContractHash => {
                 SpecialFunction("special_contract_hash", &database::special_contract_hash)
             }
+            ToAscii => SpecialFunction("special_to_ascii", &conversions::special_to_ascii),
         };
         Some(callable)
     } else {

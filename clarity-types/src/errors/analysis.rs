@@ -21,8 +21,6 @@ use crate::execution_cost::ExecutionCost;
 use crate::representations::SymbolicExpression;
 use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 
-pub type CheckResult<T> = Result<T, CheckError>;
-
 /// What kind of syntax binding was found to be in error?
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum SyntaxBindingErrorType {
