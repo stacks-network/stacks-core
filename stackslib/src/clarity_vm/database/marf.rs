@@ -519,7 +519,7 @@ impl ReadOnlyMarfStore<'_> {
         self.marf.get_db_path()
     }
 
-    /// Get a refernce to the chain tip
+    /// Get a reference to the chain tip
     pub fn get_chain_tip(&self) -> &StacksBlockId {
         &self.chain_tip
     }
