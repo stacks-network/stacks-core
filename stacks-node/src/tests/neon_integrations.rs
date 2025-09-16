@@ -1060,16 +1060,28 @@ pub fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
 }
 
 #[derive(Deserialize, Debug)]
-struct ReadOnlyResponse {
+pub struct ReadOnlyResponse {
     #[serde(rename = "okay")]
-    _okay: bool,
+    okay: bool,
     #[serde(rename = "result")]
-    result_hex: String,
+    result_hex: Option<String>,
+    cause: Option<String>,
 }
 
 impl ReadOnlyResponse {
-    pub fn result(&self) -> Result<Value, SerializationError> {
-        Value::try_deserialize_hex_untyped(&self.result_hex)
+    pub fn result(&self) -> Result<Value, String> {
+        if self.okay {
+            if let Some(ref result_hex) = self.result_hex {
+                Value::try_deserialize_hex_untyped(result_hex).map_err(|e| e.to_string())
+            } else {
+                Err("Missing 'result' field".to_string())
+            }
+        } else {
+            Err(self
+                .cause
+                .clone()
+                .unwrap_or_else(|| "Unknown error".to_string()))
+        }
     }
 }
 
@@ -1079,7 +1091,7 @@ pub fn call_read_only(
     contract: &str,
     function: &str,
     args: Vec<&Value>,
-) -> Value {
+) -> ReadOnlyResponse {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
@@ -1096,6 +1108,7 @@ pub fn call_read_only(
         "arguments": serialized_args,
         "sender": principal.to_string(),
     });
+
     let response: ReadOnlyResponse = client
         .post(path)
         .header("Content-Type", "application/json")
@@ -1104,6 +1117,30 @@ pub fn call_read_only(
         .unwrap()
         .json()
         .unwrap();
+    response
+}
+
+#[derive(Deserialize, Debug)]
+struct ConstantResponse {
+    #[serde(rename = "data")]
+    data_hex: String,
+}
+
+impl ConstantResponse {
+    pub fn result(&self) -> Result<Value, SerializationError> {
+        Value::try_deserialize_hex_untyped(&self.data_hex)
+    }
+}
+
+pub fn get_constant(conf: &Config, principal: &StacksAddress, contract: &str, name: &str) -> Value {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
+
+    info!("Get constant: {contract}.{name}");
+
+    let path = format!("{http_origin}/v2/constant_val/{principal}/{contract}/{name}");
+
+    let response: ConstantResponse = client.get(path).send().unwrap().json().unwrap();
     response.result().unwrap()
 }
 

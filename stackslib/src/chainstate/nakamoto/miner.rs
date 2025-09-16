@@ -418,6 +418,7 @@ impl NakamotoBlockBuilder {
             &self.header.pox_treatment,
             block_commit,
             &info.active_reward_set,
+            Some(self.header.timestamp),
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
         Ok(clarity_tx)
