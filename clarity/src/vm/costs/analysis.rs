@@ -19,6 +19,16 @@ use crate::vm::representations::{ClarityName, PreSymbolicExpression, PreSymbolic
 // lookups
 // unwrap evaluates both branches (https://github.com/clarity-lang/reference/issues/59)
 
+/// Calculate the cost for a string based on its length
+fn string_cost(length: usize) -> StaticCost {
+    let cost = linear(length as u64, 36, 3);
+    let execution_cost = ExecutionCost::runtime(cost);
+    StaticCost {
+        min: execution_cost.clone(),
+        max: execution_cost,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StaticCostNode {
     pub function: Vec<PreSymbolicExpression>,
@@ -329,28 +339,11 @@ fn build_cost_tree(expr_tree: &ExprTree) -> Result<StaticCostNode, String> {
         ExprNode::Function(name) => name.as_str(),
         ExprNode::AtomValue(value) => {
             // String literals have cost based on length only when they're standalone (not function arguments)
+            // TODO: not sure if /utf8 and ascii are treated the same cost-wise..
             if let Value::Sequence(SequenceData::String(CharType::UTF8(data))) = value {
-                let length = data.data.len() as u64;
-                let cost = linear(length, 36, 3);
-                let execution_cost = ExecutionCost::runtime(cost);
-                return Ok(StaticCostNode::leaf(
-                    vec![],
-                    StaticCost {
-                        min: execution_cost.clone(),
-                        max: execution_cost,
-                    },
-                ));
+                return Ok(StaticCostNode::leaf(vec![], string_cost(data.data.len())));
             } else if let Value::Sequence(SequenceData::String(CharType::ASCII(data))) = value {
-                let length = data.data.len() as u64;
-                let cost = linear(length, 36, 3);
-                let execution_cost = ExecutionCost::runtime(cost);
-                return Ok(StaticCostNode::leaf(
-                    vec![],
-                    StaticCost {
-                        min: execution_cost.clone(),
-                        max: execution_cost,
-                    },
-                ));
+                return Ok(StaticCostNode::leaf(vec![], string_cost(data.data.len())));
             }
             // Other atom values have zero cost
             return Ok(StaticCostNode::leaf(vec![], StaticCost::ZERO));
@@ -367,12 +360,12 @@ fn build_cost_tree(expr_tree: &ExprTree) -> Result<StaticCostNode, String> {
 
     let mut children = Vec::new();
     for child_expr in &expr_tree.children {
-        // For certain functions like concat, string arguments should have zero cost
+        // For certain functions like concat and len, string arguments should have zero cost
         // since the function cost includes their processing
-        if function_name == "concat" {
+        if function_name == "concat" || function_name == "len" {
             if let ExprNode::AtomValue(Value::Sequence(SequenceData::String(_))) = &child_expr.expr
             {
-                // String arguments to concat have zero cost
+                // String arguments to concat and len have zero cost
                 children.push(StaticCostNode::leaf(vec![], StaticCost::ZERO));
                 continue;
             }
@@ -404,7 +397,7 @@ fn calculate_function_cost_from_name(
     function_name: &str,
     arg_count: u64,
 ) -> Result<StaticCost, String> {
-    let cost_function = match get_cost_function_for_name_str(function_name) {
+    let cost_function = match get_cost_function_for_name(function_name) {
         Some(cost_fn) => cost_fn,
         None => {
             // TODO: zero cost for now
@@ -427,9 +420,7 @@ fn calculate_function_cost(
 }
 
 /// Convert a function name string to its corresponding cost function
-fn get_cost_function_for_name_str(
-    name: &str,
-) -> Option<fn(u64) -> InterpreterResult<ExecutionCost>> {
+fn get_cost_function_for_name(name: &str) -> Option<fn(u64) -> InterpreterResult<ExecutionCost>> {
     // Map function names to their cost functions using the existing enum structure
     match name {
         "+" | "add" => Some(Costs3::cost_add),
@@ -533,139 +524,6 @@ fn get_cost_function_for_name_str(
         "int-to-ascii" => Some(Costs3::cost_int_to_ascii),
         "int-to-utf8?" => Some(Costs3::cost_int_to_utf8),
         _ => None, // Unknown function name
-    }
-}
-
-/// Convert a function name to its corresponding cost function
-fn get_cost_function_for_name(
-    name: &ClarityName,
-) -> Option<fn(u64) -> InterpreterResult<ExecutionCost>> {
-    let name_str = name.as_str();
-
-    // Map function names to their cost functions using the existing enum structure
-    match name_str {
-        "+" | "add" => Some(Costs3::cost_add),
-        "-" | "sub" => Some(Costs3::cost_sub),
-        "*" | "mul" => Some(Costs3::cost_mul),
-        "/" | "div" => Some(Costs3::cost_div),
-        "mod" => Some(Costs3::cost_mod),
-        "pow" => Some(Costs3::cost_pow),
-        "sqrti" => Some(Costs3::cost_sqrti),
-        "log2" => Some(Costs3::cost_log2),
-        "to-int" | "to-uint" | "int-cast" => Some(Costs3::cost_int_cast),
-        "is-eq" | "=" | "eq" => Some(Costs3::cost_eq),
-        ">=" | "geq" => Some(Costs3::cost_geq),
-        "<=" | "leq" => Some(Costs3::cost_leq),
-        ">" | "ge" => Some(Costs3::cost_ge),
-        "<" | "le" => Some(Costs3::cost_le),
-        "xor" => Some(Costs3::cost_xor),
-        "not" => Some(Costs3::cost_not),
-        "and" => Some(Costs3::cost_and),
-        "or" => Some(Costs3::cost_or),
-        "concat" => Some(Costs3::cost_concat),
-        "len" => Some(Costs3::cost_len),
-        "as-max-len?" => Some(Costs3::cost_as_max_len),
-        "list" => Some(Costs3::cost_list_cons),
-        "element-at" | "element-at?" => Some(Costs3::cost_element_at),
-        "index-of" | "index-of?" => Some(Costs3::cost_index_of),
-        "fold" => Some(Costs3::cost_fold),
-        "map" => Some(Costs3::cost_map),
-        "filter" => Some(Costs3::cost_filter),
-        "append" => Some(Costs3::cost_append),
-        "tuple-get" => Some(Costs3::cost_tuple_get),
-        "tuple-merge" => Some(Costs3::cost_tuple_merge),
-        "tuple" => Some(Costs3::cost_tuple_cons),
-        "some" => Some(Costs3::cost_some_cons),
-        "ok" => Some(Costs3::cost_ok_cons),
-        "err" => Some(Costs3::cost_err_cons),
-        "default-to" => Some(Costs3::cost_default_to),
-        "unwrap!" => Some(Costs3::cost_unwrap_ret),
-        "unwrap-err!" => Some(Costs3::cost_unwrap_err_or_ret),
-        "is-ok" => Some(Costs3::cost_is_okay),
-        "is-none" => Some(Costs3::cost_is_none),
-        "is-err" => Some(Costs3::cost_is_err),
-        "is-some" => Some(Costs3::cost_is_some),
-        "unwrap-panic" => Some(Costs3::cost_unwrap),
-        "unwrap-err-panic" => Some(Costs3::cost_unwrap_err),
-        "try!" => Some(Costs3::cost_try_ret),
-        "if" => Some(Costs3::cost_if),
-        "match" => Some(Costs3::cost_match),
-        "begin" => Some(Costs3::cost_begin),
-        "let" => Some(Costs3::cost_let),
-        "asserts!" => Some(Costs3::cost_asserts),
-        "hash160" => Some(Costs3::cost_hash160),
-        "sha256" => Some(Costs3::cost_sha256),
-        "sha512" => Some(Costs3::cost_sha512),
-        "sha512/256" => Some(Costs3::cost_sha512t256),
-        "keccak256" => Some(Costs3::cost_keccak256),
-        "secp256k1-recover?" => Some(Costs3::cost_secp256k1recover),
-        "secp256k1-verify" => Some(Costs3::cost_secp256k1verify),
-        "print" => Some(Costs3::cost_print),
-        "contract-call?" => Some(Costs3::cost_contract_call),
-        "contract-of" => Some(Costs3::cost_contract_of),
-        "principal-of?" => Some(Costs3::cost_principal_of),
-        "at-block" => Some(Costs3::cost_at_block),
-        "load-contract" => Some(Costs3::cost_load_contract),
-        "create-map" => Some(Costs3::cost_create_map),
-        "create-var" => Some(Costs3::cost_create_var),
-        "create-non-fungible-token" => Some(Costs3::cost_create_nft),
-        "create-fungible-token" => Some(Costs3::cost_create_ft),
-        "map-get?" => Some(Costs3::cost_fetch_entry),
-        "map-set!" => Some(Costs3::cost_set_entry),
-        "var-get" => Some(Costs3::cost_fetch_var),
-        "var-set!" => Some(Costs3::cost_set_var),
-        "contract-storage" => Some(Costs3::cost_contract_storage),
-        "get-block-info?" => Some(Costs3::cost_block_info),
-        "get-burn-block-info?" => Some(Costs3::cost_burn_block_info),
-        "stx-get-balance" => Some(Costs3::cost_stx_balance),
-        "stx-transfer?" => Some(Costs3::cost_stx_transfer),
-        "stx-transfer-memo?" => Some(Costs3::cost_stx_transfer_memo),
-        "stx-account" => Some(Costs3::cost_stx_account),
-        "ft-mint?" => Some(Costs3::cost_ft_mint),
-        "ft-transfer?" => Some(Costs3::cost_ft_transfer),
-        "ft-get-balance" => Some(Costs3::cost_ft_balance),
-        "ft-get-supply" => Some(Costs3::cost_ft_get_supply),
-        "ft-burn?" => Some(Costs3::cost_ft_burn),
-        "nft-mint?" => Some(Costs3::cost_nft_mint),
-        "nft-transfer?" => Some(Costs3::cost_nft_transfer),
-        "nft-get-owner?" => Some(Costs3::cost_nft_owner),
-        "nft-burn?" => Some(Costs3::cost_nft_burn),
-        "buff-to-int-le?" => Some(Costs3::cost_buff_to_int_le),
-        "buff-to-uint-le?" => Some(Costs3::cost_buff_to_uint_le),
-        "buff-to-int-be?" => Some(Costs3::cost_buff_to_int_be),
-        "buff-to-uint-be?" => Some(Costs3::cost_buff_to_uint_be),
-        "to-consensus-buff?" => Some(Costs3::cost_to_consensus_buff),
-        "from-consensus-buff?" => Some(Costs3::cost_from_consensus_buff),
-        "is-standard?" => Some(Costs3::cost_is_standard),
-        "principal-destruct" => Some(Costs3::cost_principal_destruct),
-        "principal-construct?" => Some(Costs3::cost_principal_construct),
-        "as-contract" => Some(Costs3::cost_as_contract),
-        "string-to-int?" => Some(Costs3::cost_string_to_int),
-        "string-to-uint?" => Some(Costs3::cost_string_to_uint),
-        "int-to-ascii" => Some(Costs3::cost_int_to_ascii),
-        "int-to-utf8?" => Some(Costs3::cost_int_to_utf8),
-        _ => None, // Unknown function name
-    }
-}
-
-fn get_max_input_size_for_function_name(function_name: &ClarityName, arg_count: u64) -> u64 {
-    let name_str = function_name.as_str();
-
-    match name_str {
-        "concat" => {
-            // For string concatenation, max size is the sum of max string lengths
-            // Each string can be up to MAX_VALUE_SIZE (1MB), so for n strings it's n * MAX_VALUE_SIZE
-            arg_count * 1024 * 1024
-        }
-        "len" => {
-            // For length, maximum string length
-            1024 * 1024 // MAX_VALUE_SIZE
-        }
-        _ => {
-            // Default case - use a fixed max size to match original behavior
-            // The original code used 2000 as the max input size for arithmetic operations
-            2000
-        }
     }
 }
 
