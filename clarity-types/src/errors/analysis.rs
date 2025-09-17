@@ -310,9 +310,15 @@ pub enum CheckErrors {
 }
 
 #[derive(Debug, PartialEq)]
+/// Represents an error encountered during Clarity's type-checking and semantic analysis phase.
+/// Wraps a `CheckErrorKind` variant, optionally includes the expressions causing the error,
+/// and provides diagnostic information for debugging.
 pub struct StaticCheckError {
+    /// The specific type-checking or semantic error that occurred.
     pub err: Box<CheckErrors>,
+    /// Optional vector of expressions related to the error, if available.
     pub expressions: Option<Vec<SymbolicExpression>>,
+    /// Diagnostic details (e.g., line/column numbers, error message, suggestions) around the error.
     pub diagnostic: Diagnostic,
 }
 
