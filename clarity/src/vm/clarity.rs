@@ -13,13 +13,22 @@ use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
 
+/// Top-level error type for Clarity contract processing, encompassing errors from parsing,
+/// type-checking, runtime evaluation, and transaction execution.
 #[derive(Debug)]
 pub enum ClarityError {
+    /// Error during static type-checking and semantic analysis.
     Analysis(CheckError),
+    /// Error during lexical or syntactic parsing.
     Parse(ParseError),
+    /// Error during runtime evaluation of Clarity code.
     Interpreter(InterpreterError),
+    /// Transaction is malformed or invalid due to blockchain-level issues (e.g., incorrect
+    /// format, invalid signatures).
     BadTransaction(String),
+    /// Transaction exceeds the allocated cost budget. Contains the actual and maximum allowed costs.
     CostError(ExecutionCost, ExecutionCost),
+    /// Transaction aborted by a callback (e.g., post-condition check or custom logic).
     AbortedByCallback {
         /// What the output value of the transaction would have been.
         /// This will be a Some for contract-calls, and None for contract initialization txs.
