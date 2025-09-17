@@ -1055,7 +1055,7 @@ fn test_index_of() {
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
         CheckErrors::TypeError(
-            TypeSignature::min_buffer().unwrap(),
+            TypeSignature::min_buffer(),
             TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(
@@ -1073,7 +1073,7 @@ fn test_index_of() {
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeError(TypeSignature::IntType, TypeSignature::UIntType),
         CheckErrors::TypeError(
-            TypeSignature::min_buffer().unwrap(),
+            TypeSignature::min_buffer(),
             TypeSignature::min_string_ascii().unwrap(),
         ),
         CheckErrors::TypeError(

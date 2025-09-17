@@ -153,7 +153,7 @@ impl SequenceSubtype {
     pub fn unit_type(&self) -> Result<TypeSignature, CheckErrors> {
         match &self {
             SequenceSubtype::ListType(list_data) => Ok(list_data.clone().destruct().0),
-            SequenceSubtype::BufferType(_) => TypeSignature::min_buffer(),
+            SequenceSubtype::BufferType(_) => Ok(TypeSignature::min_buffer()),
             SequenceSubtype::StringType(StringSubtype::ASCII(_)) => {
                 TypeSignature::min_string_ascii()
             }
@@ -878,12 +878,8 @@ impl TupleTypeSignature {
 }
 
 impl TypeSignature {
-    pub fn min_buffer() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::BufferType(
-            1_u32.try_into().map_err(|_| {
-                CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
-            })?,
-        )))
+    pub const fn min_buffer() -> TypeSignature {
+        SequenceType(SequenceSubtype::BufferType(BufferLength(1)))
     }
 
     pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {

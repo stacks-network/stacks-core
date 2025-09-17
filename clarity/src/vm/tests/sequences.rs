@@ -114,7 +114,7 @@ fn test_index_of() {
     let bad_expected = [
         CheckErrors::ExpectedSequence(TypeSignature::IntType),
         CheckErrors::TypeValueError(
-            TypeSignature::min_buffer().unwrap(),
+            TypeSignature::min_buffer(),
             execute("\"a\"").unwrap().unwrap(),
         ),
         CheckErrors::TypeValueError(
