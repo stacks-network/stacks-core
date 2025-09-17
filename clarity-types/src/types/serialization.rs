@@ -33,7 +33,7 @@ use crate::types::{
 
 /// Errors that may occur in serialization or deserialization
 /// If deserialization failed because the described type is a bad type and
-///   a CheckError is thrown, it gets wrapped in BadTypeError.
+///   a CheckErrorKind is thrown, it gets wrapped in BadTypeError.
 /// Any IOErrrors from the supplied buffer will manifest as IOError variants,
 ///   except for EOF -- if the deserialization code experiences an EOF, it is caught
 ///   and rethrown as DeserializationError
@@ -493,7 +493,7 @@ impl TypeSignature {
                     Err(CheckErrors::CouldNotDetermineSerializationType) => {
                         if no_ok_type {
                             // if both the ok type and the error type are NoType,
-                            //  throw a CheckError. This should not be possible, but the check
+                            //  throw a CheckErrorKind. This should not be possible, but the check
                             //  is done out of caution.
                             return Err(CheckErrors::CouldNotDetermineSerializationType);
                         } else {

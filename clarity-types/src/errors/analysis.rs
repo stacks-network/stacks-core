@@ -310,7 +310,7 @@ pub enum CheckErrors {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CheckError {
+pub struct StaticCheckError {
     pub err: Box<CheckErrors>,
     pub expressions: Option<Vec<SymbolicExpression>>,
     pub diagnostic: Diagnostic,
@@ -327,10 +327,10 @@ impl CheckErrors {
     }
 }
 
-impl CheckError {
-    pub fn new(err: CheckErrors) -> CheckError {
+impl StaticCheckError {
+    pub fn new(err: CheckErrors) -> StaticCheckError {
         let diagnostic = Diagnostic::err(&err);
-        CheckError {
+        StaticCheckError {
             err: Box::new(err),
             expressions: None,
             diagnostic,
@@ -358,13 +358,13 @@ impl CheckError {
     }
 }
 
-impl From<(SyntaxBindingError, &SymbolicExpression)> for CheckError {
+impl From<(SyntaxBindingError, &SymbolicExpression)> for StaticCheckError {
     fn from(e: (SyntaxBindingError, &SymbolicExpression)) -> Self {
         Self::with_expression(CheckErrors::BadSyntaxBinding(e.0), e.1)
     }
 }
 
-impl From<(CheckErrors, &SymbolicExpression)> for CheckError {
+impl From<(CheckErrors, &SymbolicExpression)> for StaticCheckError {
     fn from(e: (CheckErrors, &SymbolicExpression)) -> Self {
         let mut ce = Self::new(e.0);
         ce.set_expression(e.1);
@@ -384,7 +384,7 @@ impl fmt::Display for CheckErrors {
     }
 }
 
-impl fmt::Display for CheckError {
+impl fmt::Display for StaticCheckError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.err)?;
 
@@ -396,9 +396,9 @@ impl fmt::Display for CheckError {
     }
 }
 
-impl From<CostErrors> for CheckError {
+impl From<CostErrors> for StaticCheckError {
     fn from(err: CostErrors) -> Self {
-        CheckError::from(CheckErrors::from(err))
+        StaticCheckError::from(CheckErrors::from(err))
     }
 }
 
@@ -421,7 +421,7 @@ impl From<CostErrors> for CheckErrors {
     }
 }
 
-impl error::Error for CheckError {
+impl error::Error for StaticCheckError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
@@ -433,9 +433,9 @@ impl error::Error for CheckErrors {
     }
 }
 
-impl From<CheckErrors> for CheckError {
+impl From<CheckErrors> for StaticCheckError {
     fn from(err: CheckErrors) -> Self {
-        CheckError::new(err)
+        StaticCheckError::new(err)
     }
 }
 

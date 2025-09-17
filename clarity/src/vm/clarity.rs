@@ -2,7 +2,7 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
+use crate::vm::analysis::{AnalysisDatabase, CheckErrors, ContractAnalysis, StaticCheckError};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
@@ -15,7 +15,7 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 
 #[derive(Debug)]
 pub enum Error {
-    Analysis(CheckError),
+    Analysis(StaticCheckError),
     Parse(ParseError),
     Interpreter(InterpreterError),
     BadTransaction(String),
@@ -63,8 +63,8 @@ impl std::error::Error for Error {
     }
 }
 
-impl From<CheckError> for Error {
-    fn from(e: CheckError) -> Self {
+impl From<StaticCheckError> for Error {
+    fn from(e: StaticCheckError) -> Self {
         match *e.err {
             CheckErrors::CostOverflow => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
@@ -256,7 +256,7 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         identifier: &QualifiedContractIdentifier,
         contract_analysis: &ContractAnalysis,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.with_analysis_db(|db, cost_tracker| {
             db.begin();
             let result = db.insert_contract(identifier, contract_analysis);

@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
-use crate::vm::analysis::{type_check, CheckError};
+use crate::vm::analysis::{type_check, StaticCheckError};
 use crate::vm::ast::errors::ParseErrors;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
@@ -1818,7 +1818,7 @@ fn test_trait_contract_not_found(#[case] version: ClarityVersion, #[case] epoch:
             &version,
         )
     }) {
-        Err(CheckError { err, .. }) if version < ClarityVersion::Clarity2 => match *err {
+        Err(StaticCheckError { err, .. }) if version < ClarityVersion::Clarity2 => match *err {
             CheckErrors::NoSuchContract(contract) => {
                 assert!(contract.ends_with(".trait-contract"))
             }

@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use crate::vm::analysis::errors::{CheckErrors, StaticCheckError};
 use crate::vm::analysis::type_checker::is_reserved_word;
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::representations::ClarityName;
@@ -61,7 +61,7 @@ impl TraitContext {
         contract_identifier: QualifiedContractIdentifier,
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         match self {
             Self::Clarity1(map) => {
                 map.insert(trait_name, trait_signature);
@@ -85,7 +85,7 @@ impl TraitContext {
         alias: ClarityName,
         trait_id: TraitIdentifier,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         match self {
             Self::Clarity1(map) => {
                 map.insert(trait_id.name, trait_signature);
@@ -169,9 +169,11 @@ impl ContractContext {
         &self.contract_identifier == other
     }
 
-    pub fn check_name_used(&self, name: &str) -> Result<(), CheckError> {
+    pub fn check_name_used(&self, name: &str) -> Result<(), StaticCheckError> {
         if is_reserved_word(name, self.clarity_version) {
-            return Err(CheckError::new(CheckErrors::ReservedWord(name.to_string())));
+            return Err(StaticCheckError::new(CheckErrors::ReservedWord(
+                name.to_string(),
+            )));
         }
 
         if self.variable_types.contains_key(name)
@@ -183,7 +185,7 @@ impl ContractContext {
             || self.traits.is_name_used(name)
             || self.map_types.contains_key(name)
         {
-            Err(CheckError::new(CheckErrors::NameAlreadyUsed(
+            Err(StaticCheckError::new(CheckErrors::NameAlreadyUsed(
                 name.to_string(),
             )))
         } else {
@@ -191,7 +193,7 @@ impl ContractContext {
         }
     }
 
-    fn check_function_type(&mut self, f_name: &str) -> Result<(), CheckError> {
+    fn check_function_type(&mut self, f_name: &str) -> Result<(), StaticCheckError> {
         self.check_name_used(f_name)?;
         Ok(())
     }
@@ -208,7 +210,7 @@ impl ContractContext {
         &mut self,
         name: ClarityName,
         func_type: FunctionType,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_function_type(&name)?;
         self.public_function_types.insert(name, func_type);
         Ok(())
@@ -218,7 +220,7 @@ impl ContractContext {
         &mut self,
         name: ClarityName,
         func_type: FunctionType,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_function_type(&name)?;
         self.read_only_function_types.insert(name, func_type);
         Ok(())
@@ -228,7 +230,7 @@ impl ContractContext {
         &mut self,
         name: ClarityName,
         func_type: FunctionType,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_function_type(&name)?;
         self.private_function_types.insert(name, func_type);
         Ok(())
@@ -238,7 +240,7 @@ impl ContractContext {
         &mut self,
         map_name: ClarityName,
         map_type: (TypeSignature, TypeSignature),
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_name_used(&map_name)?;
         self.map_types.insert(map_name, map_type);
         Ok(())
@@ -248,7 +250,7 @@ impl ContractContext {
         &mut self,
         const_name: ClarityName,
         var_type: TypeSignature,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_name_used(&const_name)?;
         self.variable_types.insert(const_name, var_type);
         Ok(())
@@ -258,13 +260,13 @@ impl ContractContext {
         &mut self,
         var_name: ClarityName,
         var_type: TypeSignature,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_name_used(&var_name)?;
         self.persisted_variable_types.insert(var_name, var_type);
         Ok(())
     }
 
-    pub fn add_ft(&mut self, token_name: ClarityName) -> Result<(), CheckError> {
+    pub fn add_ft(&mut self, token_name: ClarityName) -> Result<(), StaticCheckError> {
         self.check_name_used(&token_name)?;
         self.fungible_tokens.insert(token_name);
         Ok(())
@@ -274,7 +276,7 @@ impl ContractContext {
         &mut self,
         token_name: ClarityName,
         token_type: TypeSignature,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_name_used(&token_name)?;
         self.non_fungible_tokens.insert(token_name, token_type);
         Ok(())
@@ -284,7 +286,7 @@ impl ContractContext {
         &mut self,
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         if self.clarity_version >= ClarityVersion::Clarity3 {
             self.check_name_used(&trait_name)?;
         }
@@ -301,7 +303,7 @@ impl ContractContext {
         alias: ClarityName,
         trait_id: TraitIdentifier,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         if self.clarity_version >= ClarityVersion::Clarity3 {
             self.check_name_used(&alias)?;
         }
@@ -312,7 +314,7 @@ impl ContractContext {
     pub fn add_implemented_trait(
         &mut self,
         trait_identifier: TraitIdentifier,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.implemented_traits.insert(trait_identifier);
         Ok(())
     }

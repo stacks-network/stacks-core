@@ -28,7 +28,7 @@ use stacks_common::types::StacksEpochId;
 pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
-pub use self::errors::{CheckError, CheckErrors};
+pub use self::errors::{CheckErrors, StaticCheckError};
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
@@ -52,7 +52,7 @@ pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
+) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast_with_rules(
         &contract_identifier,
@@ -106,7 +106,7 @@ pub fn type_check(
     insert_contract: bool,
     epoch: &StacksEpochId,
     version: &ClarityVersion,
-) -> Result<ContractAnalysis, CheckError> {
+) -> Result<ContractAnalysis, StaticCheckError> {
     run_analysis(
         contract_identifier,
         expressions,
@@ -132,7 +132,7 @@ pub fn run_analysis(
     epoch: StacksEpochId,
     version: ClarityVersion,
     build_type_map: bool,
-) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
