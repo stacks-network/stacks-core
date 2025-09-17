@@ -104,8 +104,15 @@ pub enum RuntimeErrorType {
 }
 
 #[derive(Debug, PartialEq)]
+/// Errors triggered during Clarity contract evaluation that cause early termination.
+/// These errors halt evaluation and fail the transaction.
 pub enum EarlyReturnError {
-    ExpectedValue(Box<Value>),
+    /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
+    /// The `Box<Value>` holds the original or thrown value. Triggered by `try!`, `unwrap-or`, or
+    /// `unwrap-err-or`.
+    UnwrapFailed(Box<Value>),
+    /// An 'asserts!' expression evaluated to false.
+    /// The `Box<Value>` holds the value provided as the second argument to `asserts!`.
     AssertionFailed(Box<Value>),
 }
 
@@ -228,7 +235,7 @@ impl From<Error> for () {
 impl From<EarlyReturnError> for Value {
     fn from(val: EarlyReturnError) -> Self {
         match val {
-            EarlyReturnError::ExpectedValue(v) => *v,
+            EarlyReturnError::UnwrapFailed(v) => *v,
             EarlyReturnError::AssertionFailed(v) => *v,
         }
     }
@@ -241,15 +248,15 @@ mod test {
     #[test]
     fn equality() {
         assert_eq!(
-            Error::EarlyReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true)))),
-            Error::EarlyReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true))))
+            Error::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(true)))),
+            Error::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(true))))
         );
         assert_eq!(
             Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
             Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
         assert!(
-            Error::EarlyReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true))))
+            Error::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(true))))
                 != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
     }

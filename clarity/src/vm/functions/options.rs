@@ -66,7 +66,7 @@ pub fn native_unwrap(input: Value) -> Result<Value> {
 pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(EarlyReturnError::ExpectedValue(Box::new(thrown)).into()),
+        None => Err(EarlyReturnError::UnwrapFailed(Box::new(thrown)).into()),
     })
 }
 
@@ -80,7 +80,7 @@ pub fn native_unwrap_err(input: Value) -> Result<Value> {
 pub fn native_unwrap_err_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap_err(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(EarlyReturnError::ExpectedValue(Box::new(thrown)).into()),
+        None => Err(EarlyReturnError::UnwrapFailed(Box::new(thrown)).into()),
     })
 }
 
@@ -88,7 +88,7 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
     match input {
         Value::Optional(data) => match data.data {
             Some(data) => Ok(*data),
-            None => Err(EarlyReturnError::ExpectedValue(Box::new(Value::none())).into()),
+            None => Err(EarlyReturnError::UnwrapFailed(Box::new(Value::none())).into()),
         },
         Value::Response(data) => {
             if data.committed {
@@ -99,7 +99,7 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
                         "BUG: Failed to construct new response type from old response type".into(),
                     )
                 })?;
-                Err(EarlyReturnError::ExpectedValue(Box::new(short_return_val)).into())
+                Err(EarlyReturnError::UnwrapFailed(Box::new(short_return_val)).into())
             }
         }
         _ => Err(CheckErrors::ExpectedOptionalOrResponseValue(Box::new(input)).into()),

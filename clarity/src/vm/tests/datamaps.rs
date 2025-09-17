@@ -296,7 +296,7 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(EarlyReturnError::ExpectedValue(Box::new(Value::Int(5))).into()),
+        Err(EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()),
         execute(&contract_src)
     );
 }
