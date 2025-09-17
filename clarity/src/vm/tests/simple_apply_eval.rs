@@ -1677,10 +1677,10 @@ fn test_asserts_short_circuit() {
     ];
 
     let expectations: &[Error] = &[
-        Error::ShortReturn(EarlyReturnError::AssertionFailed(Box::new(
+        Error::EarlyReturn(EarlyReturnError::AssertionFailed(Box::new(
             Value::error(Value::Int(0)).unwrap(),
         ))),
-        Error::ShortReturn(EarlyReturnError::AssertionFailed(Box::new(
+        Error::EarlyReturn(EarlyReturnError::AssertionFailed(Box::new(
             Value::error(Value::Int(1)).unwrap(),
         ))),
     ];

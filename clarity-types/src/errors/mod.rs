@@ -46,7 +46,7 @@ pub enum Error {
     Unchecked(CheckErrors),
     Interpreter(InterpreterError),
     Runtime(RuntimeErrorType, Option<StackTrace>),
-    ShortReturn(EarlyReturnError),
+    EarlyReturn(EarlyReturnError),
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -122,7 +122,7 @@ impl PartialEq<Error> for Error {
         match (self, other) {
             (Error::Runtime(x, _), Error::Runtime(y, _)) => x == y,
             (Error::Unchecked(x), Error::Unchecked(y)) => x == y,
-            (Error::ShortReturn(x), Error::ShortReturn(y)) => x == y,
+            (Error::EarlyReturn(x), Error::EarlyReturn(y)) => x == y,
             (Error::Interpreter(x), Error::Interpreter(y)) => x == y,
             _ => false,
         }
@@ -210,7 +210,7 @@ impl From<(CheckErrors, &SymbolicExpression)> for Error {
 
 impl From<EarlyReturnError> for Error {
     fn from(err: EarlyReturnError) -> Self {
-        Error::ShortReturn(err)
+        Error::EarlyReturn(err)
     }
 }
 
@@ -241,15 +241,15 @@ mod test {
     #[test]
     fn equality() {
         assert_eq!(
-            Error::ShortReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true)))),
-            Error::ShortReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true))))
+            Error::EarlyReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true)))),
+            Error::EarlyReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true))))
         );
         assert_eq!(
             Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
             Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
         assert!(
-            Error::ShortReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true))))
+            Error::EarlyReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true))))
                 != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
     }

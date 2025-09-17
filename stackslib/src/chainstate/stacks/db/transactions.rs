@@ -382,7 +382,7 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
                 err_type: "runtime error",
             }
         }
-        clarity_error::Interpreter(InterpreterError::ShortReturn(_)) => {
+        clarity_error::Interpreter(InterpreterError::EarlyReturn(_)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
