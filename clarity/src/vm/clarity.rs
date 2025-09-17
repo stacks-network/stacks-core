@@ -15,7 +15,7 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 
 #[derive(Debug)]
 pub enum Error {
-    Analysis(StaticCheckError),
+    StaticCheck(StaticCheckError),
     Parse(ParseError),
     Interpreter(InterpreterError),
     BadTransaction(String),
@@ -39,7 +39,7 @@ impl fmt::Display for Error {
             Error::CostError(ref a, ref b) => {
                 write!(f, "Cost Error: {a} cost exceeded budget of {b} cost")
             }
-            Error::Analysis(ref e) => fmt::Display::fmt(e, f),
+            Error::StaticCheck(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
             Error::AbortedByCallback { reason, .. } => {
                 write!(f, "Post condition aborted transaction: {reason}")
@@ -55,7 +55,7 @@ impl std::error::Error for Error {
         match *self {
             Error::CostError(ref _a, ref _b) => None,
             Error::AbortedByCallback { .. } => None,
-            Error::Analysis(ref e) => Some(e),
+            Error::StaticCheck(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
             Error::BadTransaction(ref _s) => None,
@@ -76,7 +76,7 @@ impl From<StaticCheckError> for Error {
             CheckErrors::ExecutionTimeExpired => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            _ => Error::Analysis(e),
+            _ => Error::StaticCheck(e),
         }
     }
 }
