@@ -26,8 +26,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   expressive (#6337)
 - Removed affirmation maps logic throughout, upgrading chainstate DB schema to 11 and burnchain DB schema to 3 (#6314)
 
-### Changed
+### Fixed
 
+- When running `stacks-inspect decode-tx`, print the correct version of the address (mainnet or testnet) based on the transaction passed in
 - When a contract deploy is analyzed, it will no longer throw a `CostError` when the contract contains an undefined top-level variable. Instead, it will throw a `UndefinedVariable` error.
 
 ## [3.2.0.0.1]
