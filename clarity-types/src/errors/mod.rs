@@ -46,7 +46,7 @@ pub enum Error {
     Unchecked(CheckErrors),
     Interpreter(InterpreterError),
     Runtime(RuntimeErrorType, Option<StackTrace>),
-    ShortReturn(ShortReturnType),
+    ShortReturn(EarlyReturnError),
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -104,7 +104,7 @@ pub enum RuntimeErrorType {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ShortReturnType {
+pub enum EarlyReturnError {
     ExpectedValue(Box<Value>),
     AssertionFailed(Box<Value>),
 }
@@ -208,8 +208,8 @@ impl From<(CheckErrors, &SymbolicExpression)> for Error {
     }
 }
 
-impl From<ShortReturnType> for Error {
-    fn from(err: ShortReturnType) -> Self {
+impl From<EarlyReturnError> for Error {
+    fn from(err: EarlyReturnError) -> Self {
         Error::ShortReturn(err)
     }
 }
@@ -225,11 +225,11 @@ impl From<Error> for () {
     fn from(_err: Error) -> Self {}
 }
 
-impl From<ShortReturnType> for Value {
-    fn from(val: ShortReturnType) -> Self {
+impl From<EarlyReturnError> for Value {
+    fn from(val: EarlyReturnError) -> Self {
         match val {
-            ShortReturnType::ExpectedValue(v) => *v,
-            ShortReturnType::AssertionFailed(v) => *v,
+            EarlyReturnError::ExpectedValue(v) => *v,
+            EarlyReturnError::AssertionFailed(v) => *v,
         }
     }
 }
@@ -241,15 +241,15 @@ mod test {
     #[test]
     fn equality() {
         assert_eq!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true)))),
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
+            Error::ShortReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true)))),
+            Error::ShortReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true))))
         );
         assert_eq!(
             Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
             Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
         assert!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
+            Error::ShortReturn(EarlyReturnError::ExpectedValue(Box::new(Value::Bool(true))))
                 != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
     }

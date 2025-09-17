@@ -31,7 +31,7 @@ use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType};
+use crate::vm::errors::{CheckErrors, EarlyReturnError, Error, RuntimeErrorType};
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
 use crate::vm::types::{
@@ -1431,7 +1431,7 @@ fn test_option_destructs() {
                 .into(),
         ),
         Ok(Value::Int(3)),
-        Err(ShortReturnType::ExpectedValue(Box::new(Value::Int(2))).into()),
+        Err(EarlyReturnError::ExpectedValue(Box::new(Value::Int(2))).into()),
         Ok(Value::Int(3)),
         Ok(Value::Int(3)),
         Ok(Value::Int(3)),
@@ -1444,9 +1444,11 @@ fn test_option_destructs() {
         Ok(Value::Int(8)),
         Err(CheckErrors::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
         Err(CheckErrors::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
-        Err(ShortReturnType::ExpectedValue(Box::new(Value::error(Value::UInt(1)).unwrap())).into()),
+        Err(
+            EarlyReturnError::ExpectedValue(Box::new(Value::error(Value::UInt(1)).unwrap())).into(),
+        ),
         Ok(Value::Int(3)),
-        Err(ShortReturnType::ExpectedValue(Box::new(Value::none())).into()),
+        Err(EarlyReturnError::ExpectedValue(Box::new(Value::none())).into()),
         Ok(Value::Bool(true)),
         Err(CheckErrors::IncorrectArgumentCount(1, 2).into()),
         Err(CheckErrors::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))).into()),
@@ -1675,10 +1677,10 @@ fn test_asserts_short_circuit() {
     ];
 
     let expectations: &[Error] = &[
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Box::new(
+        Error::ShortReturn(EarlyReturnError::AssertionFailed(Box::new(
             Value::error(Value::Int(0)).unwrap(),
         ))),
-        Error::ShortReturn(ShortReturnType::AssertionFailed(Box::new(
+        Error::ShortReturn(EarlyReturnError::AssertionFailed(Box::new(
             Value::error(Value::Int(1)).unwrap(),
         ))),
     ];
