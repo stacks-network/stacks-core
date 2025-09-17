@@ -26,7 +26,7 @@ use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
     analysis::errors::SyntaxBindingError,
-    ast::{build_ast, errors::ParseErrors},
+    ast::{build_ast, errors::ParseErrorKind},
     errors::RuntimeErrorType,
     types::{QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _, Value},
     {execute, ClarityVersion},
@@ -207,7 +207,7 @@ fn test_recursive_panic(#[case] version: ClarityVersion, #[case] epoch: StacksEp
         epoch,
     )
     .unwrap_err();
-    assert!(matches!(*err.err, ParseErrors::CircularReference(_)));
+    assert!(matches!(*err.err, ParseErrorKind::CircularReference(_)));
 }
 
 #[test]
@@ -475,18 +475,18 @@ fn test_define_trait_arg_count() {
     // These errors are hit in the trait resolver, before reaching the type-checker
     match execute(test0).unwrap_err() {
         Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrors::DefineTraitBadSignature => {}
+            if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
         e => panic!("{e:?}"),
     };
     match execute(test1).unwrap_err() {
         Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrors::DefineTraitBadSignature => {}
+            if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
         e => panic!("{e}"),
     };
     execute(test2).unwrap();
     match execute(test3).unwrap_err() {
         Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrors::DefineTraitBadSignature => {}
+            if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
         e => panic!("{e}"),
     };
 }
@@ -501,18 +501,18 @@ fn test_use_trait_arg_count() {
     // These errors are hit in the trait resolver, before reaching the type-checker
     match execute(test0).unwrap_err() {
         Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrors::ImportTraitBadSignature => {}
+            if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
         e => panic!("{e:?}"),
     };
     match execute(test1).unwrap_err() {
         Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrors::ImportTraitBadSignature => {}
+            if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
         e => panic!("{e}"),
     };
     execute(test2).unwrap();
     match execute(test3).unwrap_err() {
         Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrors::ImportTraitBadSignature => {}
+            if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
         e => panic!("{e}"),
     };
 }
@@ -526,13 +526,13 @@ fn test_impl_trait_arg_count() {
     // These errors are hit in the trait resolver, before reaching the type-checker
     match execute(test0).unwrap_err() {
         Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrors::ImplTraitBadSignature => {}
+            if *parse_err.err == ParseErrorKind::ImplTraitBadSignature => {}
         e => panic!("{e:?}"),
     };
     execute(test1).unwrap();
     match execute(test2).unwrap_err() {
         Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
-            if *parse_err.err == ParseErrors::ImplTraitBadSignature => {}
+            if *parse_err.err == ParseErrorKind::ImplTraitBadSignature => {}
         e => panic!("{e}"),
     };
 }

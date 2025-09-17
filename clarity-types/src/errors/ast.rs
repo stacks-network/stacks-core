@@ -25,7 +25,7 @@ use crate::token::Token;
 pub type ParseResult<T> = Result<T, ParseError>;
 
 #[derive(Debug, PartialEq)]
-pub enum ParseErrors {
+pub enum ParseErrorKind {
     // Cost errors
     CostOverflow,
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
@@ -98,13 +98,13 @@ pub enum ParseErrors {
 
 #[derive(Debug, PartialEq)]
 pub struct ParseError {
-    pub err: Box<ParseErrors>,
+    pub err: Box<ParseErrorKind>,
     pub pre_expressions: Option<Vec<PreSymbolicExpression>>,
     pub diagnostic: Diagnostic,
 }
 
 impl ParseError {
-    pub fn new(err: ParseErrors) -> ParseError {
+    pub fn new(err: ParseErrorKind) -> ParseError {
         let diagnostic = Diagnostic::err(&err);
         ParseError {
             err: Box::new(err),
@@ -114,7 +114,7 @@ impl ParseError {
     }
 
     pub fn rejectable(&self) -> bool {
-        matches!(*self.err, ParseErrors::InterpreterFailure)
+        matches!(*self.err, ParseErrorKind::InterpreterFailure)
     }
 
     pub fn has_pre_expression(&self) -> bool {
@@ -150,8 +150,8 @@ impl error::Error for ParseError {
     }
 }
 
-impl From<ParseErrors> for ParseError {
-    fn from(err: ParseErrors) -> Self {
+impl From<ParseErrorKind> for ParseError {
+    fn from(err: ParseErrorKind) -> Self {
         ParseError::new(err)
     }
 }
@@ -159,143 +159,153 @@ impl From<ParseErrors> for ParseError {
 impl From<CostErrors> for ParseError {
     fn from(err: CostErrors) -> Self {
         match err {
-            CostErrors::CostOverflow => ParseError::new(ParseErrors::CostOverflow),
+            CostErrors::CostOverflow => ParseError::new(ParseErrorKind::CostOverflow),
             CostErrors::CostBalanceExceeded(a, b) => {
-                ParseError::new(ParseErrors::CostBalanceExceeded(a, b))
+                ParseError::new(ParseErrorKind::CostBalanceExceeded(a, b))
             }
             CostErrors::MemoryBalanceExceeded(a, b) => {
-                ParseError::new(ParseErrors::MemoryBalanceExceeded(a, b))
+                ParseError::new(ParseErrorKind::MemoryBalanceExceeded(a, b))
             }
             CostErrors::CostComputationFailed(s) => {
-                ParseError::new(ParseErrors::CostComputationFailed(s))
+                ParseError::new(ParseErrorKind::CostComputationFailed(s))
             }
             CostErrors::CostContractLoadFailure => ParseError::new(
-                ParseErrors::CostComputationFailed("Failed to load cost contract".into()),
+                ParseErrorKind::CostComputationFailed("Failed to load cost contract".into()),
             ),
             CostErrors::InterpreterFailure | CostErrors::Expect(_) => {
-                ParseError::new(ParseErrors::InterpreterFailure)
+                ParseError::new(ParseErrorKind::InterpreterFailure)
             }
-            CostErrors::ExecutionTimeExpired => ParseError::new(ParseErrors::ExecutionTimeExpired),
+            CostErrors::ExecutionTimeExpired => {
+                ParseError::new(ParseErrorKind::ExecutionTimeExpired)
+            }
         }
     }
 }
 
-impl DiagnosableError for ParseErrors {
+impl DiagnosableError for ParseErrorKind {
     fn message(&self) -> String {
         match &self {
-            ParseErrors::CostOverflow => "Used up cost budget during the parse".into(),
-            ParseErrors::CostBalanceExceeded(bal, used) => {
+            ParseErrorKind::CostOverflow => "Used up cost budget during the parse".into(),
+            ParseErrorKind::CostBalanceExceeded(bal, used) => {
                 format!("Used up cost budget during the parse: {bal} balance, {used} used")
             }
-            ParseErrors::MemoryBalanceExceeded(bal, used) => {
+            ParseErrorKind::MemoryBalanceExceeded(bal, used) => {
                 format!("Used up memory budget during the parse: {bal} balance, {used} used")
             }
-            ParseErrors::TooManyExpressions => "Too many expressions".into(),
-            ParseErrors::FailedCapturingInput => "Failed to capture value from input".into(),
-            ParseErrors::SeparatorExpected(found) => {
+            ParseErrorKind::TooManyExpressions => "Too many expressions".into(),
+            ParseErrorKind::FailedCapturingInput => "Failed to capture value from input".into(),
+            ParseErrorKind::SeparatorExpected(found) => {
                 format!("Expected whitespace or a close parens. Found: '{found}'")
             }
-            ParseErrors::SeparatorExpectedAfterColon(found) => {
+            ParseErrorKind::SeparatorExpectedAfterColon(found) => {
                 format!("Whitespace expected after colon (:), Found: '{found}'")
             }
-            ParseErrors::ProgramTooLarge => "Program too large to parse".into(),
-            ParseErrors::IllegalContractName(contract_name) => {
+            ParseErrorKind::ProgramTooLarge => "Program too large to parse".into(),
+            ParseErrorKind::IllegalContractName(contract_name) => {
                 format!("Illegal contract name: '{contract_name}'")
             }
-            ParseErrors::IllegalVariableName(var_name) => {
+            ParseErrorKind::IllegalVariableName(var_name) => {
                 format!("Illegal variable name: '{var_name}'")
             }
-            ParseErrors::FailedParsingIntValue(value) => {
+            ParseErrorKind::FailedParsingIntValue(value) => {
                 format!("Failed to parse int literal '{value}'")
             }
-            ParseErrors::FailedParsingUIntValue(value) => {
+            ParseErrorKind::FailedParsingUIntValue(value) => {
                 format!("Failed to parse uint literal 'u{value}'")
             }
-            ParseErrors::FailedParsingHexValue(value, x) => {
+            ParseErrorKind::FailedParsingHexValue(value, x) => {
                 format!("Invalid hex-string literal {value}: {x}")
             }
-            ParseErrors::FailedParsingPrincipal(value) => {
+            ParseErrorKind::FailedParsingPrincipal(value) => {
                 format!("Invalid principal literal: {value}")
             }
-            ParseErrors::FailedParsingBuffer(value) => format!("Invalid buffer literal: {value}"),
-            ParseErrors::FailedParsingField(value) => format!("Invalid field literal: {value}"),
-            ParseErrors::FailedParsingRemainder(remainder) => {
+            ParseErrorKind::FailedParsingBuffer(value) => {
+                format!("Invalid buffer literal: {value}")
+            }
+            ParseErrorKind::FailedParsingField(value) => format!("Invalid field literal: {value}"),
+            ParseErrorKind::FailedParsingRemainder(remainder) => {
                 format!("Failed to lex input remainder: '{remainder}'")
             }
-            ParseErrors::ClosingParenthesisUnexpected => {
+            ParseErrorKind::ClosingParenthesisUnexpected => {
                 "Tried to close list which isn't open.".into()
             }
-            ParseErrors::ClosingParenthesisExpected => "List expressions (..) left opened.".into(),
-            ParseErrors::ClosingTupleLiteralUnexpected => {
+            ParseErrorKind::ClosingParenthesisExpected => {
+                "List expressions (..) left opened.".into()
+            }
+            ParseErrorKind::ClosingTupleLiteralUnexpected => {
                 "Tried to close tuple literal which isn't open.".into()
             }
-            ParseErrors::ClosingTupleLiteralExpected => "Tuple literal {{..}} left opened.".into(),
-            ParseErrors::ColonSeparatorUnexpected => "Misplaced colon.".into(),
-            ParseErrors::CommaSeparatorUnexpected => "Misplaced comma.".into(),
-            ParseErrors::TupleColonExpected(i) => {
+            ParseErrorKind::ClosingTupleLiteralExpected => {
+                "Tuple literal {{..}} left opened.".into()
+            }
+            ParseErrorKind::ColonSeparatorUnexpected => "Misplaced colon.".into(),
+            ParseErrorKind::CommaSeparatorUnexpected => "Misplaced comma.".into(),
+            ParseErrorKind::TupleColonExpected(i) => {
                 format!("Tuple literal construction expects a colon at index {i}")
             }
-            ParseErrors::TupleCommaExpected(i) => {
+            ParseErrorKind::TupleCommaExpected(i) => {
                 format!("Tuple literal construction expects a comma at index {i}")
             }
-            ParseErrors::TupleItemExpected(i) => {
+            ParseErrorKind::TupleItemExpected(i) => {
                 format!("Tuple literal construction expects a key or value at index {i}")
             }
-            ParseErrors::CircularReference(function_names) => format!(
+            ParseErrorKind::CircularReference(function_names) => format!(
                 "detected interdependent functions ({})",
                 function_names.join(", ")
             ),
-            ParseErrors::NameAlreadyUsed(name) => {
+            ParseErrorKind::NameAlreadyUsed(name) => {
                 format!("defining '{name}' conflicts with previous value")
             }
-            ParseErrors::ImportTraitBadSignature => {
+            ParseErrorKind::ImportTraitBadSignature => {
                 "(use-trait ...) expects a trait name and a trait identifier".into()
             }
-            ParseErrors::DefineTraitBadSignature => {
+            ParseErrorKind::DefineTraitBadSignature => {
                 "(define-trait ...) expects a trait name and a trait definition".into()
             }
-            ParseErrors::ImplTraitBadSignature => {
+            ParseErrorKind::ImplTraitBadSignature => {
                 "(impl-trait ...) expects a trait identifier".into()
             }
-            ParseErrors::TraitReferenceNotAllowed => "trait references can not be stored".into(),
-            ParseErrors::TraitReferenceUnknown(trait_name) => {
+            ParseErrorKind::TraitReferenceNotAllowed => "trait references can not be stored".into(),
+            ParseErrorKind::TraitReferenceUnknown(trait_name) => {
                 format!("use of undeclared trait <{trait_name}>")
             }
-            ParseErrors::ExpressionStackDepthTooDeep => format!(
+            ParseErrorKind::ExpressionStackDepthTooDeep => format!(
                 "AST has too deep of an expression nesting. The maximum stack depth is {MAX_CALL_STACK_DEPTH}"
             ),
-            ParseErrors::VaryExpressionStackDepthTooDeep => format!(
+            ParseErrorKind::VaryExpressionStackDepthTooDeep => format!(
                 "AST has too deep of an expression nesting. The maximum stack depth is {MAX_CALL_STACK_DEPTH}"
             ),
-            ParseErrors::InvalidCharactersDetected => "invalid characters detected".into(),
-            ParseErrors::InvalidEscaping => "invalid escaping detected in string".into(),
-            ParseErrors::CostComputationFailed(s) => format!("Cost computation failed: {s}"),
+            ParseErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
+            ParseErrorKind::InvalidEscaping => "invalid escaping detected in string".into(),
+            ParseErrorKind::CostComputationFailed(s) => format!("Cost computation failed: {s}"),
 
             // Parser v2 errors
-            ParseErrors::Lexer(le) => le.message(),
-            ParseErrors::ContractNameTooLong(name) => {
+            ParseErrorKind::Lexer(le) => le.message(),
+            ParseErrorKind::ContractNameTooLong(name) => {
                 format!("contract name '{name}' is too long")
             }
-            ParseErrors::ExpectedContractIdentifier => "expected contract identifier".into(),
-            ParseErrors::ExpectedTraitIdentifier => "expected trait identifier".into(),
-            ParseErrors::IllegalTraitName(name) => format!("illegal trait name, '{name}'"),
-            ParseErrors::InvalidPrincipalLiteral => "invalid principal literal".into(),
-            ParseErrors::InvalidBuffer => "invalid hex-string literal".into(),
-            ParseErrors::NameTooLong(name) => format!("illegal name (too long), '{name}'"),
-            ParseErrors::UnexpectedToken(token) => format!("unexpected '{token}'"),
-            ParseErrors::ExpectedClosing(token) => format!("expected closing '{token}'"),
-            ParseErrors::TupleColonExpectedv2 => "expected ':' after key in tuple".into(),
-            ParseErrors::TupleCommaExpectedv2 => {
+            ParseErrorKind::ExpectedContractIdentifier => "expected contract identifier".into(),
+            ParseErrorKind::ExpectedTraitIdentifier => "expected trait identifier".into(),
+            ParseErrorKind::IllegalTraitName(name) => format!("illegal trait name, '{name}'"),
+            ParseErrorKind::InvalidPrincipalLiteral => "invalid principal literal".into(),
+            ParseErrorKind::InvalidBuffer => "invalid hex-string literal".into(),
+            ParseErrorKind::NameTooLong(name) => format!("illegal name (too long), '{name}'"),
+            ParseErrorKind::UnexpectedToken(token) => format!("unexpected '{token}'"),
+            ParseErrorKind::ExpectedClosing(token) => format!("expected closing '{token}'"),
+            ParseErrorKind::TupleColonExpectedv2 => "expected ':' after key in tuple".into(),
+            ParseErrorKind::TupleCommaExpectedv2 => {
                 "expected ',' separating key-value pairs in tuple".into()
             }
-            ParseErrors::TupleValueExpected => "expected value expression for tuple".into(),
-            ParseErrors::IllegalClarityName(name) => format!("illegal clarity name, '{name}'"),
-            ParseErrors::IllegalASCIIString(s) => format!("illegal ascii string \"{s}\""),
-            ParseErrors::ExpectedWhitespace => "expected whitespace before expression".into(),
-            ParseErrors::NoteToMatchThis(token) => format!("to match this '{token}'"),
-            ParseErrors::UnexpectedParserFailure => "unexpected failure while parsing".to_string(),
-            ParseErrors::InterpreterFailure => "unexpected failure while parsing".to_string(),
-            ParseErrors::ExecutionTimeExpired => "max execution time expired".to_string(),
+            ParseErrorKind::TupleValueExpected => "expected value expression for tuple".into(),
+            ParseErrorKind::IllegalClarityName(name) => format!("illegal clarity name, '{name}'"),
+            ParseErrorKind::IllegalASCIIString(s) => format!("illegal ascii string \"{s}\""),
+            ParseErrorKind::ExpectedWhitespace => "expected whitespace before expression".into(),
+            ParseErrorKind::NoteToMatchThis(token) => format!("to match this '{token}'"),
+            ParseErrorKind::UnexpectedParserFailure => {
+                "unexpected failure while parsing".to_string()
+            }
+            ParseErrorKind::InterpreterFailure => "unexpected failure while parsing".to_string(),
+            ParseErrorKind::ExecutionTimeExpired => "max execution time expired".to_string(),
         }
     }
 
@@ -305,14 +315,14 @@ impl DiagnosableError for ParseErrors {
 
     fn level(&self) -> Level {
         match self {
-            ParseErrors::NoteToMatchThis(_) => Level::Note,
-            ParseErrors::Lexer(lexer_error) => lexer_error.level(),
+            ParseErrorKind::NoteToMatchThis(_) => Level::Note,
+            ParseErrorKind::Lexer(lexer_error) => lexer_error.level(),
             _ => Level::Error,
         }
     }
 }
 
 pub struct PlacedError {
-    pub e: ParseErrors,
+    pub e: ParseErrorKind,
     pub span: Span,
 }

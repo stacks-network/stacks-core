@@ -17,7 +17,7 @@
 use std::collections::{HashMap, HashSet};
 
 use clarity::vm::analysis::types::ContractAnalysis;
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
@@ -1297,8 +1297,8 @@ impl StacksChainState {
                                     // block from getting relayed in the first place
                                     if let clarity_error::Parse(ref parse_error) = &other_error {
                                         match *parse_error.err {
-                                            ParseErrors::ExpressionStackDepthTooDeep
-                                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                                            ParseErrorKind::ExpressionStackDepthTooDeep
+                                            | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
                                                 info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                                 return Err(Error::ClarityError(other_error));
                                             }

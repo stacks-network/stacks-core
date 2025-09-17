@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
 
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::database::BurnStateDB;
 use clarity::vm::errors::Error as InterpreterError;
@@ -660,8 +660,8 @@ impl TransactionResult {
                     if let clarity_error::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
                         match *parse_err.err {
-                            ParseErrors::ExpressionStackDepthTooDeep
-                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                            ParseErrorKind::ExpressionStackDepthTooDeep
+                            | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
                                 info!("Problematic transaction failed AST depth check"; "txid" => %tx.txid());
                                 return (true, Error::ClarityError(error));
                             }

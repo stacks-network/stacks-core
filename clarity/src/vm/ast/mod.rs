@@ -322,7 +322,7 @@ mod test {
 
     use stacks_common::types::StacksEpochId;
 
-    use crate::vm::ast::errors::ParseErrors;
+    use crate::vm::ast::errors::ParseErrorKind;
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::ast::{build_ast, build_ast_with_rules, ASTRules};
     use crate::vm::costs::{LimitedCostTracker, *};
@@ -409,7 +409,7 @@ mod test {
         )
         .expect_err("Contract should error in parsing");
 
-        let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+        let expected_err = ParseErrorKind::ExpressionStackDepthTooDeep;
         let expected_list_cost_state = UnitTestTracker {
             invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
             invocation_count: 1,
@@ -431,7 +431,7 @@ mod test {
         )
         .expect_err("Contract should error in parsing");
 
-        let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+        let expected_err = ParseErrorKind::VaryExpressionStackDepthTooDeep;
         let expected_list_cost_state = UnitTestTracker {
             invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
             invocation_count: 1,
@@ -467,7 +467,7 @@ mod test {
         )
         .expect_err("Contract should error in parsing with ASTRules::PrecheckSize");
 
-        let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+        let expected_err = ParseErrorKind::VaryExpressionStackDepthTooDeep;
         let expected_list_cost_state = UnitTestTracker {
             invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
             invocation_count: 1,
@@ -511,7 +511,7 @@ mod test {
             )
             .expect_err("Contract should error in parsing");
 
-            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+            let expected_err = ParseErrorKind::ExpressionStackDepthTooDeep;
             let expected_list_cost_state = UnitTestTracker {
                 invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
                 invocation_count: 1,
@@ -533,7 +533,7 @@ mod test {
             )
             .expect_err("Contract should error in parsing");
 
-            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+            let expected_err = ParseErrorKind::ExpressionStackDepthTooDeep;
             let expected_list_cost_state = UnitTestTracker {
                 invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
                 invocation_count: 1,
@@ -555,7 +555,7 @@ mod test {
             )
             .expect_err("Contract should error in parsing");
 
-            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+            let expected_err = ParseErrorKind::ExpressionStackDepthTooDeep;
             let expected_list_cost_state = UnitTestTracker {
                 invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
                 invocation_count: 1,
@@ -577,7 +577,7 @@ mod test {
             )
             .expect_err("Contract should error in parsing");
 
-            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+            let expected_err = ParseErrorKind::ExpressionStackDepthTooDeep;
             let expected_list_cost_state = UnitTestTracker {
                 invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
                 invocation_count: 1,

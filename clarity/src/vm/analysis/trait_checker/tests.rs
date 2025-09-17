@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::{type_check, CheckError};
-use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::ast::{build_ast, parse};
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
@@ -359,7 +359,7 @@ fn test_define_map_storing_trait_references(
     .unwrap_err();
 
     match *err.err {
-        ParseErrors::TraitReferenceNotAllowed => {}
+        ParseErrorKind::TraitReferenceNotAllowed => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -383,7 +383,7 @@ fn test_cycle_in_traits_1_contract(#[case] version: ClarityVersion, #[case] epoc
     )
     .unwrap_err();
     match *err.err {
-        ParseErrors::CircularReference(_) => {}
+        ParseErrorKind::CircularReference(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -671,7 +671,7 @@ fn test_dynamic_dispatch_collision_trait(
     )
     .unwrap_err();
     match *err.err {
-        ParseErrors::NameAlreadyUsed(_) => {}
+        ParseErrorKind::NameAlreadyUsed(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -700,7 +700,7 @@ fn test_dynamic_dispatch_collision_defined_trait(
     )
     .unwrap_err();
     match *err.err {
-        ParseErrors::NameAlreadyUsed(_) => {}
+        ParseErrorKind::NameAlreadyUsed(_) => {}
         _ => panic!("{err:?}"),
     }
 }
@@ -740,7 +740,7 @@ fn test_dynamic_dispatch_collision_imported_trait(
     )
     .unwrap_err();
     match *err.err {
-        ParseErrors::NameAlreadyUsed(_) => {}
+        ParseErrorKind::NameAlreadyUsed(_) => {}
         _ => panic!("{err:?}"),
     }
 }

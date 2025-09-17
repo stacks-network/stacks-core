@@ -21,7 +21,7 @@ use clarity_types::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TraitIdentifier, Value,
 };
 
-use crate::vm::ast::errors::{ParseErrors, ParseResult};
+use crate::vm::ast::errors::{ParseErrorKind, ParseResult};
 use crate::vm::ast::types::{BuildASTPass, ContractAST, PreExpressionsDrain};
 use crate::vm::representations::{PreSymbolicExpressionType, SymbolicExpression};
 use crate::vm::ClarityVersion;
@@ -92,7 +92,7 @@ impl SugarExpander {
                             "tuple"
                                 .to_string()
                                 .try_into()
-                                .map_err(|_| ParseErrors::InterpreterFailure)?,
+                                .map_err(|_| ParseErrorKind::InterpreterFailure)?,
                         ),
                     );
                     SymbolicExpression::list(pairs)
@@ -119,7 +119,7 @@ impl SugarExpander {
                     if let Some(trait_reference) = contract_ast.get_referenced_trait(&name) {
                         SymbolicExpression::trait_reference(name, trait_reference.clone())
                     } else {
-                        return Err(ParseErrors::TraitReferenceUnknown(name.to_string()).into());
+                        return Err(ParseErrorKind::TraitReferenceUnknown(name.to_string()).into());
                     }
                 }
                 #[cfg(not(feature = "developer-mode"))]

@@ -26,7 +26,7 @@ use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 #[cfg(test)]
 use crate::vm::{
-    ast::{errors::ParseErrors, ASTRules},
+    ast::{errors::ParseErrorKind, ASTRules},
     errors::{CheckErrors, Error, RuntimeErrorType},
     tests::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
@@ -1052,7 +1052,7 @@ fn test_ast_stack_depth() {
     assert_eq!(
         vm_execute(program).unwrap_err(),
         RuntimeErrorType::ASTError(Box::new(
-            ParseErrors::VaryExpressionStackDepthTooDeep.into(),
+            ParseErrorKind::VaryExpressionStackDepthTooDeep.into(),
         ))
         .into()
     );

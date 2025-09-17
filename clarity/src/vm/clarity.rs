@@ -3,7 +3,7 @@ use std::fmt;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
-use crate::vm::ast::errors::{ParseError, ParseErrors};
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -101,14 +101,14 @@ impl From<InterpreterError> for Error {
 impl From<ParseError> for Error {
     fn from(e: ParseError) -> Self {
         match *e.err {
-            ParseErrors::CostOverflow => {
+            ParseErrorKind::CostOverflow => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
-            ParseErrors::MemoryBalanceExceeded(_a, _b) => {
+            ParseErrorKind::CostBalanceExceeded(a, b) => Error::CostError(a, b),
+            ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrors::ExecutionTimeExpired => {
+            ParseErrorKind::ExecutionTimeExpired => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Parse(e),

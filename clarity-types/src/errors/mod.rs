@@ -21,7 +21,7 @@ pub mod lexer;
 use std::{error, fmt};
 
 pub use analysis::{CheckError, CheckErrors};
-pub use ast::{ParseError, ParseErrors, ParseResult};
+pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
 #[cfg(feature = "rusqlite")]
@@ -168,7 +168,7 @@ impl error::Error for RuntimeErrorType {
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
         match *err.err {
-            ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+            ParseErrorKind::InterpreterFailure => Error::from(InterpreterError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
             _ => Error::from(RuntimeErrorType::ASTError(Box::new(err))),
