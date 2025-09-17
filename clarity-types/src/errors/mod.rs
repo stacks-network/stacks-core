@@ -64,6 +64,8 @@ pub enum Error {
 /// invariants. They are not meant to be caught or handled by Clarity contracts.
 #[derive(Debug, PartialEq)]
 pub enum VmInternalError {
+    /// Raised when the VM encounters an invalid or malformed `SymbolicExpression`
+    /// e.g., bad variable name or missing argument.
     BadSymbolicRepresentation(String),
     /// A generic, unexpected internal error, indicating a logic failure within
     /// the VM.
