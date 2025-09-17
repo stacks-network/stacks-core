@@ -1126,7 +1126,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             let args: Result<Vec<Value>> = args.iter()
                 .map(|arg| {
                     let value = arg.match_atom_value()
-                        .ok_or_else(|| VmInternalError::AssertionFailed(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
+                        .ok_or_else(|| VmInternalError::InvariantViolation(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
                     // sanitize contract-call inputs in epochs >= 2.4
                     // testing todo: ensure sanitize_value() preserves trait callability!
                     let expected_type = TypeSignature::type_of(value)?;
@@ -1961,20 +1961,20 @@ impl CallStack {
     pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {
         if let Some(removed) = self.stack.pop() {
             if removed != *function {
-                return Err(VmInternalError::AssertionFailed(
+                return Err(VmInternalError::InvariantViolation(
                     "Tried to remove item from empty call stack.".to_string(),
                 )
                 .into());
             }
             if tracked && !self.set.remove(function) {
-                return Err(VmInternalError::AssertionFailed(
+                return Err(VmInternalError::InvariantViolation(
                     "Tried to remove tracked function from call stack, but could not find in current context.".into()
                 )
                 .into());
             }
             Ok(())
         } else {
-            Err(VmInternalError::AssertionFailed(
+            Err(VmInternalError::InvariantViolation(
                 "Tried to remove item from empty call stack.".to_string(),
             )
             .into())

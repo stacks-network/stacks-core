@@ -70,7 +70,7 @@ pub enum VmInternalError {
     /// A generic, unexpected internal error, indicating a logic failure within
     /// the VM.
     /// TODO: merge with VmInternalError::Expect
-    AssertionFailed(String),
+    InvariantViolation(String),
     /// The VM failed to produce the final `AssetMap` when finalizing the
     /// execution environment for a transaction.
     FailedToConstructAssetTable,
@@ -280,12 +280,12 @@ mod test {
             Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
         );
         assert_eq!(
-            Error::Internal(VmInternalError::AssertionFailed("".to_string())),
-            Error::Internal(VmInternalError::AssertionFailed("".to_string()))
+            Error::Internal(VmInternalError::InvariantViolation("".to_string())),
+            Error::Internal(VmInternalError::InvariantViolation("".to_string()))
         );
         assert!(
             Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
-                != Error::Internal(VmInternalError::AssertionFailed("".to_string()))
+                != Error::Internal(VmInternalError::InvariantViolation("".to_string()))
         );
     }
 }
