@@ -878,14 +878,6 @@ impl TupleTypeSignature {
 }
 
 impl TypeSignature {
-    pub fn empty_buffer() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::BufferType(
-            0_u32.try_into().map_err(|_| {
-                CheckErrors::Expects("FAIL: Empty clarity value size is not realizable".into())
-            })?,
-        )))
-    }
-
     pub fn min_buffer() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::BufferType(
             1_u32.try_into().map_err(|_| {
