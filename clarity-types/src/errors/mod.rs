@@ -44,15 +44,15 @@ pub enum Error {
     ///   TypeChecker and other check passes. Test executions may
     ///   trigger these errors.
     Unchecked(CheckErrors),
-    Interpreter(InterpreterError),
+    Interpreter(VmInternalError),
     Runtime(RuntimeErrorType, Option<StackTrace>),
     ShortReturn(ShortReturnType),
 }
 
-/// InterpreterErrors are errors that *should never* occur.
+/// VmInternalErrors are errors that *should never* occur.
 /// Test executions may trigger these errors.
 #[derive(Debug, PartialEq)]
-pub enum InterpreterError {
+pub enum VmInternalError {
     BadSymbolicRepresentation(String),
     InterpreterError(String),
     FailedToConstructAssetTable,
@@ -168,7 +168,7 @@ impl error::Error for RuntimeErrorType {
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
         match *err.err {
-            ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+            ParseErrors::InterpreterFailure => Error::from(VmInternalError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
             _ => Error::from(RuntimeErrorType::ASTError(Box::new(err))),
@@ -179,10 +179,10 @@ impl From<ParseError> for Error {
 impl From<CostErrors> for Error {
     fn from(err: CostErrors) -> Self {
         match err {
-            CostErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
+            CostErrors::InterpreterFailure => Error::from(VmInternalError::Expect(
                 "Interpreter failure during cost calculation".into(),
             )),
-            CostErrors::Expect(s) => Error::from(InterpreterError::Expect(format!(
+            CostErrors::Expect(s) => Error::from(VmInternalError::Expect(format!(
                 "Interpreter failure during cost calculation: {s}"
             ))),
             other_err => Error::from(CheckErrors::from(other_err)),
@@ -214,8 +214,8 @@ impl From<ShortReturnType> for Error {
     }
 }
 
-impl From<InterpreterError> for Error {
-    fn from(err: InterpreterError) -> Self {
+impl From<VmInternalError> for Error {
+    fn from(err: VmInternalError) -> Self {
         Error::Interpreter(err)
     }
 }
@@ -245,12 +245,12 @@ mod test {
             Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
         );
         assert_eq!(
-            Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
-            Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
+            Error::Interpreter(VmInternalError::InterpreterError("".to_string())),
+            Error::Interpreter(VmInternalError::InterpreterError("".to_string()))
         );
         assert!(
             Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
-                != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
+                != Error::Interpreter(VmInternalError::InterpreterError("".to_string()))
         );
     }
 }

@@ -24,7 +24,7 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::database::{
     ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use crate::vm::errors::{InterpreterError, InterpreterResult as Result};
+use crate::vm::errors::{VmInternalError, InterpreterResult as Result};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::Value;
 
@@ -160,17 +160,17 @@ impl ClaritySerializable for ContractCommitment {
 impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
     fn deserialize(input: &str) -> Result<ContractCommitment> {
         if input.len() != 72 {
-            return Err(InterpreterError::Expect("Unexpected input length".into()).into());
+            return Err(VmInternalError::Expect("Unexpected input length".into()).into());
         }
         let hash = Sha512Trunc256Sum::from_hex(&input[0..64])
-            .map_err(|_| InterpreterError::Expect("Hex decode fail.".into()))?;
+            .map_err(|_| VmInternalError::Expect("Hex decode fail.".into()))?;
         let height_bytes = hex_bytes(&input[64..72])
-            .map_err(|_| InterpreterError::Expect("Hex decode fail.".into()))?;
+            .map_err(|_| VmInternalError::Expect("Hex decode fail.".into()))?;
         let block_height = u32::from_be_bytes(
             height_bytes
                 .as_slice()
                 .try_into()
-                .map_err(|_| InterpreterError::Expect("Block height decode fail.".into()))?,
+                .map_err(|_| VmInternalError::Expect("Block height decode fail.".into()))?,
         );
         Ok(ContractCommitment { hash, block_height })
     }

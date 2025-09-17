@@ -19,7 +19,7 @@ use clarity_types::types::serialization::SerializationError;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
+    check_argument_count, CheckErrors, VmInternalError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::TO_ASCII_MAX_BUFF;
@@ -55,12 +55,12 @@ pub fn buff_to_int_generic(
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
             if sequence_data.len()?
                 > BufferLength::try_from(16_u32)
-                    .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?
+                    .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?
             {
                 Err(CheckErrors::TypeValueError(
                     Box::new(SequenceType(BufferType(
                         BufferLength::try_from(16_u32)
-                            .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?,
+                            .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?,
                     ))),
                     Box::new(value),
                 )
@@ -86,7 +86,7 @@ pub fn buff_to_int_generic(
         _ => Err(CheckErrors::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32)
-                    .map_err(|_| InterpreterError::Expect("Failed to construct".into()))?,
+                    .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?,
             ))),
             Box::new(value),
         )
@@ -196,13 +196,13 @@ pub fn native_int_to_string_generic(
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
             Ok(bytes_to_value_fn(as_string.into()).map_err(|_| {
-                InterpreterError::Expect("Unexpected error converting Int to string.".into())
+                VmInternalError::Expect("Unexpected error converting Int to string.".into())
             })?)
         }
         Value::UInt(ref uint_value) => {
             let as_string = uint_value.to_string();
             Ok(bytes_to_value_fn(as_string.into()).map_err(|_| {
-                InterpreterError::Expect("Unexpected error converting UInt to string.".into())
+                VmInternalError::Expect("Unexpected error converting UInt to string.".into())
             })?)
         }
         _ => Err(CheckErrors::UnionTypeValueError(
@@ -227,7 +227,7 @@ pub fn native_int_to_utf8(value: Value) -> Result<Value> {
 /// This should only fail due to system errors, not conversion failures
 fn convert_string_to_ascii_ok(s: String) -> Result<Value> {
     let ascii_value = Value::string_ascii_from_bytes(s.into_bytes()).map_err(|_| {
-        InterpreterError::Expect("Unexpected error converting string to ASCII".into())
+        VmInternalError::Expect("Unexpected error converting string to ASCII".into())
     })?;
     Value::okay(ascii_value)
 }
@@ -293,7 +293,7 @@ pub fn to_consensus_buff(value: Value) -> Result<Value> {
     let mut clar_buff_serialized = vec![];
     value
         .serialize_write(&mut clar_buff_serialized)
-        .map_err(|_| InterpreterError::Expect("FATAL: failed to serialize to vec".into()))?;
+        .map_err(|_| VmInternalError::Expect("FATAL: failed to serialize to vec".into()))?;
 
     let clar_buff_serialized = match Value::buff_from(clar_buff_serialized) {
         Ok(x) => x,

@@ -73,7 +73,7 @@ use crate::vm::costs::{
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, Error, VmInternalError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
@@ -164,7 +164,7 @@ pub trait EvalHook {
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
-        Err(InterpreterError::BadSymbolicRepresentation(format!(
+        Err(VmInternalError::BadSymbolicRepresentation(format!(
             "Unexpected variable name: {name}"
         ))
         .into())
@@ -292,7 +292,7 @@ pub fn apply(
                     .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
-            _ => return Err(InterpreterError::Expect("Should be unreachable.".into()).into()),
+            _ => return Err(VmInternalError::Expect("Should be unreachable.".into()).into()),
         };
         add_stack_trace(&mut resp, env);
         env.drop_memory(used_memory)?;
@@ -350,7 +350,7 @@ pub fn eval(
             apply(&f, rest, env, context)
         }
         TraitReference(_, _) | Field(_) => {
-            return Err(InterpreterError::BadSymbolicRepresentation(
+            return Err(VmInternalError::BadSymbolicRepresentation(
                 "Unexpected trait reference".into(),
             )
             .into())
@@ -414,7 +414,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(value_type.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
 
                     global_context.add_memory(value.size()? as u64)?;
 
@@ -430,9 +430,9 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(key_type.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
                     global_context.add_memory(value_type.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
 
                     let data_type = global_context.database.create_map(&contract_context.contract_identifier, &name, key_type, value_type)?;
 
@@ -443,7 +443,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(TypeSignature::UIntType.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
 
                     let data_type = global_context.database.create_fungible_token(&contract_context.contract_identifier, &name, &total_supply)?;
 
@@ -454,7 +454,7 @@ pub fn eval_all(
                     contract_context.persisted_names.insert(name.clone());
 
                     global_context.add_memory(asset_type.type_size()
-                                              .map_err(|_| InterpreterError::Expect("Type size should be realizable".into()))? as u64)?;
+                                              .map_err(|_| VmInternalError::Expect("Type size should be realizable".into()))? as u64)?;
 
                     let data_type = global_context.database.create_non_fungible_token(&contract_context.contract_identifier, &name, &asset_type)?;
 

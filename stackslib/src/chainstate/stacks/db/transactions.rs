@@ -49,7 +49,7 @@ impl TryFrom<Value> for HashableClarityValue {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         // check that serialization _will_ be successful when hashed
         let _bytes = value.serialize_to_vec().map_err(|_| {
-            InterpreterError::Interpreter(clarity::vm::errors::InterpreterError::Expect(
+            InterpreterError::Interpreter(clarity::vm::errors::VmInternalError::Expect(
                 "Failed to serialize asset in NFT during post-condition checks".into(),
             ))
         })?;

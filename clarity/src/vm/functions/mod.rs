@@ -65,7 +65,7 @@ macro_rules! switch_on_global_epoch {
     };
 }
 
-use super::errors::InterpreterError;
+use super::errors::VmInternalError;
 use crate::vm::ClarityVersion;
 
 mod arithmetic;
@@ -610,7 +610,7 @@ fn special_print(
     context: &LocalContext,
 ) -> Result<Value> {
     let arg = args.first().ok_or_else(|| {
-        InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
+        VmInternalError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
     let input = eval(arg, env, context)?;
 
@@ -777,7 +777,7 @@ fn special_let(
             last_result.replace(body_result);
         }
         // last_result should always be Some(...), because of the arg len check above.
-        last_result.ok_or_else(|| InterpreterError::Expect("Failed to get let result".into()).into())
+        last_result.ok_or_else(|| VmInternalError::Expect("Failed to get let result".into()).into())
     })
 }
 

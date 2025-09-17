@@ -12,7 +12,7 @@ use clarity::vm::database::{
     SqliteConnection,
 };
 use clarity::vm::errors::{
-    IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
+    IncomparableError, VmInternalError, InterpreterResult, RuntimeErrorType,
 };
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
@@ -46,12 +46,12 @@ impl MarfedKV {
         let mut path = PathBuf::from(path_str);
 
         std::fs::create_dir_all(&path)
-            .map_err(|_| InterpreterError::FailedToCreateDataDirectory)?;
+            .map_err(|_| VmInternalError::FailedToCreateDataDirectory)?;
 
         path.push("marf.sqlite");
         let marf_path = path
             .to_str()
-            .ok_or_else(|| InterpreterError::BadFileName)?
+            .ok_or_else(|| VmInternalError::BadFileName)?
             .to_string();
 
         let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
@@ -59,10 +59,10 @@ impl MarfedKV {
 
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path, marf_opts)
-                .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
+                .map_err(|err| VmInternalError::MarfFailure(err.to_string()))?
         } else {
             MARF::from_path(&marf_path, marf_opts)
-                .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
+                .map_err(|err| VmInternalError::MarfFailure(err.to_string()))?
         };
 
         if SqliteConnection::check_schema(marf.sqlite_conn()).is_ok() {
@@ -72,11 +72,11 @@ impl MarfedKV {
 
         let tx = marf
             .storage_tx()
-            .map_err(|err| InterpreterError::DBError(err.to_string()))?;
+            .map_err(|err| VmInternalError::DBError(err.to_string()))?;
 
         SqliteConnection::initialize_conn(&tx)?;
         tx.commit()
-            .map_err(|err| InterpreterError::SqliteError(IncomparableError { err }))?;
+            .map_err(|err| VmInternalError::SqliteError(IncomparableError { err }))?;
 
         Ok(marf)
     }
@@ -170,7 +170,7 @@ impl MarfedKV {
                     "Failed to open read only connection at {}: {:?}",
                     at_block, &e
                 );
-                InterpreterError::MarfFailure(Error::NotFoundError.to_string())
+                VmInternalError::MarfFailure(Error::NotFoundError.to_string())
             })?;
             at_block.clone()
         } else {
@@ -397,12 +397,12 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                 Error::NotFoundError => Ok(None),
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
                 let data =
                     SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -422,12 +422,12 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                 Error::NotFoundError => Ok(None),
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
                 let data =
                     SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -452,12 +452,12 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                 }
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
                 SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -482,12 +482,12 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                 }
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 trace!("MarfedKV get side-key for {:?}: {:?}", hash, &side_key);
                 SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -566,7 +566,7 @@ impl WritableMarfStore<'_> {
 
         let _ = self.marf.commit_to(final_bhh).map_err(|e| {
             error!("Failed to commit to MARF block {}: {:?}", &final_bhh, &e);
-            InterpreterError::Expect("Failed to commit to MARF block".into())
+            VmInternalError::Expect("Failed to commit to MARF block".into())
         })?;
         Ok(())
     }
@@ -605,7 +605,7 @@ impl WritableMarfStore<'_> {
                 "Failed to commit to mined MARF block {}: {:?}",
                 &will_move_to, &e
             );
-            InterpreterError::Expect("Failed to commit to MARF block".into())
+            VmInternalError::Expect("Failed to commit to MARF block".into())
         })?;
         Ok(())
     }
@@ -661,12 +661,12 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
                 }
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
                 SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -691,12 +691,12 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
                 }
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 trace!("MarfedKV get side-key for {:?}: {:?}", hash, &side_key);
                 SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -713,12 +713,12 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
                 Error::NotFoundError => Ok(None),
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
                 let data =
                     SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -738,12 +738,12 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
                 Error::NotFoundError => Ok(None),
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
                 let data =
                     SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -828,7 +828,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
         }
         self.marf
             .insert_batch(&keys, values)
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure".into()).into())
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure".into()).into())
     }
 
     fn get_contract_hash(

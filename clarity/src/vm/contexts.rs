@@ -37,7 +37,7 @@ use crate::vm::database::{
     NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
-    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, VmInternalError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
@@ -441,7 +441,7 @@ impl AssetMap {
         for principal in self.burn_map.keys() {
             total = total
                 .checked_add(*self.burn_map.get(principal).unwrap_or(&0u128))
-                .ok_or_else(|| InterpreterError::Expect("BURN OVERFLOW".into()))?;
+                .ok_or_else(|| VmInternalError::Expect("BURN OVERFLOW".into()))?;
         }
         Ok(total)
     }
@@ -798,8 +798,8 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     pub fn commit(&mut self) -> Result<(AssetMap, EventBatch)> {
         let (asset_map, event_batch) = self.context.commit()?;
-        let asset_map = asset_map.ok_or(InterpreterError::FailedToConstructAssetTable)?;
-        let event_batch = event_batch.ok_or(InterpreterError::FailedToConstructEventBatch)?;
+        let asset_map = asset_map.ok_or(VmInternalError::FailedToConstructAssetTable)?;
+        let event_batch = event_batch.ok_or(VmInternalError::FailedToConstructEventBatch)?;
 
         Ok((asset_map, event_batch))
     }
@@ -1126,7 +1126,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             let args: Result<Vec<Value>> = args.iter()
                 .map(|arg| {
                     let value = arg.match_atom_value()
-                        .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
+                        .ok_or_else(|| VmInternalError::InterpreterError(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
                     // sanitize contract-call inputs in epochs >= 2.4
                     // testing todo: ensure sanitize_value() preserves trait callability!
                     let expected_type = TypeSignature::type_of(value)?;
@@ -1230,7 +1230,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                     .database
                     .set_block_hash(prior_bhh, true)
                     .map_err(|_| {
-                        InterpreterError::Expect(
+                        VmInternalError::Expect(
                         "ERROR: Failed to restore prior active block after time-shifted evaluation."
                             .into())
                     })?;
@@ -1355,7 +1355,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 }
                 Err(_) => {
                     self.global_context.roll_back()?;
-                    Err(InterpreterError::InsufficientBalance.into())
+                    Err(VmInternalError::InsufficientBalance.into())
                 }
             },
             Err(e) => {
@@ -1583,7 +1583,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     fn get_asset_map(&mut self) -> Result<&mut AssetMap> {
         self.asset_maps
             .last_mut()
-            .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
+            .ok_or_else(|| VmInternalError::Expect("Failed to obtain asset map".into()).into())
     }
 
     pub fn log_asset_transfer(
@@ -1700,10 +1700,10 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         trace!("Calling commit");
         self.read_only.pop();
         let asset_map = self.asset_maps.pop().ok_or_else(|| {
-            InterpreterError::Expect("ERROR: Committed non-nested context.".into())
+            VmInternalError::Expect("ERROR: Committed non-nested context.".into())
         })?;
         let mut event_batch = self.event_batches.pop().ok_or_else(|| {
-            InterpreterError::Expect("ERROR: Committed non-nested context.".into())
+            VmInternalError::Expect("ERROR: Committed non-nested context.".into())
         })?;
 
         let out_map = match self.asset_maps.last_mut() {
@@ -1732,15 +1732,15 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     pub fn roll_back(&mut self) -> Result<()> {
         let popped = self.asset_maps.pop();
         if popped.is_none() {
-            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
         let popped = self.read_only.pop();
         if popped.is_none() {
-            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
         let popped = self.event_batches.pop();
         if popped.is_none() {
-            return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
+            return Err(VmInternalError::Expect("Expected entry to rollback".into()).into());
         }
 
         self.database.roll_back()
@@ -1961,20 +1961,20 @@ impl CallStack {
     pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {
         if let Some(removed) = self.stack.pop() {
             if removed != *function {
-                return Err(InterpreterError::InterpreterError(
+                return Err(VmInternalError::InterpreterError(
                     "Tried to remove item from empty call stack.".to_string(),
                 )
                 .into());
             }
             if tracked && !self.set.remove(function) {
-                return Err(InterpreterError::InterpreterError(
+                return Err(VmInternalError::InterpreterError(
                     "Tried to remove tracked function from call stack, but could not find in current context.".into()
                 )
                 .into());
             }
             Ok(())
         } else {
-            Err(InterpreterError::InterpreterError(
+            Err(VmInternalError::InterpreterError(
                 "Tried to remove item from empty call stack.".to_string(),
             )
             .into())

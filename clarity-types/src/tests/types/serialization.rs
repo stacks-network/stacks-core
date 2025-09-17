@@ -15,7 +15,7 @@
 use std::io::Write;
 
 use crate::Error;
-use crate::errors::{CheckErrors, InterpreterError};
+use crate::errors::{CheckErrors, VmInternalError};
 use crate::types::serialization::SerializationError;
 use crate::types::{
     ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -416,30 +416,30 @@ fn test_principals() {
     test_bad_expectation(standard_p, TypeSignature::BoolType);
 }
 
-/// The returned InterpreterError is consensus-critical.
+/// The returned VmInternalError is consensus-critical.
 #[test]
-fn test_serialize_to_vec_returns_interpreter_error_consensus_critical() {
+fn test_serialize_to_vec_returns_vm_internal_error_consensus_critical() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
         data: vec![0; MAX_VALUE_SIZE as usize + 1],
     })));
     let err = value.serialize_to_vec().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        Error::from(VmInternalError::Expect(
             "IOError filling byte buffer.".into()
         )),
         err.into()
     );
 }
 
-/// The returned InterpreterError is consensus-critical.
+/// The returned VmInternalError is consensus-critical.
 #[test]
-fn test_serialize_to_hex_returns_interpreter_error_consensus_critical() {
+fn test_serialize_to_hex_returns_vm_internal_error_consensus_critical() {
     let value = Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
         data: vec![0; MAX_VALUE_SIZE as usize + 1],
     })));
     let err = value.serialize_to_hex().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        Error::from(VmInternalError::Expect(
             "IOError filling byte buffer.".into()
         )),
         err.into()

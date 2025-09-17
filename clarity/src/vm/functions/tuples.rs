@@ -16,7 +16,7 @@
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
+    check_argument_count, check_arguments_at_least, CheckErrors, VmInternalError,
     InterpreterResult as Result, SyntaxBindingErrorType,
 };
 use crate::vm::representations::SymbolicExpression;
@@ -60,7 +60,7 @@ pub fn tuple_get(
                     if let Value::Tuple(tuple_data) = *data {
                         runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
                         Ok(Value::some(tuple_data.get_owned(arg_name)?).map_err(|_| {
-                            InterpreterError::Expect(
+                            VmInternalError::Expect(
                                 "Tuple contents should *always* fit in a some wrapper".into(),
                             )
                         })?)

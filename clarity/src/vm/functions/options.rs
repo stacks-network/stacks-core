@@ -18,7 +18,7 @@ use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult as Result,
+    check_arguments_at_least, CheckErrors, VmInternalError, InterpreterResult as Result,
     RuntimeErrorType, ShortReturnType,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
@@ -95,7 +95,7 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
                 Ok(*data.data)
             } else {
                 let short_return_val = Value::error(*data.data).map_err(|_| {
-                    InterpreterError::Expect(
+                    VmInternalError::Expect(
                         "BUG: Failed to construct new response type from old response type".into(),
                     )
                 })?;
