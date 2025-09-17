@@ -38,7 +38,7 @@ use crate::vm::database::structures::{
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, Error, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
@@ -76,7 +76,7 @@ pub enum StoreType {
 impl TryFrom<&str> for StoreType {
     type Error = String;
 
-    fn try_from(value: &str) -> core::result::Result<Self, Self::Error> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         use self::StoreType::*;
 
         let hex_value = value.parse::<u8>().map_err(|e| e.to_string())?;
@@ -123,7 +123,7 @@ impl ContractDataVarName {
 impl TryFrom<&str> for ContractDataVarName {
     type Error = String;
 
-    fn try_from(value: &str) -> core::result::Result<Self, Self::Error> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
         use self::ContractDataVarName::*;
         match value {
             "contract" => Ok(Contract),
@@ -485,12 +485,12 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Commit current key-value wrapper layer
-    pub fn commit(&mut self) -> Result<()> {
+    pub fn commit(&mut self) -> InterpreterResult<()> {
         self.store.commit().map_err(|e| e.into())
     }
 
     /// Drop current key-value wrapper layer
-    pub fn roll_back(&mut self) -> Result<()> {
+    pub fn roll_back(&mut self) -> InterpreterResult<()> {
         self.store.rollback().map_err(|e| e.into())
     }
 
@@ -498,11 +498,15 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         bhh: StacksBlockId,
         query_pending_data: bool,
-    ) -> Result<StacksBlockId> {
+    ) -> InterpreterResult<StacksBlockId> {
         self.store.set_block_hash(bhh, query_pending_data)
     }
 
-    pub fn put_data<T: ClaritySerializable>(&mut self, key: &str, value: &T) -> Result<()> {
+    pub fn put_data<T: ClaritySerializable>(
+        &mut self,
+        key: &str,
+        value: &T,
+    ) -> InterpreterResult<()> {
         self.store.put_data(key, &value.serialize())
     }
 
@@ -511,27 +515,32 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         key: &str,
         value: &T,
-    ) -> Result<u64> {
+    ) -> InterpreterResult<u64> {
         let serialized = value.serialize();
         self.store.put_data(key, &serialized)?;
         Ok(byte_len_of_serialization(&serialized))
     }
 
-    pub fn get_data<T>(&mut self, key: &str) -> Result<Option<T>>
+    pub fn get_data<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
         self.store.get_data::<T>(key)
     }
 
-    pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> Result<Option<T>>
+    pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
         self.store.get_data_by_hash::<T>(hash)
     }
 
-    pub fn put_value(&mut self, key: &str, value: Value, epoch: &StacksEpochId) -> Result<()> {
+    pub fn put_value(
+        &mut self,
+        key: &str,
+        value: Value,
+        epoch: &StacksEpochId,
+    ) -> InterpreterResult<()> {
         self.put_value_with_size(key, value, epoch)?;
         Ok(())
     }
@@ -541,7 +550,7 @@ impl<'a> ClarityDatabase<'a> {
         key: &str,
         value: Value,
         epoch: &StacksEpochId,
-    ) -> Result<u64> {
+    ) -> InterpreterResult<u64> {
         let sanitize = epoch.value_sanitizing();
         let mut pre_sanitized_size = None;
 
@@ -575,13 +584,13 @@ impl<'a> ClarityDatabase<'a> {
         key: &str,
         expected: &TypeSignature,
         epoch: &StacksEpochId,
-    ) -> Result<Option<ValueResult>> {
+    ) -> InterpreterResult<Option<ValueResult>> {
         self.store
             .get_value(key, expected, epoch)
             .map_err(|e| InterpreterError::DBError(e.to_string()).into())
     }
 
-    pub fn get_data_with_proof<T>(&mut self, key: &str) -> Result<Option<(T, Vec<u8>)>>
+    pub fn get_data_with_proof<T>(&mut self, key: &str) -> InterpreterResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -591,7 +600,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_data_with_proof_by_hash<T>(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(T, Vec<u8>)>>
+    ) -> InterpreterResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -630,7 +639,7 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         contract_content: &str,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let hash = Sha512Trunc256Sum::from_data(contract_content.as_bytes());
         self.store
             .prepare_for_contract_metadata(contract_identifier, hash)?;
@@ -668,7 +677,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_contract_hash(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Option<Sha512Trunc256Sum>> {
+    ) -> InterpreterResult<Option<Sha512Trunc256Sum>> {
         self.store.get_contract_hash(contract_identifier)
     }
 
@@ -677,7 +686,7 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         key: &str,
         data: &str,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         self.store
             .insert_metadata(contract_identifier, key, data)
             .map_err(|e| e.into())
@@ -691,7 +700,7 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         key: &str,
         data: &str,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         if self.store.has_metadata_entry(contract_identifier, key) {
             Err(Error::Runtime(RuntimeErrorType::MetadataAlreadySet, None))
         } else {
@@ -704,7 +713,7 @@ impl<'a> ClarityDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         key: &str,
         data: &T,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         if self.store.has_metadata_entry(contract_identifier, key) {
             Err(InterpreterError::Expect(format!(
                 "Metadata entry '{key}' already exists for contract: {contract_identifier}"
@@ -721,7 +730,7 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<T>>
+    ) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -737,7 +746,7 @@ impl<'a> ClarityDatabase<'a> {
         at_height: u32,
         contract_identifier: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<T>>
+    ) -> InterpreterResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -757,7 +766,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn load_contract_analysis(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Option<ContractAnalysis>> {
+    ) -> InterpreterResult<Option<ContractAnalysis>> {
         self.store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
@@ -771,7 +780,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_contract_size(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<u64> {
+    ) -> InterpreterResult<u64> {
         let key = ClarityDatabase::make_metadata_key(
             StoreType::Contract,
             ContractDataVarName::ContractSize.as_str(),
@@ -804,7 +813,7 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         data_size: u64,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let key = ClarityDatabase::make_metadata_key(
             StoreType::Contract,
             ContractDataVarName::ContractSize.as_str(),
@@ -830,7 +839,7 @@ impl<'a> ClarityDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         contract: Contract,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let key = ClarityDatabase::make_metadata_key(
             StoreType::Contract,
             ContractDataVarName::Contract.as_str(),
@@ -850,7 +859,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_contract(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> Result<Contract> {
+    ) -> InterpreterResult<Contract> {
         let key = ClarityDatabase::make_metadata_key(
             StoreType::Contract,
             ContractDataVarName::Contract.as_str(),
@@ -871,7 +880,7 @@ impl<'a> ClarityDatabase<'a> {
     /// Since Clarity did not exist in stacks 1.0, the lowest valid epoch ID is stacks 2.0.
     /// The instantiation of subsequent epochs may bump up the epoch version in the clarity DB if
     /// Clarity is updated in that epoch.
-    pub fn get_clarity_epoch_version(&mut self) -> Result<StacksEpochId> {
+    pub fn get_clarity_epoch_version(&mut self) -> InterpreterResult<StacksEpochId> {
         let out = match self.get_data(Self::clarity_state_epoch_key())? {
             Some(x) => u32::try_into(x).map_err(|_| {
                 InterpreterError::Expect("Bad Clarity epoch version in stored Clarity state".into())
@@ -882,13 +891,13 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Should be called _after_ all of the epoch's initialization has been invoked
-    pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) -> Result<()> {
+    pub fn set_clarity_epoch_version(&mut self, epoch: StacksEpochId) -> InterpreterResult<()> {
         self.put_data(Self::clarity_state_epoch_key(), &(epoch as u32))
     }
 
     /// Setup block metadata at the beginning of a block
     /// This stores block-specific data that can be accessed during Clarity execution
-    pub fn setup_block_metadata(&mut self, block_time: Option<u64>) -> Result<()> {
+    pub fn setup_block_metadata(&mut self, block_time: Option<u64>) -> InterpreterResult<()> {
         let epoch = self.get_clarity_epoch_version()?;
         if epoch.uses_marfed_block_time() {
             let block_time = block_time.ok_or_else(|| {
@@ -901,7 +910,7 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
-    pub fn get_current_block_time(&mut self) -> Result<u64> {
+    pub fn get_current_block_time(&mut self) -> InterpreterResult<u64> {
         match self.get_data(CLARITY_STORAGE_BLOCK_TIME_KEY)? {
             Some(value) => Ok(value),
             None => Err(RuntimeErrorType::BlockTimeNotAvailable.into()),
@@ -909,7 +918,7 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Returns the _current_ total liquid ustx
-    pub fn get_total_liquid_ustx(&mut self) -> Result<u128> {
+    pub fn get_total_liquid_ustx(&mut self) -> InterpreterResult<u128> {
         let epoch = self.get_clarity_epoch_version()?;
         Ok(self
             .get_value(
@@ -927,7 +936,7 @@ impl<'a> ClarityDatabase<'a> {
             .unwrap_or(0))
     }
 
-    fn set_ustx_liquid_supply(&mut self, set_to: u128) -> Result<()> {
+    fn set_ustx_liquid_supply(&mut self, set_to: u128) -> InterpreterResult<()> {
         self.put_value(
             ClarityDatabase::ustx_liquid_supply_key(),
             Value::UInt(set_to),
@@ -939,7 +948,7 @@ impl<'a> ClarityDatabase<'a> {
         })
     }
 
-    pub fn increment_ustx_liquid_supply(&mut self, incr_by: u128) -> Result<()> {
+    pub fn increment_ustx_liquid_supply(&mut self, incr_by: u128) -> InterpreterResult<()> {
         let current = self.get_total_liquid_ustx()?;
         let next = current.checked_add(incr_by).ok_or_else(|| {
             error!("Overflowed `ustx-liquid-supply`");
@@ -949,7 +958,7 @@ impl<'a> ClarityDatabase<'a> {
         Ok(())
     }
 
-    pub fn decrement_ustx_liquid_supply(&mut self, decr_by: u128) -> Result<()> {
+    pub fn decrement_ustx_liquid_supply(&mut self, decr_by: u128) -> InterpreterResult<()> {
         let current = self.get_total_liquid_ustx()?;
         let next = current.checked_sub(decr_by).ok_or_else(|| {
             error!("`stx-burn?` accepted that reduces `ustx-liquid-supply` below 0");
@@ -960,7 +969,7 @@ impl<'a> ClarityDatabase<'a> {
     }
 
     /// Returns the tenure height of the current block.
-    pub fn get_tenure_height(&mut self) -> Result<u32> {
+    pub fn get_tenure_height(&mut self) -> InterpreterResult<u32> {
         if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
             // Before epoch 3.0, the tenure height was not stored in the
             // Clarity state. Instead, it was the same as the block height.
@@ -982,7 +991,7 @@ impl<'a> ClarityDatabase<'a> {
     /// Set the tenure height of the current block. In the first block of a new
     /// tenure, this height must be incremented before evaluating any
     /// transactions in the block.
-    pub fn set_tenure_height(&mut self, height: u32) -> Result<()> {
+    pub fn set_tenure_height(&mut self, height: u32) -> InterpreterResult<()> {
         if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
             return Err(Error::Interpreter(InterpreterError::Expect(
                 "Setting tenure height in Clarity state is not supported before epoch 3.0".into(),
@@ -1006,7 +1015,10 @@ impl ClarityDatabase<'_> {
     /// Returns the ID of a *Stacks* block, by a *Stacks* block height.
     ///
     /// Fails if `block_height` >= the "currently" under construction Stacks block height.
-    pub fn get_index_block_header_hash(&mut self, block_height: u32) -> Result<StacksBlockId> {
+    pub fn get_index_block_header_hash(
+        &mut self,
+        block_height: u32,
+    ) -> InterpreterResult<StacksBlockId> {
         self.store
             .get_block_header_hash(block_height)
             // the caller is responsible for ensuring that the block_height given
@@ -1042,7 +1054,7 @@ impl ClarityDatabase<'_> {
 
     /// Return the height for PoX v2 -> v3 auto unlocks
     ///   from the burn state db
-    pub fn get_v2_unlock_height(&mut self) -> Result<u32> {
+    pub fn get_v2_unlock_height(&mut self) -> InterpreterResult<u32> {
         if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch22 {
             Ok(self.burn_state_db.get_v2_unlock_height())
         } else {
@@ -1052,7 +1064,7 @@ impl ClarityDatabase<'_> {
 
     /// Return the height for PoX v3 -> v4 auto unlocks
     ///   from the burn state db
-    pub fn get_v3_unlock_height(&mut self) -> Result<u32> {
+    pub fn get_v3_unlock_height(&mut self) -> InterpreterResult<u32> {
         if self.get_clarity_epoch_version()? >= StacksEpochId::Epoch25 {
             Ok(self.burn_state_db.get_v3_unlock_height())
         } else {
@@ -1071,7 +1083,7 @@ impl ClarityDatabase<'_> {
     pub fn get_block_height_for_tenure_height(
         &mut self,
         tenure_height: u32,
-    ) -> Result<Option<u32>> {
+    ) -> InterpreterResult<Option<u32>> {
         let current_tenure_height = self.get_tenure_height()?;
         if current_tenure_height < tenure_height {
             return Ok(None);
@@ -1098,7 +1110,7 @@ impl ClarityDatabase<'_> {
     /// This is the burnchain block height of the parent of the Stacks block at the current Stacks
     /// block height (i.e. that returned by `get_index_block_header_hash` for
     /// `get_current_block_height`).
-    pub fn get_current_burnchain_block_height(&mut self) -> Result<u32> {
+    pub fn get_current_burnchain_block_height(&mut self) -> InterpreterResult<u32> {
         let cur_stacks_height = self.store.get_current_block_height();
 
         // Before epoch 3.0, we can only access the burn block associated with the last block
@@ -1130,7 +1142,10 @@ impl ClarityDatabase<'_> {
         }
     }
 
-    pub fn get_block_header_hash(&mut self, block_height: u32) -> Result<BlockHeaderHash> {
+    pub fn get_block_header_hash(
+        &mut self,
+        block_height: u32,
+    ) -> InterpreterResult<BlockHeaderHash> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
@@ -1142,7 +1157,7 @@ impl ClarityDatabase<'_> {
         &mut self,
         block_height: u32,
         id_bhh_opt: Option<StacksBlockId>,
-    ) -> Result<u64> {
+    ) -> InterpreterResult<u64> {
         let id_bhh = match id_bhh_opt {
             Some(x) => x,
             None => self.get_index_block_header_hash(block_height)?,
@@ -1153,7 +1168,7 @@ impl ClarityDatabase<'_> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
-    pub fn get_block_time(&mut self, block_height: u32) -> Result<u64> {
+    pub fn get_block_time(&mut self, block_height: u32) -> InterpreterResult<u64> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         if !epoch.uses_nakamoto_blocks() {
@@ -1168,7 +1183,7 @@ impl ClarityDatabase<'_> {
     pub fn get_burnchain_block_header_hash(
         &mut self,
         block_height: u32,
-    ) -> Result<BurnchainHeaderHash> {
+    ) -> InterpreterResult<BurnchainHeaderHash> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         self.headers_db
             .get_burn_header_hash_for_block(&id_bhh)
@@ -1183,7 +1198,7 @@ impl ClarityDatabase<'_> {
     /// 4. Resolve the consensus hash to the associated SortitionId
     ///    In Epoch 3+:
     /// 1. Get the SortitionId of the current Stacks tip
-    fn get_sortition_id_for_stacks_tip(&mut self) -> Result<Option<SortitionId>> {
+    fn get_sortition_id_for_stacks_tip(&mut self) -> InterpreterResult<Option<SortitionId>> {
         if !self
             .get_clarity_epoch_version()?
             .clarity_uses_tip_burn_block()
@@ -1236,7 +1251,7 @@ impl ClarityDatabase<'_> {
     pub fn get_burnchain_block_header_hash_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
-    ) -> Result<Option<BurnchainHeaderHash>> {
+    ) -> InterpreterResult<Option<BurnchainHeaderHash>> {
         let sortition_id = match self.get_sortition_id_for_stacks_tip()? {
             Some(x) => x,
             None => return Ok(None),
@@ -1251,7 +1266,7 @@ impl ClarityDatabase<'_> {
     pub fn get_pox_payout_addrs_for_burnchain_height(
         &mut self,
         burnchain_block_height: u32,
-    ) -> Result<Option<(Vec<TupleData>, u128)>> {
+    ) -> InterpreterResult<Option<(Vec<TupleData>, u128)>> {
         let sortition_id = match self.get_sortition_id_for_stacks_tip()? {
             Some(x) => x,
             None => return Ok(None),
@@ -1265,7 +1280,7 @@ impl ClarityDatabase<'_> {
         self.headers_db.get_burn_block_height_for_block(id_bhh)
     }
 
-    pub fn get_block_vrf_seed(&mut self, block_height: u32) -> Result<VRFSeed> {
+    pub fn get_block_vrf_seed(&mut self, block_height: u32) -> InterpreterResult<VRFSeed> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         self.headers_db
@@ -1273,7 +1288,10 @@ impl ClarityDatabase<'_> {
             .ok_or_else(|| InterpreterError::Expect("Failed to get block data.".into()).into())
     }
 
-    pub fn get_miner_address(&mut self, block_height: u32) -> Result<StandardPrincipalData> {
+    pub fn get_miner_address(
+        &mut self,
+        block_height: u32,
+    ) -> InterpreterResult<StandardPrincipalData> {
         let id_bhh = self.get_index_block_header_hash(block_height)?;
         let epoch = self.get_stacks_epoch_for_block(&id_bhh)?;
         Ok(self
@@ -1283,7 +1301,7 @@ impl ClarityDatabase<'_> {
             .into())
     }
 
-    pub fn get_miner_spend_winner(&mut self, block_height: u32) -> Result<u128> {
+    pub fn get_miner_spend_winner(&mut self, block_height: u32) -> InterpreterResult<u128> {
         if block_height == 0 {
             return Ok(0);
         }
@@ -1300,7 +1318,7 @@ impl ClarityDatabase<'_> {
             })?)
     }
 
-    pub fn get_miner_spend_total(&mut self, block_height: u32) -> Result<u128> {
+    pub fn get_miner_spend_total(&mut self, block_height: u32) -> InterpreterResult<u128> {
         if block_height == 0 {
             return Ok(0);
         }
@@ -1317,7 +1335,7 @@ impl ClarityDatabase<'_> {
             })?)
     }
 
-    pub fn get_block_reward(&mut self, block_height: u32) -> Result<Option<u128>> {
+    pub fn get_block_reward(&mut self, block_height: u32) -> InterpreterResult<Option<u128>> {
         if block_height == 0 {
             return Ok(None);
         }
@@ -1342,13 +1360,13 @@ impl ClarityDatabase<'_> {
         Ok(Some(reward))
     }
 
-    pub fn get_stx_btc_ops_processed(&mut self) -> Result<u64> {
+    pub fn get_stx_btc_ops_processed(&mut self) -> InterpreterResult<u64> {
         Ok(self
             .get_data("vm_pox::stx_btc_ops::processed_blocks")?
             .unwrap_or(0))
     }
 
-    pub fn set_stx_btc_ops_processed(&mut self, processed: u64) -> Result<()> {
+    pub fn set_stx_btc_ops_processed(&mut self, processed: u64) -> InterpreterResult<()> {
         self.put_data("vm_pox::stx_btc_ops::processed_blocks", &processed)
     }
 }
@@ -1368,7 +1386,7 @@ impl ClarityDatabase<'_> {
         &mut self,
         pubkey_hash: &Hash160,
         height: u32,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
         let value = format!("{height}");
         self.put_data(&key, &value)
@@ -1384,7 +1402,7 @@ impl ClarityDatabase<'_> {
         height: u32,
         reporter: &StandardPrincipalData,
         seq: u16,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let key = ClarityDatabase::make_microblock_poison_key(height);
         let value = Value::Tuple(
             TupleData::from_data(vec![
@@ -1415,7 +1433,7 @@ impl ClarityDatabase<'_> {
     pub fn get_microblock_pubkey_hash_height(
         &mut self,
         pubkey_hash: &Hash160,
-    ) -> Result<Option<u32>> {
+    ) -> InterpreterResult<Option<u32>> {
         let key = ClarityDatabase::make_microblock_pubkey_height_key(pubkey_hash);
         self.get_data(&key)?
             .map(|height_str: String| {
@@ -1433,7 +1451,7 @@ impl ClarityDatabase<'_> {
     pub fn get_microblock_poison_report(
         &mut self,
         height: u32,
-    ) -> Result<Option<(StandardPrincipalData, u16)>> {
+    ) -> InterpreterResult<Option<(StandardPrincipalData, u16)>> {
         let key = ClarityDatabase::make_microblock_poison_key(height);
         self.get_data(&key)?
             .map(|reporter_hex_str: String| {
@@ -1483,7 +1501,7 @@ impl ClarityDatabase<'_> {
 
 // this is used so that things like load_map, load_var, load_nft, etc.
 //   will throw NoSuchFoo errors instead of NoSuchContract errors.
-fn map_no_contract_as_none<T>(res: Result<Option<T>>) -> Result<Option<T>> {
+fn map_no_contract_as_none<T>(res: InterpreterResult<Option<T>>) -> InterpreterResult<Option<T>> {
     res.or_else(|e| match e {
         Error::Unchecked(CheckErrors::NoSuchContract(_)) => Ok(None),
         x => Err(x),
@@ -1497,7 +1515,7 @@ impl ClarityDatabase<'_> {
         contract_identifier: &QualifiedContractIdentifier,
         variable_name: &str,
         value_type: TypeSignature,
-    ) -> Result<DataVariableMetadata> {
+    ) -> InterpreterResult<DataVariableMetadata> {
         let variable_data = DataVariableMetadata { value_type };
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
@@ -1509,7 +1527,7 @@ impl ClarityDatabase<'_> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         variable_name: &str,
-    ) -> Result<DataVariableMetadata> {
+    ) -> InterpreterResult<DataVariableMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::VariableMeta, variable_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
@@ -1522,7 +1540,7 @@ impl ClarityDatabase<'_> {
         contract_identifier: &QualifiedContractIdentifier,
         variable_name: &str,
         value: Value,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let epoch = self.get_clarity_epoch_version()?;
         let descriptor = self.load_variable(contract_identifier, variable_name)?;
         self.set_variable(
@@ -1542,7 +1560,7 @@ impl ClarityDatabase<'_> {
         value: Value,
         variable_descriptor: &DataVariableMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult> {
+    ) -> InterpreterResult<ValueResult> {
         if !variable_descriptor
             .value_type
             .admits(&self.get_clarity_epoch_version()?, &value)?
@@ -1573,7 +1591,7 @@ impl ClarityDatabase<'_> {
         contract_identifier: &QualifiedContractIdentifier,
         variable_name: &str,
         epoch: &StacksEpochId,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let descriptor = self.load_variable(contract_identifier, variable_name)?;
         self.lookup_variable(contract_identifier, variable_name, &descriptor, epoch)
     }
@@ -1584,7 +1602,7 @@ impl ClarityDatabase<'_> {
         variable_name: &str,
         variable_descriptor: &DataVariableMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let key = ClarityDatabase::make_key_for_trip(
             contract_identifier,
             StoreType::Variable,
@@ -1607,7 +1625,7 @@ impl ClarityDatabase<'_> {
         variable_name: &str,
         variable_descriptor: &DataVariableMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult> {
+    ) -> InterpreterResult<ValueResult> {
         let key = ClarityDatabase::make_key_for_trip(
             contract_identifier,
             StoreType::Variable,
@@ -1634,7 +1652,7 @@ impl ClarityDatabase<'_> {
         map_name: &str,
         key_type: TypeSignature,
         value_type: TypeSignature,
-    ) -> Result<DataMapMetadata> {
+    ) -> InterpreterResult<DataMapMetadata> {
         let data = DataMapMetadata {
             key_type,
             value_type,
@@ -1650,7 +1668,7 @@ impl ClarityDatabase<'_> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         map_name: &str,
-    ) -> Result<DataMapMetadata> {
+    ) -> InterpreterResult<DataMapMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::DataMapMeta, map_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
@@ -1661,7 +1679,7 @@ impl ClarityDatabase<'_> {
         contract_identifier: &QualifiedContractIdentifier,
         map_name: &str,
         key_value: &Value,
-    ) -> Result<String> {
+    ) -> InterpreterResult<String> {
         Ok(ClarityDatabase::make_key_for_data_map_entry_serialized(
             contract_identifier,
             map_name,
@@ -1688,7 +1706,7 @@ impl ClarityDatabase<'_> {
         map_name: &str,
         key_value: &Value,
         epoch: &StacksEpochId,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let descriptor = self.load_map(contract_identifier, map_name)?;
         self.fetch_entry(contract_identifier, map_name, key_value, &descriptor, epoch)
     }
@@ -1701,7 +1719,7 @@ impl ClarityDatabase<'_> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         if !map_descriptor
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
@@ -1732,7 +1750,7 @@ impl ClarityDatabase<'_> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult> {
+    ) -> InterpreterResult<ValueResult> {
         if !map_descriptor
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
@@ -1781,7 +1799,7 @@ impl ClarityDatabase<'_> {
         value: Value,
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult> {
+    ) -> InterpreterResult<ValueResult> {
         self.inner_set_entry(
             contract_identifier,
             map_name,
@@ -1800,7 +1818,7 @@ impl ClarityDatabase<'_> {
         key: Value,
         value: Value,
         epoch: &StacksEpochId,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let descriptor = self.load_map(contract_identifier, map_name)?;
         self.set_entry(
             contract_identifier,
@@ -1820,7 +1838,7 @@ impl ClarityDatabase<'_> {
         key: Value,
         value: Value,
         epoch: &StacksEpochId,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let descriptor = self.load_map(contract_identifier, map_name)?;
         self.insert_entry(
             contract_identifier,
@@ -1841,7 +1859,7 @@ impl ClarityDatabase<'_> {
         value: Value,
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult> {
+    ) -> InterpreterResult<ValueResult> {
         self.inner_set_entry(
             contract_identifier,
             map_name,
@@ -1858,7 +1876,7 @@ impl ClarityDatabase<'_> {
         key: &str,
         expected_value: &TypeSignature,
         epoch: &StacksEpochId,
-    ) -> Result<bool> {
+    ) -> InterpreterResult<bool> {
         match self.get_value(key, expected_value, epoch)? {
             None => Ok(false),
             Some(value) => Ok(value.value != Value::none()),
@@ -1875,7 +1893,7 @@ impl ClarityDatabase<'_> {
         return_if_exists: bool,
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult> {
+    ) -> InterpreterResult<ValueResult> {
         if !map_descriptor
             .key_type
             .admits(&self.get_clarity_epoch_version()?, &key_value)?
@@ -1934,7 +1952,7 @@ impl ClarityDatabase<'_> {
         key_value: &Value,
         map_descriptor: &DataMapMetadata,
         epoch: &StacksEpochId,
-    ) -> Result<ValueResult> {
+    ) -> InterpreterResult<ValueResult> {
         if !map_descriptor
             .key_type
             .admits(&self.get_clarity_epoch_version()?, key_value)?
@@ -1983,7 +2001,7 @@ impl ClarityDatabase<'_> {
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
         total_supply: &Option<u128>,
-    ) -> Result<FungibleTokenMetadata> {
+    ) -> InterpreterResult<FungibleTokenMetadata> {
         let data = FungibleTokenMetadata {
             total_supply: *total_supply,
         };
@@ -2006,7 +2024,7 @@ impl ClarityDatabase<'_> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
-    ) -> Result<FungibleTokenMetadata> {
+    ) -> InterpreterResult<FungibleTokenMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::FungibleTokenMeta, token_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
@@ -2018,7 +2036,7 @@ impl ClarityDatabase<'_> {
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
         key_type: &TypeSignature,
-    ) -> Result<NonFungibleTokenMetadata> {
+    ) -> InterpreterResult<NonFungibleTokenMetadata> {
         let data = NonFungibleTokenMetadata {
             key_type: key_type.clone(),
         };
@@ -2032,7 +2050,7 @@ impl ClarityDatabase<'_> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
-    ) -> Result<NonFungibleTokenMetadata> {
+    ) -> InterpreterResult<NonFungibleTokenMetadata> {
         let key = ClarityDatabase::make_metadata_key(StoreType::NonFungibleTokenMeta, token_name);
 
         map_no_contract_as_none(self.fetch_metadata(contract_identifier, &key))?
@@ -2045,7 +2063,7 @@ impl ClarityDatabase<'_> {
         token_name: &str,
         amount: u128,
         descriptor: &FungibleTokenMetadata,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let key = ClarityDatabase::make_key_for_trip(
             contract_identifier,
             StoreType::CirculatingSupply,
@@ -2073,7 +2091,7 @@ impl ClarityDatabase<'_> {
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
         amount: u128,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let key = ClarityDatabase::make_key_for_trip(
             contract_identifier,
             StoreType::CirculatingSupply,
@@ -2098,7 +2116,7 @@ impl ClarityDatabase<'_> {
         token_name: &str,
         principal: &PrincipalData,
         descriptor: Option<&FungibleTokenMetadata>,
-    ) -> Result<u128> {
+    ) -> InterpreterResult<u128> {
         if descriptor.is_none() {
             self.load_ft(contract_identifier, token_name)?;
         }
@@ -2123,7 +2141,7 @@ impl ClarityDatabase<'_> {
         token_name: &str,
         principal: &PrincipalData,
         balance: u128,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let key = ClarityDatabase::make_key_for_quad(
             contract_identifier,
             StoreType::FungibleToken,
@@ -2137,7 +2155,7 @@ impl ClarityDatabase<'_> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         token_name: &str,
-    ) -> Result<u128> {
+    ) -> InterpreterResult<u128> {
         let key = ClarityDatabase::make_key_for_trip(
             contract_identifier,
             StoreType::CirculatingSupply,
@@ -2155,7 +2173,7 @@ impl ClarityDatabase<'_> {
         asset_name: &str,
         asset: &Value,
         key_type: &TypeSignature,
-    ) -> Result<PrincipalData> {
+    ) -> InterpreterResult<PrincipalData> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(CheckErrors::TypeValueError(
                 Box::new(key_type.clone()),
@@ -2195,7 +2213,7 @@ impl ClarityDatabase<'_> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &str,
-    ) -> Result<TypeSignature> {
+    ) -> InterpreterResult<TypeSignature> {
         let descriptor = self.load_nft(contract_identifier, asset_name)?;
         Ok(descriptor.key_type)
     }
@@ -2208,7 +2226,7 @@ impl ClarityDatabase<'_> {
         principal: &PrincipalData,
         key_type: &TypeSignature,
         epoch: &StacksEpochId,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(CheckErrors::TypeValueError(
                 Box::new(key_type.clone()),
@@ -2237,7 +2255,7 @@ impl ClarityDatabase<'_> {
         asset: &Value,
         key_type: &TypeSignature,
         epoch: &StacksEpochId,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         if !key_type.admits(&self.get_clarity_epoch_version()?, asset)? {
             return Err(CheckErrors::TypeValueError(
                 Box::new(key_type.clone()),
@@ -2283,7 +2301,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_stx_balance_snapshot<'conn>(
         &'conn mut self,
         principal: &PrincipalData,
-    ) -> Result<STXBalanceSnapshot<'a, 'conn>> {
+    ) -> InterpreterResult<STXBalanceSnapshot<'a, 'conn>> {
         let stx_balance = self.get_account_stx_balance(principal)?;
         let cur_burn_height = u64::from(self.get_current_burnchain_block_height()?);
 
@@ -2317,7 +2335,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_stx_balance_snapshot_genesis<'conn>(
         &'conn mut self,
         principal: &PrincipalData,
-    ) -> Result<STXBalanceSnapshot<'a, 'conn>> {
+    ) -> InterpreterResult<STXBalanceSnapshot<'a, 'conn>> {
         let stx_balance = self.get_account_stx_balance(principal)?;
         let cur_burn_height = 0;
 
@@ -2348,20 +2366,27 @@ impl<'a> ClarityDatabase<'a> {
         ))
     }
 
-    pub fn get_account_stx_balance(&mut self, principal: &PrincipalData) -> Result<STXBalance> {
+    pub fn get_account_stx_balance(
+        &mut self,
+        principal: &PrincipalData,
+    ) -> InterpreterResult<STXBalance> {
         let key = ClarityDatabase::make_key_for_account_balance(principal);
         debug!("Fetching account balance"; "principal" => %principal.to_string());
         let result = self.get_data(&key)?;
         Ok(result.unwrap_or_default())
     }
 
-    pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> Result<u64> {
+    pub fn get_account_nonce(&mut self, principal: &PrincipalData) -> InterpreterResult<u64> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
         let result = self.get_data(&key)?;
         Ok(result.unwrap_or_default())
     }
 
-    pub fn set_account_nonce(&mut self, principal: &PrincipalData, nonce: u64) -> Result<()> {
+    pub fn set_account_nonce(
+        &mut self,
+        principal: &PrincipalData,
+        nonce: u64,
+    ) -> InterpreterResult<()> {
         let key = ClarityDatabase::make_key_for_account_nonce(principal);
         self.put_data(&key, &nonce)
     }
@@ -2379,7 +2404,10 @@ impl ClarityDatabase<'_> {
         self.burn_state_db.get_stacks_epoch(height)
     }
 
-    pub fn get_stacks_epoch_for_block(&self, id_bhh: &StacksBlockId) -> Result<StacksEpochId> {
+    pub fn get_stacks_epoch_for_block(
+        &self,
+        id_bhh: &StacksBlockId,
+    ) -> InterpreterResult<StacksEpochId> {
         let burn_block = self.get_burnchain_block_height(id_bhh).ok_or_else(|| {
             InterpreterError::Expect(format!(
                 "FATAL: no burnchain block height found for Stacks block {id_bhh}"

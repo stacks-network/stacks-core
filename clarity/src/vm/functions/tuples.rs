@@ -17,7 +17,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result, SyntaxBindingErrorType,
+    InterpreterResult, SyntaxBindingErrorType,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, TypeSignature, Value};
@@ -27,7 +27,7 @@ pub fn tuple_cons(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     //    (tuple (arg-name value)
     //           (arg-name value))
     use super::parse_eval_bindings;
@@ -44,7 +44,7 @@ pub fn tuple_get(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     // (get arg-name (tuple ...))
     //    if the tuple argument is an option type, then return option(field-name).
     check_argument_count(2, args)?;
@@ -82,7 +82,7 @@ pub fn tuple_get(
     }
 }
 
-pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
+pub fn tuple_merge(base: Value, update: Value) -> InterpreterResult<Value> {
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
         _ => Err(CheckErrors::ExpectedTuple(Box::new(

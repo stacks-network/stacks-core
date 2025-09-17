@@ -17,7 +17,7 @@
 use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
+use clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
@@ -78,7 +78,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal().unwrap();
         let placeholder_context =
@@ -157,7 +157,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal().unwrap();
         let placeholder_context =

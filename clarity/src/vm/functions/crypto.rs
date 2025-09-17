@@ -23,16 +23,14 @@ use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp25
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
-};
+use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterError, InterpreterResult};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
 macro_rules! native_hash_func {
     ($name:ident, $module:ty) => {
-        pub fn $name(input: Value) -> Result<Value> {
+        pub fn $name(input: Value) -> InterpreterResult<Value> {
             let bytes = match input {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
@@ -60,7 +58,7 @@ native_hash_func!(native_keccak256, hash::Keccak256Hash);
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
 // This method preserves the old, incorrect behavior for those running Clarity1.
-fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> Result<StacksAddress> {
+fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> InterpreterResult<StacksAddress> {
     StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -72,7 +70,10 @@ fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> Result<StacksAddress> {
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
 // This version contains the code for Clarity2 and going forward.
-fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> Result<StacksAddress> {
+fn pubkey_to_address_v2(
+    pub_key: Secp256k1PublicKey,
+    is_mainnet: bool,
+) -> InterpreterResult<StacksAddress> {
     let network_byte = if is_mainnet {
         C32_ADDRESS_VERSION_MAINNET_SINGLESIG
     } else {
@@ -91,7 +92,7 @@ pub fn special_principal_of(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     // (principal-of? (..))
     // arg0 => (buff 33)
     check_argument_count(1, args)?;
@@ -137,7 +138,7 @@ pub fn special_secp256k1_recover(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     // (secp256k1-recover? (..))
     // arg0 => (buff 32), arg1 => (buff 65)
     check_argument_count(2, args)?;
@@ -199,7 +200,7 @@ pub fn special_secp256k1_verify(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     // (secp256k1-verify (..))
     // arg0 => (buff 32), arg1 => (buff 65), arg2 => (buff 33)
     check_argument_count(3, args)?;

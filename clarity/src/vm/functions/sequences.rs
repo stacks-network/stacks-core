@@ -21,7 +21,7 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult,
     RuntimeErrorType,
 };
 use crate::vm::representations::SymbolicExpression;
@@ -34,8 +34,9 @@ pub fn list_cons(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
-    let eval_tried: Result<Vec<Value>> = args.iter().map(|x| eval(x, env, context)).collect();
+) -> InterpreterResult<Value> {
+    let eval_tried: InterpreterResult<Vec<Value>> =
+        args.iter().map(|x| eval(x, env, context)).collect();
     let args = eval_tried?;
 
     let mut arg_size = 0;
@@ -52,7 +53,7 @@ pub fn special_filter(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::Filter, env, 0)?;
@@ -90,7 +91,7 @@ pub fn special_fold(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::Fold, env, 0)?;
@@ -123,7 +124,7 @@ pub fn special_map(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_arguments_at_least(2, args)?;
 
     runtime_cost(ClarityCostFunction::Map, env, args.len())?;
@@ -184,7 +185,7 @@ pub fn special_append(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
 
     let sequence = eval(&args[0], env, context)?;
@@ -232,7 +233,7 @@ pub fn special_concat_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
@@ -258,7 +259,7 @@ pub fn special_concat_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
 
     let mut wrapped_seq = eval(&args[0], env, context)?;
@@ -287,7 +288,7 @@ pub fn special_as_max_len(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_argument_count(2, args)?;
 
     let mut sequence = eval(&args[0], env, context)?;
@@ -322,7 +323,7 @@ pub fn special_as_max_len(
     }
 }
 
-pub fn native_len(sequence: Value) -> Result<Value> {
+pub fn native_len(sequence: Value) -> InterpreterResult<Value> {
     match sequence {
         Value::Sequence(sequence_data) => Ok(Value::UInt(sequence_data.len() as u128)),
         _ => {
@@ -331,7 +332,7 @@ pub fn native_len(sequence: Value) -> Result<Value> {
     }
 }
 
-pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value> {
+pub fn native_index_of(sequence: Value, to_find: Value) -> InterpreterResult<Value> {
     if let Value::Sequence(sequence_data) = sequence {
         match sequence_data.contains(to_find)? {
             Some(index) => Value::some(Value::UInt(index as u128)),
@@ -342,7 +343,7 @@ pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value> {
     }
 }
 
-pub fn native_element_at(sequence: Value, index: Value) -> Result<Value> {
+pub fn native_element_at(sequence: Value, index: Value) -> InterpreterResult<Value> {
     let sequence_data = if let Value::Sequence(sequence_data) = sequence {
         sequence_data
     } else {
@@ -377,7 +378,7 @@ pub fn special_slice(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_argument_count(3, args)?;
 
     let seq = eval(&args[0], env, context)?;
@@ -427,7 +428,7 @@ pub fn special_replace_at(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_argument_count(3, args)?;
 
     let seq = eval(&args[0], env, context)?;

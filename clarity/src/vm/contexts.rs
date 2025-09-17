@@ -37,7 +37,7 @@ use crate::vm::database::{
     NonFungibleTokenMetadata,
 };
 use crate::vm::errors::{
-    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, Error, InterpreterError, InterpreterResult, RuntimeErrorType,
 };
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
@@ -268,7 +268,11 @@ impl AssetMap {
     }
 
     // This will get the next amount for a (principal, stx) entry in the stx table.
-    fn get_next_stx_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+    fn get_next_stx_amount(
+        &self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> InterpreterResult<u128> {
         let current_amount = self.stx_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
@@ -276,7 +280,11 @@ impl AssetMap {
     }
 
     // This will get the next amount for a (principal, stx) entry in the burn table.
-    fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+    fn get_next_stx_burn_amount(
+        &self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> InterpreterResult<u128> {
         let current_amount = self.burn_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
@@ -289,7 +297,7 @@ impl AssetMap {
         principal: &PrincipalData,
         asset: &AssetIdentifier,
         amount: u128,
-    ) -> Result<u128> {
+    ) -> InterpreterResult<u128> {
         let current_amount = self
             .token_map
             .get(principal)
@@ -300,14 +308,22 @@ impl AssetMap {
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
 
-    pub fn add_stx_transfer(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
+    pub fn add_stx_transfer(
+        &mut self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> InterpreterResult<()> {
         let next_amount = self.get_next_stx_amount(principal, amount)?;
         self.stx_map.insert(principal.clone(), next_amount);
 
         Ok(())
     }
 
-    pub fn add_stx_burn(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
+    pub fn add_stx_burn(
+        &mut self,
+        principal: &PrincipalData,
+        amount: u128,
+    ) -> InterpreterResult<()> {
         let next_amount = self.get_next_stx_burn_amount(principal, amount)?;
         self.burn_map.insert(principal.clone(), next_amount);
 
@@ -334,7 +350,7 @@ impl AssetMap {
         principal: &PrincipalData,
         asset: AssetIdentifier,
         amount: u128,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let next_amount = self.get_next_amount(principal, &asset, amount)?;
 
         let principal_map = self.token_map.entry(principal.clone()).or_default();
@@ -345,7 +361,7 @@ impl AssetMap {
 
     // This will add any asset transfer data from other to self,
     //   aborting _all_ changes in the event of an error, leaving self unchanged
-    pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
+    pub fn commit_other(&mut self, mut other: AssetMap) -> InterpreterResult<()> {
         let mut to_add = Vec::new();
         let mut stx_to_add = Vec::with_capacity(other.stx_map.len());
         let mut stx_burn_to_add = Vec::with_capacity(other.burn_map.len());
@@ -436,7 +452,7 @@ impl AssetMap {
         self.burn_map.get(principal).copied()
     }
 
-    pub fn get_stx_burned_total(&self) -> Result<u128> {
+    pub fn get_stx_burned_total(&self) -> InterpreterResult<u128> {
         let mut total: u128 = 0;
         for principal in self.burn_map.keys() {
             total = total
@@ -603,10 +619,10 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         sponsor: Option<PrincipalData>,
         initial_context: Option<ContractContext>,
         f: F,
-    ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
+    ) -> Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
-        E: From<crate::vm::errors::Error>,
-        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
+        E: From<Error>,
+        F: FnOnce(&mut Environment) -> Result<A, E>,
     {
         assert!(self.context.is_top_level());
         self.begin();
@@ -641,7 +657,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
         ast_rules: ASTRules,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> InterpreterResult<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -659,7 +675,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract_content: &str,
         sponsor: Option<PrincipalData>,
         ast_rules: ASTRules,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> InterpreterResult<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -680,7 +696,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract_content: &ContractAST,
         contract_string: &str,
         sponsor: Option<PrincipalData>,
-    ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> InterpreterResult<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
@@ -706,7 +722,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract_identifier: QualifiedContractIdentifier,
         tx_name: &str,
         args: &[SymbolicExpression],
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> InterpreterResult<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(sender, sponsor, None, |exec_env| {
             exec_env.execute_contract(&contract_identifier, tx_name, args, false)
         })
@@ -718,7 +734,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         to: &PrincipalData,
         amount: u128,
         memo: &BuffData,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> InterpreterResult<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(from.clone(), None, None, |exec_env| {
             exec_env.stx_transfer(from, to, amount, memo)
         })
@@ -730,29 +746,24 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env::<_, _, crate::vm::errors::Error>(
-            recipient.clone(),
-            None,
-            None,
-            |env| {
-                let mut snapshot = env
-                    .global_context
-                    .database
-                    .get_stx_balance_snapshot(recipient)
-                    .unwrap();
+        self.execute_in_env::<_, _, Error>(recipient.clone(), None, None, |env| {
+            let mut snapshot = env
+                .global_context
+                .database
+                .get_stx_balance_snapshot(recipient)
+                .unwrap();
 
-                snapshot.credit(amount).unwrap();
-                snapshot.save().unwrap();
+            snapshot.credit(amount).unwrap();
+            snapshot.save().unwrap();
 
-                env.global_context
-                    .database
-                    .increment_ustx_liquid_supply(amount)
-                    .unwrap();
+            env.global_context
+                .database
+                .increment_ustx_liquid_supply(amount)
+                .unwrap();
 
-                let res: std::result::Result<(), crate::vm::errors::Error> = Ok(());
-                res
-            },
-        )
+            let res: Result<(), Error> = Ok(());
+            res
+        })
         .unwrap();
     }
 
@@ -760,7 +771,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     pub fn eval_raw(
         &mut self,
         program: &str,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> InterpreterResult<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
@@ -774,7 +785,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract: &QualifiedContractIdentifier,
         program: &str,
         ast_rules: ast::ASTRules,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> InterpreterResult<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             QualifiedContractIdentifier::transient().issuer.into(),
             None,
@@ -788,7 +799,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         program: &str,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
+    ) -> InterpreterResult<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
         self.eval_read_only_with_rules(contract, program, ast::ASTRules::Typical)
     }
 
@@ -796,7 +807,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         self.context.begin();
     }
 
-    pub fn commit(&mut self) -> Result<(AssetMap, EventBatch)> {
+    pub fn commit(&mut self) -> InterpreterResult<(AssetMap, EventBatch)> {
         let (asset_map, event_batch) = self.context.commit()?;
         let asset_map = asset_map.ok_or(InterpreterError::FailedToConstructAssetTable)?;
         let event_batch = event_batch.ok_or(InterpreterError::FailedToConstructEventBatch)?;
@@ -835,18 +846,18 @@ impl CostTracker for Environment<'_, '_, '_> {
         &mut self,
         cost_function: ClarityCostFunction,
         input: &[u64],
-    ) -> std::result::Result<ExecutionCost, CostErrors> {
+    ) -> Result<ExecutionCost, CostErrors> {
         self.global_context
             .cost_track
             .compute_cost(cost_function, input)
     }
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> Result<(), CostErrors> {
         self.global_context.cost_track.add_cost(cost)
     }
-    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+    fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         self.global_context.cost_track.add_memory(memory)
     }
-    fn drop_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+    fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         self.global_context.cost_track.drop_memory(memory)
     }
     fn reset_memory(&mut self) {
@@ -857,7 +868,7 @@ impl CostTracker for Environment<'_, '_, '_> {
         contract: &QualifiedContractIdentifier,
         function: &ClarityName,
         input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
+    ) -> Result<bool, CostErrors> {
         self.global_context
             .cost_track
             .short_circuit_contract_call(contract, function, input)
@@ -869,17 +880,17 @@ impl CostTracker for GlobalContext<'_, '_> {
         &mut self,
         cost_function: ClarityCostFunction,
         input: &[u64],
-    ) -> std::result::Result<ExecutionCost, CostErrors> {
+    ) -> Result<ExecutionCost, CostErrors> {
         self.cost_track.compute_cost(cost_function, input)
     }
 
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> Result<(), CostErrors> {
         self.cost_track.add_cost(cost)
     }
-    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+    fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         self.cost_track.add_memory(memory)
     }
-    fn drop_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+    fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         self.cost_track.drop_memory(memory)
     }
     fn reset_memory(&mut self) {
@@ -890,7 +901,7 @@ impl CostTracker for GlobalContext<'_, '_> {
         contract: &QualifiedContractIdentifier,
         function: &ClarityName,
         input: &[u64],
-    ) -> std::result::Result<bool, CostErrors> {
+    ) -> Result<bool, CostErrors> {
         self.cost_track
             .short_circuit_contract_call(contract, function, input)
     }
@@ -954,7 +965,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
         rules: ast::ASTRules,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let clarity_version = self.contract_context.clarity_version;
 
         let parsed = ast::build_ast_with_rules(
@@ -1008,11 +1019,15 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         self.eval_read_only_with_rules(contract_identifier, program, ast::ASTRules::Typical)
     }
 
-    pub fn eval_raw_with_rules(&mut self, program: &str, rules: ast::ASTRules) -> Result<Value> {
+    pub fn eval_raw_with_rules(
+        &mut self,
+        program: &str,
+        rules: ast::ASTRules,
+    ) -> InterpreterResult<Value> {
         let contract_id = QualifiedContractIdentifier::transient();
         let clarity_version = self.contract_context.clarity_version;
 
@@ -1037,7 +1052,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
+    pub fn eval_raw(&mut self, program: &str) -> InterpreterResult<Value> {
         self.eval_raw_with_rules(program, ast::ASTRules::Typical)
     }
 
@@ -1073,7 +1088,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         tx_name: &str,
         args: &[SymbolicExpression],
         read_only: bool,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         self.inner_execute_contract(contract, tx_name, args, read_only, false)
     }
 
@@ -1086,7 +1101,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         tx_name: &str,
         args: &[SymbolicExpression],
         read_only: bool,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         self.inner_execute_contract(contract, tx_name, args, read_only, true)
     }
 
@@ -1103,7 +1118,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         args: &[SymbolicExpression],
         read_only: bool,
         allow_private: bool,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let contract_size = self
             .global_context
             .database
@@ -1123,7 +1138,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
             }
 
-            let args: Result<Vec<Value>> = args.iter()
+            let args: InterpreterResult<Vec<Value>> = args.iter()
                 .map(|arg| {
                     let value = arg.match_atom_value()
                         .ok_or_else(|| InterpreterError::InterpreterError(format!("Passed non-value expression to exec_tx on {tx_name}!")))?;
@@ -1180,7 +1195,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         args: &[Value],
         next_contract_context: Option<&ContractContext>,
         allow_private: bool,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         let make_read_only = function.is_read_only();
 
         if make_read_only {
@@ -1217,7 +1232,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         bhh: StacksBlockId,
         closure: &SymbolicExpression,
         local: &LocalContext,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         self.global_context.begin_read_only();
 
         let result = self
@@ -1247,7 +1262,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         ast_rules: ASTRules,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let clarity_version = self.contract_context.clarity_version;
 
         let contract_ast = ast::build_ast_with_rules(
@@ -1272,7 +1287,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         contract_version: ClarityVersion,
         contract_content: &ContractAST,
         contract_string: &str,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         self.global_context.begin();
 
         // wrap in a closure so that `?` can be caught and the global_context can roll_back()
@@ -1344,7 +1359,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         to: &PrincipalData,
         amount: u128,
         memo: &BuffData,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         self.global_context.begin();
         let result = stx_transfer_consolidated(self, from, to, amount, memo);
         match result {
@@ -1365,10 +1380,10 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         }
     }
 
-    pub fn run_as_transaction<F, O, E>(&mut self, f: F) -> std::result::Result<O, E>
+    pub fn run_as_transaction<F, O, E>(&mut self, f: F) -> Result<O, E>
     where
-        F: FnOnce(&mut Self) -> std::result::Result<O, E>,
-        E: From<crate::vm::errors::Error>,
+        F: FnOnce(&mut Self) -> Result<O, E>,
+        E: From<Error>,
     {
         self.global_context.begin();
         let result = f(self);
@@ -1402,7 +1417,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         StacksTransactionEvent::SmartContractEvent(print_event)
     }
 
-    pub fn register_print_event(&mut self, value: Value) -> Result<()> {
+    pub fn register_print_event(&mut self, value: Value) -> InterpreterResult<()> {
         let event = Self::construct_print_transaction_event(
             &self.contract_context.contract_identifier,
             &value,
@@ -1418,7 +1433,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         recipient: PrincipalData,
         amount: u128,
         memo: BuffData,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let event_data = STXTransferEventData {
             sender,
             recipient,
@@ -1431,7 +1446,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         Ok(())
     }
 
-    pub fn register_stx_burn_event(&mut self, sender: PrincipalData, amount: u128) -> Result<()> {
+    pub fn register_stx_burn_event(
+        &mut self,
+        sender: PrincipalData,
+        amount: u128,
+    ) -> InterpreterResult<()> {
         let event_data = STXBurnEventData { sender, amount };
         let event = StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data));
 
@@ -1445,7 +1464,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         recipient: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let event_data = NFTTransferEventData {
             sender,
             recipient,
@@ -1463,7 +1482,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         recipient: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let event_data = NFTMintEventData {
             recipient,
             asset_identifier,
@@ -1480,7 +1499,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         sender: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let event_data = NFTBurnEventData {
             sender,
             asset_identifier,
@@ -1498,7 +1517,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         recipient: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let event_data = FTTransferEventData {
             sender,
             recipient,
@@ -1516,7 +1535,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         recipient: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let event_data = FTMintEventData {
             recipient,
             asset_identifier,
@@ -1533,7 +1552,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         sender: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let event_data = FTBurnEventData {
             sender,
             asset_identifier,
@@ -1580,7 +1599,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         }
     }
 
-    fn get_asset_map(&mut self) -> Result<&mut AssetMap> {
+    fn get_asset_map(&mut self) -> InterpreterResult<&mut AssetMap> {
         self.asset_maps
             .last_mut()
             .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
@@ -1592,7 +1611,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &ClarityName,
         transfered: Value,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let asset_identifier = AssetIdentifier {
             contract_identifier: contract_identifier.clone(),
             asset_name: asset_name.clone(),
@@ -1608,7 +1627,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         contract_identifier: &QualifiedContractIdentifier,
         asset_name: &ClarityName,
         transfered: u128,
-    ) -> Result<()> {
+    ) -> InterpreterResult<()> {
         let asset_identifier = AssetIdentifier {
             contract_identifier: contract_identifier.clone(),
             asset_name: asset_name.clone(),
@@ -1617,17 +1636,25 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             .add_token_transfer(sender, asset_identifier, transfered)
     }
 
-    pub fn log_stx_transfer(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
+    pub fn log_stx_transfer(
+        &mut self,
+        sender: &PrincipalData,
+        transfered: u128,
+    ) -> InterpreterResult<()> {
         self.get_asset_map()?.add_stx_transfer(sender, transfered)
     }
 
-    pub fn log_stx_burn(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
+    pub fn log_stx_burn(
+        &mut self,
+        sender: &PrincipalData,
+        transfered: u128,
+    ) -> InterpreterResult<()> {
         self.get_asset_map()?.add_stx_burn(sender, transfered)
     }
 
-    pub fn execute<F, T>(&mut self, f: F) -> Result<T>
+    pub fn execute<F, T>(&mut self, f: F) -> InterpreterResult<T>
     where
-        F: FnOnce(&mut Self) -> Result<T>,
+        F: FnOnce(&mut Self) -> InterpreterResult<T>,
     {
         self.begin();
         let result = f(self).or_else(|e| {
@@ -1647,10 +1674,10 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         sponsor: Option<PrincipalData>,
         contract_context: ContractContext,
         f: F,
-    ) -> std::result::Result<A, E>
+    ) -> Result<A, E>
     where
-        E: From<crate::vm::errors::Error>,
-        F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
+        E: From<Error>,
+        F: FnOnce(&mut Environment) -> Result<A, E>,
     {
         self.begin();
 
@@ -1696,7 +1723,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         self.read_only.push(true);
     }
 
-    pub fn commit(&mut self) -> Result<(Option<AssetMap>, Option<EventBatch>)> {
+    pub fn commit(&mut self) -> InterpreterResult<(Option<AssetMap>, Option<EventBatch>)> {
         trace!("Calling commit");
         self.read_only.pop();
         let asset_map = self.asset_maps.pop().ok_or_else(|| {
@@ -1729,7 +1756,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         Ok((out_map, out_batch))
     }
 
-    pub fn roll_back(&mut self) -> Result<()> {
+    pub fn roll_back(&mut self) -> InterpreterResult<()> {
         let popped = self.asset_maps.pop();
         if popped.is_none() {
             return Err(InterpreterError::Expect("Expected entry to rollback".into()).into());
@@ -1751,9 +1778,9 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     // clarity = { version = "*", features = ["devtools"] }
     pub fn handle_tx_result(
         &mut self,
-        result: Result<Value>,
+        result: InterpreterResult<Value>,
         allow_private: bool,
-    ) -> Result<Value> {
+    ) -> InterpreterResult<Value> {
         if let Ok(result) = result {
             if let Value::Response(data) = result {
                 if data.committed {
@@ -1885,7 +1912,7 @@ impl<'a> LocalContext<'a> {
         }
     }
 
-    pub fn extend(&'a self) -> Result<LocalContext<'a>> {
+    pub fn extend(&'a self) -> InterpreterResult<LocalContext<'a>> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             Err(RuntimeErrorType::MaxContextDepthReached.into())
         } else {
@@ -1958,7 +1985,11 @@ impl CallStack {
         self.apply_depth -= 1;
     }
 
-    pub fn remove(&mut self, function: &FunctionIdentifier, tracked: bool) -> Result<()> {
+    pub fn remove(
+        &mut self,
+        function: &FunctionIdentifier,
+        tracked: bool,
+    ) -> InterpreterResult<()> {
         if let Some(removed) = self.stack.pop() {
             if removed != *function {
                 return Err(InterpreterError::InterpreterError(

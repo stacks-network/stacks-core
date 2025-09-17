@@ -18,14 +18,14 @@ use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType, ShortReturnType,
+    check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult, RuntimeErrorType,
+    ShortReturnType,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
 use crate::vm::{self, ClarityName, ClarityVersion, SymbolicExpression};
 
-fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
+fn inner_unwrap(to_unwrap: Value) -> InterpreterResult<Option<Value>> {
     let result = match to_unwrap {
         Value::Optional(data) => data.data.map(|data| *data),
         Value::Response(data) => {
@@ -41,7 +41,7 @@ fn inner_unwrap(to_unwrap: Value) -> Result<Option<Value>> {
     Ok(result)
 }
 
-fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>> {
+fn inner_unwrap_err(to_unwrap: Value) -> InterpreterResult<Option<Value>> {
     let result = match to_unwrap {
         Value::Response(data) => {
             if !data.committed {
@@ -56,35 +56,35 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>> {
     Ok(result)
 }
 
-pub fn native_unwrap(input: Value) -> Result<Value> {
+pub fn native_unwrap(input: Value) -> InterpreterResult<Value> {
     inner_unwrap(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
         None => Err(RuntimeErrorType::UnwrapFailure.into()),
     })
 }
 
-pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> Result<Value> {
+pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> InterpreterResult<Value> {
     inner_unwrap(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
         None => Err(ShortReturnType::ExpectedValue(Box::new(thrown)).into()),
     })
 }
 
-pub fn native_unwrap_err(input: Value) -> Result<Value> {
+pub fn native_unwrap_err(input: Value) -> InterpreterResult<Value> {
     inner_unwrap_err(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
         None => Err(RuntimeErrorType::UnwrapFailure.into()),
     })
 }
 
-pub fn native_unwrap_err_or_ret(input: Value, thrown: Value) -> Result<Value> {
+pub fn native_unwrap_err_or_ret(input: Value, thrown: Value) -> InterpreterResult<Value> {
     inner_unwrap_err(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
         None => Err(ShortReturnType::ExpectedValue(Box::new(thrown)).into()),
     })
 }
 
-pub fn native_try_ret(input: Value) -> Result<Value> {
+pub fn native_try_ret(input: Value) -> InterpreterResult<Value> {
     match input {
         Value::Optional(data) => match data.data {
             Some(data) => Ok(*data),
@@ -112,7 +112,7 @@ fn eval_with_new_binding(
     bind_value: Value,
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     let mut inner_context = context.extend()?;
     if vm::is_reserved(&bind_name, env.contract_context.get_clarity_version())
         || env.contract_context.lookup_function(&bind_name).is_some()
@@ -148,7 +148,7 @@ fn special_match_opt(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     if args.len() != 3 {
         Err(CheckErrors::BadMatchOptionSyntax(Box::new(
             CheckErrors::IncorrectArgumentCount(4, args.len() + 1),
@@ -173,7 +173,7 @@ fn special_match_resp(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     if args.len() != 4 {
         Err(CheckErrors::BadMatchResponseSyntax(Box::new(
             CheckErrors::IncorrectArgumentCount(5, args.len() + 1),
@@ -202,7 +202,7 @@ pub fn special_match(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> InterpreterResult<Value> {
     check_arguments_at_least(1, args)?;
 
     let input = vm::eval(&args[0], env, context)?;
@@ -216,49 +216,49 @@ pub fn special_match(
     }
 }
 
-pub fn native_some(input: Value) -> Result<Value> {
+pub fn native_some(input: Value) -> InterpreterResult<Value> {
     Value::some(input)
 }
 
-fn is_some(input: Value) -> Result<bool> {
+fn is_some(input: Value) -> InterpreterResult<bool> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
         _ => Err(CheckErrors::ExpectedOptionalValue(Box::new(input)).into()),
     }
 }
 
-fn is_okay(input: Value) -> Result<bool> {
+fn is_okay(input: Value) -> InterpreterResult<bool> {
     match input {
         Value::Response(data) => Ok(data.committed),
         _ => Err(CheckErrors::ExpectedResponseValue(Box::new(input)).into()),
     }
 }
 
-pub fn native_is_some(input: Value) -> Result<Value> {
+pub fn native_is_some(input: Value) -> InterpreterResult<Value> {
     is_some(input).map(Value::Bool)
 }
 
-pub fn native_is_none(input: Value) -> Result<Value> {
+pub fn native_is_none(input: Value) -> InterpreterResult<Value> {
     is_some(input).map(|is_some| Value::Bool(!is_some))
 }
 
-pub fn native_is_okay(input: Value) -> Result<Value> {
+pub fn native_is_okay(input: Value) -> InterpreterResult<Value> {
     is_okay(input).map(Value::Bool)
 }
 
-pub fn native_is_err(input: Value) -> Result<Value> {
+pub fn native_is_err(input: Value) -> InterpreterResult<Value> {
     is_okay(input).map(|is_ok| Value::Bool(!is_ok))
 }
 
-pub fn native_okay(input: Value) -> Result<Value> {
+pub fn native_okay(input: Value) -> InterpreterResult<Value> {
     Value::okay(input)
 }
 
-pub fn native_error(input: Value) -> Result<Value> {
+pub fn native_error(input: Value) -> InterpreterResult<Value> {
     Value::error(input)
 }
 
-pub fn native_default_to(default: Value, input: Value) -> Result<Value> {
+pub fn native_default_to(default: Value, input: Value) -> InterpreterResult<Value> {
     match input {
         Value::Optional(data) => match data.data {
             Some(data) => Ok(*data),

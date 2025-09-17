@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult,
     SyntaxBindingErrorType,
 };
 use crate::vm::eval;
@@ -108,7 +108,7 @@ pub enum DefineResult {
     NoDefine,
 }
 
-fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
+fn check_legal_define(name: &str, contract_context: &ContractContext) -> InterpreterResult<()> {
     if contract_context.is_name_used(name) {
         Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
     } else {
@@ -120,7 +120,7 @@ fn handle_define_variable(
     variable: &ClarityName,
     expression: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     // is the variable name legal?
     check_legal_define(variable, env.contract_context)?;
     let context = LocalContext::new();
@@ -133,7 +133,7 @@ fn handle_define_function(
     expression: &SymbolicExpression,
     env: &mut Environment,
     define_type: DefineType,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     let (function_symbol, arg_symbols) = signature
         .split_first()
         .ok_or(CheckErrors::DefineFunctionBadSignature)?;
@@ -171,7 +171,7 @@ fn handle_define_persisted_variable(
     value_type: &SymbolicExpression,
     value: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     check_legal_define(variable_str, env.contract_context)?;
 
     let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
@@ -190,7 +190,7 @@ fn handle_define_nonfungible_asset(
     asset_name: &ClarityName,
     key_type: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     check_legal_define(asset_name, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
@@ -205,7 +205,7 @@ fn handle_define_fungible_token(
     asset_name: &ClarityName,
     total_supply: Option<&SymbolicExpression>,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     check_legal_define(asset_name, env.contract_context)?;
 
     if let Some(total_supply_expr) = total_supply {
@@ -233,7 +233,7 @@ fn handle_define_map(
     key_type: &SymbolicExpression,
     value_type: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     check_legal_define(map_str, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
@@ -250,7 +250,7 @@ fn handle_define_trait(
     name: &ClarityName,
     functions: &[SymbolicExpression],
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     check_legal_define(name, env.contract_context)?;
 
     let trait_signature = TypeSignature::parse_trait_type_repr(
@@ -266,14 +266,14 @@ fn handle_define_trait(
 fn handle_use_trait(
     name: &ClarityName,
     trait_identifier: &TraitIdentifier,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     Ok(DefineResult::UseTrait(
         name.clone(),
         trait_identifier.clone(),
     ))
 }
 
-fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
+fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> InterpreterResult<DefineResult> {
     Ok(DefineResult::ImplTrait(trait_identifier.clone()))
 }
 
@@ -294,7 +294,7 @@ impl<'a> DefineFunctionsParsed<'a> {
     /// a define-statement, returns None if the supplied expression is not a define.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
-    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
+    ) -> Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None),
@@ -414,7 +414,7 @@ impl<'a> DefineFunctionsParsed<'a> {
 pub fn evaluate_define(
     expression: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> InterpreterResult<DefineResult> {
     if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
         match define_type {
             DefineFunctionsParsed::Constant { name, value } => {
