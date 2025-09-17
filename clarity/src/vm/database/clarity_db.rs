@@ -24,7 +24,7 @@ use stacks_common::types::chainstate::{
     TrieHash, VRFSeed,
 };
 use stacks_common::types::{StacksEpoch as GenericStacksEpoch, StacksEpochId};
-use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, to_hex};
+use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
@@ -43,8 +43,8 @@ use crate::vm::errors::{
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
 use crate::vm::types::{
-    PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, TypeSignature,
-    Value, byte_len_of_serialization,
+    byte_len_of_serialization, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+    TupleData, TypeSignature, Value,
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
@@ -148,7 +148,7 @@ pub trait HeadersDB {
         epoch: &StacksEpochId,
     ) -> Option<BlockHeaderHash>;
     fn get_burn_header_hash_for_block(&self, id_bhh: &StacksBlockId)
-    -> Option<BurnchainHeaderHash>;
+        -> Option<BurnchainHeaderHash>;
     fn get_consensus_hash_for_block(
         &self,
         id_bhh: &StacksBlockId,
