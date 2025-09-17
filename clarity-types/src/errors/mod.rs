@@ -73,33 +73,60 @@ pub enum InterpreterError {
 ///   to be able to trigger during execution (e.g., arithmetic errors)
 #[derive(Debug, PartialEq)]
 pub enum RuntimeError {
+    /// A generic arithmetic error with a descriptive message.
     Arithmetic(String),
+    /// An arithmetic operation exceeded the maximum value for the data type (e.g., u128).
     ArithmeticOverflow,
+    /// An arithmetic operation resulted in a value below zero for an unsigned type.
     ArithmeticUnderflow,
+    /// Attempt to increase token supply beyond the maximum limit.
+    /// The parameters represent the current supply and the attempted increase.
     SupplyOverflow(u128, u128),
+    /// Attempt to decrease token supply below zero.
+    /// The parameters represent the current supply and the attempted decrease.
     SupplyUnderflow(u128, u128),
+    /// Attempt to divide or compute modulo by zero.
     DivisionByZero,
-    // error in parsing types
+    /// Failure to parse types dynamically during execution.
+    /// The string describes the specific parsing issue, such as invalid data formats.
     ParseError(String),
-    // error in parsing the AST
+    /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
+    /// Wraps a detailed `ParseError` for issues in code interpretation.
     ASTError(Box<ParseError>),
+    /// The call stack exceeded the virtual machine's maximum depth.
     MaxStackDepthReached,
+    /// The execution context depth exceeded the virtual machine's limit.
     MaxContextDepthReached,
+    /// Attempt to construct an invalid or unsupported type at runtime.
     BadTypeConstruction,
+    /// Reference to an invalid or out-of-bounds block height.
+    /// The string details the issue, such as querying a future block.
     BadBlockHeight(String),
+    /// Attempt to interact with a non-existent token (e.g., in NFT or fungible token operations).
     NoSuchToken,
+    /// Feature or function not yet implemented in the virtual machine.
     NotImplemented,
+    /// No caller principal available in the current execution context.
     NoCallerInContext,
+    /// No sender principal available in the current execution context.
     NoSenderInContext,
+    /// Invalid name-value pair in contract data (e.g., map keys).
+    /// The static string specifies the name, and the dynamic string provides the offending value.
     BadNameValue(&'static str, String),
+    /// Reference to a non-existent block header hash.
     UnknownBlockHeaderHash(BlockHeaderHash),
+    /// Invalid block hash provided (e.g., incorrect format or length).
+    /// The byte vector contains the invalid hash data.
     BadBlockHash(Vec<u8>),
+    /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
     UnwrapFailure,
+    /// Attempt to set metadata already initialized (e.g., for NFTs or tokens).
     MetadataAlreadySet,
-    // pox-locking errors
+    /// Interaction with a deprecated or inactive Proof of Transfer (PoX) contract.
     DefunctPoxContract,
+    /// Attempt to lock STX for stacking when already locked in an active PoX cycle.
     PoxAlreadyLocked,
-
+    /// Block time unavailable during execution.
     BlockTimeNotAvailable,
 }
 
