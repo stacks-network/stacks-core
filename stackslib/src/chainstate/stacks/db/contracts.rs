@@ -32,7 +32,7 @@ impl StacksChainState {
             .with_clarity_db_readonly(|ref mut db| match db.get_contract(contract_id) {
                 Ok(c) => Ok(Some(c)),
                 Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchContract(_))) => Ok(None),
-                Err(e) => Err(clarity_error::Interpreter(e)),
+                Err(e) => Err(ClarityError::Interpreter(e)),
             })
             .map_err(Error::ClarityError)
     }
@@ -50,7 +50,7 @@ impl StacksChainState {
                     Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => {
                         Ok(None)
                     }
-                    Err(e) => Err(clarity_error::Interpreter(e)),
+                    Err(e) => Err(ClarityError::Interpreter(e)),
                 }
             })
             .map_err(Error::ClarityError)
