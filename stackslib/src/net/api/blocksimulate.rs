@@ -19,6 +19,7 @@ use clarity::vm::Value;
 use regex::{Captures, Regex};
 use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
+use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
@@ -34,7 +35,7 @@ use crate::net::http::{
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
-use crate::net::{Error as NetError, StacksNodeState};
+use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 
 #[derive(Clone)]
 pub struct RPCNakamotoBlockSimulateRequestHandler {
@@ -191,8 +192,6 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     _ => None,
                 });
 
-                // let (block_fees, txs_receipts) = chainstate
-                //     .with_simulated_clarity_tx(&burn_dbconn, &parent_block_id, &block_id, |_| {
                 let parent_stacks_header =
                     NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)
                         .unwrap()
@@ -269,6 +268,7 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     valid: block.header.state_index_root == simulated_block.header.state_index_root
                         && tx_merkle_root == simulated_block.header.tx_merkle_root,
                 };
+
                 for receipt in txs_receipts {
                     let events = receipt
                         .events
@@ -328,6 +328,19 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
     }
 }
 
+impl StacksHttpRequest {
+    /// Make a new block_simulate request to this endpoint
+    pub fn new_block_simulate(host: PeerHost, block_id: &StacksBlockId) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            host,
+            "GET".into(),
+            format!("/v3/blocks/simulate/{block_id}"),
+            HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
+    }
+}
+
 /// Decode the HTTP response
 impl HttpResponse for RPCNakamotoBlockSimulateRequestHandler {
     /// Decode this response from a byte stream.  This is called by the client to decode this
@@ -339,5 +352,15 @@ impl HttpResponse for RPCNakamotoBlockSimulateRequestHandler {
     ) -> Result<HttpResponsePayload, Error> {
         let bytes = parse_bytes(preamble, body, MAX_MESSAGE_LEN.into())?;
         Ok(HttpResponsePayload::Bytes(bytes))
+    }
+}
+
+impl StacksHttpResponse {
+    pub fn decode_simulated_block(self) -> Result<RPCSimulatedBlock, NetError> {
+        let contents = self.get_http_payload_ok()?;
+        let response_json: serde_json::Value = contents.try_into()?;
+        let simulated_block: RPCSimulatedBlock = serde_json::from_value(response_json)
+            .map_err(|_e| Error::DecodeError("Failed to decode JSON".to_string()))?;
+        Ok(simulated_block)
     }
 }
