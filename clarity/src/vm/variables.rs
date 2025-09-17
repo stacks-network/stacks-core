@@ -21,7 +21,7 @@ use super::errors::InterpreterError;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{InterpreterResult, RuntimeErrorType};
+use crate::vm::errors::{RuntimeErrorType, VmExecutionResult};
 use crate::vm::types::Value;
 use crate::vm::ClarityVersion;
 
@@ -52,7 +52,7 @@ pub fn lookup_reserved_variable(
     name: &str,
     _context: &LocalContext,
     env: &mut Environment,
-) -> InterpreterResult<Option<Value>> {
+) -> VmExecutionResult<Option<Value>> {
     if let Some(variable) =
         NativeVariables::lookup_by_name_at_version(name, env.contract_context.get_clarity_version())
     {

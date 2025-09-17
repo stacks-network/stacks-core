@@ -17,12 +17,12 @@
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_arguments_at_least, CheckErrors, InterpreterResult};
+use crate::vm::errors::{check_arguments_at_least, CheckErrors, VmExecutionResult};
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TypeSignature, Value};
 
-fn type_force_bool(value: &Value) -> InterpreterResult<bool> {
+fn type_force_bool(value: &Value) -> VmExecutionResult<bool> {
     match *value {
         Value::Bool(boolean) => Ok(boolean),
         _ => Err(CheckErrors::TypeValueError(
@@ -37,7 +37,7 @@ pub fn special_or(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     check_arguments_at_least(1, args)?;
 
     runtime_cost(ClarityCostFunction::Or, env, args.len())?;
@@ -57,7 +57,7 @@ pub fn special_and(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     check_arguments_at_least(1, args)?;
 
     runtime_cost(ClarityCostFunction::And, env, args.len())?;
@@ -73,7 +73,7 @@ pub fn special_and(
     Ok(Value::Bool(true))
 }
 
-pub fn native_not(input: Value) -> InterpreterResult<Value> {
+pub fn native_not(input: Value) -> VmExecutionResult<Value> {
     let value = type_force_bool(&input)?;
     Ok(Value::Bool(!value))
 }

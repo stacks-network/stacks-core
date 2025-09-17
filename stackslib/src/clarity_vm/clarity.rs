@@ -28,7 +28,7 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
     RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use clarity::vm::errors::{Error as InterpreterError, InterpreterResult};
+use clarity::vm::errors::{Error as InterpreterError, VmExecutionResult};
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
@@ -187,7 +187,7 @@ pub trait ClarityMarfStoreTransaction {
     /// It can later be deleted via `drop_metadata_for()` if given the same taret.
     /// Returns Ok(()) on success
     /// Returns Err(..) on error
-    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()>;
+    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> VmExecutionResult<()>;
 
     /// Drop metadata for a particular block trie that was stored previously via `commit_metadata_to()`.
     /// This function is idempotent.
@@ -195,7 +195,7 @@ pub trait ClarityMarfStoreTransaction {
     /// Returns Ok(()) if the metadata for the trie identified by `target` was dropped.
     /// It will be possible to insert it again afterwards.
     /// Returns Err(..) if the metadata was not successfully dropped.
-    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()>;
+    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> VmExecutionResult<()>;
 
     /// Compute the ID of the trie being built.
     /// In Stacks, this will only be called once all key/value pairs are inserted (and will only be
@@ -212,7 +212,7 @@ pub trait ClarityMarfStoreTransaction {
     /// Returns Ok(()) on successful deletion of the data
     /// Returns Err(..) if the deletion failed (this usually isn't recoverable, but recovery is up
     /// to the caller)
-    fn drop_unconfirmed(self) -> InterpreterResult<()>;
+    fn drop_unconfirmed(self) -> VmExecutionResult<()>;
 
     /// Store the processed block's trie that this transaction was creating.
     /// The trie's ID must be `target`, so that subsequent tries can be built on it (and so that
@@ -221,7 +221,7 @@ pub trait ClarityMarfStoreTransaction {
     ///
     /// Returns Ok(()) if the block trie was successfully persisted.
     /// Returns Err(..) if there was an error in trying to persist this block trie.
-    fn commit_to_processed_block(self, target: &StacksBlockId) -> InterpreterResult<()>;
+    fn commit_to_processed_block(self, target: &StacksBlockId) -> VmExecutionResult<()>;
 
     /// Store a mined block's trie that this transaction was creating.
     /// This function is distinct from `commit_to_processed_block()` in that the stored block will
@@ -230,7 +230,7 @@ pub trait ClarityMarfStoreTransaction {
     ///
     /// Returns Ok(()) if the block trie was successfully persisted.
     /// Returns Err(..) if there was an error trying to persist this MARF trie.
-    fn commit_to_mined_block(self, target: &StacksBlockId) -> InterpreterResult<()>;
+    fn commit_to_mined_block(self, target: &StacksBlockId) -> VmExecutionResult<()>;
 
     /// Persist the unconfirmed state trie so that other parts of the Stacks node can read from it
     /// (such as to handle pending transactions or process RPC requests on it).

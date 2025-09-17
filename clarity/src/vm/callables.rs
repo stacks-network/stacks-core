@@ -28,7 +28,7 @@ use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, Error, InterpreterResult};
+use crate::vm::errors::{check_argument_count, Error, VmExecutionResult};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
@@ -47,7 +47,7 @@ pub enum CallableType {
         &'static str,
         NativeHandle,
         ClarityCostFunction,
-        &'static dyn Fn(&[Value]) -> InterpreterResult<u64>,
+        &'static dyn Fn(&[Value]) -> VmExecutionResult<u64>,
     ),
     SpecialFunction(
         &'static str,
@@ -55,7 +55,7 @@ pub enum CallableType {
             &[SymbolicExpression],
             &mut Environment,
             &LocalContext,
-        ) -> InterpreterResult<Value>,
+        ) -> VmExecutionResult<Value>,
     ),
 }
 
@@ -80,14 +80,14 @@ pub struct DefinedFunction {
 /// implementing a native function. Each variant handles
 /// different expected number of arguments.
 pub enum NativeHandle {
-    SingleArg(&'static dyn Fn(Value) -> InterpreterResult<Value>),
-    DoubleArg(&'static dyn Fn(Value, Value) -> InterpreterResult<Value>),
-    MoreArg(&'static dyn Fn(Vec<Value>) -> InterpreterResult<Value>),
-    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> InterpreterResult<Value>),
+    SingleArg(&'static dyn Fn(Value) -> VmExecutionResult<Value>),
+    DoubleArg(&'static dyn Fn(Value, Value) -> VmExecutionResult<Value>),
+    MoreArg(&'static dyn Fn(Vec<Value>) -> VmExecutionResult<Value>),
+    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> VmExecutionResult<Value>),
 }
 
 impl NativeHandle {
-    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> InterpreterResult<Value> {
+    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> VmExecutionResult<Value> {
         match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
@@ -112,7 +112,7 @@ impl NativeHandle {
     }
 }
 
-pub fn cost_input_sized_vararg(args: &[Value]) -> InterpreterResult<u64> {
+pub fn cost_input_sized_vararg(args: &[Value]) -> VmExecutionResult<u64> {
     args.iter()
         .try_fold(0, |sum, value| {
             (value
@@ -143,7 +143,7 @@ impl DefinedFunction {
         }
     }
 
-    pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> InterpreterResult<Value> {
+    pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> VmExecutionResult<Value> {
         runtime_cost(
             ClarityCostFunction::UserFunctionApplication,
             env,
@@ -309,7 +309,7 @@ impl DefinedFunction {
         epoch: &StacksEpochId,
         contract_defining_trait: &ContractContext,
         trait_identifier: &TraitIdentifier,
-    ) -> InterpreterResult<()> {
+    ) -> VmExecutionResult<()> {
         let trait_name = trait_identifier.name.to_string();
         let constraining_trait = contract_defining_trait
             .lookup_trait_definition(&trait_name)
@@ -336,7 +336,7 @@ impl DefinedFunction {
         self.define_type == DefineType::ReadOnly
     }
 
-    pub fn apply(&self, args: &[Value], env: &mut Environment) -> InterpreterResult<Value> {
+    pub fn apply(&self, args: &[Value], env: &mut Environment) -> VmExecutionResult<Value> {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),
             DefineType::Public => env.execute_function_as_transaction(self, args, None, false),
@@ -393,7 +393,7 @@ impl CallableType {
 // recursing into compound types. This function does not check for legality of
 // these casts, as that is done in the type-checker. Note: depth of recursion
 // should be capped by earlier checks on the types/values.
-fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> InterpreterResult<Value> {
+fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> VmExecutionResult<Value> {
     Ok(match (type_sig, value) {
         (
             TypeSignature::OptionalType(inner_type),

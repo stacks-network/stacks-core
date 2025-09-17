@@ -18,7 +18,7 @@ use clarity_types::types::serialization::SerializationError;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterError, InterpreterResult};
+use crate::vm::errors::{check_argument_count, CheckErrors, InterpreterError, VmExecutionResult};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::TO_ASCII_MAX_BUFF;
 use crate::vm::types::SequenceSubtype::BufferType;
@@ -48,7 +48,7 @@ pub fn buff_to_int_generic(
     value: Value,
     direction: EndianDirection,
     conversion_fn: fn([u8; 16]) -> Value,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     match value {
         Value::Sequence(SequenceData::Buffer(ref sequence_data)) => {
             if sequence_data.len()?
@@ -92,7 +92,7 @@ pub fn buff_to_int_generic(
     }
 }
 
-pub fn native_buff_to_int_le(value: Value) -> InterpreterResult<Value> {
+pub fn native_buff_to_int_le(value: Value) -> VmExecutionResult<Value> {
     fn convert_to_int_le(buffer: [u8; 16]) -> Value {
         let value = i128::from_le_bytes(buffer);
         Value::Int(value)
@@ -100,7 +100,7 @@ pub fn native_buff_to_int_le(value: Value) -> InterpreterResult<Value> {
     buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_int_le)
 }
 
-pub fn native_buff_to_uint_le(value: Value) -> InterpreterResult<Value> {
+pub fn native_buff_to_uint_le(value: Value) -> VmExecutionResult<Value> {
     fn convert_to_uint_le(buffer: [u8; 16]) -> Value {
         let value = u128::from_le_bytes(buffer);
         Value::UInt(value)
@@ -109,7 +109,7 @@ pub fn native_buff_to_uint_le(value: Value) -> InterpreterResult<Value> {
     buff_to_int_generic(value, EndianDirection::LittleEndian, convert_to_uint_le)
 }
 
-pub fn native_buff_to_int_be(value: Value) -> InterpreterResult<Value> {
+pub fn native_buff_to_int_be(value: Value) -> VmExecutionResult<Value> {
     fn convert_to_int_be(buffer: [u8; 16]) -> Value {
         let value = i128::from_be_bytes(buffer);
         Value::Int(value)
@@ -117,7 +117,7 @@ pub fn native_buff_to_int_be(value: Value) -> InterpreterResult<Value> {
     buff_to_int_generic(value, EndianDirection::BigEndian, convert_to_int_be)
 }
 
-pub fn native_buff_to_uint_be(value: Value) -> InterpreterResult<Value> {
+pub fn native_buff_to_uint_be(value: Value) -> VmExecutionResult<Value> {
     fn convert_to_uint_be(buffer: [u8; 16]) -> Value {
         let value = u128::from_be_bytes(buffer);
         Value::UInt(value)
@@ -131,8 +131,8 @@ pub fn native_buff_to_uint_be(value: Value) -> InterpreterResult<Value> {
 //   either a Int or UInt, depending on the desired result.
 pub fn native_string_to_int_generic(
     value: Value,
-    string_to_value_fn: fn(String) -> InterpreterResult<Value>,
-) -> InterpreterResult<Value> {
+    string_to_value_fn: fn(String) -> VmExecutionResult<Value>,
+) -> VmExecutionResult<Value> {
     match value {
         Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) => {
             match String::from_utf8(data) {
@@ -158,7 +158,7 @@ pub fn native_string_to_int_generic(
     }
 }
 
-fn safe_convert_string_to_int(raw_string: String) -> InterpreterResult<Value> {
+fn safe_convert_string_to_int(raw_string: String) -> VmExecutionResult<Value> {
     let possible_int = raw_string.parse::<i128>();
     match possible_int {
         Ok(val) => Value::some(Value::Int(val)),
@@ -166,11 +166,11 @@ fn safe_convert_string_to_int(raw_string: String) -> InterpreterResult<Value> {
     }
 }
 
-pub fn native_string_to_int(value: Value) -> InterpreterResult<Value> {
+pub fn native_string_to_int(value: Value) -> VmExecutionResult<Value> {
     native_string_to_int_generic(value, safe_convert_string_to_int)
 }
 
-fn safe_convert_string_to_uint(raw_string: String) -> InterpreterResult<Value> {
+fn safe_convert_string_to_uint(raw_string: String) -> VmExecutionResult<Value> {
     let possible_int = raw_string.parse::<u128>();
     match possible_int {
         Ok(val) => Value::some(Value::UInt(val)),
@@ -178,7 +178,7 @@ fn safe_convert_string_to_uint(raw_string: String) -> InterpreterResult<Value> {
     }
 }
 
-pub fn native_string_to_uint(value: Value) -> InterpreterResult<Value> {
+pub fn native_string_to_uint(value: Value) -> VmExecutionResult<Value> {
     native_string_to_int_generic(value, safe_convert_string_to_uint)
 }
 
@@ -188,8 +188,8 @@ pub fn native_string_to_uint(value: Value) -> InterpreterResult<Value> {
 //   either an ASCII or UTF8 string, depending on the desired result.
 pub fn native_int_to_string_generic(
     value: Value,
-    bytes_to_value_fn: fn(bytes: Vec<u8>) -> InterpreterResult<Value>,
-) -> InterpreterResult<Value> {
+    bytes_to_value_fn: fn(bytes: Vec<u8>) -> VmExecutionResult<Value>,
+) -> VmExecutionResult<Value> {
     match value {
         Value::Int(ref int_value) => {
             let as_string = int_value.to_string();
@@ -211,19 +211,19 @@ pub fn native_int_to_string_generic(
     }
 }
 
-pub fn native_int_to_ascii(value: Value) -> InterpreterResult<Value> {
+pub fn native_int_to_ascii(value: Value) -> VmExecutionResult<Value> {
     // Given an integer, convert this to Clarity ASCII value.
     native_int_to_string_generic(value, Value::string_ascii_from_bytes)
 }
 
-pub fn native_int_to_utf8(value: Value) -> InterpreterResult<Value> {
+pub fn native_int_to_utf8(value: Value) -> VmExecutionResult<Value> {
     // Given an integer, convert this to Clarity UTF8 value.
     native_int_to_string_generic(value, Value::string_utf8_from_bytes)
 }
 
 /// Helper function to convert a string to ASCII and wrap in Ok response
 /// This should only fail due to system errors, not conversion failures
-fn convert_string_to_ascii_ok(s: String) -> InterpreterResult<Value> {
+fn convert_string_to_ascii_ok(s: String) -> VmExecutionResult<Value> {
     let ascii_value = Value::string_ascii_from_bytes(s.into_bytes()).map_err(|_| {
         InterpreterError::Expect("Unexpected error converting string to ASCII".into())
     })?;
@@ -231,7 +231,7 @@ fn convert_string_to_ascii_ok(s: String) -> InterpreterResult<Value> {
 }
 
 /// Helper function for UTF8 conversion that can return err u1 for non-ASCII characters
-fn convert_utf8_to_ascii(s: String) -> InterpreterResult<Value> {
+fn convert_utf8_to_ascii(s: String) -> VmExecutionResult<Value> {
     match Value::string_ascii_from_bytes(s.into_bytes()) {
         Ok(ascii_value) => Value::okay(ascii_value),
         Err(_) => Ok(Value::err_uint(1)), // Non-ASCII characters in UTF8
@@ -242,7 +242,7 @@ pub fn special_to_ascii(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(1, args)?;
 
     let value = eval(&args[0], env, context)?;
@@ -287,7 +287,7 @@ pub fn special_to_ascii(
 /// Returns `value` consensus serialized into a `(optional buff)` object.
 /// If the value cannot fit as serialized into the maximum buffer size,
 /// this returns `none`, otherwise, it will be `(some consensus-serialized-buffer)`
-pub fn to_consensus_buff(value: Value) -> InterpreterResult<Value> {
+pub fn to_consensus_buff(value: Value) -> VmExecutionResult<Value> {
     let mut clar_buff_serialized = vec![];
     value
         .serialize_write(&mut clar_buff_serialized)
@@ -311,7 +311,7 @@ pub fn from_consensus_buff(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
 
     let type_arg = TypeSignature::parse_type_repr(*env.epoch(), &args[0], env)?;

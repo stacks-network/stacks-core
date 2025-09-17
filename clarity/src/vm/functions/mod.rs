@@ -20,8 +20,8 @@ use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, Error, InterpreterResult,
-    ShortReturnType, SyntaxBindingError, SyntaxBindingErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrors, Error, ShortReturnType,
+    SyntaxBindingError, SyntaxBindingErrorType, VmExecutionResult,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -35,7 +35,7 @@ macro_rules! switch_on_global_epoch {
             args: &[SymbolicExpression],
             env: &mut Environment,
             context: &LocalContext,
-        ) -> InterpreterResult<Value> {
+        ) -> VmExecutionResult<Value> {
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")
@@ -572,7 +572,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
     }
 }
 
-fn native_eq(args: Vec<Value>, env: &mut Environment) -> InterpreterResult<Value> {
+fn native_eq(args: Vec<Value>, env: &mut Environment) -> VmExecutionResult<Value> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -597,7 +597,7 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> InterpreterResult<Value
     }
 }
 
-fn native_begin(mut args: Vec<Value>) -> InterpreterResult<Value> {
+fn native_begin(mut args: Vec<Value>) -> VmExecutionResult<Value> {
     match args.pop() {
         Some(v) => Ok(v),
         None => Err(CheckErrors::RequiresAtLeastArguments(1, 0).into()),
@@ -608,7 +608,7 @@ fn special_print(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     let arg = args.first().ok_or_else(|| {
         InterpreterError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
@@ -628,7 +628,7 @@ fn special_if(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::If, env, 0)?;
@@ -654,7 +654,7 @@ fn special_asserts(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::Asserts, env, 0)?;
@@ -719,7 +719,7 @@ pub fn parse_eval_bindings(
     binding_error_type: SyntaxBindingErrorType,
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Vec<(ClarityName, Value)>> {
+) -> VmExecutionResult<Vec<(ClarityName, Value)>> {
     let mut result = Vec::with_capacity(bindings.len());
     handle_binding_list(bindings, binding_error_type, |var_name, var_sexp| {
         eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
@@ -732,7 +732,7 @@ fn special_let(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1..n => body
@@ -785,7 +785,7 @@ fn special_as_contract(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     // (as-contract (..))
     // arg0 => body
     check_argument_count(1, args)?;
@@ -812,7 +812,7 @@ fn special_contract_of(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> VmExecutionResult<Value> {
     // (contract-of (..))
     // arg0 => trait
     check_argument_count(1, args)?;

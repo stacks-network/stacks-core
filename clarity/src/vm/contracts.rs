@@ -18,7 +18,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{ContractContext, GlobalContext};
-use crate::vm::errors::InterpreterResult;
+use crate::vm::errors::VmExecutionResult;
 use crate::vm::eval_all;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::version::ClarityVersion;
@@ -37,7 +37,7 @@ impl Contract {
         sponsor: Option<PrincipalData>,
         global_context: &mut GlobalContext,
         version: ClarityVersion,
-    ) -> InterpreterResult<Contract> {
+    ) -> VmExecutionResult<Contract> {
         let mut contract_context = ContractContext::new(contract_identifier, version);
 
         eval_all(
