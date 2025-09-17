@@ -25,74 +25,135 @@ use crate::token::Token;
 pub type ParseResult<T> = Result<T, ParseError>;
 
 #[derive(Debug, PartialEq)]
+/// Errors encountered during the lexical and syntactic analysis of Clarity source code
+/// when constructing the abstract syntax tree (AST).
 pub enum ParseErrorKind {
-    // Cost errors
+    // Cost-related errors
+    /// Arithmetic overflow in cost computation during AST construction, exceeding the maximum threshold.
     CostOverflow,
+    /// Cumulative parsing cost exceeds the allocated budget, indicating budget depletion rather than an overflow.
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
+    /// Memory usage during AST construction exceeds the allocated memory budget.
     MemoryBalanceExceeded(u64, u64),
+    /// Failure in the cost-tracking mechanism due to an unexpected condition or invalid state.
     CostComputationFailed(String),
+    /// Parsing time exceeds the allowed budget, halting AST construction to ensure responsiveness.
     ExecutionTimeExpired,
 
+    // Structural errors
+    /// Number of expressions exceeds the maximum allowed limit.
     TooManyExpressions,
+    /// Nesting depth of expressions exceeds the allowed stack depth limit.
     ExpressionStackDepthTooDeep,
+    /// Nesting depth of expressions exceeds the allowed stack depth limit.
     VaryExpressionStackDepthTooDeep,
+
+    // Semantic errors
+    /// Failed to parse a string into an integer literal.
     FailedParsingIntValue(String),
+    /// Circular reference detected in interdependent function definitions.
     CircularReference(Vec<String>),
+    /// Variable name is already in use within the same scope.
     NameAlreadyUsed(String),
+    /// Attempt to store a trait reference, which is prohibited to ensure type safety and deterministic execution.
     TraitReferenceNotAllowed,
+    /// Invalid or malformed signature in a `(use-trait ...)` expression.
     ImportTraitBadSignature,
+    /// Invalid or malformed signature in a `(define-trait ...)` expression.
     DefineTraitBadSignature,
+    /// Invalid or malformed signature in a `(impl-trait ...)` expression.
     ImplTraitBadSignature,
+    /// Referenced trait does not exist or cannot be found.
     TraitReferenceUnknown(String),
 
-    // V1 errors
+    // V1 Errors
+    /// Failed to capture an expected substring or value during pattern matching in lexical analysis.
     FailedCapturingInput,
+    /// Expected a whitespace or a close parentheses but found an unexpected token or character.
     SeparatorExpected(String),
+    /// Expected a whitespace after a colon, but found an unexpected token.
     SeparatorExpectedAfterColon(String),
+    /// Input program exceeds the maximum allowed number of lines.
     ProgramTooLarge,
+    /// Variable name contains invalid characters or violates naming rules.
     IllegalVariableName(String),
+    /// Failed to parse a string into a buffer literal.
     FailedParsingBuffer(String),
+    /// Failed to parse a string into a hexadecimal value, with the input string and error details.
     FailedParsingHexValue(String, String),
+    /// Failed to parse a string into a principal literal (e.g., invalid principal format).
     FailedParsingPrincipal(String),
+    /// Failed to parse a string into a valid field literal.
     FailedParsingField(String),
+    /// Failed to parse the remaining input after processing a construct, leaving invalid or unexpected tokens.
     FailedParsingRemainder(String),
+    /// Unexpected closing parenthesis encountered in the input.
     ClosingParenthesisUnexpected,
+    /// Expected a closing parenthesis but found another token or end of input.
     ClosingParenthesisExpected,
+    /// Unexpected closing brace for a tuple literal encountered in the input.
     ClosingTupleLiteralUnexpected,
+    /// Expected a closing brace for a tuple literal but it was missing.
     ClosingTupleLiteralExpected,
+    /// Expected a colon in a tuple literal at the specified position, but it was missing.
     TupleColonExpected(usize),
+    /// Expected a comma in a tuple literal at the specified position, but it was missing.
     TupleCommaExpected(usize),
+    /// Expected a tuple item (e.g., key-value pair) at the specified position, but it was missing or invalid.
     TupleItemExpected(usize),
+    /// Unexpected comma separator encountered outside a valid list or tuple context.
     CommaSeparatorUnexpected,
+    /// Unexpected colon separator encountered.
     ColonSeparatorUnexpected,
+    /// Input contains invalid or disallowed characters.
     InvalidCharactersDetected,
+    /// Invalid escape sequence in a string literal (e.g., incorrect use of `\`).
     InvalidEscaping,
 
     // V2 Errors
+    /// Lexical analysis failed due to an underlying lexer error.
     Lexer(LexerError),
+    /// Contract name exceeds the maximum allowed length.
     ContractNameTooLong(String),
+    /// Expected a specific closing token (e.g., parenthesis or brace) but found another token.
     ExpectedClosing(Token),
+    /// Expected a contract identifier (e.g., `.contract-name`) but found an invalid or missing token.
     ExpectedContractIdentifier,
+    /// Expected a trait identifier (e.g., `.trait-name`) but found an invalid or missing token.
     ExpectedTraitIdentifier,
+    /// Expected whitespace to separate tokens but found an unexpected token or character.
     ExpectedWhitespace,
+    /// Failed to parse a string into an unsigned integer literal.
     FailedParsingUIntValue(String),
+    /// Trait name contains invalid characters or violates naming rules.
     IllegalTraitName(String),
+    /// Invalid principal literal format, preventing parsing into a valid principal.
     InvalidPrincipalLiteral,
+    /// Invalid buffer literal format, preventing parsing into a valid buffer.
     InvalidBuffer,
+    /// Name (e.g., variable or function) exceeds the maximum allowed length.
     NameTooLong(String),
+    /// Encountered an unexpected token during parsing.
     UnexpectedToken(Token),
+    /// Expected a colon in a tuple literal (version 2 syntax) but it was missing.
     TupleColonExpectedv2,
+    /// Expected a comma in a tuple literal (version 2 syntax) but it was missing.
     TupleCommaExpectedv2,
+    /// Expected a value in a tuple literal but it was missing or invalid.
     TupleValueExpected,
+    /// Clarity name (e.g., variable, function, or trait) contains invalid characters or violates naming rules.
     IllegalClarityName(String),
+    /// ASCII string literal contains invalid characters or violates format rules.
     IllegalASCIIString(String),
+    /// Contract name contains invalid characters or violates naming rules.
     IllegalContractName(String),
-    // Notes
-    NoteToMatchThis(Token),
-    /// Should be an unreachable error
-    UnexpectedParserFailure,
 
-    /// Should be an unreachable failure which invalidates the transaction
+    // Notes
+    /// Indicates a token mismatch, used for internal parser diagnostics to match a specific token.
+    NoteToMatchThis(Token),
+    /// Unreachable error indicating an unexpected parser failure; should never occur in valid execution.
+    UnexpectedParserFailure,
+    /// Unreachable failure indicating an invalid transaction due to an unexpected interpreter error.
     InterpreterFailure,
 }
 
