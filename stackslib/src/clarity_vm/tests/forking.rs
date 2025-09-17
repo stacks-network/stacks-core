@@ -17,7 +17,7 @@
 use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
+use clarity::vm::errors::{InterpreterResult as Result, RuntimeErrorType, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
@@ -189,7 +189,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             let resp = branch(x, version, 1, "reset").unwrap_err();
             eprintln!("{}", resp);
             match resp {
-                Error::Runtime(x, _) => assert_eq!(
+                VmExecutionError::Runtime(x, _) => assert_eq!(
                     x,
                     RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
                         vec![2; 32].as_slice()
@@ -225,7 +225,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
             .unwrap();
     }
 
-    fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
+    fn initialize_2(owned_env: &mut OwnedEnvironment) -> VmExecutionError {
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract = "(define-private (problematic-cc)

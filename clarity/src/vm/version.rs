@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::errors::{Error, RuntimeErrorType};
+use crate::vm::errors::{RuntimeErrorType, VmExecutionError};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum ClarityVersion {
@@ -51,9 +51,9 @@ impl ClarityVersion {
 }
 
 impl FromStr for ClarityVersion {
-    type Err = Error;
+    type Err = VmExecutionError;
 
-    fn from_str(version: &str) -> Result<ClarityVersion, Error> {
+    fn from_str(version: &str) -> Result<ClarityVersion, VmExecutionError> {
         let s = version.to_string().to_lowercase();
         if s == "clarity1" {
             Ok(ClarityVersion::Clarity1)

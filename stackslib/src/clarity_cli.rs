@@ -51,7 +51,7 @@ use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
+use crate::clarity::vm::errors::{InterpreterResult, RuntimeErrorType, VmExecutionError};
 use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
@@ -149,7 +149,7 @@ fn parse(
     contract_identifier: &QualifiedContractIdentifier,
     source_code: &str,
     clarity_version: ClarityVersion,
-) -> Result<Vec<SymbolicExpression>, Error> {
+) -> Result<Vec<SymbolicExpression>, VmExecutionError> {
     let ast = build_ast_with_rules(
         contract_identifier,
         source_code,
@@ -442,7 +442,10 @@ where
 
 /// Execute program in a transient environment. To be used only by CLI tools
 ///  for program evaluation, not by consensus critical code.
-pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Option<Value>, Error> {
+pub fn vm_execute(
+    program: &str,
+    clarity_version: ClarityVersion,
+) -> Result<Option<Value>, VmExecutionError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
@@ -784,13 +787,13 @@ fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
             let mut buffer = String::new();
             friendly_expect(
                 io::stdin().read_to_string(&mut buffer),
-                "Error reading from stdin.",
+                "VmExecutionError reading from stdin.",
             );
             buffer
         } else {
             friendly_expect(
                 fs::read_to_string(&args[2]),
-                &format!("Error reading file: {}", args[2]),
+                &format!("VmExecutionError reading file: {}", args[2]),
             )
         }
     };
@@ -1004,13 +1007,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let mut buffer = String::new();
                     friendly_expect(
                         io::stdin().read_to_string(&mut buffer),
-                        "Error reading from stdin.",
+                        "VmExecutionError reading from stdin.",
                     );
                     buffer
                 } else {
                     friendly_expect(
                         fs::read_to_string(filename),
-                        &format!("Error reading file: {}", filename),
+                        &format!("VmExecutionError reading file: {}", filename),
                     )
                 };
                 let allocations: Vec<InitialAllocation> =
@@ -1121,7 +1124,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     .map(|optarg_str| {
                         friendly_expect(
                             QualifiedContractIdentifier::parse(&optarg_str),
-                            &format!("Error parsing contract identifier '{}", &optarg_str),
+                            &format!(
+                                "VmExecutionError parsing contract identifier '{}",
+                                &optarg_str
+                            ),
                         )
                     })
                     .unwrap_or(QualifiedContractIdentifier::transient())
@@ -1153,13 +1159,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let mut buffer = String::new();
                 friendly_expect(
                     io::stdin().read_to_string(&mut buffer),
-                    "Error reading from stdin.",
+                    "VmExecutionError reading from stdin.",
                 );
                 buffer
             } else {
                 friendly_expect(
                     fs::read_to_string(&argv[1]),
-                    &format!("Error reading file: {}", argv[1]),
+                    &format!("VmExecutionError reading file: {}", argv[1]),
                 )
             };
 
@@ -1270,7 +1276,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     match io::stdin().read_line(&mut buffer) {
                         Ok(_) => buffer,
                         Err(error) => {
-                            eprintln!("Error reading from stdin:\n{error}");
+                            eprintln!("VmExecutionError reading from stdin:\n{error}");
                             panic_test!();
                         }
                     }
@@ -1310,7 +1316,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let mut buffer = String::new();
                 friendly_expect(
                     io::stdin().read_to_string(&mut buffer),
-                    "Error reading from stdin.",
+                    "VmExecutionError reading from stdin.",
                 );
                 buffer
             };
@@ -1523,7 +1529,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 let mut buffer = String::new();
                 friendly_expect(
                     io::stdin().read_to_string(&mut buffer),
-                    "Error reading from stdin.",
+                    "VmExecutionError reading from stdin.",
                 );
                 buffer
             };
@@ -1608,7 +1614,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let contract_content: String = friendly_expect(
                 fs::read_to_string(contract_src_file),
-                &format!("Error reading file: {}", contract_src_file),
+                &format!("VmExecutionError reading file: {}", contract_src_file),
             );
 
             // TODO: Add --clarity_version as command line argument
@@ -1767,7 +1773,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
                     let argument_parsed = friendly_expect(
                         vm_execute(argument, clarity_version),
-                        &format!("Error parsing argument \"{}\"", argument),
+                        &format!("VmExecutionError parsing argument \"{}\"", argument),
                     );
                     let argument_value = friendly_expect_opt(
                         argument_parsed,

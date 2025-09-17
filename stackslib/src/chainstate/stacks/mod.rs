@@ -19,7 +19,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
-use clarity::vm::errors::Error as clarity_interpreter_error;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
@@ -342,8 +342,8 @@ impl From<db_error> for Error {
     }
 }
 
-impl From<clarity_interpreter_error> for Error {
-    fn from(e: clarity_interpreter_error) -> Error {
+impl From<VmExecutionError> for Error {
+    fn from(e: VmExecutionError) -> Error {
         Error::ClarityError(clarity_error::Interpreter(e))
     }
 }

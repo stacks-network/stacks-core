@@ -8,7 +8,7 @@ use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::Error as InterpreterError;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
@@ -17,7 +17,7 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 pub enum Error {
     Analysis(CheckError),
     Parse(ParseError),
-    Interpreter(InterpreterError),
+    Interpreter(VmExecutionError),
     BadTransaction(String),
     CostError(ExecutionCost, ExecutionCost),
     AbortedByCallback {
@@ -81,16 +81,16 @@ impl From<CheckError> for Error {
     }
 }
 
-impl From<InterpreterError> for Error {
-    fn from(e: InterpreterError) -> Self {
+impl From<VmExecutionError> for Error {
+    fn from(e: VmExecutionError) -> Self {
         match &e {
-            InterpreterError::Unchecked(CheckErrors::CostBalanceExceeded(a, b)) => {
+            VmExecutionError::Unchecked(CheckErrors::CostBalanceExceeded(a, b)) => {
                 Error::CostError(a.clone(), b.clone())
             }
-            InterpreterError::Unchecked(CheckErrors::CostOverflow) => {
+            VmExecutionError::Unchecked(CheckErrors::CostOverflow) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            InterpreterError::Unchecked(CheckErrors::ExecutionTimeExpired) => {
+            VmExecutionError::Unchecked(CheckErrors::ExecutionTimeExpired) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Interpreter(e),
@@ -143,9 +143,9 @@ pub trait ClarityConnection {
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
         to_do: F,
-    ) -> Result<R, InterpreterError>
+    ) -> Result<R, VmExecutionError>
     where
-        F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
+        F: FnOnce(&mut Environment) -> Result<R, VmExecutionError>,
     {
         let epoch_id = self.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
@@ -192,7 +192,7 @@ pub trait TransactionConnection: ClarityConnection {
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
-        E: From<InterpreterError>;
+        E: From<VmExecutionError>;
 
     /// Do something with the analysis database and cost tracker
     ///  instance of this transaction connection. This is a low-level

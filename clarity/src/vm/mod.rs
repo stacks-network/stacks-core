@@ -73,7 +73,7 @@ use crate::vm::costs::{
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType, VmExecutionError,
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
@@ -155,7 +155,7 @@ pub trait EvalHook {
         _env: &mut Environment,
         _context: &LocalContext,
         _expr: &SymbolicExpression,
-        _res: &core::result::Result<Value, crate::vm::errors::Error>,
+        _res: &core::result::Result<Value, crate::vm::errors::VmExecutionError>,
     );
 
     // Called upon completion of the execution
@@ -214,7 +214,7 @@ pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType
 }
 
 fn add_stack_trace(result: &mut Result<Value>, env: &Environment) {
-    if let Err(Error::Runtime(_, ref mut stack_trace)) = result {
+    if let Err(VmExecutionError::Runtime(_, ref mut stack_trace)) = result {
         if stack_trace.is_none() {
             stack_trace.replace(env.call_stack.make_stack_trace());
         }
@@ -266,7 +266,7 @@ pub fn apply(
                 Err(e) => {
                     env.drop_memory(used_memory)?;
                     env.call_stack.decr_apply_depth();
-                    return Err(Error::from(e));
+                    return Err(VmExecutionError::from(e));
                 }
             };
             used_memory += arg_value.get_memory_use()?;
@@ -278,7 +278,7 @@ pub fn apply(
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
                 runtime_cost(cost_function.clone(), env, evaluated_args.len())
-                    .map_err(Error::from)
+                    .map_err(VmExecutionError::from)
                     .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
@@ -288,7 +288,7 @@ pub fn apply(
                     evaluated_args.len() as u64
                 };
                 runtime_cost(cost_function.clone(), env, cost_input)
-                    .map_err(Error::from)
+                    .map_err(VmExecutionError::from)
                     .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),

@@ -27,7 +27,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrinc
 #[cfg(test)]
 use crate::vm::{
     ast::{errors::ParseErrors, ASTRules},
-    errors::{CheckErrors, Error, RuntimeErrorType},
+    errors::{CheckErrors, RuntimeErrorType, VmExecutionError},
     tests::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
         tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
@@ -972,7 +972,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _))
+        VmExecutionError::Unchecked(CheckErrors::NoSuchPublicFunction(_, _))
     ));
 
     let err_result = env
@@ -985,7 +985,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::Unchecked(CheckErrors::TypeValueError(_, _))
     ));
 }
 
@@ -1008,7 +1008,7 @@ fn test_at_unknown_block(
         .unwrap_err();
     eprintln!("{err}");
     match err {
-        Error::Runtime(x, _) => assert_eq!(
+        VmExecutionError::Runtime(x, _) => assert_eq!(
             x,
             RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
                 vec![2_u8; 32].as_slice()
@@ -1180,7 +1180,7 @@ fn test_eval_with_non_existing_contract(
     );
     assert_eq!(
         result.as_ref().unwrap_err(),
-        &Error::Unchecked(CheckErrors::NoSuchContract(
+        &VmExecutionError::Unchecked(CheckErrors::NoSuchContract(
             QualifiedContractIdentifier::local("absent")
                 .unwrap()
                 .to_string()
@@ -1382,7 +1382,7 @@ fn test_contract_hash_type_check(
         .unwrap_err();
     assert_eq!(
         err,
-        Error::Unchecked(CheckErrors::ExpectedContractPrincipalValue(Box::new(
+        VmExecutionError::Unchecked(CheckErrors::ExpectedContractPrincipalValue(Box::new(
             Value::UInt(123)
         )))
     );
@@ -1440,6 +1440,6 @@ fn test_contract_hash_pre_clarity4(
 
     assert_eq!(
         err,
-        Error::Unchecked(CheckErrors::UndefinedFunction("contract-hash?".to_string()))
+        VmExecutionError::Unchecked(CheckErrors::UndefinedFunction("contract-hash?".to_string()))
     );
 }

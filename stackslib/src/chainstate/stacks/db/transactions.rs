@@ -23,7 +23,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::{InterpreterError, VmExecutionError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -44,12 +44,12 @@ use crate::util_lib::strings::VecDisplay;
 struct HashableClarityValue(Value);
 
 impl TryFrom<Value> for HashableClarityValue {
-    type Error = InterpreterError;
+    type Error = VmExecutionError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         // check that serialization _will_ be successful when hashed
         let _bytes = value.serialize_to_vec().map_err(|_| {
-            InterpreterError::Interpreter(clarity::vm::errors::InterpreterError::Expect(
+            VmExecutionError::Interpreter(InterpreterError::Expect(
                 "Failed to serialize asset in NFT during post-condition checks".into(),
             ))
         })?;
@@ -376,22 +376,22 @@ pub enum ClarityRuntimeTxError {
 pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
     match error {
         // runtime errors are okay
-        clarity_error::Interpreter(InterpreterError::Runtime(_, _)) => {
+        clarity_error::Interpreter(VmExecutionError::Runtime(_, _)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "runtime error",
             }
         }
-        clarity_error::Interpreter(InterpreterError::ShortReturn(_)) => {
+        clarity_error::Interpreter(VmExecutionError::ShortReturn(_)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
             }
         }
-        clarity_error::Interpreter(InterpreterError::Unchecked(check_error)) => {
+        clarity_error::Interpreter(VmExecutionError::Unchecked(check_error)) => {
             if check_error.rejectable() {
                 ClarityRuntimeTxError::Rejectable(clarity_error::Interpreter(
-                    InterpreterError::Unchecked(check_error),
+                    VmExecutionError::Unchecked(check_error),
                 ))
             } else {
                 ClarityRuntimeTxError::AnalysisError(check_error)
@@ -633,7 +633,7 @@ impl StacksChainState {
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
         txid: Txid,
-    ) -> Result<Option<String>, InterpreterError> {
+    ) -> Result<Option<String>, VmExecutionError> {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
             HashMap::new();
         let mut checked_nonfungible_assets: HashMap<
@@ -962,7 +962,7 @@ impl StacksChainState {
             env.add_memory(u64::from(
                 TypeSignature::PrincipalType
                     .size()
-                    .map_err(InterpreterError::from)?,
+                    .map_err(VmExecutionError::from)?,
             ))
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
 
@@ -1213,7 +1213,7 @@ impl StacksChainState {
                                            "function_args" => %VecDisplay(&contract_call.function_args),
                                            "error" => %check_error);
                                 return Err(Error::ClarityError(clarity_error::Interpreter(
-                                    InterpreterError::Unchecked(check_error),
+                                    VmExecutionError::Unchecked(check_error),
                                 )));
                             }
                         }
@@ -1455,7 +1455,7 @@ impl StacksChainState {
                                       "contract" => %contract_id,
                                       "error" => %check_error);
                                 return Err(Error::ClarityError(clarity_error::Interpreter(
-                                    InterpreterError::Unchecked(check_error),
+                                    VmExecutionError::Unchecked(check_error),
                                 )));
                             }
                         }
@@ -9814,7 +9814,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9871,7 +9871,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9926,7 +9926,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9982,7 +9982,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -10506,7 +10506,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -10980,7 +10980,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -11095,7 +11095,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {

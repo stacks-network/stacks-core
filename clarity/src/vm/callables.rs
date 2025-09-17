@@ -28,7 +28,7 @@ use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
+use crate::vm::errors::{check_argument_count, InterpreterResult as Result, VmExecutionError};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
@@ -116,7 +116,7 @@ pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
                 .map_err(|e| CostErrors::Expect(format!("{e:?}")))? as u64)
                 .cost_overflow_add(sum)
         })
-        .map_err(Error::from)
+        .map_err(VmExecutionError::from)
 }
 
 impl DefinedFunction {
@@ -294,7 +294,7 @@ impl DefinedFunction {
         match result {
             Ok(r) => Ok(r),
             Err(e) => match e {
-                Error::ShortReturn(v) => Ok(v.into()),
+                VmExecutionError::ShortReturn(v) => Ok(v.into()),
                 _ => Err(e),
             },
         }

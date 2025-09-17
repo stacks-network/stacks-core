@@ -19,9 +19,9 @@ use crate::vm::{
     errors::{CheckErrors, ShortReturnType, SyntaxBindingError},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
-use crate::vm::{execute, ClarityName, Error};
+use crate::vm::{execute, ClarityName, VmExecutionError};
 
-fn assert_executes(expected: Result<Value, Error>, input: &str) {
+fn assert_executes(expected: Result<Value, VmExecutionError>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
 }
 
@@ -495,7 +495,7 @@ fn lists_system_2() {
 
     matches!(
         execute(test),
-        Err(Error::Unchecked(CheckErrors::TypeError(_, _)))
+        Err(VmExecutionError::Unchecked(CheckErrors::TypeError(_, _)))
     );
 }
 
@@ -560,7 +560,10 @@ fn lists_system() {
         println!("{test:#?}");
         assert!(matches!(
             test,
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _)))
+            Err(VmExecutionError::Unchecked(CheckErrors::TypeValueError(
+                _,
+                _
+            )))
         ));
     }
 }
@@ -623,7 +626,7 @@ fn tuples_system() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
+            Err(VmExecutionError::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false
@@ -643,7 +646,7 @@ fn bad_define_maps() {
         "(define-map lists { name: int } contents 5)",
         "(define-map lists { name: int } { contents: (list 5 0 int) })",
     ];
-    let expected: Vec<Error> = vec![
+    let expected: Vec<VmExecutionError> = vec![
         CheckErrors::BadSyntaxBinding(SyntaxBindingError::tuple_cons_invalid_length(0)).into(),
         CheckErrors::UnknownTypeName("contents".to_string()).into(),
         CheckErrors::ExpectedName.into(),
@@ -769,7 +772,7 @@ fn test_non_tuple_map_get_set() {
 
     for test in type_error_tests.iter() {
         let expected_type_error = match execute(test) {
-            Err(Error::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
+            Err(VmExecutionError::Unchecked(CheckErrors::TypeValueError(_, _))) => true,
             _ => {
                 println!("{:?}", execute(test));
                 false

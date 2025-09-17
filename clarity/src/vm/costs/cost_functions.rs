@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::VmExecutionError;
+
 use super::ExecutionCost;
 use crate::vm::errors::{InterpreterResult, RuntimeErrorType};
 
@@ -169,7 +171,7 @@ pub fn linear(n: u64, a: u64, b: u64) -> u64 {
 }
 pub fn logn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
     if n < 1 {
-        return Err(crate::vm::errors::Error::Runtime(
+        return Err(VmExecutionError::Runtime(
             RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()),
             Some(vec![]),
         ));
@@ -179,7 +181,7 @@ pub fn logn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
 }
 pub fn nlogn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
     if n < 1 {
-        return Err(crate::vm::errors::Error::Runtime(
+        return Err(VmExecutionError::Runtime(
             RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()),
             Some(vec![]),
         ));

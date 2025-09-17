@@ -38,7 +38,7 @@ use crate::vm::database::structures::{
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType, VmExecutionError,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
@@ -693,7 +693,10 @@ impl<'a> ClarityDatabase<'a> {
         data: &str,
     ) -> Result<()> {
         if self.store.has_metadata_entry(contract_identifier, key) {
-            Err(Error::Runtime(RuntimeErrorType::MetadataAlreadySet, None))
+            Err(VmExecutionError::Runtime(
+                RuntimeErrorType::MetadataAlreadySet,
+                None,
+            ))
         } else {
             Ok(self.store.insert_metadata(contract_identifier, key, data)?)
         }
@@ -984,7 +987,7 @@ impl<'a> ClarityDatabase<'a> {
     /// transactions in the block.
     pub fn set_tenure_height(&mut self, height: u32) -> Result<()> {
         if self.get_clarity_epoch_version()? < StacksEpochId::Epoch30 {
-            return Err(Error::Interpreter(InterpreterError::Expect(
+            return Err(VmExecutionError::Interpreter(InterpreterError::Expect(
                 "Setting tenure height in Clarity state is not supported before epoch 3.0".into(),
             )));
         }
@@ -1485,7 +1488,7 @@ impl ClarityDatabase<'_> {
 //   will throw NoSuchFoo errors instead of NoSuchContract errors.
 fn map_no_contract_as_none<T>(res: Result<Option<T>>) -> Result<Option<T>> {
     res.or_else(|e| match e {
-        Error::Unchecked(CheckErrors::NoSuchContract(_)) => Ok(None),
+        VmExecutionError::Unchecked(CheckErrors::NoSuchContract(_)) => Ok(None),
         x => Err(x),
     })
 }

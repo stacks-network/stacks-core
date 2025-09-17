@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
-use crate::vm::errors::Error;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
@@ -137,7 +137,7 @@ fn execute_transaction(
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
     args: &[SymbolicExpression],
-) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
@@ -622,7 +622,7 @@ fn test_simple_token_system(
 
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::Unchecked(CheckErrors::TypeValueError(_, _))
     ));
 
     let (result, asset_map, _events) = execute_transaction(
@@ -856,7 +856,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::Unchecked(CheckErrors::TypeValueError(_, _))
     ));
 
     let err = owned_env
@@ -869,7 +869,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::Unchecked(CheckErrors::TypeValueError(_, _))
     ));
 
     owned_env
@@ -921,7 +921,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     .unwrap_err();
     println!("{err}");
     assert!(match err {
-        Error::Runtime(RuntimeErrorType::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
+        VmExecutionError::Runtime(RuntimeErrorType::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
         _ => false,
     });
 }

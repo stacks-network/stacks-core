@@ -7,7 +7,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::*;
-use clarity::vm::errors::{CheckErrors, Error};
+use clarity::vm::errors::{CheckErrors, VmExecutionError};
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -1746,7 +1746,7 @@ fn simple_epoch21_test() {
             ClarityError::Interpreter(e) => {
                 assert_eq!(
                     e,
-                    Error::Unchecked(CheckErrors::NameAlreadyUsed("stx-account".into()))
+                    VmExecutionError::Unchecked(CheckErrors::NameAlreadyUsed("stx-account".into()))
                 );
             }
             e => panic!("Should have caused an Interpreter error: {:#?}", e),
