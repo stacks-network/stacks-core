@@ -36,9 +36,7 @@ use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
-use crate::vm::errors::{
-    CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
-};
+use crate::vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeError};
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
@@ -272,7 +270,7 @@ impl AssetMap {
         let current_amount = self.stx_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+            .ok_or(RuntimeError::ArithmeticOverflow.into())
     }
 
     // This will get the next amount for a (principal, stx) entry in the burn table.
@@ -280,7 +278,7 @@ impl AssetMap {
         let current_amount = self.burn_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+            .ok_or(RuntimeError::ArithmeticOverflow.into())
     }
 
     // This will get the next amount for a (principal, asset) entry in the asset table.
@@ -297,7 +295,7 @@ impl AssetMap {
             .unwrap_or(&0);
         current_amount
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
+            .ok_or(RuntimeError::ArithmeticOverflow.into())
     }
 
     pub fn add_stx_transfer(&mut self, principal: &PrincipalData, amount: u128) -> Result<()> {
@@ -968,7 +966,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         .expressions;
 
         if parsed.is_empty() {
-            return Err(RuntimeErrorType::ParseError(
+            return Err(RuntimeError::ParseError(
                 "Expected a program of at least length 1".to_string(),
             )
             .into());
@@ -1027,7 +1025,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         .expressions;
 
         if parsed.is_empty() {
-            return Err(RuntimeErrorType::ParseError(
+            return Err(RuntimeError::ParseError(
                 "Expected a program of at least length 1".to_string(),
             )
             .into());
@@ -1887,7 +1885,7 @@ impl<'a> LocalContext<'a> {
 
     pub fn extend(&'a self) -> Result<LocalContext<'a>> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(RuntimeErrorType::MaxContextDepthReached.into())
+            Err(RuntimeError::MaxContextDepthReached.into())
         } else {
             Ok(LocalContext {
                 function_context: Some(self.function_context()),

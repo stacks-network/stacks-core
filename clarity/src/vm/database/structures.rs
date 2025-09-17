@@ -22,7 +22,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::contracts::Contract;
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::{Error, InterpreterError, RuntimeErrorType};
+use crate::vm::errors::{Error, InterpreterError, RuntimeError};
 use crate::vm::types::{PrincipalData, TypeSignature};
 
 pub trait ClaritySerializable {
@@ -392,7 +392,7 @@ impl<'db, 'conn> STXBalanceSnapshot<'db, 'conn> {
 
         recipient_balance
             .checked_add_unlocked_amount(amount)
-            .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
+            .ok_or(Error::Runtime(RuntimeError::ArithmeticOverflow, None))?;
 
         self.debit(amount)?;
         self.db_ref.put_data(&recipient_key, &recipient_balance)?;

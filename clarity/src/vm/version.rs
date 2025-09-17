@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::errors::{Error, RuntimeErrorType};
+use crate::vm::errors::{Error, RuntimeError};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub enum ClarityVersion {
@@ -64,7 +64,7 @@ impl FromStr for ClarityVersion {
         } else if s == "clarity4" {
             Ok(ClarityVersion::Clarity4)
         } else {
-            Err(RuntimeErrorType::ParseError(
+            Err(RuntimeError::ParseError(
                 "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3."
                     .to_string(),
             )

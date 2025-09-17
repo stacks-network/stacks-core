@@ -38,7 +38,7 @@ use crate::vm::database::structures::{
 };
 use crate::vm::database::{ClarityBackingStore, RollbackWrapper};
 use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeError,
 };
 use crate::vm::representations::ClarityName;
 use crate::vm::types::serialization::NONE_SERIALIZATION_LEN;
@@ -693,7 +693,7 @@ impl<'a> ClarityDatabase<'a> {
         data: &str,
     ) -> Result<()> {
         if self.store.has_metadata_entry(contract_identifier, key) {
-            Err(Error::Runtime(RuntimeErrorType::MetadataAlreadySet, None))
+            Err(Error::Runtime(RuntimeError::MetadataAlreadySet, None))
         } else {
             Ok(self.store.insert_metadata(contract_identifier, key, data)?)
         }
@@ -904,7 +904,7 @@ impl<'a> ClarityDatabase<'a> {
     pub fn get_current_block_time(&mut self) -> Result<u64> {
         match self.get_data(CLARITY_STORAGE_BLOCK_TIME_KEY)? {
             Some(value) => Ok(value),
-            None => Err(RuntimeErrorType::BlockTimeNotAvailable.into()),
+            None => Err(RuntimeError::BlockTimeNotAvailable.into()),
         }
     }
 
@@ -943,7 +943,7 @@ impl<'a> ClarityDatabase<'a> {
         let current = self.get_total_liquid_ustx()?;
         let next = current.checked_add(incr_by).ok_or_else(|| {
             error!("Overflowed `ustx-liquid-supply`");
-            RuntimeErrorType::ArithmeticOverflow
+            RuntimeError::ArithmeticOverflow
         })?;
         self.set_ustx_liquid_supply(next)?;
         Ok(())
@@ -953,7 +953,7 @@ impl<'a> ClarityDatabase<'a> {
         let current = self.get_total_liquid_ustx()?;
         let next = current.checked_sub(decr_by).ok_or_else(|| {
             error!("`stx-burn?` accepted that reduces `ustx-liquid-supply` below 0");
-            RuntimeErrorType::ArithmeticUnderflow
+            RuntimeError::ArithmeticUnderflow
         })?;
         self.set_ustx_liquid_supply(next)?;
         Ok(())
@@ -2057,11 +2057,11 @@ impl ClarityDatabase<'_> {
 
         let new_supply = current_supply
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+            .ok_or(RuntimeError::ArithmeticOverflow)?;
 
         if let Some(total_supply) = descriptor.total_supply {
             if new_supply > total_supply {
-                return Err(RuntimeErrorType::SupplyOverflow(new_supply, total_supply).into());
+                return Err(RuntimeError::SupplyOverflow(new_supply, total_supply).into());
             }
         }
 
@@ -2084,7 +2084,7 @@ impl ClarityDatabase<'_> {
         })?;
 
         if amount > current_supply {
-            return Err(RuntimeErrorType::SupplyUnderflow(current_supply, amount).into());
+            return Err(RuntimeError::SupplyUnderflow(current_supply, amount).into());
         }
 
         let new_supply = current_supply - amount;
@@ -2180,12 +2180,12 @@ impl ClarityDatabase<'_> {
         )?;
         let owner = match value {
             Some(owner) => owner.value.expect_optional()?,
-            None => return Err(RuntimeErrorType::NoSuchToken.into()),
+            None => return Err(RuntimeError::NoSuchToken.into()),
         };
 
         let principal = match owner {
             Some(value) => value.expect_principal()?,
-            None => return Err(RuntimeErrorType::NoSuchToken.into()),
+            None => return Err(RuntimeError::NoSuchToken.into()),
         };
 
         Ok(principal)

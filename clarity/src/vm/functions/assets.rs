@@ -21,7 +21,7 @@ use crate::vm::costs::{runtime_cost, CostTracker};
 use crate::vm::database::STXBalance;
 use crate::vm::errors::{
     check_argument_count, CheckErrors, Error, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType,
+    RuntimeError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
@@ -418,7 +418,7 @@ pub fn special_mint_asset_v200(
             &asset,
             expected_asset_type,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
+            Err(Error::Runtime(RuntimeError::NoSuchToken, _)) => Ok(()),
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
             Err(e) => Err(e),
         }?;
@@ -492,7 +492,7 @@ pub fn special_mint_asset_v205(
             &asset,
             expected_asset_type,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
+            Err(Error::Runtime(RuntimeError::NoSuchToken, _)) => Ok(()),
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
             Err(e) => Err(e),
         }?;
@@ -571,7 +571,7 @@ pub fn special_transfer_asset_v200(
             expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(Error::Runtime(RuntimeError::NoSuchToken, _)) => {
                 return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
             }
             Err(e) => Err(e),
@@ -665,7 +665,7 @@ pub fn special_transfer_asset_v205(
             expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(Error::Runtime(RuntimeError::NoSuchToken, _)) => {
                 return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
             }
             Err(e) => Err(e),
@@ -769,7 +769,7 @@ pub fn special_transfer_token(
 
         let final_to_bal = to_bal
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+            .ok_or(RuntimeError::ArithmeticOverflow)?;
 
         env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
         env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
@@ -889,7 +889,7 @@ pub fn special_get_owner_v200(
         Ok(owner) => Ok(Value::some(Value::Principal(owner)).map_err(|_| {
             InterpreterError::Expect("Principal should always fit in optional.".into())
         })?),
-        Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
+        Err(Error::Runtime(RuntimeError::NoSuchToken, _)) => Ok(Value::none()),
         Err(e) => Err(e),
     }
 }
@@ -936,7 +936,7 @@ pub fn special_get_owner_v205(
         Ok(owner) => Ok(Value::some(Value::Principal(owner)).map_err(|_| {
             InterpreterError::Expect("Principal should always fit in optional.".into())
         })?),
-        Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
+        Err(Error::Runtime(RuntimeError::NoSuchToken, _)) => Ok(Value::none()),
         Err(e) => Err(e),
     }
 }
@@ -1068,7 +1068,7 @@ pub fn special_burn_asset_v200(
             &asset,
             expected_asset_type,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(Error::Runtime(RuntimeError::NoSuchToken, _)) => {
                 return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
             }
             Ok(owner) => Ok(owner),
@@ -1156,7 +1156,7 @@ pub fn special_burn_asset_v205(
             &asset,
             expected_asset_type,
         ) {
-            Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(Error::Runtime(RuntimeError::NoSuchToken, _)) => {
                 return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
             }
             Ok(owner) => Ok(owner),

@@ -11,7 +11,7 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use clarity::vm::errors::{InterpreterResult, RuntimeErrorType};
+use clarity::vm::errors::{InterpreterResult, RuntimeError};
 use clarity::vm::types::{QualifiedContractIdentifier, TupleData};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use stacks_common::types::chainstate::{
@@ -1219,7 +1219,7 @@ impl MemoryBackingStore {
 
 impl ClarityBackingStore for MemoryBackingStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+        Err(RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
     fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {

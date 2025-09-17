@@ -73,7 +73,7 @@ use crate::vm::costs::{
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeError,
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
@@ -238,7 +238,7 @@ pub fn apply(
     }
 
     if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
-        return Err(RuntimeErrorType::MaxStackDepthReached.into());
+        return Err(RuntimeError::MaxStackDepthReached.into());
     }
 
     if let CallableType::SpecialFunction(_, function) = function {

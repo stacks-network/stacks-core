@@ -51,7 +51,7 @@ use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
+use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeError};
 use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
@@ -158,7 +158,7 @@ fn parse(
         DEFAULT_CLI_EPOCH,
         ASTRules::PrecheckSize,
     )
-    .map_err(|e| RuntimeErrorType::ASTError(Box::new(e)))?;
+    .map_err(|e| RuntimeError::ASTError(Box::new(e)))?;
     Ok(ast.expressions)
 }
 

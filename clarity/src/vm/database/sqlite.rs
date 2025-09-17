@@ -27,7 +27,7 @@ use super::{
 };
 use crate::vm::analysis::{AnalysisDatabase, CheckErrors};
 use crate::vm::errors::{
-    IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeError,
 };
 use crate::vm::types::QualifiedContractIdentifier;
 
@@ -125,7 +125,7 @@ pub fn sqlite_get_metadata_manual(
 ) -> Result<Option<String>> {
     let bhh = store.get_block_at_height(at_height).ok_or_else(|| {
         warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
-        RuntimeErrorType::BadBlockHeight(at_height.to_string())
+        RuntimeError::BadBlockHeight(at_height.to_string())
     })?;
     SqliteConnection::get_metadata(store.get_side_store(), &bhh, &contract.to_string(), key)
 }
@@ -311,7 +311,7 @@ impl MemoryBackingStore {
 
 impl ClarityBackingStore for MemoryBackingStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+        Err(RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
     fn get_data(&mut self, key: &str) -> Result<Option<String>> {

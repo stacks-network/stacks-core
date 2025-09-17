@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
-    errors::{CheckErrors, Error, RuntimeErrorType},
+    errors::{CheckErrors, Error, RuntimeError},
     execute, execute_v2,
     types::{
         signatures::{
@@ -592,12 +592,12 @@ fn test_simple_list_concat() {
 
     assert_eq!(
         execute("(concat (list 1) 3)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        RuntimeError::BadTypeConstruction.into()
     );
 
     assert_eq!(
         execute("(concat (list 1) \"1\")").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        RuntimeError::BadTypeConstruction.into()
     );
 }
 
@@ -623,12 +623,12 @@ fn test_simple_buff_concat() {
 
     assert_eq!(
         execute("(concat 0x31 3)").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        RuntimeError::BadTypeConstruction.into()
     );
 
     assert_eq!(
         execute("(concat 0x31 (list 1))").unwrap_err(),
-        RuntimeErrorType::BadTypeConstruction.into()
+        RuntimeError::BadTypeConstruction.into()
     );
 }
 

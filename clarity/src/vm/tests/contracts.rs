@@ -27,7 +27,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrinc
 #[cfg(test)]
 use crate::vm::{
     ast::{errors::ParseErrors, ASTRules},
-    errors::{CheckErrors, Error, RuntimeErrorType},
+    errors::{CheckErrors, Error, RuntimeError},
     tests::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
         tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
@@ -1010,9 +1010,7 @@ fn test_at_unknown_block(
     match err {
         Error::Runtime(x, _) => assert_eq!(
             x,
-            RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                vec![2_u8; 32].as_slice()
-            ))
+            RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(vec![2_u8; 32].as_slice()))
         ),
         _ => panic!("Unexpected error"),
     }
@@ -1051,7 +1049,7 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeErrorType::ASTError(Box::new(
+        RuntimeError::ASTError(Box::new(
             ParseErrors::VaryExpressionStackDepthTooDeep.into(),
         ))
         .into()
@@ -1074,7 +1072,7 @@ fn test_arg_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 
@@ -1111,7 +1109,7 @@ fn test_cc_stack_depth(
     assert_eq!(
         env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
             .unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 
@@ -1152,7 +1150,7 @@ fn test_cc_trait_stack_depth(
     assert_eq!(
         env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
             .unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 

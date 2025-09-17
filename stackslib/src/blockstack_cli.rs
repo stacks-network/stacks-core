@@ -42,7 +42,7 @@ use blockstack_lib::clarity_cli::vm_execute;
 use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use blockstack_lib::net::Error as NetError;
 use blockstack_lib::util_lib::strings::StacksString;
-use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
+use clarity::vm::errors::{Error as ClarityError, RuntimeError};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
 use stacks_common::address::{b58, AddressHashMode};
@@ -189,7 +189,7 @@ block's sqlite database.";
 
 #[derive(Debug)]
 enum CliError {
-    ClarityRuntimeError(RuntimeErrorType),
+    ClarityRuntimeError(RuntimeError),
     ClarityGeneralError(ClarityError),
     Message(String),
     Usage,
@@ -224,8 +224,8 @@ impl From<&str> for CliError {
     }
 }
 
-impl From<RuntimeErrorType> for CliError {
-    fn from(value: RuntimeErrorType) -> Self {
+impl From<RuntimeError> for CliError {
+    fn from(value: RuntimeError) -> Self {
         CliError::ClarityRuntimeError(value)
     }
 }

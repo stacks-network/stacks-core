@@ -37,7 +37,7 @@ pub use self::signatures::{
     ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
     TypeSignature,
 };
-use crate::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
+use crate::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeError};
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 // use crate::vm::ClarityVersion;
 
@@ -187,7 +187,7 @@ impl QualifiedContractIdentifier {
     pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
         let split: Vec<_> = literal.splitn(2, '.').collect();
         if split.len() != 2 {
-            return Err(RuntimeErrorType::ParseError(
+            return Err(RuntimeError::ParseError(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
                     .to_string(),
             )
@@ -275,7 +275,7 @@ impl TraitIdentifier {
 
     pub fn parse_fully_qualified(literal: &str) -> Result<TraitIdentifier> {
         let (issuer, contract_name, name) = Self::parse(literal)?;
-        let issuer = issuer.ok_or(RuntimeErrorType::BadTypeConstruction)?;
+        let issuer = issuer.ok_or(RuntimeError::BadTypeConstruction)?;
         Ok(TraitIdentifier::new(issuer, contract_name, name))
     }
 
@@ -289,7 +289,7 @@ impl TraitIdentifier {
     ) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
         let split: Vec<_> = literal.splitn(3, '.').collect();
         if split.len() != 3 {
-            return Err(RuntimeErrorType::ParseError(
+            return Err(RuntimeError::ParseError(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
                     .to_string(),
             )
@@ -396,10 +396,10 @@ impl SequenceData {
             if let Value::Sequence(data) = &element {
                 let elem_length = data.len();
                 if elem_length != 1 {
-                    return Err(RuntimeErrorType::BadTypeConstruction.into());
+                    return Err(RuntimeError::BadTypeConstruction.into());
                 }
             } else {
-                return Err(RuntimeErrorType::BadTypeConstruction.into());
+                return Err(RuntimeError::BadTypeConstruction.into());
             }
         }
         if index >= seq_length {
@@ -573,7 +573,7 @@ impl SequenceData {
                 SequenceData::String(CharType::UTF8(inner_data)),
                 SequenceData::String(CharType::UTF8(ref mut other_inner_data)),
             ) => inner_data.append(other_inner_data),
-            _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
+            _ => Err(RuntimeError::BadTypeConstruction.into()),
         }?;
         Ok(())
     }
@@ -1405,9 +1405,9 @@ impl PrincipalData {
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
         let (version, data) = c32::c32_address_decode(literal)
-            .map_err(|x| RuntimeErrorType::ParseError(format!("Invalid principal literal: {x}")))?;
+            .map_err(|x| RuntimeError::ParseError(format!("Invalid principal literal: {x}")))?;
         if data.len() != 20 {
-            return Err(RuntimeErrorType::ParseError(
+            return Err(RuntimeError::ParseError(
                 "Invalid principal literal: Expected 20 data bytes.".to_string(),
             )
             .into());

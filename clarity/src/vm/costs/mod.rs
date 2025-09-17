@@ -28,7 +28,7 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckErrors, RuntimeErrorType};
+use super::errors::{CheckErrors, RuntimeError};
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -215,7 +215,7 @@ impl DefaultVersion {
         };
         r.map_err(|e| {
             let e = match e {
-                crate::vm::errors::Error::Runtime(RuntimeErrorType::NotImplemented, _) => {
+                crate::vm::errors::Error::Runtime(RuntimeError::NotImplemented, _) => {
                     CheckErrors::UndefinedFunction(cost_function_ref.function_name.clone()).into()
                 }
                 other => other,

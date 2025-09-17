@@ -23,7 +23,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result, RuntimeErrorType,
+    InterpreterResult as Result, RuntimeError,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
@@ -446,7 +446,7 @@ pub fn special_at_block(
     let bhh = match eval(&args[0], env, context)? {
         Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
             if data.len() != 32 {
-                return Err(RuntimeErrorType::BadBlockHash(data).into());
+                return Err(RuntimeError::BadBlockHash(data).into());
             } else {
                 StacksBlockId::from(data.as_slice())
             }

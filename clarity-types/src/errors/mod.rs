@@ -45,7 +45,7 @@ pub enum Error {
     ///   trigger these errors.
     Unchecked(CheckErrors),
     Interpreter(InterpreterError),
-    Runtime(RuntimeErrorType, Option<StackTrace>),
+    Runtime(RuntimeError, Option<StackTrace>),
     ShortReturn(ShortReturnType),
 }
 
@@ -72,7 +72,7 @@ pub enum InterpreterError {
 /// RuntimeErrors are errors that smart contracts are expected
 ///   to be able to trigger during execution (e.g., arithmetic errors)
 #[derive(Debug, PartialEq)]
-pub enum RuntimeErrorType {
+pub enum RuntimeError {
     Arithmetic(String),
     ArithmeticOverflow,
     ArithmeticUnderflow,
@@ -147,7 +147,7 @@ impl fmt::Display for Error {
     }
 }
 
-impl fmt::Display for RuntimeErrorType {
+impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
@@ -159,7 +159,7 @@ impl error::Error for Error {
     }
 }
 
-impl error::Error for RuntimeErrorType {
+impl error::Error for RuntimeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
@@ -171,7 +171,7 @@ impl From<ParseError> for Error {
             ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
-            _ => Error::from(RuntimeErrorType::ASTError(Box::new(err))),
+            _ => Error::from(RuntimeError::ASTError(Box::new(err))),
         }
     }
 }
@@ -190,8 +190,8 @@ impl From<CostErrors> for Error {
     }
 }
 
-impl From<RuntimeErrorType> for Error {
-    fn from(err: RuntimeErrorType) -> Self {
+impl From<RuntimeError> for Error {
+    fn from(err: RuntimeError) -> Self {
         Error::Runtime(err, None)
     }
 }

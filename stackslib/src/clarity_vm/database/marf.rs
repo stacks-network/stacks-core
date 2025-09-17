@@ -11,9 +11,7 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, SpecialCaseHandler,
     SqliteConnection,
 };
-use clarity::vm::errors::{
-    IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
-};
+use clarity::vm::errors::{IncomparableError, InterpreterError, InterpreterResult, RuntimeError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
 use stacks_common::codec::StacksMessageCodec;
@@ -307,7 +305,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .map_err(|e| match e {
                 Error::NotFoundError => {
                     test_debug!("No such block {:?} (NotFoundError)", &bhh);
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 Error::NonMatchingForks(_bh1, _bh2) => {
                     test_debug!(
@@ -316,7 +314,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                         BlockHeaderHash(_bh1),
                         BlockHeaderHash(_bh2)
                     );
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
@@ -622,7 +620,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
             .map_err(|e| match e {
                 Error::NotFoundError => {
                     test_debug!("No such block {:?} (NotFoundError)", &bhh);
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 Error::NonMatchingForks(_bh1, _bh2) => {
                     test_debug!(
@@ -631,7 +629,7 @@ impl ClarityBackingStore for WritableMarfStore<'_> {
                         BlockHeaderHash(_bh1),
                         BlockHeaderHash(_bh2)
                     );
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
