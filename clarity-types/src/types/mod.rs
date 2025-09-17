@@ -343,7 +343,7 @@ impl SequenceData {
 
     pub fn element_size(&self) -> Result<u32> {
         let out = match self {
-            SequenceData::Buffer(..) => TypeSignature::min_buffer().size(),
+            SequenceData::Buffer(..) => TypeSignature::BUFFER_MIN.size(),
             SequenceData::List(data) => data.type_signature.get_list_item_type().size(),
             SequenceData::String(CharType::ASCII(..)) => TypeSignature::min_string_ascii()?.size(),
             SequenceData::String(CharType::UTF8(..)) => TypeSignature::min_string_utf8()?.size(),
@@ -455,7 +455,7 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(CheckErrors::TypeValueError(TypeSignature::min_buffer(), to_find).into())
+                    Err(CheckErrors::TypeValueError(TypeSignature::BUFFER_MIN, to_find).into())
                 }
             }
             SequenceData::List(data) => {

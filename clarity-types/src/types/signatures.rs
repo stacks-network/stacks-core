@@ -153,7 +153,7 @@ impl SequenceSubtype {
     pub fn unit_type(&self) -> Result<TypeSignature, CheckErrors> {
         match &self {
             SequenceSubtype::ListType(list_data) => Ok(list_data.clone().destruct().0),
-            SequenceSubtype::BufferType(_) => Ok(TypeSignature::min_buffer()),
+            SequenceSubtype::BufferType(_) => Ok(TypeSignature::BUFFER_MIN),
             SequenceSubtype::StringType(StringSubtype::ASCII(_)) => {
                 TypeSignature::min_string_ascii()
             }
@@ -878,9 +878,8 @@ impl TupleTypeSignature {
 }
 
 impl TypeSignature {
-    pub const fn min_buffer() -> TypeSignature {
-        SequenceType(SequenceSubtype::BufferType(BufferLength(1)))
-    }
+    pub const BUFFER_MIN: TypeSignature =
+        SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
 
     pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(

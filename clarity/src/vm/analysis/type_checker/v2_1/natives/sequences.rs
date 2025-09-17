@@ -87,7 +87,7 @@ pub fn check_special_map(
             TypeSignature::SequenceType(sequence) => {
                 let (entry_type, len) = match sequence {
                     ListType(list_data) => list_data.destruct(),
-                    BufferType(buffer_data) => (TypeSignature::min_buffer(), buffer_data.into()),
+                    BufferType(buffer_data) => (TypeSignature::BUFFER_MIN, buffer_data.into()),
                     StringType(ASCII(ascii_data)) => {
                         (TypeSignature::min_string_ascii()?, ascii_data.into())
                     }

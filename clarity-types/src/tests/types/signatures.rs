@@ -23,9 +23,9 @@ use crate::types::{
 };
 
 #[test]
-fn test_min_buffer() {
+fn test_type_buffer_min() {
     let expected = TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
-    let actual = TypeSignature::min_buffer();
+    let actual = TypeSignature::BUFFER_MIN;
     assert_eq!(expected, actual);
     assert_eq!(5, actual.size().unwrap(), "size should be 5");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
@@ -78,8 +78,8 @@ fn test_least_supertype() {
             TypeSignature::BoolType,
         ),
         (
-            (TypeSignature::NoType, TypeSignature::min_buffer()),
-            TypeSignature::min_buffer(),
+            (TypeSignature::NoType, TypeSignature::BUFFER_MIN),
+            TypeSignature::BUFFER_MIN,
         ),
         (
             (
@@ -288,7 +288,7 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::max_buffer().unwrap(),
-                TypeSignature::min_buffer(),
+                TypeSignature::BUFFER_MIN,
             ),
             TypeSignature::max_buffer().unwrap(),
         ),
@@ -364,7 +364,7 @@ fn test_least_supertype() {
                     5,
                 )
                 .unwrap(),
-                TypeSignature::list_of(TypeSignature::min_buffer(), 3).unwrap(),
+                TypeSignature::list_of(TypeSignature::BUFFER_MIN, 3).unwrap(),
             ),
             TypeSignature::list_of(
                 TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -451,7 +451,7 @@ fn test_least_supertype() {
         ),
         (
             TypeSignature::min_string_utf8().unwrap(),
-            TypeSignature::min_buffer(),
+            TypeSignature::BUFFER_MIN,
         ),
         (
             TypeSignature::TupleType(
