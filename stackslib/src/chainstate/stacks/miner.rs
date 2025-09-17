@@ -659,7 +659,7 @@ impl TransactionResult {
                 ClarityRuntimeTxError::Acceptable { error, .. } => {
                     if let clarity_error::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
-                        match &parse_err.err {
+                        match *parse_err.err {
                             ParseErrors::ExpressionStackDepthTooDeep
                             | ParseErrors::VaryExpressionStackDepthTooDeep => {
                                 info!("Problematic transaction failed AST depth check"; "txid" => %tx.txid());
@@ -691,8 +691,8 @@ impl TransactionResult {
                     tx_events,
                     reason,
                 } => Error::ClarityError(clarity_error::AbortedByCallback {
-                    output,
-                    assets_modified,
+                    output: output.map(Box::new),
+                    assets_modified: Box::new(assets_modified),
                     tx_events,
                     reason,
                 }),

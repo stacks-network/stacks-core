@@ -2846,6 +2846,27 @@ impl NakamotoChainState {
         Self::get_block_header_nakamoto(chainstate_conn.sqlite(), &block_id)
     }
 
+    /// Get the first canonical block header in a vector of height-ordered candidates
+    fn get_highest_canonical_block_header_from_candidates(
+        sort_db: &SortitionDB,
+        candidates: Vec<StacksHeaderInfo>,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let canonical_sortition_handle = sort_db.index_handle_at_tip();
+        for candidate in candidates.into_iter() {
+            let Some(ref candidate_ch) = candidate.burn_view else {
+                // this is an epoch 2.x header, no burn view to check
+                return Ok(Some(candidate));
+            };
+            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
+            if in_canonical_fork {
+                return Ok(Some(candidate));
+            }
+        }
+
+        // did not find any blocks in candidates
+        Ok(None)
+    }
+
     /// Get the highest block in the given tenure on a given fork.
     /// Only works on Nakamoto blocks.
     /// TODO: unit test
@@ -2879,20 +2900,7 @@ impl NakamotoChainState {
             tenure_id,
         )?;
 
-        let canonical_sortition_handle = sort_db.index_handle_at_tip();
-        for candidate in candidates.into_iter() {
-            let Some(ref candidate_ch) = candidate.burn_view else {
-                // this is an epoch 2.x header, no burn view to check
-                return Ok(Some(candidate));
-            };
-            let in_canonical_fork = canonical_sortition_handle.processed_block(&candidate_ch)?;
-            if in_canonical_fork {
-                return Ok(Some(candidate));
-            }
-        }
-
-        // did not find any blocks in the tenure
-        Ok(None)
+        Self::get_highest_canonical_block_header_from_candidates(sort_db, candidates)
     }
 
     /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
@@ -2929,6 +2937,116 @@ impl NakamotoChainState {
         let epoch2_x =
             StacksChainState::get_stacks_block_header_info_by_consensus_hash(db, tenure_id)?;
         Ok(Vec::from_iter(epoch2_x))
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest block in a given tenure (identified by burnchain block height) with a canonical
+    ///  burn_view (i.e., burn_view on the canonical sortition fork). This covers only Nakamoto blocks.
+    /// Epoch2 blocks will not be checked.
+    pub fn find_highest_known_block_header_in_tenure_by_block_height(
+        chainstate: &StacksChainState,
+        sort_db: &SortitionDB,
+        tenure_height: u64,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let chainstate_db_conn = chainstate.db();
+
+        let candidates =
+            Self::get_highest_known_block_header_in_tenure_by_block_height_at_each_burnview(
+                chainstate_db_conn,
+                tenure_height,
+            )?;
+
+        Self::get_highest_canonical_block_header_from_candidates(sort_db, candidates)
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest block in a given tenure (identified by burnchain block hash) with a canonical
+    ///  burn_view (i.e., burn_view on the canonical sortition fork). This covers only Nakamoto blocks.
+    /// Epoch2 blocks will not be checked.
+    pub fn find_highest_known_block_header_in_tenure_by_block_hash(
+        chainstate: &StacksChainState,
+        sort_db: &SortitionDB,
+        tenure_block_hash: &BurnchainHeaderHash,
+    ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
+        let chainstate_db_conn = chainstate.db();
+
+        let candidates =
+            Self::get_highest_known_block_header_in_tenure_by_block_hash_at_each_burnview(
+                chainstate_db_conn,
+                tenure_block_hash,
+            )?;
+
+        Self::get_highest_canonical_block_header_from_candidates(sort_db, candidates)
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest blocks in a given tenure (identified by burnchain block height) at each burn view
+    ///  active in that tenure. If there are ties at a given burn view, they will both be returned
+    fn get_highest_known_block_header_in_tenure_by_block_height_at_each_burnview(
+        db: &Connection,
+        tenure_height: u64,
+    ) -> Result<Vec<StacksHeaderInfo>, ChainstateError> {
+        // see if we have a nakamoto block in this tenure
+        let qry = "
+        SELECT h.*
+        FROM nakamoto_block_headers h
+        JOIN (
+            SELECT burn_view, MAX(block_height) AS max_height
+            FROM nakamoto_block_headers
+            WHERE burn_header_height = ?1
+            GROUP BY burn_view
+        ) maxed
+        ON h.burn_view = maxed.burn_view
+        AND h.block_height = maxed.max_height
+        WHERE h.burn_header_height = ?1
+        ORDER BY h.block_height DESC, h.timestamp
+        ";
+        let args = params![tenure_height];
+        let out = query_rows(db, qry, args)?;
+        if !out.is_empty() {
+            return Ok(out);
+        }
+
+        Err(ChainstateError::NoSuchBlockError)
+    }
+
+    /// DO NOT USE IN CONSENSUS CODE.  Different nodes can have different blocks for the same
+    /// tenure.
+    ///
+    /// Get the highest blocks in a given tenure (identified by burnchain block hash) at each burn view
+    ///  active in that tenure. If there are ties at a given burn view, they will both be returned
+    fn get_highest_known_block_header_in_tenure_by_block_hash_at_each_burnview(
+        db: &Connection,
+        tenure_block_hash: &BurnchainHeaderHash,
+    ) -> Result<Vec<StacksHeaderInfo>, ChainstateError> {
+        // see if we have a nakamoto block in this tenure
+        let qry = "
+        SELECT h.*
+        FROM nakamoto_block_headers h
+        JOIN (
+            SELECT burn_view, MAX(block_height) AS max_height
+            FROM nakamoto_block_headers
+            WHERE burn_header_hash = ?1
+            GROUP BY burn_view
+        ) maxed
+        ON h.burn_view = maxed.burn_view
+        AND h.block_height = maxed.max_height
+        WHERE h.burn_header_hash = ?1
+        ORDER BY h.block_height DESC, h.timestamp
+        ";
+        let args = params![tenure_block_hash];
+        let out = query_rows(db, qry, args)?;
+        if !out.is_empty() {
+            return Ok(out);
+        }
+
+        Err(ChainstateError::NoSuchBlockError)
     }
 
     /// Get the VRF proof for a Stacks block.
@@ -3801,6 +3919,7 @@ impl NakamotoChainState {
         block_bitvec: &BitVec<4000>,
         tenure_block_commit: &LeaderBlockCommitOp,
         active_reward_set: &RewardSet,
+        timestamp: Option<u64>,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         // this block's bitvec header must match the miner's block commit punishments
         Self::check_pox_bitvector(block_bitvec, tenure_block_commit, active_reward_set)?;
@@ -3818,6 +3937,7 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            timestamp,
             false,
         )
     }
@@ -3841,6 +3961,7 @@ impl NakamotoChainState {
         block_bitvec: &BitVec<4000>,
         tenure_block_commit: &LeaderBlockCommitOp,
         active_reward_set: &RewardSet,
+        timestamp: Option<u64>,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         // this block's bitvec header must match the miner's block commit punishments
         Self::check_pox_bitvector(block_bitvec, tenure_block_commit, active_reward_set)?;
@@ -3858,6 +3979,7 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            timestamp,
             true,
         )
     }
@@ -3957,6 +4079,7 @@ impl NakamotoChainState {
             block_bitvec,
             &tenure_block_commit,
             active_reward_set,
+            Some(block.header.timestamp),
         )
     }
 
@@ -4004,6 +4127,7 @@ impl NakamotoChainState {
         new_tenure: bool,
         coinbase_height: u64,
         tenure_extend: bool,
+        timestamp: Option<u64>,
         ephemeral: bool,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let parent_index_hash = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
@@ -4092,6 +4216,22 @@ impl NakamotoChainState {
 
         clarity_tx.reset_cost(initial_cost);
 
+        // Setup block metadata in Clarity storage
+        clarity_tx
+            .connection()
+            .as_free_transaction(|clarity_tx_conn| {
+                clarity_tx_conn.with_clarity_db(|db| {
+                    db.setup_block_metadata(timestamp)?;
+                    Ok(())
+                })
+            })
+            .inspect_err(|e| {
+                error!("Failed to setup block metadata during block setup";
+                    "error" => ?e,
+                    "timestamp" => timestamp,
+                );
+            })?;
+
         // is this stacks block the first of a new epoch?
         let (applied_epoch_transition, mut tx_receipts) =
             StacksChainState::process_epoch_transition(
@@ -4119,11 +4259,10 @@ impl NakamotoChainState {
                         Ok(())
                     })
                 })
-                .map_err(|e| {
+                .inspect_err(|e| {
                     error!("Failed to set tenure height during block setup";
                         "error" => ?e,
                     );
-                    e
                 })?;
         }
 

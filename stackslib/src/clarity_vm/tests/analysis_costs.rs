@@ -343,7 +343,7 @@ fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: Stacks
             let Err(ClarityError::Analysis(check_error)) = analysis_result else {
                 panic!("Bad analysis result: {:?}", &analysis_result);
             };
-            let CheckErrors::UndefinedVariable(var_name) = check_error.err else {
+            let CheckErrors::UndefinedVariable(var_name) = *check_error.err else {
                 panic!("Bad analysis error: {:?}", &check_error);
             };
             assert_eq!(var_name, "foo".to_string());

@@ -1,5 +1,6 @@
 use std::ops::Deref;
 
+use clarity::util::get_epoch_time_secs;
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
 use clarity::vm::ast::ASTRules;
@@ -139,48 +140,69 @@ impl ClarityTestSim {
         self.tenure_height + 100
     }
 
+    /// Common setup logic for executing blocks in tests
+    /// Returns (store, headers_db, burn_db, current_epoch)
+    fn setup_block_environment(
+        &mut self,
+        new_tenure: bool,
+    ) -> (
+        Box<dyn WritableMarfStore + '_>,
+        TestSimHeadersDB,
+        TestSimBurnStateDB,
+        StacksEpochId,
+    ) {
+        let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
+            &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
+            &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
+        ));
+
+        self.block_height += 1;
+        if new_tenure {
+            self.tenure_height += 1;
+        }
+
+        let headers_db = TestSimHeadersDB {
+            height: self.block_height,
+        };
+        let burn_db = TestSimBurnStateDB {
+            epoch_bounds: self.epoch_bounds.clone(),
+            pox_constants: PoxConstants::test_default(),
+            height: (self.tenure_height + 100).try_into().unwrap(),
+        };
+
+        let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
+        // Setup common block metadata
+        let mut db = store.as_clarity_db(&headers_db, &burn_db);
+        if cur_epoch.clarity_uses_tip_burn_block() {
+            db.begin();
+            db.set_tenure_height(self.tenure_height as u32)
+                .expect("FAIL: unable to set tenure height in Clarity database");
+            db.commit()
+                .expect("FAIL: unable to commit tenure height in Clarity database");
+        }
+
+        if cur_epoch.uses_marfed_block_time() {
+            db.begin();
+            db.setup_block_metadata(Some(get_epoch_time_secs()))
+                .expect("FAIL: unable to set block time in Clarity database");
+            db.commit()
+                .expect("FAIL: unable to commit block time in Clarity database");
+        }
+
+        (store, headers_db, burn_db, cur_epoch)
+    }
+
     pub fn execute_next_block_as_conn_with_tenure<F, R>(&mut self, new_tenure: bool, f: F) -> R
     where
         F: FnOnce(&mut ClarityBlockConnection) -> R,
     {
-        let r = {
-            let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
-                &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
-                &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-            ));
+        let (store, headers_db, burn_db, cur_epoch) = self.setup_block_environment(new_tenure);
 
-            self.block_height += 1;
-            if new_tenure {
-                self.tenure_height += 1;
-            }
-
-            let headers_db = TestSimHeadersDB {
-                height: self.block_height,
-            };
-            let burn_db = TestSimBurnStateDB {
-                epoch_bounds: self.epoch_bounds.clone(),
-                pox_constants: PoxConstants::test_default(),
-                height: (self.tenure_height + 100).try_into().unwrap(),
-            };
-
-            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
-
-            let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            if cur_epoch.clarity_uses_tip_burn_block() {
-                db.begin();
-                db.set_tenure_height(self.tenure_height as u32)
-                    .expect("FAIL: unable to set tenure height in Clarity database");
-                db.commit()
-                    .expect("FAIL: unable to commit tenure height in Clarity database");
-            }
-
-            let mut block_conn =
-                ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
-            let r = f(&mut block_conn);
-            block_conn.commit_block();
-
-            r
-        };
+        let mut block_conn =
+            ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
+        let r = f(&mut block_conn);
+        block_conn.commit_block();
 
         r
     }
@@ -196,40 +218,13 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
-            &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
-            &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-        ));
+        let (mut store, headers_db, burn_db, cur_epoch) = self.setup_block_environment(new_tenure);
 
-        self.block_height += 1;
-        if new_tenure {
-            self.tenure_height += 1;
-        }
+        debug!("Execute block in epoch {}", &cur_epoch);
 
-        let r = {
-            let headers_db = TestSimHeadersDB {
-                height: self.block_height,
-            };
-            let burn_db = TestSimBurnStateDB {
-                epoch_bounds: self.epoch_bounds.clone(),
-                pox_constants: PoxConstants::test_default(),
-                height: (self.tenure_height + 100).try_into().unwrap(),
-            };
-
-            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
-            debug!("Execute block in epoch {}", &cur_epoch);
-
-            let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            if cur_epoch.clarity_uses_tip_burn_block() {
-                db.begin();
-                db.set_tenure_height(self.tenure_height as u32)
-                    .expect("FAIL: unable to set tenure height in Clarity database");
-                db.commit()
-                    .expect("FAIL: unable to commit tenure height in Clarity database");
-            }
-            let mut owned_env = OwnedEnvironment::new_toplevel(db);
-            f(&mut owned_env)
-        };
+        let db = store.as_clarity_db(&headers_db, &burn_db);
+        let mut owned_env = OwnedEnvironment::new_toplevel(db);
+        let r = f(&mut owned_env);
 
         store.test_commit();
 
@@ -1725,7 +1720,7 @@ fn simple_epoch21_test() {
         .expect_err("2.0 'bad' contract should not deploy successfully")
         {
             ClarityError::Analysis(e) => {
-                assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
+                assert_eq!(*e.err, CheckErrors::UnknownFunction("stx-account".into()));
             }
             e => panic!("Should have caused an analysis error: {:#?}", e),
         };

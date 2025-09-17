@@ -16,9 +16,7 @@
 
 use clarity_types::representations::ClarityName;
 
-pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
-};
+pub use super::errors::{check_argument_count, check_arguments_at_least, CheckError, CheckErrors};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::functions::NativeFunctions;
@@ -144,9 +142,8 @@ impl ArithmeticOnlyChecker<'_> {
         {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
-                | Regtest | TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight => {
-                    Err(Error::VariableForbidden(native_var))
-                }
+                | Regtest | TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight
+                | BlockTime | CurrentContract => Err(Error::VariableForbidden(native_var)),
                 NativeNone | NativeTrue | NativeFalse => Ok(()),
             }
         } else {
