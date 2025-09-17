@@ -414,6 +414,7 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            None,
         )
     }
 }
@@ -726,6 +727,7 @@ impl NakamotoBlockBuilder {
             Some(&tenure_change_tx),
             Some(&coinbase_tx),
             1,
+            None,
             None,
         )?;
 

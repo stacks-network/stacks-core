@@ -26,21 +26,31 @@ pub type ParseResult<T> = Result<T, ParseError>;
 
 #[derive(Debug, PartialEq)]
 pub enum ParseErrors {
+    // Cost errors
     CostOverflow,
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
     MemoryBalanceExceeded(u64, u64),
+    CostComputationFailed(String),
+    ExecutionTimeExpired,
+
     TooManyExpressions,
     ExpressionStackDepthTooDeep,
     VaryExpressionStackDepthTooDeep,
+    FailedParsingIntValue(String),
+    CircularReference(Vec<String>),
+    NameAlreadyUsed(String),
+    TraitReferenceNotAllowed,
+    ImportTraitBadSignature,
+    DefineTraitBadSignature,
+    ImplTraitBadSignature,
+    TraitReferenceUnknown(String),
+
+    // V1 errors
     FailedCapturingInput,
     SeparatorExpected(String),
     SeparatorExpectedAfterColon(String),
     ProgramTooLarge,
     IllegalVariableName(String),
-    IllegalContractName(String),
-    UnknownQuotedValue(String),
-    FailedParsingIntValue(String),
-    FailedParsingUIntValue(String),
     FailedParsingBuffer(String),
     FailedParsingHexValue(String, String),
     FailedParsingPrincipal(String),
@@ -50,54 +60,45 @@ pub enum ParseErrors {
     ClosingParenthesisExpected,
     ClosingTupleLiteralUnexpected,
     ClosingTupleLiteralExpected,
-    CircularReference(Vec<String>),
     TupleColonExpected(usize),
     TupleCommaExpected(usize),
     TupleItemExpected(usize),
-    NameAlreadyUsed(String),
-    TraitReferenceNotAllowed,
-    ImportTraitBadSignature,
-    DefineTraitBadSignature,
-    ImplTraitBadSignature,
-    TraitReferenceUnknown(String),
     CommaSeparatorUnexpected,
     ColonSeparatorUnexpected,
     InvalidCharactersDetected,
     InvalidEscaping,
-    CostComputationFailed(String),
 
     // V2 Errors
     Lexer(LexerError),
     ContractNameTooLong(String),
+    ExpectedClosing(Token),
     ExpectedContractIdentifier,
     ExpectedTraitIdentifier,
+    ExpectedWhitespace,
+    FailedParsingUIntValue(String),
     IllegalTraitName(String),
     InvalidPrincipalLiteral,
     InvalidBuffer,
     NameTooLong(String),
     UnexpectedToken(Token),
-    ExpectedClosing(Token),
     TupleColonExpectedv2,
     TupleCommaExpectedv2,
     TupleValueExpected,
     IllegalClarityName(String),
     IllegalASCIIString(String),
-    IllegalUtf8String(String),
-    ExpectedWhitespace,
+    IllegalContractName(String),
     // Notes
     NoteToMatchThis(Token),
-
     /// Should be an unreachable error
     UnexpectedParserFailure,
+
     /// Should be an unreachable failure which invalidates the transaction
     InterpreterFailure,
-
-    ExecutionTimeExpired,
 }
 
 #[derive(Debug, PartialEq)]
 pub struct ParseError {
-    pub err: ParseErrors,
+    pub err: Box<ParseErrors>,
     pub pre_expressions: Option<Vec<PreSymbolicExpression>>,
     pub diagnostic: Diagnostic,
 }
@@ -106,14 +107,14 @@ impl ParseError {
     pub fn new(err: ParseErrors) -> ParseError {
         let diagnostic = Diagnostic::err(&err);
         ParseError {
-            err,
+            err: Box::new(err),
             pre_expressions: None,
             diagnostic,
         }
     }
 
     pub fn rejectable(&self) -> bool {
-        matches!(self.err, ParseErrors::InterpreterFailure)
+        matches!(*self.err, ParseErrors::InterpreterFailure)
     }
 
     pub fn has_pre_expression(&self) -> bool {
@@ -204,7 +205,6 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::IllegalVariableName(var_name) => {
                 format!("Illegal variable name: '{var_name}'")
             }
-            ParseErrors::UnknownQuotedValue(value) => format!("Unknown 'quoted value '{value}'"),
             ParseErrors::FailedParsingIntValue(value) => {
                 format!("Failed to parse int literal '{value}'")
             }
@@ -291,7 +291,6 @@ impl DiagnosableError for ParseErrors {
             ParseErrors::TupleValueExpected => "expected value expression for tuple".into(),
             ParseErrors::IllegalClarityName(name) => format!("illegal clarity name, '{name}'"),
             ParseErrors::IllegalASCIIString(s) => format!("illegal ascii string \"{s}\""),
-            ParseErrors::IllegalUtf8String(s) => format!("illegal UTF8 string \"{s}\""),
             ParseErrors::ExpectedWhitespace => "expected whitespace before expression".into(),
             ParseErrors::NoteToMatchThis(token) => format!("to match this '{token}'"),
             ParseErrors::UnexpectedParserFailure => "unexpected failure while parsing".to_string(),

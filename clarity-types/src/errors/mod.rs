@@ -20,13 +20,12 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckError, CheckErrors, CheckResult};
+pub use analysis::{CheckError, CheckErrors};
 pub use ast::{ParseError, ParseErrors, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
 #[cfg(feature = "rusqlite")]
 use rusqlite::Error as SqliteError;
-use serde_json::Error as SerdeJSONErr;
 use stacks_common::types::chainstate::BlockHeaderHash;
 
 use crate::representations::SymbolicExpression;
@@ -54,10 +53,8 @@ pub enum Error {
 /// Test executions may trigger these errors.
 #[derive(Debug, PartialEq)]
 pub enum InterpreterError {
-    BadSender(Value),
     BadSymbolicRepresentation(String),
     InterpreterError(String),
-    UninitializedPersistedVariable,
     FailedToConstructAssetTable,
     FailedToConstructEventBatch,
     #[cfg(feature = "rusqlite")]
@@ -68,7 +65,6 @@ pub enum InterpreterError {
     FailureConstructingTupleWithType,
     FailureConstructingListWithType,
     InsufficientBalance,
-    CostContractLoadFailure,
     DBError(String),
     Expect(String),
 }
@@ -86,34 +82,31 @@ pub enum RuntimeErrorType {
     // error in parsing types
     ParseError(String),
     // error in parsing the AST
-    ASTError(ParseError),
+    ASTError(Box<ParseError>),
     MaxStackDepthReached,
     MaxContextDepthReached,
-    ListDimensionTooHigh,
     BadTypeConstruction,
-    ValueTooLarge,
     BadBlockHeight(String),
-    TransferNonPositiveAmount,
     NoSuchToken,
     NotImplemented,
     NoCallerInContext,
     NoSenderInContext,
-    NonPositiveTokenSupply,
-    JSONParseError(IncomparableError<SerdeJSONErr>),
-    AttemptToFetchInTransientContext,
     BadNameValue(&'static str, String),
     UnknownBlockHeaderHash(BlockHeaderHash),
     BadBlockHash(Vec<u8>),
     UnwrapFailure,
+    MetadataAlreadySet,
+    // pox-locking errors
     DefunctPoxContract,
     PoxAlreadyLocked,
-    MetadataAlreadySet,
+
+    BlockTimeNotAvailable,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum ShortReturnType {
-    ExpectedValue(Value),
-    AssertionFailed(Value),
+    ExpectedValue(Box<Value>),
+    AssertionFailed(Box<Value>),
 }
 
 pub type InterpreterResult<R> = Result<R, Error>;
@@ -174,11 +167,11 @@ impl error::Error for RuntimeErrorType {
 
 impl From<ParseError> for Error {
     fn from(err: ParseError) -> Self {
-        match &err.err {
+        match *err.err {
             ParseErrors::InterpreterFailure => Error::from(InterpreterError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
-            _ => Error::from(RuntimeErrorType::ASTError(err)),
+            _ => Error::from(RuntimeErrorType::ASTError(Box::new(err))),
         }
     }
 }
@@ -235,8 +228,8 @@ impl From<Error> for () {
 impl From<ShortReturnType> for Value {
     fn from(val: ShortReturnType) -> Self {
         match val {
-            ShortReturnType::ExpectedValue(v) => v,
-            ShortReturnType::AssertionFailed(v) => v,
+            ShortReturnType::ExpectedValue(v) => *v,
+            ShortReturnType::AssertionFailed(v) => *v,
         }
     }
 }
@@ -248,15 +241,15 @@ mod test {
     #[test]
     fn equality() {
         assert_eq!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true))),
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true)))
+            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true)))),
+            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
         );
         assert_eq!(
             Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
             Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
         assert!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Value::Bool(true)))
+            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
                 != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
     }

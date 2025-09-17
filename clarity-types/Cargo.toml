@@ -1,8 +1,8 @@
 [package]
-name = "clarity-serialization"
+name = "clarity-types"
 version = "0.0.1"
 edition = "2024"
-description = "Serialization and deserialization for Stacks Clarity smart contract language types."
+description = "Canonical Rust representations for Clarity's core data types, error definitions, and serialization format."
 license = "GPLv3"
 homepage = "https://github.com/stacks-network/stacks-core"
 repository = "https://github.com/stacks-network/stacks-core"
@@ -14,7 +14,7 @@ lazy_static = { workspace = true }
 regex = { version = "1", default-features = false }
 rusqlite = { workspace = true, optional = true }
 serde = { workspace = true }
-serde_json = { version = "1.0", default-features = false }
+serde_json = { version = "1.0", default-features = false, optional = true }
 serde_derive = { workspace = true }
 slog = { workspace = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
@@ -28,7 +28,7 @@ default = []
 testing = []
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
-rusqlite = ["stacks_common/rusqlite", "dep:rusqlite"]
+rusqlite = ["stacks_common/rusqlite", "dep:rusqlite", "dep:serde_json"]
 
 # Wasm-specific features for easier configuration
 wasm-web = ["stacks_common/wasm-web"]
