@@ -143,7 +143,7 @@ impl ArithmeticOnlyChecker<'_> {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
                 | Regtest | TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight
-                | BlockTime => Err(Error::VariableForbidden(native_var)),
+                | BlockTime | CurrentContract => Err(Error::VariableForbidden(native_var)),
                 NativeNone | NativeTrue | NativeFalse => Ok(()),
             }
         } else {
