@@ -12,7 +12,7 @@ use clarity::vm::database::{
     SqliteConnection,
 };
 use clarity::vm::errors::{
-    IncomparableError, VmInternalError, InterpreterResult, RuntimeErrorType,
+    IncomparableError, InterpreterResult, RuntimeErrorType, VmInternalError,
 };
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::Connection;
@@ -45,8 +45,7 @@ impl MarfedKV {
     ) -> InterpreterResult<MARF<StacksBlockId>> {
         let mut path = PathBuf::from(path_str);
 
-        std::fs::create_dir_all(&path)
-            .map_err(|_| VmInternalError::FailedToCreateDataDirectory)?;
+        std::fs::create_dir_all(&path).map_err(|_| VmInternalError::FailedToCreateDataDirectory)?;
 
         path.push("marf.sqlite");
         let marf_path = path

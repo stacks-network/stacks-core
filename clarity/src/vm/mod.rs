@@ -73,7 +73,7 @@ use crate::vm::costs::{
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
-    CheckErrors, Error, VmInternalError, InterpreterResult as Result, RuntimeErrorType,
+    CheckErrors, Error, InterpreterResult as Result, RuntimeErrorType, VmInternalError,
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
@@ -164,10 +164,10 @@ pub trait EvalHook {
 
 fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
-        Err(VmInternalError::BadSymbolicRepresentation(format!(
-            "Unexpected variable name: {name}"
-        ))
-        .into())
+        Err(
+            VmInternalError::BadSymbolicRepresentation(format!("Unexpected variable name: {name}"))
+                .into(),
+        )
     } else if let Some(value) = variables::lookup_reserved_variable(name, context, env)? {
         Ok(value)
     } else {

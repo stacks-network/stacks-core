@@ -20,8 +20,8 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker};
 use crate::vm::database::STXBalance;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, Error, VmInternalError, InterpreterResult as Result,
-    RuntimeErrorType,
+    check_argument_count, CheckErrors, Error, InterpreterResult as Result, RuntimeErrorType,
+    VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{

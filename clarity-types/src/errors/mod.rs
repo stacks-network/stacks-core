@@ -44,28 +44,61 @@ pub enum Error {
     ///   TypeChecker and other check passes. Test executions may
     ///   trigger these errors.
     Unchecked(CheckErrors),
-    Interpreter(VmInternalError),
+    /// A critical, unrecoverable bug within the VM's internal logic.
+    ///
+    /// The presence of this error indicates a violation of one of the VM's
+    /// invariants or a corrupted state. This is **not** an error in the user's
+    /// Clarity code, but a bug in the VM's Rust implementation.
+    ///
+    /// # Example
+    /// The VM's evaluation loop attempts to `pop` from an empty internal call stack,
+    /// indicating a mismatch in function entry/exit logic.
+    Internal(VmInternalError),
     Runtime(RuntimeErrorType, Option<StackTrace>),
     ShortReturn(ShortReturnType),
 }
 
-/// VmInternalErrors are errors that *should never* occur.
-/// Test executions may trigger these errors.
+/// Represents an internal, unrecoverable error within the Clarity VM.
+///
+/// These errors signify a bug in the VM's logic or a violation of its internal
+/// invariants. They are not meant to be caught or handled by Clarity contracts.
 #[derive(Debug, PartialEq)]
 pub enum VmInternalError {
     BadSymbolicRepresentation(String),
-    InterpreterError(String),
+    /// A generic, unexpected internal error, indicating a logic failure within
+    /// the VM.
+    /// TODO: merge with VmInternalError::Expect
+    AssertionFailed(String),
+    /// The VM failed to produce the final `AssetMap` when finalizing the
+    /// execution environment for a transaction.
     FailedToConstructAssetTable,
+    /// The VM failed to produce the final `EventBatch` when finalizing the
+    /// execution environment for a transaction.
     FailedToConstructEventBatch,
+    /// An error occurred during an interaction with the database.
     #[cfg(feature = "rusqlite")]
     SqliteError(IncomparableError<SqliteError>),
+    /// The file path provided for the MARF database is invalid because it
+    /// contains non-UTF-8 characters.
     BadFileName,
+    /// The VM failed to create the necessary directory for the MARF persistent
+    /// storage. Likely due to a file system permissions error or an invalid path
     FailedToCreateDataDirectory,
+    /// A failure occurred within the MARF implementation.
     MarfFailure(String),
+    /// Failed to construct a tuple value from provided data because it did not
+    ///  match the expected type signature.
     FailureConstructingTupleWithType,
+    /// Failed to construct a list value from provided data because it
+    /// did not match the expected type signature.
     FailureConstructingListWithType,
+    /// An STX transfer failed due to insufficient balance.
     InsufficientBalance,
+    /// A generic error occurred during a database operation.
     DBError(String),
+    /// An internal expectation or assertion failed. This is used for conditions
+    /// that are believed to be unreachable but are handled gracefully to prevent
+    /// a panic.
     Expect(String),
 }
 
@@ -123,7 +156,7 @@ impl PartialEq<Error> for Error {
             (Error::Runtime(x, _), Error::Runtime(y, _)) => x == y,
             (Error::Unchecked(x), Error::Unchecked(y)) => x == y,
             (Error::ShortReturn(x), Error::ShortReturn(y)) => x == y,
-            (Error::Interpreter(x), Error::Interpreter(y)) => x == y,
+            (Error::Internal(x), Error::Internal(y)) => x == y,
             _ => false,
         }
     }
@@ -216,7 +249,7 @@ impl From<ShortReturnType> for Error {
 
 impl From<VmInternalError> for Error {
     fn from(err: VmInternalError) -> Self {
-        Error::Interpreter(err)
+        Error::Internal(err)
     }
 }
 
@@ -245,12 +278,12 @@ mod test {
             Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
         );
         assert_eq!(
-            Error::Interpreter(VmInternalError::InterpreterError("".to_string())),
-            Error::Interpreter(VmInternalError::InterpreterError("".to_string()))
+            Error::Internal(VmInternalError::AssertionFailed("".to_string())),
+            Error::Internal(VmInternalError::AssertionFailed("".to_string()))
         );
         assert!(
             Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
-                != Error::Interpreter(VmInternalError::InterpreterError("".to_string()))
+                != Error::Internal(VmInternalError::AssertionFailed("".to_string()))
         );
     }
 }

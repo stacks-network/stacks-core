@@ -8,7 +8,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
-    VmInternalError, InterpreterResult as Result,
+    InterpreterResult as Result, VmInternalError,
 };
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,

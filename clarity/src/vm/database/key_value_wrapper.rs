@@ -24,7 +24,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
-use crate::vm::errors::{VmInternalError, InterpreterResult};
+use crate::vm::errors::{InterpreterResult, VmInternalError};
 use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::Value;
@@ -322,9 +322,7 @@ fn inner_put_data<T>(
 impl RollbackWrapper<'_> {
     pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
         let current = self.stack.last_mut().ok_or_else(|| {
-            VmInternalError::Expect(
-                "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted PUT on non-nested context.".into())
         })?;
 
         inner_put_data(
@@ -387,9 +385,7 @@ impl RollbackWrapper<'_> {
         T: ClarityDeserializable<T>,
     {
         self.stack.last().ok_or_else(|| {
-            VmInternalError::Expect(
-                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
 
         if self.query_pending_data {
@@ -505,9 +501,7 @@ impl RollbackWrapper<'_> {
         value: &str,
     ) -> Result<(), VmInternalError> {
         let current = self.stack.last_mut().ok_or_else(|| {
-            VmInternalError::Expect(
-                "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted PUT on non-nested context.".into())
         })?;
 
         let metadata_key = (contract.clone(), key.to_string());
@@ -529,9 +523,7 @@ impl RollbackWrapper<'_> {
         key: &str,
     ) -> InterpreterResult<Option<String>> {
         self.stack.last().ok_or_else(|| {
-            VmInternalError::Expect(
-                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
 
         // This is THEORETICALLY a spurious clone, but it's hard to turn something like
@@ -560,9 +552,7 @@ impl RollbackWrapper<'_> {
         key: &str,
     ) -> InterpreterResult<Option<String>> {
         self.stack.last().ok_or_else(|| {
-            VmInternalError::Expect(
-                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
 
         // This is THEORETICALLY a spurious clone, but it's hard to turn something like
@@ -584,9 +574,7 @@ impl RollbackWrapper<'_> {
 
     pub fn has_entry(&mut self, key: &str) -> InterpreterResult<bool> {
         self.stack.last().ok_or_else(|| {
-            VmInternalError::Expect(
-                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
         if self.query_pending_data && self.lookup_map.contains_key(key) {
             Ok(true)

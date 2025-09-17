@@ -16,8 +16,8 @@
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, VmInternalError,
-    InterpreterResult as Result, SyntaxBindingErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+    SyntaxBindingErrorType, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, TypeSignature, Value};

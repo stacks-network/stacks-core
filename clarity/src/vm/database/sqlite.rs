@@ -27,7 +27,7 @@ use super::{
 };
 use crate::vm::analysis::{AnalysisDatabase, CheckErrors};
 use crate::vm::errors::{
-    IncomparableError, VmInternalError, InterpreterResult as Result, RuntimeErrorType,
+    IncomparableError, InterpreterResult as Result, RuntimeErrorType, VmInternalError,
 };
 use crate::vm::types::QualifiedContractIdentifier;
 

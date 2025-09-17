@@ -19,7 +19,7 @@ use clarity_types::types::serialization::SerializationError;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, VmInternalError, InterpreterResult as Result,
+    check_argument_count, CheckErrors, InterpreterResult as Result, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::TO_ASCII_MAX_BUFF;
