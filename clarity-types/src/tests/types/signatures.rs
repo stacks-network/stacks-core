@@ -23,9 +23,14 @@ use crate::types::{
 };
 
 #[test]
-fn test_type_buffer_min() {
+fn test_type_buffer_min_to_be_buffer_1() {
+    assert_eq!(TypeSignature::BUFFER_1, TypeSignature::BUFFER_MIN);
+}
+
+#[test]
+fn test_type_buffer_1() {
     let expected = TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
-    let actual = TypeSignature::BUFFER_MIN;
+    let actual = TypeSignature::BUFFER_1;
     assert_eq!(expected, actual);
     assert_eq!(5, actual.size().unwrap(), "size should be 5");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");

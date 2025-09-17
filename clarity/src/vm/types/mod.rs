@@ -32,8 +32,8 @@ use crate::vm::errors::CheckErrors;
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature, TypeSignatureExt, BUFF_1, BUFF_20,
-    BUFF_21, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    StringUTF8Length, TupleTypeSignature, TypeSignature, TypeSignatureExt, BUFF_20, BUFF_21,
+    BUFF_32, BUFF_33, BUFF_64, BUFF_65,
 };
 use crate::vm::ClarityVersion;
 
@@ -98,7 +98,7 @@ impl BurnBlockInfoProperty {
                     TypeSignature::list_of(
                         TypeSignature::TupleType(
                             TupleTypeSignature::try_from(vec![
-                                ("version".into(), BUFF_1.clone()),
+                                ("version".into(), TypeSignature::BUFFER_1),
                                 ("hashbytes".into(), BUFF_32.clone()),
                             ])
                             .map_err(|_| {

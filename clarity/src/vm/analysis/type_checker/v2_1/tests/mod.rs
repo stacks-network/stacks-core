@@ -33,7 +33,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, TypeSignatureExt as _, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    TypeSignature, TypeSignatureExt as _, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
 };
 use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
@@ -3241,7 +3241,7 @@ fn test_principal_destruct() {
     let bad_expected = [
         CheckErrors::IncorrectArgumentCount(1, 2),
         CheckErrors::IncorrectArgumentCount(1, 0),
-        CheckErrors::TypeError(TypeSignature::PrincipalType, BUFF_1.clone()),
+        CheckErrors::TypeError(TypeSignature::PrincipalType, TypeSignature::BUFFER_1),
     ];
 
     for (good_test, expected) in good.iter().zip(expected.iter()) {
@@ -3302,7 +3302,7 @@ fn test_principal_construct() {
         // The first buffer is too long, should be `(buff 1)`.
         (
             r#"(principal-construct? 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(BUFF_1.clone(), BUFF_20.clone()),
+            CheckErrors::TypeError(TypeSignature::BUFFER_1, BUFF_20.clone()),
         ),
         // The second buffer is too long, should be `(buff 20)`.
         (
@@ -3312,7 +3312,7 @@ fn test_principal_construct() {
         // `int` argument instead of `(buff 1)` for version.
         (
             r#"(principal-construct? 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(BUFF_1.clone(), IntType),
+            CheckErrors::TypeError(TypeSignature::BUFFER_1, IntType),
         ),
         // `name` argument is too long
         (

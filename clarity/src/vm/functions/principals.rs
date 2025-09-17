@@ -13,7 +13,7 @@ use crate::vm::errors::{
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
 };
-use crate::vm::types::signatures::{BUFF_1, BUFF_20};
+use crate::vm::types::signatures::BUFF_20;
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
@@ -203,14 +203,14 @@ pub fn special_principal_construct(
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
-                Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into())
+                Err(CheckErrors::TypeValueError(TypeSignature::BUFFER_1, version).into())
             };
         }
     };
 
     let version_byte = if verified_version.len() > 1 {
         // should have been caught by the type-checker
-        return Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into());
+        return Err(CheckErrors::TypeValueError(TypeSignature::BUFFER_1, version).into());
     } else if verified_version.is_empty() {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
         // will type-check to (buff 1)

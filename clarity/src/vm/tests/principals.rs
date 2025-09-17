@@ -11,7 +11,7 @@ use crate::vm::{
     errors::CheckErrors,
     functions::principals::PrincipalConstructErrorCode,
     types::TypeSignature::PrincipalType,
-    types::{ResponseData, TypeSignature, BUFF_1, BUFF_20},
+    types::{ResponseData, TypeSignature, BUFF_20},
 };
 use crate::vm::{execute_with_parameters, ClarityVersion};
 
@@ -952,7 +952,7 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct? 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            BUFF_1.clone(),
+            TypeSignature::BUFFER_1,
             Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("590493").unwrap()
             }))
@@ -971,7 +971,7 @@ fn test_principal_construct_check_errors() {
     // `CheckErrors`.
     let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(BUFF_1.clone(), Value::UInt(22)).into()),
+        Err(CheckErrors::TypeValueError(TypeSignature::BUFFER_1, Value::UInt(22)).into()),
         execute_with_parameters(
             input,
             ClarityVersion::Clarity2,
