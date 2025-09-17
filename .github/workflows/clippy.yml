@@ -42,3 +42,7 @@ jobs:
       - name: Clippy
         id: clippy
         run: cargo clippy-stacks
+
+      - name: Clippy Stackslib
+        id: clippy-stackslib
+        run: cargo clippy-stackslib
