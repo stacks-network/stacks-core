@@ -22,7 +22,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::analysis_db::AnalysisDatabase;
 use crate::vm::analysis::contract_interface_builder::ContractInterface;
-use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use crate::vm::analysis::errors::{CheckError, CheckErrorKind};
 use crate::vm::analysis::type_checker::contexts::TypeMap;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::types::signatures::FunctionSignature;
@@ -242,7 +242,7 @@ impl ContractAnalysis {
                 | (None, Some(FunctionType::Fixed(func))) => {
                     let args_sig = func.args.iter().map(|a| a.signature.clone()).collect();
                     if !expected_sig.check_args_trait_compliance(epoch, args_sig)? {
-                        return Err(CheckErrors::BadTraitImplementation(
+                        return Err(CheckErrorKind::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),
                         )
@@ -250,7 +250,7 @@ impl ContractAnalysis {
                     }
 
                     if !expected_sig.returns.admits_type(epoch, &func.returns)? {
-                        return Err(CheckErrors::BadTraitImplementation(
+                        return Err(CheckErrorKind::BadTraitImplementation(
                             trait_name,
                             func_name.to_string(),
                         )
@@ -258,7 +258,7 @@ impl ContractAnalysis {
                     }
                 }
                 (_, _) => {
-                    return Err(CheckErrors::BadTraitImplementation(
+                    return Err(CheckErrorKind::BadTraitImplementation(
                         trait_name,
                         func_name.to_string(),
                     )

@@ -28,7 +28,7 @@ use stacks_common::types::StacksEpochId;
 pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
-pub use self::errors::{CheckError, CheckErrors};
+pub use self::errors::{CheckError, CheckErrorKind};
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
@@ -62,7 +62,7 @@ pub fn mem_type_check(
         epoch,
         ASTRules::PrecheckSize,
     )
-    .map_err(|_| CheckErrors::Expects("Failed to build AST".into()))?
+    .map_err(|_| CheckErrorKind::Expects("Failed to build AST".into()))?
     .expressions;
 
     let mut marf = MemoryBackingStore::new();
@@ -83,11 +83,11 @@ pub fn mem_type_check(
             let first_type = x
                 .type_map
                 .as_ref()
-                .ok_or_else(|| CheckErrors::Expects("Should be non-empty".into()))?
+                .ok_or_else(|| CheckErrorKind::Expects("Should be non-empty".into()))?
                 .get_type_expected(
                     x.expressions
                         .last()
-                        .ok_or_else(|| CheckErrors::Expects("Should be non-empty".into()))?,
+                        .ok_or_else(|| CheckErrorKind::Expects("Should be non-empty".into()))?,
                 )
                 .cloned();
             Ok((first_type, x))
@@ -158,7 +158,7 @@ pub fn run_analysis(
                 TypeChecker2_1::run_pass(&epoch, &mut contract_analysis, db, build_type_map)
             }
             StacksEpochId::Epoch10 => {
-                return Err(CheckErrors::Expects(
+                return Err(CheckErrorKind::Expects(
                     "Epoch 1.0 is not a valid epoch for analysis".into(),
                 )
                 .into())

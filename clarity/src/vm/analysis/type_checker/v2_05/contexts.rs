@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use crate::vm::analysis::errors::{CheckError, CheckErrorKind};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;
@@ -67,7 +67,7 @@ impl ContractContext {
             || self.traits.contains_key(name)
             || self.map_types.contains_key(name)
         {
-            Err(CheckError::new(CheckErrors::NameAlreadyUsed(
+            Err(CheckError::new(CheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )))
         } else {
