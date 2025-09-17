@@ -17,6 +17,7 @@ use crate::net::http::Error;
 use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
 
+pub mod blocksimulate;
 pub mod callreadonly;
 pub mod fastcallreadonly;
 pub mod get_tenures_fork_info;
@@ -74,6 +75,7 @@ impl StacksHttp {
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.
     pub fn register_rpc_methods(&mut self) {
+        self.register_rpc_endpoint(blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new());
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
             self.maximum_call_argument_size,
             self.read_only_call_limit.clone(),
