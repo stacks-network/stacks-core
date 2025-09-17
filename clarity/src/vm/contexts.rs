@@ -2175,7 +2175,7 @@ mod test {
                 &BuffData::empty(),
             )
             .unwrap_err();
-        assert_eq!(e.to_string(), "Interpreter(InsufficientBalance)");
+        assert_eq!(e.to_string(), "Internal(InsufficientBalance)");
     }
 
     #[test]
