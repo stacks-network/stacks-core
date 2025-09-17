@@ -39,13 +39,19 @@ pub struct IncomparableError<T> {
 }
 
 #[derive(Debug)]
+/// Errors that can occur during the runtime execution, including type-checking
+/// failures, interpreter issues, runtime errors, and premature returns.
 pub enum VmExecutionError {
     /// UncheckedErrors are errors that *should* be caught by the
-    ///   TypeChecker and other check passes. Test executions may
-    ///   trigger these errors.
+    /// TypeChecker and other check passes. Test executions may
+    /// trigger these errors.
     Unchecked(CheckErrors),
+    /// Errors originating from the interpreter during program execution.
+    /// These *should never* occur. Test executions may trigger these errors
     Interpreter(InterpreterError),
+    /// Errors that occur during runtime execution, with an optional stack trace.
     Runtime(RuntimeErrorType, Option<StackTrace>),
+    /// Errors triggered during Clarity contract evaluation that cause early termination.
     ShortReturn(ShortReturnType),
 }
 
