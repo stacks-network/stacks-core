@@ -102,7 +102,7 @@ mod tuple_type_map_serde {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct BufferLength(u32);
+pub struct BufferLength(pub(crate) u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length(u32);

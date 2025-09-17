@@ -18,9 +18,19 @@ use crate::errors::CheckErrors;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier,
+    BufferLength, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier,
     TupleTypeSignature,
 };
+
+#[test]
+fn test_min_buffer() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
+    let actual = TypeSignature::min_buffer().unwrap();
+    assert_eq!(expected, actual);
+    assert_eq!(5, actual.size().unwrap(), "size should be 5");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
 
 #[test]
 fn test_least_supertype() {
