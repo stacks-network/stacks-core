@@ -39,6 +39,7 @@ use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
 mod assets;
 pub mod contracts;
+mod post_conditions;
 
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
 pub fn mem_type_check(exp: &str) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {

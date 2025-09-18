@@ -309,7 +309,10 @@ pub enum CheckErrors {
     ExecutionTimeExpired,
 
     // contract post-conditions
-    RestrictAssetsExpectedListOfAllowances,
+    ExpectedListOfAllowances(String, i32),
+    AllowanceExprNotAllowed,
+    ExpectedAllowanceExpr(String),
+    WithAllAllowanceNotAllowed,
 }
 
 #[derive(Debug, PartialEq)]
@@ -608,7 +611,10 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
             CheckErrors::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
             CheckErrors::ExecutionTimeExpired => "execution time expired".into(),
-            CheckErrors::RestrictAssetsExpectedListOfAllowances => "restrict-assets? expects a list of asset allowances as its second argument".into(),
+            CheckErrors::ExpectedListOfAllowances(fn_name, arg_num) => format!("{fn_name} expects a list of asset allowances as argument {arg_num}"),
+            CheckErrors::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
+            CheckErrors::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
+            CheckErrors::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
         }
     }
 

@@ -13,9 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::ExecutionCost;
 /// This file implements the cost functions from costs-2.clar in Rust.
-use super::cost_functions::{CostValues, linear, logn, nlogn};
+use super::cost_functions::{linear, logn, nlogn, CostValues};
+use super::ExecutionCost;
 use crate::vm::errors::{InterpreterResult, RuntimeErrorType};
 
 pub struct Costs2;
@@ -755,6 +755,10 @@ impl CostValues for Costs2 {
     }
 
     fn cost_restrict_assets(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeErrorType::NotImplemented.into())
+    }
+
+    fn cost_as_contract_safe(n: u64) -> InterpreterResult<ExecutionCost> {
         Err(RuntimeErrorType::NotImplemented.into())
     }
 }

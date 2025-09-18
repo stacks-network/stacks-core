@@ -16,15 +16,15 @@
 
 use stacks_common::types::StacksEpochId;
 
-use super::{TypeChecker, TypingContext, check_argument_count, check_arguments_at_least, no_type};
+use super::{check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypingContext};
 use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
-use crate::vm::functions::{NativeFunctions, handle_binding_list};
+use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::{
-    BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65, BlockInfoProperty, FixedFunction, FunctionArg,
-    FunctionSignature, FunctionType, PrincipalData, TupleTypeSignature, TypeSignature, Value,
+    BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
+    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -777,13 +777,43 @@ impl TypedNativeFunction {
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
-            ElementAtAlias | IndexOfAlias | BuffToIntLe | BuffToUIntLe | BuffToIntBe
-            | BuffToUIntBe | IsStandard | PrincipalDestruct | PrincipalConstruct | StringToInt
-            | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
-            | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
-            | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash | ToAscii
-            | RestrictAssets => {
+            ElementAtAlias
+            | IndexOfAlias
+            | BuffToIntLe
+            | BuffToUIntLe
+            | BuffToIntBe
+            | BuffToUIntBe
+            | IsStandard
+            | PrincipalDestruct
+            | PrincipalConstruct
+            | StringToInt
+            | StringToUInt
+            | IntToAscii
+            | IntToUtf8
+            | GetBurnBlockInfo
+            | StxTransferMemo
+            | StxGetAccount
+            | BitwiseAnd
+            | BitwiseOr
+            | BitwiseNot
+            | BitwiseLShift
+            | BitwiseRShift
+            | BitwiseXor2
+            | Slice
+            | ToConsensusBuff
+            | FromConsensusBuff
+            | ReplaceAt
+            | GetStacksBlockInfo
+            | GetTenureInfo
+            | ContractHash
+            | ToAscii
+            | RestrictAssets
+            | AsContractSafe
+            | AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => {
                 return Err(CheckErrors::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
                 ));

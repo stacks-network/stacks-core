@@ -15,13 +15,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use super::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
-use crate::vm::ClarityVersion;
-use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
 use crate::vm::analysis::type_checker::v2_1::natives::SimpleNativeFunction;
-use crate::vm::functions::NativeFunctions;
+use crate::vm::analysis::type_checker::v2_1::TypedNativeFunction;
 use crate::vm::functions::define::DefineFunctions;
+use crate::vm::functions::NativeFunctions;
 use crate::vm::types::{FixedFunction, FunctionType};
 use crate::vm::variables::NativeVariables;
+use crate::vm::ClarityVersion;
 
 #[cfg(feature = "rusqlite")]
 pub mod contracts;
@@ -102,7 +102,8 @@ const BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
     description: "Returns the current block height of the Stacks blockchain in Clarity 1 and 2.
 Upon activation of epoch 3.0, `block-height` will return the same value as `tenure-height`.
 In Clarity 3, `block-height` is removed and has been replaced with `stacks-block-height`.",
-    example: "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
+    example:
+        "(> block-height u1000) ;; returns true if the current block-height has passed 1000 blocks.",
 };
 
 const BURN_BLOCK_HEIGHT: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -191,7 +192,8 @@ const REGTEST_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "is-in-regtest",
     output_type: "bool",
     description: "Returns whether or not the code is running in a regression test",
-    example: "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
+    example:
+        "(print is-in-regtest) ;; Will print 'true' if the code is running in a regression test",
 };
 
 const MAINNET_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -566,7 +568,8 @@ const BITWISE_XOR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-xor ${1:expr-1} ${2:expr-2}",
     signature: "(bit-xor i1 i2...)",
-    description: "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
+    description:
+        "Returns the result of bitwise exclusive or'ing a variable number of integer inputs.",
     example: "(bit-xor 1 2) ;; Returns 3
 (bit-xor 120 280) ;; Returns 352
 (bit-xor -128 64) ;; Returns -64
@@ -592,7 +595,8 @@ const BITWISE_OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-or ${1:expr-1} ${2:expr-2}",
     signature: "(bit-or i1 i2...)",
-    description: "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
+    description:
+        "Returns the result of bitwise inclusive or'ing a variable number of integer inputs.",
     example: "(bit-or 4 8) ;; Returns 12
 (bit-or 1 2 4) ;; Returns 7
 (bit-or 64 -32 -16) ;; Returns -16
@@ -1578,7 +1582,8 @@ If the supplied argument is an `(ok ...)` value,
 };
 
 const MATCH_API: SpecialAPI = SpecialAPI {
-    input_type: "(optional A) name expression expression | (response A B) name expression name expression",
+    input_type:
+        "(optional A) name expression expression | (response A B) name expression name expression",
     snippet: "match ${1:algebraic-expr} ${2:some-binding-name} ${3:some-branch} ${4:none-branch}",
     output_type: "C",
     signature: "(match opt-input some-binding-name some-branch none-branch) |
@@ -2592,6 +2597,164 @@ error-prone). Returns:
 "#,
 };
 
+const AS_CONTRACT_SAFE: SpecialAPI = SpecialAPI {
+    input_type: "((Allowance)*), AnyType, ... A",
+    snippet: "as-contract? (${1:allowance-1} ${2:allowance-2}) ${3:expr-1}",
+    output_type: "(response A int)",
+    signature: "(as-contract? ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)",
+    description: "Switches the current context's `tx-sender` and
+`contract-caller` values to the contract's principal and executes the body
+expressions within that context, then checks the asset outflows from the
+contract against the granted allowances, in declaration order. If any
+allowance is violated, the body expressions are reverted, an error is
+returned, and an event is emitted with the full details of the violation to
+help with debugging. Note that the allowance setup expressions are evaluated
+before executing the body expressions. The final body expression cannot
+return a `response` value in order to avoid returning a nested `response`
+value from `as-contract?` (nested responses are error-prone). Returns:
+* `(ok x)` if the outflows are within the allowances, where `x` is the
+    result of the final body expression and has type `A`.
+* `(err index)` if an allowance was violated, where `index` is the 0-based
+    index of the first violated allowance in the list of granted allowances,
+    or -1 if an asset with no allowance caused the violation.",
+    example: r#"
+(define-public (foo)
+  (as-contract? ()
+    (try! (stx-transfer? u1000000 tx-sender recipient))
+  )
+) ;; Returns (err -1)
+(define-public (bar)
+  (as-contract? ((with-stx u1000000))
+    (try! (stx-transfer? u1000000 tx-sender recipient))
+  )
+) ;; Returns (ok true)
+"#,
+};
+
+const ALLOWANCE_WITH_STX: SpecialAPI = SpecialAPI {
+    input_type: "uint",
+    snippet: "with-stx ${1:amount}",
+    output_type: "Allowance",
+    signature: "(with-stx amount)",
+    description: "Adds an outflow allowance for `amount` uSTX from the
+`asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
+expression. `with-stx` is not allowed outside of `restrict-assets?` or
+`as-contract?` contexts.",
+    example: r#"
+(restrict-assets? tx-sender
+  ((with-stx u1000000))
+  (try! (stx-transfer? u2000000 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (err 0)
+(restrict-assets? tx-sender
+  ((with-stx u1000000))
+  (try! (stx-transfer? u1000000 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (ok true)
+"#,
+};
+
+const ALLOWANCE_WITH_FT: SpecialAPI = SpecialAPI {
+    input_type: "principal (string-ascii 128) uint",
+    snippet: "with-ft ${1:contract-id} ${2:token-name} ${3:amount}",
+    output_type: "Allowance",
+    signature: "(with-ft contract-id token-name amount)",
+    description: r#"Adds an outflow allowance for `amount` of the fungible
+token defined in `contract-id` with name `token-name` from the `asset-owner`
+of the enclosing `restrict-assets?` or `as-contract?` expression.  `with-ft` is
+not allowed outside of `restrict-assets?` or `as-contract?` contexts. Note that
+`token-name` should match the name used in the `define-fungible-token` call in
+the contract. When `"*"` is used for the token name, the allowance applies to
+**all** FTs defined in `contract-id`."#,
+    example: r#"
+(restrict-assets? tx-sender
+  ((with-ft (contract-of token-trait) "stackaroo" u50))
+  (try! (contract-call? token-trait transfer u100 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none))
+) ;; Returns (err 0)
+(restrict-assets? tx-sender
+  ((with-ft (contract-of token-trait) "stackaroo" u50))
+  (try! (contract-call? token-trait transfer u20 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none))
+) ;; Returns (ok true)
+"#,
+};
+
+const ALLOWANCE_WITH_NFT: SpecialAPI = SpecialAPI {
+    input_type: "principal (string-ascii 128) T",
+    snippet: "with-nft ${1:contract-id} ${2:asset-name} ${3:asset-identifier}",
+    output_type: "Allowance",
+    signature: "(with-nft contract-id asset-name identifier)",
+    description: r#"Adds an outflow allowance for the non-fungible token
+identified by `identifier` defined in `contract-id` with name `token-name`
+from the `asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
+expression. `with-nft` is not allowed outside of `restrict-assets?` or
+`as-contract?` contexts. Note that `token-name` should match the name used in
+the `define-non-fungible-token` call in the contract. When `"*"` is used for
+the token name, the allowance applies to **all** NFTs defined in `contract-id`."#,
+    example: r#"
+(restrict-assets? tx-sender
+  ((with-nft (contract-of nft-trait) "stackaroo" u123))
+  (try! (contract-call? nft-trait transfer u4 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (err 0)
+(restrict-assets? tx-sender
+  ((with-nft (contract-of nft-trait) "stackaroo" u123))
+  (try! (contract-call? nft-trait transfer u123 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (ok true)
+"#,
+};
+
+const ALLOWANCE_WITH_STACKING: SpecialAPI = SpecialAPI {
+    input_type: "uint",
+    snippet: "with-stacking ${1:amount}",
+    output_type: "Allowance",
+    signature: "(with-stacking amount)",
+    description: "Adds a stacking allowance for `amount` uSTX from the
+`asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
+expression. `with-stacking` is not allowed outside of `restrict-assets?` or
+`as-contract?` contexts. This restricts calls to `delegate-stx` and
+`stack-stx` in the active PoX contract to lock up to the amount of uSTX
+specified.",
+    example: r#"
+(restrict-assets? tx-sender
+  ((with-stacking u1000000000000))
+  (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
+    u1100000000000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
+  ))
+) ;; Returns (err 0)
+(restrict-assets? tx-sender
+  ((with-stacking u1000000000000))
+  (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
+    u900000000000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
+  ))
+) ;; Returns (ok true)
+"#,
+};
+
+const ALLOWANCE_WITH_ALL: SpecialAPI = SpecialAPI {
+    input_type: "N/A",
+    snippet: "with-all-assets-unsafe",
+    output_type: "Allowance",
+    signature: "(with-all-assets-unsafe)",
+    description: "Grants unrestricted access to all assets of the contract to
+the enclosing `as-contract?` expression. `with-stacking` is not allowed outside
+of `as-contract?` contexts. Note that this is not allowed in `restrict-assets?`
+and will trigger an analysis error, since usage there does not make sense (i.e.
+just remove the `restrict-assets?` instead).
+**_⚠️ Security Warning: This should be used with extreme caution, as it
+effectively disables all asset protection for the contract. ⚠️_** This
+dangerous allowance should only be used when the code executing within the
+`as-contract?` body is verified to be trusted through other means (e.g.
+checking traits against an allow list, passed in from a trusted caller), and
+even then the more restrictive allowances should be preferred when possible.",
+    example: r#"
+(define-public (execute-trait (trusted-trait <sample-trait>))
+  (begin
+    (asserts! (is-eq contract-caller TRUSTED_CALLER) ERR_UNTRUSTED_CALLER)
+    (as-contract? ((with-all-assets-unsafe))
+      (contract-call? trusted-trait execute)
+    )
+  )
+)
+"#,
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2707,6 +2870,12 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         ContractHash => make_for_simple_native(&CONTRACT_HASH, function, name),
         ToAscii => make_for_special(&TO_ASCII, function),
         RestrictAssets => make_for_special(&RESTRICT_ASSETS, function),
+        AsContractSafe => make_for_special(&AS_CONTRACT_SAFE, function),
+        AllowanceWithStx => make_for_special(&ALLOWANCE_WITH_STX, function),
+        AllowanceWithFt => make_for_special(&ALLOWANCE_WITH_FT, function),
+        AllowanceWithNft => make_for_special(&ALLOWANCE_WITH_NFT, function),
+        AllowanceWithStacking => make_for_special(&ALLOWANCE_WITH_STACKING, function),
+        AllowanceAll => make_for_special(&ALLOWANCE_WITH_ALL, function),
     }
 }
 
@@ -2818,11 +2987,11 @@ pub fn make_json_api_reference() -> String {
 #[cfg(test)]
 mod test {
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
-    use stacks_common::types::StacksEpochId;
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
         StacksBlockId, VRFSeed,
     };
+    use stacks_common::types::StacksEpochId;
     use stacks_common::util::hash::hex_bytes;
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
@@ -2833,13 +3002,13 @@ mod test {
         BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
     };
     use crate::vm::docs::get_output_type_string;
-    use crate::vm::types::signatures::{ASCII_40, FunctionArgSignature, FunctionReturnsSignature};
+    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
     use crate::vm::types::{
         FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     };
     use crate::vm::{
-        ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker, StacksEpoch, Value,
-        ast, eval_all, execute,
+        ast, eval_all, execute, ClarityVersion, ContractContext, GlobalContext, LimitedCostTracker,
+        StacksEpoch, Value,
     };
 
     struct DocHeadersDB {}

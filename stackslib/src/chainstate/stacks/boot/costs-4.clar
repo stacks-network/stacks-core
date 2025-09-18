@@ -666,3 +666,6 @@
 
 (define-read-only (cost_restrict_assets (n uint))
     (runtime (linear n u1 u100))) ;; TODO: needs criterion benchmark
+
+(define-read-only (cost_as_contract_safe (n uint))
+    (runtime (linear n u1 u100))) ;; TODO: needs criterion benchmark

@@ -74,7 +74,10 @@ pub fn special_restrict_assets(
     let asset_owner_expr = &args[0];
     let allowance_list = args[1]
         .match_list()
-        .ok_or(CheckErrors::RestrictAssetsExpectedListOfAllowances)?;
+        .ok_or(CheckErrors::ExpectedListOfAllowances(
+            "restrict-assets?".into(),
+            2,
+        ))?;
     let body_exprs = &args[2..];
 
     let _asset_owner = eval(asset_owner_expr, env, context)?;
@@ -107,4 +110,65 @@ pub fn special_restrict_assets(
 
     // last_result should always be Some(...), because of the arg len check above.
     last_result.ok_or_else(|| InterpreterError::Expect("Failed to get let result".into()).into())
+}
+
+/// Handles the function `as-contract?`
+pub fn special_as_contract(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> InterpreterResult<Value> {
+    // (as-contract? ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)
+    // arg1 => list of asset allowances
+    // arg2..n => body
+    check_arguments_at_least(2, args)?;
+
+    let allowance_list = args[0]
+        .match_list()
+        .ok_or(CheckErrors::ExpectedListOfAllowances(
+            "as-contract?".into(),
+            1,
+        ))?;
+    let body_exprs = &args[1..];
+
+    runtime_cost(
+        ClarityCostFunction::AsContractSafe,
+        env,
+        allowance_list.len(),
+    )?;
+
+    let mut allowances = Vec::with_capacity(allowance_list.len());
+    for allowance in allowance_list {
+        allowances.push(eval_allowance(allowance, env, context)?);
+    }
+
+    // Create a new evaluation context, so that we can rollback if the
+    // post-conditions are violated
+    env.global_context.begin();
+
+    // evaluate the body expressions
+    let mut last_result = None;
+    for expr in body_exprs {
+        let result = eval(expr, env, context)?;
+        last_result.replace(result);
+    }
+
+    // TODO: Check the post-conditions and rollback if they are violated
+
+    env.global_context.commit()?;
+
+    // last_result should always be Some(...), because of the arg len check above.
+    last_result.ok_or_else(|| InterpreterError::Expect("Failed to get let result".into()).into())
+}
+
+/// Handles all allowance functions, always returning an error, since these are
+/// not allowed outside of specific contexts (in `restrict-assets?` and
+/// `as-contract?`). When called in the appropriate context, they are handled
+/// by the above `eval_allowance` function.
+pub fn special_allowance(
+    _args: &[SymbolicExpression],
+    _env: &mut Environment,
+    _context: &LocalContext,
+) -> InterpreterResult<Value> {
+    Err(CheckErrors::AllowanceExprNotAllowed.into())
 }

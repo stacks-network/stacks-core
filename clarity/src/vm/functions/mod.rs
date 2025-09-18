@@ -16,18 +16,18 @@
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::Value::CallableContract;
-use crate::vm::callables::{CallableType, NativeHandle, cost_input_sized_vararg};
+use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{CostTracker, MemoryConsumer, constants as cost_constants, runtime_cost};
+use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    CheckErrors, Error, InterpreterResult as Result, ShortReturnType, SyntaxBindingError,
-    SyntaxBindingErrorType, check_argument_count, check_arguments_at_least,
+    check_argument_count, check_arguments_at_least, CheckErrors, Error,
+    InterpreterResult as Result, ShortReturnType, SyntaxBindingError, SyntaxBindingErrorType,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{PrincipalData, TypeSignature, Value};
-use crate::vm::{Environment, LocalContext, eval, is_reserved};
+use crate::vm::Value::CallableContract;
+use crate::vm::{eval, is_reserved, Environment, LocalContext};
 
 macro_rules! switch_on_global_epoch {
     ($Name:ident ($Epoch2Version:ident, $Epoch205Version:ident)) => {
@@ -144,7 +144,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     Secp256k1Verify("secp256k1-verify", ClarityVersion::Clarity1, None),
     Print("print", ClarityVersion::Clarity1, None),
     ContractCall("contract-call?", ClarityVersion::Clarity1, None),
-    AsContract("as-contract", ClarityVersion::Clarity1, None),
+    AsContract("as-contract", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity3)),
     ContractOf("contract-of", ClarityVersion::Clarity1, None),
     PrincipalOf("principal-of?", ClarityVersion::Clarity1, None),
     AtBlock("at-block", ClarityVersion::Clarity1, None),
@@ -194,7 +194,13 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     GetTenureInfo("get-tenure-info?", ClarityVersion::Clarity3, None),
     ContractHash("contract-hash?", ClarityVersion::Clarity4, None),
     ToAscii("to-ascii?", ClarityVersion::Clarity4, None),
-    RestrictAssets("restrict-assets?", ClarityVersion::Clarity4, None)
+    RestrictAssets("restrict-assets?", ClarityVersion::Clarity4, None),
+    AsContractSafe("as-contract?", ClarityVersion::Clarity4, None),
+    AllowanceWithStx("with-stx", ClarityVersion::Clarity4, None),
+    AllowanceWithFt("with-ft", ClarityVersion::Clarity4, None),
+    AllowanceWithNft("with-nft", ClarityVersion::Clarity4, None),
+    AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, None),
+    AllowanceAll("with-all-assets-unsafe", ClarityVersion::Clarity4, None),
 });
 
 ///
@@ -571,6 +577,16 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 "special_restrict_assets",
                 &post_conditions::special_restrict_assets,
             ),
+            AsContractSafe => {
+                SpecialFunction("special_as_contract", &post_conditions::special_as_contract)
+            }
+            AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => {
+                SpecialFunction("special_allowance", &post_conditions::special_allowance)
+            }
         };
         Some(callable)
     } else {

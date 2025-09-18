@@ -160,6 +160,7 @@ define_named_enum!(ClarityCostFunction {
     ContractHash("cost_contract_hash"),
     ToAscii("cost_to_ascii"),
     RestrictAssets("cost_restrict_assets"),
+    AsContractSafe("cost_as_contract_safe"),
     Unimplemented("cost_unimplemented"),
 });
 
@@ -332,6 +333,7 @@ pub trait CostValues {
     fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost>;
     fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost>;
     fn cost_restrict_assets(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_as_contract_safe(n: u64) -> InterpreterResult<ExecutionCost>;
 }
 
 impl ClarityCostFunction {
@@ -487,6 +489,7 @@ impl ClarityCostFunction {
             ClarityCostFunction::ContractHash => C::cost_contract_hash(n),
             ClarityCostFunction::ToAscii => C::cost_to_ascii(n),
             ClarityCostFunction::RestrictAssets => C::cost_restrict_assets(n),
+            ClarityCostFunction::AsContractSafe => C::cost_as_contract_safe(n),
             ClarityCostFunction::Unimplemented => Err(RuntimeErrorType::NotImplemented.into()),
         }
     }

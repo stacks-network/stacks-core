@@ -261,6 +261,9 @@ lazy_static! {
 pub const ASCII_40: TypeSignature = SequenceType(SequenceSubtype::StringType(
     StringSubtype::ASCII(BufferLength(40)),
 ));
+pub const ASCII_128: TypeSignature = SequenceType(SequenceSubtype::StringType(
+    StringSubtype::ASCII(BufferLength(128)),
+));
 pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
     StringUTF8Length(40),
 )));
