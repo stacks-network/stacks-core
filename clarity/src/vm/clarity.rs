@@ -17,16 +17,20 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 /// type-checking, runtime evaluation, and transaction execution.
 #[derive(Debug)]
 pub enum ClarityError {
-    /// Error during static type-checking and semantic analysis.
+    /// Error during static type-checking or semantic analysis.
+    /// The `StaticCheckError` wraps the specific type-checking error, including diagnostic details.
     Analysis(CheckError),
     /// Error during lexical or syntactic parsing.
+    /// The `ParseError` wraps the specific parsing error, such as invalid syntax or tokens.
     Parse(ParseError),
-    /// Error during runtime evaluation of Clarity code.
+    /// Error during runtime evaluation in the virtual machine.
+    /// The `VmExecutionError` wraps the specific error, such as runtime errors or dynamic type-checking errors.
     Interpreter(InterpreterError),
-    /// Transaction is malformed or invalid due to blockchain-level issues (e.g., incorrect
-    /// format, invalid signatures).
+    /// Transaction is malformed or invalid due to blockchain-level issues.
+    /// The `String` wraps a human-readable description of the issue, such as incorrect format or invalid signatures.
     BadTransaction(String),
-    /// Transaction exceeds the allocated cost budget. Contains the actual and maximum allowed costs.
+    /// Transaction exceeds the allocated cost budget during execution.
+    /// The first `ExecutionCost` represents the total consumed cost, and the second represents the budget limit.
     CostError(ExecutionCost, ExecutionCost),
     /// Transaction aborted by a callback (e.g., post-condition check or custom logic).
     AbortedByCallback {
