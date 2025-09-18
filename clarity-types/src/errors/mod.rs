@@ -69,38 +69,41 @@ pub enum InterpreterError {
     Expect(String),
 }
 
-/// RuntimeErrors are errors that smart contracts are expected
-///   to be able to trigger during execution (e.g., arithmetic errors)
+/// Runtime errors that Clarity smart contracts are expected to trigger during execution in the virtual
+/// machine, such as arithmetic errors, invalid operations, or blockchain-specific issues. These errors
+/// are distinct from static analysis errors and occur during dynamic evaluation of contract code.
 #[derive(Debug, PartialEq)]
 pub enum RuntimeError {
-    /// A generic arithmetic error with a descriptive message.
+    /// A generic arithmetic error encountered during contract execution.
+    /// The `String` represents a descriptive message detailing the specific arithmetic issue.
     Arithmetic(String),
-    /// An arithmetic operation exceeded the maximum value for the data type (e.g., u128).
+    /// An arithmetic operation exceeded the maximum value for the data type (e.g., `u128`).
     ArithmeticOverflow,
     /// An arithmetic operation resulted in a value below zero for an unsigned type.
     ArithmeticUnderflow,
     /// Attempt to increase token supply beyond the maximum limit.
-    /// The parameters represent the current supply and the attempted increase.
+    /// The first u128 represents the attempted new supply (current supply plus increase),
+    /// and the second represents the maximum allowed supply.
     SupplyOverflow(u128, u128),
     /// Attempt to decrease token supply below zero.
-    /// The parameters represent the current supply and the attempted decrease.
+    /// The first `u128` represents the current token supply, and the second represents the attempted decrease amount.
     SupplyUnderflow(u128, u128),
     /// Attempt to divide or compute modulo by zero.
     DivisionByZero,
-    /// Failure to parse types dynamically during execution.
-    /// The string describes the specific parsing issue, such as invalid data formats.
+    /// Failure to parse types dynamically during contract execution.
+    /// The `String` represents the specific parsing issue, such as invalid data formats.
     TypeParseFailure(String),
     /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
-    /// Wraps a detailed `ParseError` for issues in code interpretation.
+    /// The `Box<ParseError>` wraps the specific parsing error encountered, detailing code interpretation issues.
     ASTError(Box<ParseError>),
     /// The call stack exceeded the virtual machine's maximum depth.
     MaxStackDepthReached,
     /// The execution context depth exceeded the virtual machine's limit.
     MaxContextDepthReached,
-    /// Attempt to construct an invalid or unsupported type at runtime.
+    /// Attempt to construct an invalid or unsupported type at runtime (e.g., malformed data structure).
     BadTypeConstruction,
     /// Reference to an invalid or out-of-bounds block height.
-    /// The string details the issue, such as querying a future block.
+    /// The `String` represents the string representation of the queried block height that was invalid.
     BadBlockHeight(String),
     /// Attempt to interact with a non-existent token (e.g., in NFT or fungible token operations).
     NoSuchToken,
@@ -111,16 +114,17 @@ pub enum RuntimeError {
     /// No sender principal available in the current execution context.
     NoSenderInContext,
     /// Invalid name-value pair in contract data (e.g., map keys).
-    /// The static string specifies the name, and the dynamic string provides the offending value.
+    /// The `&'static str` represents the name of the invalid pair, and the `String` represents the offending value.
     BadNameValue(&'static str, String),
     /// Reference to a non-existent block header hash.
+    /// The `BlockHeaderHash` represents the unknown block header hash.
     UnknownBlockHeaderHash(BlockHeaderHash),
     /// Invalid block hash provided (e.g., incorrect format or length).
-    /// The byte vector contains the invalid hash data.
+    /// The `Vec<u8>` represents the invalid block hash data.
     BadBlockHash(Vec<u8>),
     /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
     UnwrapFailure,
-    /// Attempt to set metadata already initialized (e.g., for NFTs or tokens).
+    /// Attempt to set metadata (e.g., for NFTs or tokens) that was already initialized.
     MetadataAlreadySet,
     /// Interaction with a deprecated or inactive Proof of Transfer (PoX) contract.
     DefunctPoxContract,
