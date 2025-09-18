@@ -2053,6 +2053,30 @@ impl StacksChainState {
         )
     }
 
+    /// Begin processing an epoch's transactions within the context of a chainstate transaction,
+    /// but do so in a way that will not cause them to be persisted.  Used for replaying blocks.
+    pub fn chainstate_ephemeral_block_begin<'a, 'b>(
+        chainstate_tx: &'b ChainstateTx<'b>,
+        clarity_instance: &'a mut ClarityInstance,
+        burn_dbconn: &'b dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'b> {
+        let conf = chainstate_tx.config.clone();
+        StacksChainState::inner_ephemeral_clarity_tx_begin(
+            conf,
+            chainstate_tx,
+            clarity_instance,
+            burn_dbconn,
+            parent_consensus_hash,
+            parent_block,
+            new_consensus_hash,
+            new_block,
+        )
+    }
+
     /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
     /// transaction.  Used by the miner for producing blocks.
     pub fn block_begin<'a>(
@@ -2065,6 +2089,30 @@ impl StacksChainState {
     ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
+            conf,
+            &self.state_index,
+            &mut self.clarity_state,
+            burn_dbconn,
+            parent_consensus_hash,
+            parent_block,
+            new_consensus_hash,
+            new_block,
+        )
+    }
+
+    /// Begin an ephemeral transaction against the Clarity VM, _outside of_ the context of a chainstate
+    /// transaction.  The block will not be stored to disk, even if it is committed.
+    /// Used by code paths which need to replay blocks.
+    pub fn ephemeral_block_begin<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'a> {
+        let conf = self.config();
+        StacksChainState::inner_ephemeral_clarity_tx_begin(
             conf,
             &self.state_index,
             &mut self.clarity_state,
@@ -2338,6 +2386,59 @@ impl StacksChainState {
         );
 
         test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
+    /// Create an ephemeral Clarity VM database transaction.
+    /// The child block, identified by `new_consensus_hash` and `new_block`, will be treated as
+    /// ephemeral.
+    fn inner_ephemeral_clarity_tx_begin<'a, 'b>(
+        conf: DBConfig,
+        headers_db: &'b dyn HeadersDB,
+        clarity_instance: &'a mut ClarityInstance,
+        burn_dbconn: &'b dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'b> {
+        // mix consensus hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the pair is)
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing ephemeral Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child ephemeral MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent ephemeral MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_ephemeral(
+            &parent_index_block,
+            &new_index_block,
+            headers_db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got ephemeral clarity TX!");
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,

@@ -3899,7 +3899,8 @@ impl NakamotoChainState {
     }
 
     /// Begin block-processing for a normal block and return all of the pre-processed state within a
-    /// `SetupBlockResult`.  Used by the Nakamoto miner, and called by Self::setup_normal_block()
+    /// `SetupBlockResult`.  Used by the Nakamoto miner, and called by
+    /// Self::setup_normal_block_processing()
     pub fn setup_block<'a, 'b>(
         chainstate_tx: &'b mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
@@ -3936,6 +3937,49 @@ impl NakamotoChainState {
             coinbase_height,
             tenure_extend,
             timestamp,
+            false,
+        )
+    }
+
+    /// Begin block-processing for a replay of a normal block and return all of the pre-processed state within a
+    /// `SetupBlockResult`.  Used by the block replay logic, and called by Self::setup_normal_block_processing()
+    pub fn setup_ephemeral_block<'a, 'b>(
+        chainstate_tx: &'b mut ChainstateTx,
+        clarity_instance: &'a mut ClarityInstance,
+        sortition_dbconn: &'b dyn SortitionDBRef,
+        first_block_height: u64,
+        pox_constants: &PoxConstants,
+        parent_consensus_hash: &ConsensusHash,
+        parent_header_hash: &BlockHeaderHash,
+        parent_burn_height: u32,
+        burn_header_hash: &BurnchainHeaderHash,
+        burn_header_height: u32,
+        new_tenure: bool,
+        coinbase_height: u64,
+        tenure_extend: bool,
+        block_bitvec: &BitVec<4000>,
+        tenure_block_commit: &LeaderBlockCommitOp,
+        active_reward_set: &RewardSet,
+        timestamp: Option<u64>,
+    ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
+        // this block's bitvec header must match the miner's block commit punishments
+        Self::check_pox_bitvector(block_bitvec, tenure_block_commit, active_reward_set)?;
+        Self::inner_setup_block(
+            chainstate_tx,
+            clarity_instance,
+            sortition_dbconn,
+            first_block_height,
+            pox_constants,
+            parent_consensus_hash,
+            parent_header_hash,
+            parent_burn_height,
+            burn_header_hash,
+            burn_header_height,
+            new_tenure,
+            coinbase_height,
+            tenure_extend,
+            timestamp,
+            true,
         )
     }
 
@@ -4062,6 +4106,7 @@ impl NakamotoChainState {
     /// * coinbase_height: the number of tenures that this block confirms (including epoch2 blocks)
     ///   (this is equivalent to the number of coinbases)
     /// * tenure_extend: whether or not to reset the tenure's ongoing execution cost
+    /// * ephemeral: whether or not to begin an ephemeral block (i.e. which won't hit disk)
     ///
     /// Returns clarity_tx, list of receipts, microblock execution cost,
     /// microblock fees, microblock burns, list of microblock tx receipts,
@@ -4082,6 +4127,7 @@ impl NakamotoChainState {
         coinbase_height: u64,
         tenure_extend: bool,
         timestamp: Option<u64>,
+        ephemeral: bool,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let parent_index_hash = StacksBlockId::new(parent_consensus_hash, parent_header_hash);
         let parent_sortition_id = sortition_dbconn
@@ -4131,15 +4177,27 @@ impl NakamotoChainState {
             parent_cost_total
         };
 
-        let mut clarity_tx = StacksChainState::chainstate_block_begin(
-            chainstate_tx,
-            clarity_instance,
-            sortition_dbconn.as_burn_state_db(),
-            parent_consensus_hash,
-            parent_header_hash,
-            &MINER_BLOCK_CONSENSUS_HASH,
-            &MINER_BLOCK_HEADER_HASH,
-        );
+        let mut clarity_tx = if ephemeral {
+            StacksChainState::chainstate_ephemeral_block_begin(
+                chainstate_tx,
+                clarity_instance,
+                sortition_dbconn.as_burn_state_db(),
+                &parent_consensus_hash,
+                &parent_header_hash,
+                &MINER_BLOCK_CONSENSUS_HASH,
+                &MINER_BLOCK_HEADER_HASH,
+            )
+        } else {
+            StacksChainState::chainstate_block_begin(
+                chainstate_tx,
+                clarity_instance,
+                sortition_dbconn.as_burn_state_db(),
+                &parent_consensus_hash,
+                &parent_header_hash,
+                &MINER_BLOCK_CONSENSUS_HASH,
+                &MINER_BLOCK_HEADER_HASH,
+            )
+        };
 
         // now that we have access to the ClarityVM, we can account for reward deductions from
         // PoisonMicroblocks if we have new rewards scheduled
