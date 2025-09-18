@@ -15098,7 +15098,7 @@ fn smaller_tenure_size_for_miner() {
 
     assert_eq!(
         deployed_contracts, 5,
-        "Should have successfully deployes 5 contracts, but got {}",
+        "Should have successfully deployed 5 contracts, but got {}",
         deployed_contracts
     );
 

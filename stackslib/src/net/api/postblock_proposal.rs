@@ -581,7 +581,7 @@ impl NakamotoBlockProposal {
             self.block.header.pox_treatment.len(),
             None,
             None,
-            u64::from(DEFAULT_MAX_TENURE_BYTES),
+            0,
         )?;
 
         let mut miner_tenure_info =
