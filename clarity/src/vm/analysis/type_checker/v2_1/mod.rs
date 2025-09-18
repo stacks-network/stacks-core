@@ -1888,7 +1888,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         self.add_memory(trait_identifier.name.len().into())?;
                     }
                     self.contract_context
-                        .add_implemented_trait(trait_identifier.clone())?;
+                        .add_implemented_trait(trait_identifier.clone());
                 }
             };
             Ok(Some(()))

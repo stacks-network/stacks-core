@@ -231,7 +231,7 @@ impl BootRunLoop {
     }
 
     fn reached_epoch_30_transition(config: &Config) -> Result<bool, String> {
-        let burn_height = Self::get_burn_height(config)?;
+        let burn_height = Self::get_burn_height(config);
         let epochs = config.burnchain.get_epoch_list();
         let epoch_3 = epochs
             .get(StacksEpochId::Epoch30)
@@ -240,26 +240,26 @@ impl BootRunLoop {
         Ok(u64::from(burn_height) >= epoch_3.start_height - 1)
     }
 
-    fn get_burn_height(config: &Config) -> Result<u32, String> {
+    fn get_burn_height(config: &Config) -> u32 {
         let burnchain = config.get_burnchain();
         let sortdb_path = config.get_burn_db_file_path();
         if fs::metadata(&sortdb_path).is_err() {
             // if the sortition db doesn't exist yet, don't try to open() it, because that creates the
             // db file even if it doesn't instantiate the tables, which breaks connect() logic.
             info!("Failed to open Sortition DB while checking current burn height, assuming height = 0");
-            return Ok(0);
+            return 0;
         }
 
         let Ok(sortdb) = SortitionDB::open(&sortdb_path, false, burnchain.pox_constants) else {
             info!("Failed to open Sortition DB while checking current burn height, assuming height = 0");
-            return Ok(0);
+            return 0;
         };
 
         let Ok(tip_sn) = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()) else {
             info!("Failed to query Sortition DB for current burn height, assuming height = 0");
-            return Ok(0);
+            return 0;
         };
 
-        Ok(u32::try_from(tip_sn.block_height).expect("FATAL: burn height exceeded u32"))
+        u32::try_from(tip_sn.block_height).expect("FATAL: burn height exceeded u32")
     }
 }
