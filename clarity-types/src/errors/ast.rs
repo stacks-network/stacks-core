@@ -23,19 +23,21 @@ use crate::representations::{PreSymbolicExpression, Span};
 use crate::token::Token;
 
 pub type ParseResult<T> = Result<T, ParseError>;
-
-#[derive(Debug, PartialEq)]
 /// Errors encountered during the lexical and syntactic analysis of Clarity source code
 /// when constructing the abstract syntax tree (AST).
+#[derive(Debug, PartialEq)]
 pub enum ParseErrorKind {
     // Cost-related errors
     /// Arithmetic overflow in cost computation during AST construction, exceeding the maximum threshold.
     CostOverflow,
-    /// Cumulative parsing cost exceeds the allocated budget, indicating budget depletion rather than an overflow.
+    /// Cumulative parsing cost exceeds the allocated budget.
+    /// The first `ExecutionCost` represents the total consumed cost, and the second represents the budget limit.
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
-    /// Memory usage during AST construction exceeds the allocated memory budget.
+    /// Memory usage during AST construction exceeds the allocated budget.
+    /// The first `u64` represents the total consumed memory, and the second represents the memory limit.
     MemoryBalanceExceeded(u64, u64),
-    /// Failure in the cost-tracking mechanism due to an unexpected condition or invalid state.
+    /// Failure in cost-tracking due to an unexpected condition or invalid state.
+    /// The `String` represents the specific reason for the failure.
     CostComputationFailed(String),
     /// Parsing time exceeds the allowed budget, halting AST construction to ensure responsiveness.
     ExecutionTimeExpired,
@@ -43,19 +45,22 @@ pub enum ParseErrorKind {
     // Structural errors
     /// Number of expressions exceeds the maximum allowed limit.
     TooManyExpressions,
-    /// Nesting depth of expressions exceeds the allowed stack depth limit.
+    /// Nesting depth of expressions exceeds the maximum allowed stack depth.
     ExpressionStackDepthTooDeep,
-    /// Nesting depth of expressions exceeds the allowed stack depth limit.
+    /// Nesting depth of expressions exceeds the maximum allowed stack depth.
     VaryExpressionStackDepthTooDeep,
 
     // Semantic errors
     /// Failed to parse a string into an integer literal.
+    /// The `String` represents the invalid input string.
     FailedParsingIntValue(String),
     /// Circular reference detected in interdependent function definitions.
+    /// The `Vec<String>` represents the list of function names forming the cycle.
     CircularReference(Vec<String>),
     /// Variable name is already in use within the same scope.
+    /// The `String` represents the conflicting variable name.
     NameAlreadyUsed(String),
-    /// Attempt to store a trait reference, which is prohibited to ensure type safety and deterministic execution.
+    /// Attempt to store a trait reference, which is prohibited to ensure type safety.
     TraitReferenceNotAllowed,
     /// Invalid or malformed signature in a `(use-trait ...)` expression.
     ImportTraitBadSignature,
@@ -64,28 +69,37 @@ pub enum ParseErrorKind {
     /// Invalid or malformed signature in a `(impl-trait ...)` expression.
     ImplTraitBadSignature,
     /// Referenced trait does not exist or cannot be found.
+    /// The `String` represents the non-existent trait name.
     TraitReferenceUnknown(String),
 
     // V1 Errors
     /// Failed to capture an expected substring or value during pattern matching in lexical analysis.
     FailedCapturingInput,
-    /// Expected a whitespace or a close parentheses but found an unexpected token or character.
+    /// Expected a whitespace or closing parenthesis but found an unexpected token or character.
+    /// The `String` represents the unexpected token or character found.
     SeparatorExpected(String),
-    /// Expected a whitespace after a colon, but found an unexpected token.
+    /// Expected a whitespace after a colon but found an unexpected token.
+    /// The `String` represents the unexpected token found.
     SeparatorExpectedAfterColon(String),
     /// Input program exceeds the maximum allowed number of lines.
     ProgramTooLarge,
     /// Variable name contains invalid characters or violates naming rules.
+    /// The `String` represents the invalid variable name.
     IllegalVariableName(String),
     /// Failed to parse a string into a buffer literal.
+    /// The `String` represents the invalid buffer string.
     FailedParsingBuffer(String),
-    /// Failed to parse a string into a hexadecimal value, with the input string and error details.
+    /// Failed to parse a string into a hexadecimal value.
+    /// The first `String` represents the invalid input string, and the second represents the error details.
     FailedParsingHexValue(String, String),
     /// Failed to parse a string into a principal literal (e.g., invalid principal format).
+    /// The `String` represents the invalid principal string.
     FailedParsingPrincipal(String),
     /// Failed to parse a string into a valid field literal.
+    /// The `String` represents the invalid field string.
     FailedParsingField(String),
-    /// Failed to parse the remaining input after processing a construct, leaving invalid or unexpected tokens.
+    /// Failed to parse the remaining input after processing a construct, leaving invalid tokens.
+    /// The `String` represents the unparsed remainder of the input.
     FailedParsingRemainder(String),
     /// Unexpected closing parenthesis encountered in the input.
     ClosingParenthesisUnexpected,
@@ -96,10 +110,13 @@ pub enum ParseErrorKind {
     /// Expected a closing brace for a tuple literal but it was missing.
     ClosingTupleLiteralExpected,
     /// Expected a colon in a tuple literal at the specified position, but it was missing.
+    /// The `usize` represents the index where the colon was expected.
     TupleColonExpected(usize),
     /// Expected a comma in a tuple literal at the specified position, but it was missing.
+    /// The `usize` represents the index where the comma was expected.
     TupleCommaExpected(usize),
     /// Expected a tuple item (e.g., key-value pair) at the specified position, but it was missing or invalid.
+    /// The `usize` represents the index where the item was expected.
     TupleItemExpected(usize),
     /// Unexpected comma separator encountered outside a valid list or tuple context.
     CommaSeparatorUnexpected,
@@ -112,10 +129,13 @@ pub enum ParseErrorKind {
 
     // V2 Errors
     /// Lexical analysis failed due to an underlying lexer error.
+    /// The `LexerError` represents the specific lexer error encountered.
     Lexer(LexerError),
     /// Contract name exceeds the maximum allowed length.
+    /// The `String` represents the overly long contract name.
     ContractNameTooLong(String),
     /// Expected a specific closing token (e.g., parenthesis or brace) but found another token.
+    /// The `Token` represents the expected closing token.
     ExpectedClosing(Token),
     /// Expected a contract identifier (e.g., `.contract-name`) but found an invalid or missing token.
     ExpectedContractIdentifier,
@@ -124,16 +144,20 @@ pub enum ParseErrorKind {
     /// Expected whitespace to separate tokens but found an unexpected token or character.
     ExpectedWhitespace,
     /// Failed to parse a string into an unsigned integer literal.
+    /// The `String` represents the invalid unsigned integer string.
     FailedParsingUIntValue(String),
     /// Trait name contains invalid characters or violates naming rules.
+    /// The `String` represents the invalid trait name.
     IllegalTraitName(String),
     /// Invalid principal literal format, preventing parsing into a valid principal.
     InvalidPrincipalLiteral,
     /// Invalid buffer literal format, preventing parsing into a valid buffer.
     InvalidBuffer,
     /// Name (e.g., variable or function) exceeds the maximum allowed length.
+    /// The `String` represents the overly long name.
     NameTooLong(String),
     /// Encountered an unexpected token during parsing.
+    /// The `Token` represents the unexpected token found.
     UnexpectedToken(Token),
     /// Expected a colon in a tuple literal (version 2 syntax) but it was missing.
     TupleColonExpectedv2,
@@ -142,14 +166,18 @@ pub enum ParseErrorKind {
     /// Expected a value in a tuple literal but it was missing or invalid.
     TupleValueExpected,
     /// Clarity name (e.g., variable, function, or trait) contains invalid characters or violates naming rules.
+    /// The `String` represents the invalid Clarity name.
     IllegalClarityName(String),
     /// ASCII string literal contains invalid characters or violates format rules.
+    /// The `String` represents the invalid ASCII string.
     IllegalASCIIString(String),
     /// Contract name contains invalid characters or violates naming rules.
+    /// The `String` represents the invalid contract name.
     IllegalContractName(String),
 
     // Notes
-    /// Indicates a token mismatch, used for internal parser diagnostics to match a specific token.
+    /// Indicates a token mismatch for internal parser diagnostics.
+    /// The `Token` represents the expected token to match.
     NoteToMatchThis(Token),
     /// Unreachable error indicating an unexpected parser failure; should never occur in valid execution.
     UnexpectedParserFailure,
