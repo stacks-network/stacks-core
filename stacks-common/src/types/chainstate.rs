@@ -226,7 +226,7 @@ impl PoxId {
                 break;
             }
             let i = bit - start;
-            if i > 0 && i % 8 == 0 {
+            if i.is_multiple_of(8) {
                 ret.push(0x00);
             }
 
