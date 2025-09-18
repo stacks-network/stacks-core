@@ -286,8 +286,8 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => (1..=12).contains(&version_u32),
-            StacksEpochId::Epoch2_05 => (2..=12).contains(&version_u32),
+            StacksEpochId::Epoch20 => (1..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
+            StacksEpochId::Epoch2_05 => (2..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
@@ -296,7 +296,7 @@ impl DBConfig {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => (3..=12).contains(&version_u32),
+            | StacksEpochId::Epoch33 => (3..=CHAINSTATE_VERSION_NUMBER).contains(&version_u32),
         }
     }
 }
@@ -666,6 +666,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
 }
 
 pub const CHAINSTATE_VERSION: &str = "12";
+pub const CHAINSTATE_VERSION_NUMBER: u32 = 12;
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
