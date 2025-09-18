@@ -38,20 +38,30 @@ pub struct IncomparableError<T> {
     pub err: T,
 }
 
+/// Errors that can occur during the runtime execution of Clarity contracts in the virtual machine.
+/// These encompass type-checking failures, interpreter issues, runtime errors, and premature returns.
+/// Unlike static analysis errors in `ClarityError::StaticCheck(CheckError)` or `ClarityError::Parse(ParseError)`,
+/// which are caught before execution during type-checking or parsing, these errors occur during dynamic
+/// evaluation and may involve conditions not detectable statically, such as dynamically constructed expressions
+/// (e.g., based on VRF seeds or runtime data).
 #[derive(Debug)]
-/// Errors that can occur during the runtime execution, including type-checking
-/// failures, interpreter issues, runtime errors, and premature returns.
 pub enum VmExecutionError {
-    /// UncheckedErrors are errors that *should* be caught by the
-    /// TypeChecker and other check passes. Test executions may
-    /// trigger these errors.
+    /// Type-checking errors caught during runtime analysis, which should typically be detected by
+    /// static type-checking passes before execution. These may occur in test executions or when
+    /// dynamic expression construction (e.g., using runtime data like VRF seeds) creates structures
+    /// violating type or resource constraints (e.g., excessive stack depth).
+    /// The `CheckErrorKind` wraps the specific type-checking error encountered at runtime.
     Unchecked(CheckErrors),
-    /// Errors originating from the interpreter during program execution.
-    /// These *should never* occur. Test executions may trigger these errors
     Interpreter(InterpreterError),
-    /// Errors that occur during runtime execution, with an optional stack trace.
+    /// Errors that occur during runtime execution of Clarity code, such as arithmetic errors or
+    /// invalid operations, expected as part of contract evaluation.
+    /// The `RuntimeErrorType` wraps the specific runtime error, and the `Option<StackTrace>` provides
+    /// an optional stack trace for debugging, if available.
     Runtime(RuntimeErrorType, Option<StackTrace>),
-    /// Errors triggered during Clarity contract evaluation that cause early termination.
+    /// Errors triggered during Clarity contract evaluation that cause early termination with
+    /// insufficient results (e.g., unwrapping an empty `Option`).
+    /// The `EarlyReturnError` wraps the specific early return condition, detailing the premature
+    /// termination cause.
     ShortReturn(ShortReturnType),
 }
 
