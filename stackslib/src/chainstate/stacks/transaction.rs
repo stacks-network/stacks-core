@@ -1247,7 +1247,7 @@ mod test {
             &mut self,
             signature: MessageSignature,
             key_encoding: TransactionPublicKeyEncoding,
-        ) -> Result<(), net_error> {
+        ) {
             match self.auth {
                 TransactionAuth::Standard(ref mut origin_condition)
                 | TransactionAuth::Sponsored(ref mut origin_condition, _) => match origin_condition
@@ -1263,7 +1263,6 @@ mod test {
                     }
                 },
             };
-            Ok(())
         }
 
         /// Sign a sighash as a sponsor without appending the signature and public key
@@ -5623,8 +5622,8 @@ mod test {
                 .unwrap();
 
             let _ = tx.append_next_origin(&pubk_1);
-            let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Compressed);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
             check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
@@ -5713,9 +5712,9 @@ mod test {
                 .sign_no_append_origin(&initial_sig_hash, &privk_1)
                 .unwrap();
 
-            let _ = tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
-            let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Compressed);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
             //check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
@@ -5959,8 +5958,8 @@ mod test {
                 .unwrap();
 
             let _ = tx.append_next_origin(&pubk_1);
-            let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Uncompressed);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Uncompressed);
+            tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Uncompressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Uncompressed);
 
             check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
@@ -6200,9 +6199,9 @@ mod test {
                 .sign_no_append_origin(&initial_sig_hash, &privk_1)
                 .unwrap();
 
-            let _ = tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_next_origin(&pubk_2);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
             check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
@@ -6333,15 +6332,15 @@ mod test {
                 .sign_no_append_origin(&initial_sig_hash, &privk_9)
                 .unwrap();
 
-            let _ = tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_next_origin(&pubk_2);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_next_origin(&pubk_4);
             let _ = tx.append_next_origin(&pubk_5);
             let _ = tx.append_next_origin(&pubk_6);
             let _ = tx.append_next_origin(&pubk_7);
             let _ = tx.append_next_origin(&pubk_8);
-            let _ = tx.append_origin_signature(sig9, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig9, TransactionPublicKeyEncoding::Compressed);
 
             check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
@@ -6791,9 +6790,9 @@ mod test {
                 .sign_no_append_origin(&initial_sig_hash, &privk_1)
                 .unwrap();
 
-            let _ = tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_next_origin(&pubk_2);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
             check_oversign_origin_multisig(&tx);
             check_oversign_origin_multisig_uncompressed(&tx);
@@ -6910,12 +6909,12 @@ mod test {
                 .sign_no_append_origin(&initial_sig_hash, &privk_5)
                 .unwrap();
 
-            let _ = tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_next_origin(&pubk_2);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_next_origin(&pubk_4);
-            let _ = tx.append_origin_signature(sig5, TransactionPublicKeyEncoding::Compressed);
-            let _ = tx.append_origin_signature(sig6, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig5, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig6, TransactionPublicKeyEncoding::Compressed);
 
             check_oversign_origin_multisig(&tx);
             check_oversign_origin_multisig_uncompressed(&tx);
@@ -7583,8 +7582,8 @@ mod test {
                 .unwrap();
 
             let _ = tx.append_next_origin(&pubk_1);
-            let _ = tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Uncompressed);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Uncompressed);
+            tx.append_origin_signature(sig2, TransactionPublicKeyEncoding::Uncompressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Uncompressed);
 
             check_oversign_origin_multisig(&tx);
             check_sign_no_sponsor(&mut tx);
@@ -7737,9 +7736,9 @@ mod test {
                 .sign_no_append_origin(&initial_sig_hash, &privk_1)
                 .unwrap();
 
-            let _ = tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig1, TransactionPublicKeyEncoding::Compressed);
             let _ = tx.append_next_origin(&pubk_2);
-            let _ = tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
+            tx.append_origin_signature(sig3, TransactionPublicKeyEncoding::Compressed);
 
             check_oversign_origin_multisig(&tx);
             check_oversign_origin_multisig_uncompressed(&tx);
