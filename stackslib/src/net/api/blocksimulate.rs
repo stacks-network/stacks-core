@@ -17,7 +17,7 @@ use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
-use stacks_common::codec::{StacksMessageCodec, MAX_MESSAGE_LEN};
+use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Sha512Trunc256Sum;
@@ -31,7 +31,7 @@ use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::net::http::{
-    parse_bytes, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
+    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
@@ -73,7 +73,7 @@ pub struct RPCSimulatedBlock {
     pub miner_signature: MessageSignature,
     pub signer_signature: Vec<MessageSignature>,
     pub transactions: Vec<RPCSimulatedBlockTransaction>,
-    pub valid: bool,
+    pub valid_merkle_root: bool,
 }
 
 /// Decode the HTTP request
@@ -265,8 +265,7 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                     miner_signature: block.header.miner_signature,
                     signer_signature: block.header.signer_signature,
                     transactions: vec![],
-                    valid: block.header.state_index_root == simulated_block.header.state_index_root
-                        && tx_merkle_root == simulated_block.header.tx_merkle_root,
+                    valid_merkle_root: tx_merkle_root == simulated_block.header.tx_merkle_root,
                 };
 
                 for receipt in txs_receipts {
@@ -350,8 +349,8 @@ impl HttpResponse for RPCNakamotoBlockSimulateRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let bytes = parse_bytes(preamble, body, MAX_MESSAGE_LEN.into())?;
-        Ok(HttpResponsePayload::Bytes(bytes))
+        let rpc_simulated_block: RPCSimulatedBlock = parse_json(preamble, body)?;
+        Ok(HttpResponsePayload::try_from_json(rpc_simulated_block)?)
     }
 }
 

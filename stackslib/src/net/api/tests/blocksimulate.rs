@@ -16,9 +16,8 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use stacks_common::types::chainstate::{ConsensusHash, StacksBlockId};
+use stacks_common::types::chainstate::StacksBlockId;
 
-use crate::chainstate::stacks::StacksBlock;
 use crate::net::api::blocksimulate;
 use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
@@ -81,7 +80,8 @@ fn test_try_make_response() {
 
     // got the Nakamoto tip
     let response = responses.remove(0);
-    println!(
+
+    debug!(
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
@@ -93,7 +93,28 @@ fn test_try_make_response() {
     assert_eq!(resp.consensus_hash, nakamoto_consensus_hash);
     assert_eq!(resp.consensus_hash, tip_block.metadata.consensus_hash);
 
+    assert_eq!(resp.block_hash, tip_block.block.block_hash);
+    assert_eq!(resp.block_id, tip_block.metadata.index_block_hash());
+    assert_eq!(resp.parent_block_id, tip_block.parent);
+
+    assert!(resp.valid_merkle_root);
+
     assert_eq!(resp.transactions.len(), tip_block.receipts.len());
+
+    for tx_index in 0..resp.transactions.len() {
+        assert_eq!(
+            resp.transactions[tx_index].txid,
+            tip_block.receipts[tx_index].transaction.txid()
+        );
+        assert_eq!(
+            resp.transactions[tx_index].events.len(),
+            tip_block.receipts[tx_index].events.len()
+        );
+        assert_eq!(
+            resp.transactions[tx_index].result,
+            tip_block.receipts[tx_index].result
+        );
+    }
 
     // got a failure
     let response = responses.remove(0);
