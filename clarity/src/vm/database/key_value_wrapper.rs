@@ -24,7 +24,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
-use crate::vm::errors::{InterpreterError, InterpreterResult};
+use crate::vm::errors::{InterpreterError, VmExecutionResult};
 use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::Value;
@@ -320,7 +320,7 @@ fn inner_put_data<T>(
 }
 
 impl RollbackWrapper<'_> {
-    pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
+    pub fn put_data(&mut self, key: &str, value: &str) -> VmExecutionResult<()> {
         let current = self.stack.last_mut().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
@@ -345,7 +345,7 @@ impl RollbackWrapper<'_> {
         &mut self,
         bhh: StacksBlockId,
         query_pending_data: bool,
-    ) -> InterpreterResult<StacksBlockId> {
+    ) -> VmExecutionResult<StacksBlockId> {
         self.store.set_block_hash(bhh).inspect(|_| {
             // use and_then so that query_pending_data is only set once set_block_hash succeeds
             //  this doesn't matter in practice, because a set_block_hash failure always aborts
@@ -357,7 +357,7 @@ impl RollbackWrapper<'_> {
 
     /// this function will only return commitment proofs for values _already_ materialized
     ///  in the underlying store. otherwise it returns None.
-    pub fn get_data_with_proof<T>(&mut self, key: &str) -> InterpreterResult<Option<(T, Vec<u8>)>>
+    pub fn get_data_with_proof<T>(&mut self, key: &str) -> VmExecutionResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -372,7 +372,7 @@ impl RollbackWrapper<'_> {
     pub fn get_data_with_proof_by_hash<T>(
         &mut self,
         hash: &TrieHash,
-    ) -> InterpreterResult<Option<(T, Vec<u8>)>>
+    ) -> VmExecutionResult<Option<(T, Vec<u8>)>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -382,7 +382,7 @@ impl RollbackWrapper<'_> {
             .transpose()
     }
 
-    pub fn get_data<T>(&mut self, key: &str) -> InterpreterResult<Option<T>>
+    pub fn get_data<T>(&mut self, key: &str) -> VmExecutionResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -412,7 +412,7 @@ impl RollbackWrapper<'_> {
     ///
     /// This should never be called from within the Clarity VM, or via block-processing.  It's only
     /// meant to be used by the RPC system.
-    pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> InterpreterResult<Option<T>>
+    pub fn get_data_by_hash<T>(&mut self, hash: &TrieHash) -> VmExecutionResult<Option<T>>
     where
         T: ClarityDeserializable<T>,
     {
@@ -478,7 +478,7 @@ impl RollbackWrapper<'_> {
     pub fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> InterpreterResult<Option<Sha512Trunc256Sum>> {
+    ) -> VmExecutionResult<Option<Sha512Trunc256Sum>> {
         let key = make_contract_hash_key(contract);
         let s = match self.get_data::<String>(&key)? {
             Some(s) => s,
@@ -492,7 +492,7 @@ impl RollbackWrapper<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         content_hash: Sha512Trunc256Sum,
-    ) -> InterpreterResult<()> {
+    ) -> VmExecutionResult<()> {
         let key = make_contract_hash_key(contract);
         let value = self.store.make_contract_commitment(content_hash);
         self.put_data(&key, &value)
@@ -527,7 +527,7 @@ impl RollbackWrapper<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> VmExecutionResult<Option<String>> {
         self.stack.last().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
@@ -558,7 +558,7 @@ impl RollbackWrapper<'_> {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> VmExecutionResult<Option<String>> {
         self.stack.last().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),
@@ -582,7 +582,7 @@ impl RollbackWrapper<'_> {
         }
     }
 
-    pub fn has_entry(&mut self, key: &str) -> InterpreterResult<bool> {
+    pub fn has_entry(&mut self, key: &str) -> VmExecutionResult<bool> {
         self.stack.last().ok_or_else(|| {
             InterpreterError::Expect(
                 "ERROR: Clarity VM attempted GET on non-nested context.".into(),

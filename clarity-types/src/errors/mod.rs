@@ -109,7 +109,7 @@ pub enum ShortReturnType {
     AssertionFailed(Box<Value>),
 }
 
-pub type InterpreterResult<R> = Result<R, Error>;
+pub type VmExecutionResult<R> = Result<R, Error>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {

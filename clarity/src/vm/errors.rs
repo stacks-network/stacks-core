@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use clarity_types::errors::{
-    Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
-    ShortReturnType,
+    Error, IncomparableError, InterpreterError, RuntimeErrorType, ShortReturnType,
+    VmExecutionResult,
 };
 
 pub use crate::vm::analysis::errors::{
