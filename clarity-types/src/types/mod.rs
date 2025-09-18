@@ -187,7 +187,7 @@ impl QualifiedContractIdentifier {
     pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
         let split: Vec<_> = literal.splitn(2, '.').collect();
         if split.len() != 2 {
-            return Err(RuntimeError::ParseError(
+            return Err(RuntimeError::TypeParseFailure(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
                     .to_string(),
             )
@@ -289,7 +289,7 @@ impl TraitIdentifier {
     ) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
         let split: Vec<_> = literal.splitn(3, '.').collect();
         if split.len() != 3 {
-            return Err(RuntimeError::ParseError(
+            return Err(RuntimeError::TypeParseFailure(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
                     .to_string(),
             )
@@ -1404,10 +1404,11 @@ impl PrincipalData {
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
-        let (version, data) = c32::c32_address_decode(literal)
-            .map_err(|x| RuntimeError::ParseError(format!("Invalid principal literal: {x}")))?;
+        let (version, data) = c32::c32_address_decode(literal).map_err(|x| {
+            RuntimeError::TypeParseFailure(format!("Invalid principal literal: {x}"))
+        })?;
         if data.len() != 20 {
-            return Err(RuntimeError::ParseError(
+            return Err(RuntimeError::TypeParseFailure(
                 "Invalid principal literal: Expected 20 data bytes.".to_string(),
             )
             .into());

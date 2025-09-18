@@ -966,7 +966,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         .expressions;
 
         if parsed.is_empty() {
-            return Err(RuntimeError::ParseError(
+            return Err(RuntimeError::TypeParseFailure(
                 "Expected a program of at least length 1".to_string(),
             )
             .into());
@@ -1025,7 +1025,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         .expressions;
 
         if parsed.is_empty() {
-            return Err(RuntimeError::ParseError(
+            return Err(RuntimeError::TypeParseFailure(
                 "Expected a program of at least length 1".to_string(),
             )
             .into());

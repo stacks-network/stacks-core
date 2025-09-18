@@ -89,7 +89,7 @@ pub enum RuntimeError {
     DivisionByZero,
     /// Failure to parse types dynamically during execution.
     /// The string describes the specific parsing issue, such as invalid data formats.
-    ParseError(String),
+    TypeParseFailure(String),
     /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
     /// Wraps a detailed `ParseError` for issues in code interpretation.
     ASTError(Box<ParseError>),

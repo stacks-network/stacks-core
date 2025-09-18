@@ -264,13 +264,13 @@ fn test_qualified_contract_identifier_local_returns_runtime_error() {
 }
 
 #[rstest]
-#[case::too_short("S162RK3CHJPCSSK6BM757FW", RuntimeError::ParseError(
+#[case::too_short("S162RK3CHJPCSSK6BM757FW", RuntimeError::TypeParseFailure(
     "Invalid principal literal: Expected 20 data bytes.".to_string(),
 ))]
-#[case::too_long("S1C5H66S35CSKK6CK1C9HP8SB6CWSK4RB2CDJK8HY4", RuntimeError::ParseError(
+#[case::too_long("S1C5H66S35CSKK6CK1C9HP8SB6CWSK4RB2CDJK8HY4", RuntimeError::TypeParseFailure(
     "Invalid principal literal: Expected 20 data bytes.".to_string(),
 ))]
-#[case::invalid_c32("II2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", RuntimeError::ParseError(
+#[case::invalid_c32("II2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G", RuntimeError::TypeParseFailure(
     "Invalid principal literal: base58ck checksum 0x1074d4f7 does not match expected 0xae29c6e0".to_string(),
 ))]
 fn test_principal_data_parse_standard_principal_returns_runtime_error(
@@ -283,7 +283,7 @@ fn test_principal_data_parse_standard_principal_returns_runtime_error(
 }
 
 #[rstest]
-#[case::no_dot("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0Gcontract-name", RuntimeError::ParseError(
+#[case::no_dot("SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0Gcontract-name", RuntimeError::TypeParseFailure(
     "Invalid principal literal: expected a `.` in a qualified contract name"
         .to_string(),
 ))]
@@ -299,13 +299,13 @@ fn test_qualified_contract_identifier_parse_returns_interpreter_error(
 }
 
 #[rstest]
-#[case::no_dot("SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.nft-traitnft-trait", RuntimeError::ParseError(
+#[case::no_dot("SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.nft-traitnft-trait", RuntimeError::TypeParseFailure(
     "Invalid principal literal: expected a `.` in a qualified contract name"
         .to_string(),
 ))]
 #[case::invalid_contract_name("SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.1nvalid-contract.valid-trait", RuntimeError::BadNameValue("ContractName", "1nvalid-contract".into()))]
 #[case::invalid_trait_name("SP2PABAF9FTAJYNFZH93XENAJ8FVY99RRM50D2JG9.valid-contract.1nvalid-trait", RuntimeError::BadNameValue("ClarityName", "1nvalid-trait".into()))]
-#[case::invalid_standard_principal("S162RK3CHJPCSSK6BM757FW.valid-contract.valid-trait", RuntimeError::ParseError(
+#[case::invalid_standard_principal("S162RK3CHJPCSSK6BM757FW.valid-contract.valid-trait", RuntimeError::TypeParseFailure(
     "Invalid principal literal: Expected 20 data bytes.".to_string(),
 ))]
 fn test_trait_identifier_parse_returns_runtime_error(
@@ -324,7 +324,7 @@ fn test_trait_identifier_parse_returns_runtime_error(
 
 #[rstest]
 #[case::bad_type_construction(".valid-contract.valid-trait", RuntimeError::BadTypeConstruction)]
-#[case::forwards_parse_errors("S162RK3CHJPCSSK6BM757FW.valid-contract.valid-trait", RuntimeError::ParseError(
+#[case::forwards_parse_errors("S162RK3CHJPCSSK6BM757FW.valid-contract.valid-trait", RuntimeError::TypeParseFailure(
     "Invalid principal literal: Expected 20 data bytes.".to_string(),
 ))]
 fn test_trait_identifier_parse_fully_qualified_returns_runtime_error(

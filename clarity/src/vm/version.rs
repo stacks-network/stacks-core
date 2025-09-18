@@ -64,7 +64,7 @@ impl FromStr for ClarityVersion {
         } else if s == "clarity4" {
             Ok(ClarityVersion::Clarity4)
         } else {
-            Err(RuntimeError::ParseError(
+            Err(RuntimeError::TypeParseFailure(
                 "Invalid clarity version. Valid versions are: Clarity1, Clarity2, Clarity3."
                     .to_string(),
             )
