@@ -211,16 +211,22 @@ pub fn special_principal_construct(
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
-                Err(CheckErrors::TypeValueError(Box::new(TypeSignature::BUFFER_1), Box::new(version)).into())
+                Err(CheckErrors::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_1),
+                    Box::new(version),
+                )
+                .into())
             };
         }
     };
 
     let version_byte = if verified_version.len() > 1 {
         // should have been caught by the type-checker
-        return Err(
-            CheckErrors::TypeValueError(Box::new(TypeSignature::BUFFER_1), Box::new(version)).into(),
-        );
+        return Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BUFFER_1),
+            Box::new(version),
+        )
+        .into());
     } else if verified_version.is_empty() {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
         // will type-check to (buff 1)

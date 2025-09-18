@@ -102,7 +102,39 @@ mod tuple_type_map_serde {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct BufferLength(pub(crate) u32);
+pub struct BufferLength(u32);
+
+impl BufferLength {
+    /// Returns the internal `u32` value of this [`BufferLength`].
+    pub fn get_value(&self) -> u32 {
+        self.0
+    }
+
+    /// Attempts to create a [`BufferLength`] from a `u32` at runtime.
+    pub fn try_from_u32(value: u32) -> Result<BufferLength, CheckErrors> {
+        if value > MAX_VALUE_SIZE {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(BufferLength(value))
+        }
+    }
+
+    /// Creates a [`BufferLength`] from a `u32` constant at compile time.
+    pub const fn from_const_u32<const VALUE: u32>() -> Self {
+        assert!(VALUE <= MAX_VALUE_SIZE, "Value Too Large");
+        BufferLength(VALUE)
+    }
+}
+
+/// Test-only utilities for [`BufferLength`].
+#[cfg(test)]
+impl BufferLength {
+    /// Allow to create a [`BufferLength`] in unsafe way,
+    /// allowing direct write-access to its internal state.
+    pub fn new_unsafe(value: u32) -> Self {
+        Self(value)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length(u32);
@@ -280,24 +312,20 @@ impl From<TupleTypeSignature> for TypeSignature {
 
 impl From<&BufferLength> for u32 {
     fn from(v: &BufferLength) -> u32 {
-        v.0
+        v.get_value()
     }
 }
 
 impl From<BufferLength> for u32 {
     fn from(v: BufferLength) -> u32 {
-        v.0
+        v.get_value()
     }
 }
 
 impl TryFrom<u32> for BufferLength {
     type Error = CheckErrors;
     fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
-        if data > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(BufferLength(data))
-        }
+        BufferLength::try_from_u32(data)
     }
 }
 
@@ -873,9 +901,18 @@ impl TupleTypeSignature {
 }
 
 impl TypeSignature {
+    /// Buffer type with minimum size. Alias for [`TypeSignature::BUFFER_1`]
     pub const BUFFER_MIN: TypeSignature = TypeSignature::BUFFER_1;
 
-    pub const BUFFER_1: TypeSignature = SequenceType(SequenceSubtype::BufferType(BufferLength(1)));
+    /// Buffer type with size 1.
+    pub const BUFFER_1: TypeSignature = Self::type_buffer_of_size::<1>();
+
+    /// Creates a buffer type with a given size at compile time.
+    const fn type_buffer_of_size<const VALUE: u32>() -> Self {
+        SequenceType(SequenceSubtype::BufferType(BufferLength::from_const_u32::<
+            VALUE,
+        >()))
+    }
 
     pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(

@@ -971,10 +971,11 @@ fn test_principal_construct_check_errors() {
     // `CheckErrors`.
     let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(
-            CheckErrors::TypeValueError(Box::new(TypeSignature::BUFFER_1), Box::new(Value::UInt(22)),)
-                .into()
-        ),
+        Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BUFFER_1),
+            Box::new(Value::UInt(22)),
+        )
+        .into()),
         execute_with_parameters(
             input,
             ClarityVersion::Clarity2,
