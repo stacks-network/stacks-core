@@ -10953,21 +10953,6 @@ pub mod tests {
             .unwrap());
     }
 
-    fn table_exists(path: &str, name: &str) -> bool {
-        let conn =
-            Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        conn.busy_timeout(std::time::Duration::from_secs(1))
-            .unwrap();
-
-        conn.query_row(
-            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?1",
-            [name],
-            |row| row.get::<_, i64>(0),
-        )
-        .unwrap()
-            > 0
-    }
-
     #[test]
     fn schema_10_drops_ast_rules() {
         let tmp = std::env::temp_dir().join(function_name!());
@@ -10986,7 +10971,6 @@ pub mod tests {
             epochs,
         )
         .unwrap();
-        let path = db.conn().path().unwrap().to_string();
-        assert!(!table_exists(&path, "ast_rule_heights"));
+        assert!(!table_exists(db.conn(), "ast_rule_heights").unwrap());
     }
 }

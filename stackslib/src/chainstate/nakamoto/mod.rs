@@ -4740,8 +4740,8 @@ impl NakamotoChainState {
         let (block_fees, txs_receipts) =
             match StacksChainState::process_block_transactions(&mut clarity_tx, &block.txs, 0) {
                 Err(e) => {
-                    let msg = format!("Invalid Stacks block {}: {:?}", &block_hash, &e);
-                    warn!("{}", &msg);
+                    let msg = format!("Invalid Stacks block {block_hash}: {e:?}");
+                    warn!("{msg}");
 
                     clarity_tx.rollback_block();
                     return Err(ChainstateError::InvalidStacksBlock(msg));
