@@ -423,9 +423,10 @@ fn main() {
             .unwrap();
 
         println!("Verified: {:#?}", tx.verify());
-        println!("Address: {}", tx.auth.origin().address_mainnet());
+        let address = tx.auth.origin().get_address(tx.is_mainnet());
+        println!("Address: {address}");
 
-        println!("{:#?}", &tx);
+        println!("{tx:#?}");
         process::exit(0);
     }
 
