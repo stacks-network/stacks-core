@@ -633,7 +633,7 @@ impl RelayerThread {
         sn: BlockSnapshot,
         mining_pkh: &Hash160,
         committed_index_hash: StacksBlockId,
-    ) -> Option<MinerDirective> {
+    ) -> MinerDirective {
         let won_sortition = sn.miner_pk_hash.as_ref() == Some(mining_pkh);
 
         let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
@@ -693,12 +693,12 @@ impl RelayerThread {
             // a sortition happenend, and we won
             info!("Won sortition; begin tenure.";
                     "winning_sortition" => %sn.consensus_hash);
-            return Some(MinerDirective::BeginTenure {
+            return MinerDirective::BeginTenure {
                 parent_tenure_start: committed_index_hash,
                 burnchain_tip: sn.clone(),
                 election_block: sn,
                 late: false,
-            });
+            };
         }
 
         // a sortition happened, but we didn't win. Check if we won the ongoing tenure.
@@ -732,7 +732,7 @@ impl RelayerThread {
                 }
             }
         }
-        return Some(MinerDirective::StopTenure);
+        MinerDirective::StopTenure
     }
 
     /// Choose a miner directive for a sortition with no winner.
@@ -913,7 +913,7 @@ impl RelayerThread {
         consensus_hash: ConsensusHash,
         burn_hash: BurnchainHeaderHash,
         committed_index_hash: StacksBlockId,
-    ) -> Result<Option<MinerDirective>, NakamotoNodeError> {
+    ) -> Option<MinerDirective> {
         let sn = SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &consensus_hash)
             .expect("FATAL: failed to query sortition DB")
             .expect("FATAL: unknown consensus hash");
@@ -955,32 +955,32 @@ impl RelayerThread {
             info!("Relayer: Current sortition {} is ahead of processed sortition {consensus_hash}; taking no action", &cur_sn.consensus_hash);
             self.globals
                 .raise_initiative("process_sortition".to_string());
-            return Ok(None);
+            return None;
         }
 
         // Reset the tenure extend time
         self.tenure_extend_time = None;
         let Some(mining_pk) = self.get_mining_key_pkh() else {
             debug!("No mining key, will not mine");
-            return Ok(None);
+            return None;
         };
 
         let epoch = SortitionDB::get_stacks_epoch(self.sortdb.conn(), sn.block_height)
             .expect("FATAL: epoch not found for current snapshot")
             .expect("FATAL: epoch not found for current snapshot");
         if !epoch.epoch_id.uses_nakamoto_blocks() {
-            return Ok(None);
+            return None;
         }
 
         let directive_opt = if sn.sortition {
-            self.choose_directive_sortition_with_winner(sn, &mining_pk, committed_index_hash)
+            Some(self.choose_directive_sortition_with_winner(sn, &mining_pk, committed_index_hash))
         } else {
             self.choose_directive_sortition_without_winner(sn, &mining_pk)
         };
         debug!(
             "Relayer: Processed sortition {consensus_hash}: Miner directive is {directive_opt:?}"
         );
-        Ok(directive_opt)
+        directive_opt
     }
 
     /// Constructs and returns a LeaderKeyRegisterOp out of the provided params
@@ -1623,13 +1623,9 @@ impl RelayerThread {
     ) -> bool {
         let miner_instruction =
             match self.process_sortition(consensus_hash, burn_hash, committed_index_hash) {
-                Ok(Some(miner_instruction)) => miner_instruction,
-                Ok(None) => {
+                Some(miner_instruction) => miner_instruction,
+                None => {
                     return true;
-                }
-                Err(e) => {
-                    warn!("Relayer: process_sortition returned {e:?}");
-                    return false;
                 }
             };
 
