@@ -141,6 +141,7 @@ impl From<SyntaxBindingError> for CheckErrorKind {
         Self::BadSyntaxBinding(e)
     }
 }
+
 /// Errors encountered during type-checking and analysis of Clarity contract code, ensuring
 /// type safety, correct function signatures, and adherence to resource constraints.
 /// These errors prevent invalid contracts from being deployed or executed,
@@ -151,10 +152,13 @@ pub enum CheckErrorKind {
     /// Arithmetic overflow in cost computation during type-checking, exceeding the maximum threshold.
     CostOverflow,
     /// Cumulative type-checking cost exceeds the allocated budget, indicating budget depletion.
+    /// The first `ExecutionCost` represents the total consumed cost, and the second represents the budget limit.
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
-    /// Memory usage during type-checking exceeds the allocated memory budget.
+    /// Memory usage during type-checking exceeds the allocated budget.
+    /// The first `u64` represents the total consumed memory, and the second represents the memory limit.
     MemoryBalanceExceeded(u64, u64),
-    /// Failure in the cost-tracking mechanism due to an unexpected condition or invalid state.
+    /// Failure in cost-tracking due to an unexpected condition or invalid state.
+    /// The `String` wraps the specific reason for the failure.
     CostComputationFailed(String),
     // Time checker errors
     /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
@@ -177,12 +181,15 @@ pub enum CheckErrorKind {
     /// This error indicates a transaction would invalidate a block if included.
     Expects(String),
 
-    // Match errors
-    /// Invalid syntax in an `option` match expression, wrapping the underlying error.
+    // Match expression errors
+    /// Invalid syntax in an `option` match expression.
+    /// The `Box<CheckErrorKind>` wraps the underlying error causing the syntax issue.
     BadMatchOptionSyntax(Box<CheckErrorKind>),
-    /// Invalid syntax in a `response` match expression, wrapping the underlying error.
+    /// Invalid syntax in a `response` match expression.
+    /// The `Box<CheckErrorKind>` wraps the underlying error causing the syntax issue.
     BadMatchResponseSyntax(Box<CheckErrorKind>),
-    /// Input to a match expression does not conform to the expected type.
+    /// Input to a `match` expression does not conform to the expected type (e.g., `Option` or `Response`).
+    /// The `Box<TypeSignature>` wraps the actual type of the provided input.
     BadMatchInput(Box<TypeSignature>),
 
     // List typing errors
@@ -191,34 +198,45 @@ pub enum CheckErrorKind {
     /// Constructed list exceeds the maximum allowed length during type-checking.
     ConstructedListTooLarge,
 
-    // Simple type expectation mismatch
+    // Type mismatch errors
     /// Expected type does not match the actual type during analysis.
+    /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
     TypeError(Box<TypeSignature>, Box<TypeSignature>),
     /// Value does not match the expected type during type-checking.
+    /// The `Box<TypeSignature>` wraps the expected type, and the `Box<Value>` wraps the invalid value.
     TypeValueError(Box<TypeSignature>, Box<Value>),
 
     /// Type description is invalid or malformed, preventing proper type-checking.
     InvalidTypeDescription,
     /// Referenced type name does not exist or is undefined.
+    /// The `String` wraps the non-existent type name.
     UnknownTypeName(String),
 
     // Union type mismatch
     /// Type does not belong to the expected union of types during analysis.
+    /// The `Vec<TypeSignature>` represents the expected types, and the `Box<TypeSignature>` wraps the actual type.
     UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>),
     /// Value does not belong to the expected union of types during type-checking.
+    /// The `Vec<TypeSignature>` represents the expected types, and the `Box<Value>` wraps the invalid value.
     UnionTypeValueError(Vec<TypeSignature>, Box<Value>),
 
     /// Expected an optional type but found a different type.
+    /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedOptionalType(Box<TypeSignature>),
     /// Expected a response type but found a different type.
+    /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedResponseType(Box<TypeSignature>),
     /// Expected an optional or response type but found a different type.
+    /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedOptionalOrResponseType(Box<TypeSignature>),
     /// Expected an optional value but found a different value.
+    /// The `Box<Value>` wraps the actual value provided.
     ExpectedOptionalValue(Box<Value>),
     /// Expected a response value but found a different value.
+    /// The `Box<Value>` wraps the actual value provided.
     ExpectedResponseValue(Box<Value>),
     /// Expected an optional or response value but found a different value.
+    /// The `Box<Value>` wraps the actual value provided.
     ExpectedOptionalOrResponseValue(Box<Value>),
     /// Could not determine the type of the `ok` branch in a response type.
     CouldNotDetermineResponseOkType,
@@ -229,8 +247,10 @@ pub enum CheckErrorKind {
     /// Intermediary response types were not properly checked, risking type safety.
     UncheckedIntermediaryResponses,
     /// Expected a contract principal value but found a different value.
+    /// The `Box<Value>` wraps the actual value provided.
     ExpectedContractPrincipalValue(Box<Value>),
 
+    // Match type errors
     /// Could not determine the types for a match expression’s branches.
     CouldNotDetermineMatchTypes,
     /// Could not determine the type of an expression during analysis.
@@ -243,15 +263,18 @@ pub enum CheckErrorKind {
     CheckerImplementationFailure,
 
     // Assets
-    /// Expected a token name as an argument
+    /// Expected a token name as an argument but found an invalid token.
     BadTokenName,
     /// Invalid or malformed signature in a `(define-non-fungible-token ...)` expression.
     DefineNFTBadSignature,
     /// Referenced non-fungible token (NFT) does not exist.
+    /// The `String` wraps the non-existent token name.
     NoSuchNFT(String),
     /// Referenced fungible token (FT) does not exist.
+    /// The `String` wraps the non-existent token name.
     NoSuchFT(String),
 
+    // Transfer and asset operation errors
     /// Invalid arguments provided to a `stx-transfer?` function.
     BadTransferSTXArguments,
     /// Invalid arguments provided to a fungible token transfer function.
@@ -267,22 +290,27 @@ pub enum CheckErrorKind {
     /// Tuple field name is invalid or violates naming rules.
     BadTupleFieldName,
     /// Expected a tuple type but found a different type.
+    /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedTuple(Box<TypeSignature>),
     /// Referenced tuple field does not exist in the tuple type.
+    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple’s type.
     NoSuchTupleField(String, TupleTypeSignature),
     /// Empty tuple is not allowed in Clarity.
     EmptyTuplesNotAllowed,
     /// Invalid tuple construction due to malformed syntax or type mismatch.
+    /// The `String` wraps the specific error description.
     BadTupleConstruction(String),
 
     // Variables
     /// Referenced data variable does not exist in scope.
+    /// The `String` wraps the non-existent variable name.
     NoSuchDataVariable(String),
 
     // Data map
     /// Map name is invalid or violates naming rules.
     BadMapName,
     /// Referenced data map does not exist in scope.
+    /// The `String` wraps the non-existent map name.
     NoSuchMap(String),
 
     // Defines
@@ -293,37 +321,49 @@ pub enum CheckErrorKind {
     /// Invalid or malformed map type definition in a `(define-map ...)` expression.
     BadMapTypeDefinition,
     /// Public function must return a response type, but found a different type.
+    /// The `Box<TypeSignature>` wraps the actual return type.
     PublicFunctionMustReturnResponse(Box<TypeSignature>),
     /// Invalid or malformed variable definition in a `(define-data-var ...)` expression.
     DefineVariableBadSignature,
     /// Return types of function branches do not match the expected type.
+    /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
 
     /// Circular reference detected in interdependent function definitions.
+    /// The `Vec<String>` represents the list of referenced names forming the cycle.
     CircularReference(Vec<String>),
 
     // Contract-call errors
     /// Referenced contract does not exist.
+    /// The `String` wraps the non-existent contract name.
     NoSuchContract(String),
     /// Referenced public function does not exist in the specified contract.
+    /// The first `String` wraps the contract name, and the second wraps the function name.
     NoSuchPublicFunction(String, String),
     /// Public function is not read-only when expected to be.
+    /// The first `String` wraps the contract name, and the second wraps the function name.
     PublicFunctionNotReadOnly(String, String),
     /// Attempt to define a contract with a name that already exists.
+    /// The `String` wraps the conflicting contract name.
     ContractAlreadyExists(String),
     /// Expected a contract name in a `contract-call?` expression but found an invalid token.
     ContractCallExpectName,
     /// Expected a callable type (e.g., function or trait) but found a different type.
+    /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedCallableType(Box<TypeSignature>),
 
     // get-block-info? errors
     /// Referenced block info property does not exist.
+    /// The `String` wraps the non-existent property name.
     NoSuchBlockInfoProperty(String),
     /// Referenced burn block info property does not exist.
+    /// The `String` wraps the non-existent property name.
     NoSuchBurnBlockInfoProperty(String),
     /// Referenced Stacks block info property does not exist.
+    /// The `String` wraps the non-existent property name.
     NoSuchStacksBlockInfoProperty(String),
     /// Referenced tenure info property does not exist.
+    /// The `String` wraps the non-existent property name.
     NoSuchTenureInfoProperty(String),
     /// Expected a block info property name but found an invalid token.
     GetBlockInfoExpectPropertyName,
@@ -335,8 +375,10 @@ pub enum CheckErrorKind {
     GetTenureInfoExpectPropertyName,
 
     /// Name (e.g., variable, function) is already in use within the same scope.
+    /// The `String` wraps the conflicting name.
     NameAlreadyUsed(String),
     /// Name is a reserved word in Clarity and cannot be used.
+    /// The `String` wraps the reserved name.
     ReservedWord(String),
 
     // Expect a function, or applying a function to a list
@@ -345,6 +387,7 @@ pub enum CheckErrorKind {
     /// Expected a list application but found a different expression.
     ExpectedListApplication,
     /// Expected a sequence type (e.g., list, buffer) but found a different type.
+    /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedSequence(Box<TypeSignature>),
     /// Sequence length exceeds the maximum allowed limit.
     MaxLengthOverflow,
@@ -355,49 +398,65 @@ pub enum CheckErrorKind {
 
     // Generic binding syntax
     /// Invalid binding syntax in a generic construct (e.g., `let`, `match`).
+    /// The `SyntaxBindingError` wraps the specific binding error.
     BadSyntaxBinding(SyntaxBindingError),
 
     /// Maximum context depth for type-checking has been reached.
     MaxContextDepthReached,
     /// Referenced function is not defined in the current scope.
+    /// The `String` wraps the non-existent function name.
     UndefinedFunction(String),
     /// Referenced variable is not defined in the current scope.
+    /// The `String` wraps the non-existent variable name.
     UndefinedVariable(String),
 
     // Argument counts
     /// Function requires at least the specified number of arguments, but fewer were provided.
+    /// The first `usize` represents the minimum required, and the second represents the actual count.
     RequiresAtLeastArguments(usize, usize),
     /// Function requires at most the specified number of arguments, but more were provided.
+    /// The first `usize` represents the maximum allowed, and the second represents the actual count.
     RequiresAtMostArguments(usize, usize),
     /// Incorrect number of arguments provided to a function.
+    /// The first `usize` represents the expected count, and the second represents the actual count.
     IncorrectArgumentCount(usize, usize),
     /// `if` expression arms have mismatched return types.
+    /// The first `Box<TypeSignature>` wraps the type of one arm, and the second wraps the other.
     IfArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>),
     /// `match` expression arms have mismatched return types.
+    /// The first `Box<TypeSignature>` wraps the type of one arm, and the second wraps the other.
     MatchArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>),
-    /// 'default-to` expression types are mismatched.
+    /// `default-to` expression types are mismatched.
+    /// The first `Box<TypeSignature>` wraps the expected type, and the second wraps the actual type.
     DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
     /// Application of an illegal or unknown function.
+    /// The `String` wraps the function name.
     IllegalOrUnknownFunctionApplication(String),
     /// Referenced function is unknown or not defined.
+    /// The `String` wraps the non-existent function name.
     UnknownFunction(String),
 
     // Traits
     /// Referenced trait does not exist in the specified contract.
+    /// The first `String` wraps the contract name, and the second wraps the trait name.
     NoSuchTrait(String, String),
     /// Referenced trait is not defined or cannot be found.
+    /// The `String` wraps the non-existent trait name.
     TraitReferenceUnknown(String),
     /// Referenced method does not exist in the specified trait.
+    /// The first `String` wraps the trait name, and the second wraps the method name.
     TraitMethodUnknown(String, String),
     /// Expected a trait identifier (e.g., `.trait-name`) but found an invalid token.
     ExpectedTraitIdentifier,
     /// Trait reference is not allowed in the current context (e.g., storage).
     TraitReferenceNotAllowed,
     /// Invalid implementation of a trait method.
+    /// The first `String` wraps the trait name, and the second wraps the method name.
     BadTraitImplementation(String, String),
     /// Invalid or malformed signature in a `(define-trait ...)` expression.
     DefineTraitBadSignature,
     /// Trait definition contains duplicate method names.
+    /// The `String` wraps the duplicate method name.
     DefineTraitDuplicateMethod(String),
     /// Unexpected use of a trait or field reference in a non-trait context.
     UnexpectedTraitOrFieldReference,
@@ -406,6 +465,7 @@ pub enum CheckErrorKind {
     /// `contract-of` expects a trait type but found a different type.
     ContractOfExpectsTrait,
     /// Trait implementation is incompatible with the expected trait definition.
+    /// The first `Box<TraitIdentifier>` wraps the expected trait, and the second wraps the actual trait.
     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>),
 
     // Strings
