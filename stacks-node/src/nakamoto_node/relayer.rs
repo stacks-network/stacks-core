@@ -50,6 +50,7 @@ use stacks::net::db::LocalPeer;
 use stacks::net::p2p::NetworkHandle;
 use stacks::net::relay::Relayer;
 use stacks::net::NetworkResult;
+use stacks::util_lib::db::Error as DbError;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksBlockId, StacksPublicKey, VRFSeed,
 };
@@ -80,6 +81,11 @@ pub static TEST_MINER_THREAD_STALL: LazyLock<TestFlag<bool>> = LazyLock::new(Tes
 #[cfg(test)]
 /// Mutex to stall the miner thread right after it starts up (does not block the relayer thread)
 pub static TEST_MINER_THREAD_START_STALL: LazyLock<TestFlag<bool>> =
+    LazyLock::new(TestFlag::default);
+
+#[cfg(test)]
+/// Test flag to set the tip for the miner to commit to
+pub static TEST_MINER_COMMIT_TIP: LazyLock<TestFlag<Option<(ConsensusHash, BlockHeaderHash)>>> =
     LazyLock::new(TestFlag::default);
 
 /// Command types for the Nakamoto relayer thread, issued to it by other threads
@@ -616,7 +622,10 @@ impl RelayerThread {
     /// Specifically:
     ///
     /// If we won the given sortition `sn`, then we can start mining immediately with a `BlockFound`
-    /// tenure-change.  Otherwise, if we won the tenure which started the ongoing Stacks tenure
+    /// tenure-change. The exception is if we won the sortition, but the sortition's winning commit
+    /// does not commit to the ongoing tenure. In this case, we instead extend the current tenure.
+    ///
+    /// Otherwise, if we did not win `sn`, if we won the tenure which started the ongoing Stacks tenure
     /// (i.e. we're the active miner), then we _may_ start mining after a timeout _if_ the winning
     /// miner (not us) fails to submit a `BlockFound` tenure-change block for `sn`.
     fn choose_directive_sortition_with_winner(
@@ -626,6 +635,60 @@ impl RelayerThread {
         committed_index_hash: StacksBlockId,
     ) -> Option<MinerDirective> {
         let won_sortition = sn.miner_pk_hash.as_ref() == Some(mining_pkh);
+
+        let (canonical_stacks_tip_ch, canonical_stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
+                .expect("FATAL: failed to query sortition DB for stacks tip");
+        let canonical_stacks_snapshot =
+            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
+                .expect("FATAL: failed to query sortiiton DB for epoch")
+                .expect("FATAL: no sortition for canonical stacks tip");
+
+        // If we won the sortition, ensure that the sortition's winning commit actually commits to
+        // the ongoing tenure. If it does not (i.e. commit is "stale" and points to N-1 when we are
+        // currently in N), and if we are also the ongoing tenure's miner, then we must not attempt
+        // a tenure change (which would reorg our own signed blocks). Instead, we should immediately
+        // extend the tenure.
+        if won_sortition && !self.config.get_node_config(false).mock_mining {
+            let canonical_stacks_tip =
+                StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
+
+            let commits_to_tip_tenure = match Self::sortition_commits_to_stacks_tip_tenure(
+                &mut self.chainstate,
+                &canonical_stacks_tip,
+                &canonical_stacks_snapshot,
+                &sn,
+            ) {
+                Ok(b) => b,
+                Err(e) => {
+                    warn!(
+                        "Relayer: Failed to determine if winning sortition commits to current tenure: {e:?}";
+                        "sortition_ch" => %sn.consensus_hash,
+                        "stacks_tip_ch" => %canonical_stacks_tip_ch
+                    );
+                    false
+                }
+            };
+
+            if !commits_to_tip_tenure {
+                let won_ongoing_tenure_sortition =
+                    canonical_stacks_snapshot.miner_pk_hash.as_ref() == Some(mining_pkh);
+
+                if won_ongoing_tenure_sortition {
+                    info!(
+                        "Relayer: Won sortition, but commit does not target ongoing tenure. Will extend instead of starting a new tenure.";
+                        "winning_sortition" => %sn.consensus_hash,
+                        "ongoing_tenure" => %canonical_stacks_snapshot.consensus_hash,
+                        "commits_to_tip_tenure?" => commits_to_tip_tenure
+                    );
+                    // Extend tenure to the new burn view instead of attempting BlockFound
+                    return Some(MinerDirective::ContinueTenure {
+                        new_burn_view: sn.consensus_hash,
+                    });
+                }
+            }
+        }
+
         if won_sortition || self.config.get_node_config(false).mock_mining {
             // a sortition happenend, and we won
             info!("Won sortition; begin tenure.";
@@ -643,13 +706,6 @@ impl RelayerThread {
             "Relayer: did not win sortition {}, so stopping tenure",
             &sn.sortition
         );
-        let (canonical_stacks_tip_ch, _) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
-                .expect("FATAL: failed to query sortition DB for stacks tip");
-        let canonical_stacks_snapshot =
-            SortitionDB::get_block_snapshot_consensus(self.sortdb.conn(), &canonical_stacks_tip_ch)
-                .expect("FATAL: failed to query sortiiton DB for epoch")
-                .expect("FATAL: no sortition for canonical stacks tip");
 
         let won_ongoing_tenure_sortition =
             canonical_stacks_snapshot.miner_pk_hash.as_ref() == Some(mining_pkh);
@@ -1637,6 +1693,31 @@ impl RelayerThread {
         false
     }
 
+    /// Get the canonical tip for the miner to commit to.
+    /// This is provided as a separate function so that it can be overridden for testing.
+    #[cfg(not(test))]
+    fn fault_injection_get_tip_for_commit(&self) -> Option<(ConsensusHash, BlockHeaderHash)> {
+        None
+    }
+
+    #[cfg(test)]
+    fn fault_injection_get_tip_for_commit(&self) -> Option<(ConsensusHash, BlockHeaderHash)> {
+        TEST_MINER_COMMIT_TIP.get()
+    }
+
+    fn get_commit_for_tip(&mut self) -> Result<(ConsensusHash, BlockHeaderHash), DbError> {
+        if let Some((consensus_hash, block_header_hash)) = self.fault_injection_get_tip_for_commit()
+        {
+            info!("Relayer: using test tip for commit";
+                "consensus_hash" => %consensus_hash,
+                "block_header_hash" => %block_header_hash,
+            );
+            Ok((consensus_hash, block_header_hash))
+        } else {
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb.conn())
+        }
+    }
+
     /// Generate and submit the next block-commit, and record it locally
     fn issue_block_commit(&mut self) -> Result<(), NakamotoNodeError> {
         if self.fault_injection_skip_block_commit() {
@@ -1645,10 +1726,7 @@ impl RelayerThread {
             );
             return Ok(());
         }
-        let (tip_block_ch, tip_block_bh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
-            self.sortdb.conn(),
-        )
-        .unwrap_or_else(|e| {
+        let (tip_block_ch, tip_block_bh) = self.get_commit_for_tip().unwrap_or_else(|e| {
             panic!("Failed to load canonical stacks tip: {e:?}");
         });
         let mut last_committed = self.make_block_commit(&tip_block_ch, &tip_block_bh)?;
