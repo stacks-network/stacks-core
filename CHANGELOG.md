@@ -12,10 +12,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Renamed `clarity-serialization` to `clarity-types`.
 - Add `stackerdb_timeout_secs` to miner config for limiting duration of StackerDB HTTP requests.
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
-- New endpoint /v3/tenures/blocks/ allowing retrieving the list of stacks blocks from a burn block
+- New endpoints /v3/tenures/blocks/, /v3/tenures/blocks/hash, /v3/tenures/blocks/height allowing retrieving the list of stacks blocks from a burn block
 - Creates epoch 3.3 and costs-4 in preparation for a hardfork to activate Clarity 4
 - Adds support for new Clarity 4 builtins (not activated until epoch 3.3):
   - `contract-hash?`
+  - `current-contract`
+  - `block-time`
   - `to-ascii?`
 - Added `contract_cost_limit_percentage` to the miner config file — sets the percentage of a block’s execution cost at which, if a large non-boot contract call would cause a BlockTooBigError, the miner will stop adding further non-boot contract calls and only include STX transfers and boot contract calls for the remainder of the block.
 
@@ -25,8 +27,9 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   expressive (#6337)
 - Removed affirmation maps logic throughout, upgrading chainstate DB schema to 11 and burnchain DB schema to 3 (#6314)
 
-### Changed
+### Fixed
 
+- When running `stacks-inspect decode-tx`, print the correct version of the address (mainnet or testnet) based on the transaction passed in
 - When a contract deploy is analyzed, it will no longer throw a `CostError` when the contract contains an undefined top-level variable. Instead, it will throw a `UndefinedVariable` error.
 
 ## [3.2.0.0.1]

@@ -125,6 +125,15 @@ to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
 };
 
+const CURRENT_CONTRACT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "current-contract",
+    snippet: "current-contract",
+    output_type: "principal",
+    description: "Returns the principal of the current contract.",
+    example:
+        "(print current-contract) ;; Will print out the Stacks address of the current contract",
+};
+
 const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "stacks-block-height",
     snippet: "stacks-block-height",
@@ -142,6 +151,16 @@ const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
 At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
     example:
         "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
+};
+
+const BLOCK_TIME_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "block-time",
+    snippet: "block-time",
+    output_type: "uint",
+    description: "Returns the Unix timestamp (in seconds) of the current Stacks block. Introduced
+in Clarity 4. Provides access to the timestamp of the current block, which is
+not available with `get-stacks-block-info?`.",
+    example: "(>= block-time u1755820800) ;; returns true if current block timestamp is at or after 2025-07-22.",
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -2680,6 +2699,8 @@ pub fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> 
         NativeVariables::Mainnet => MAINNET_KEYWORD.clone(),
         NativeVariables::ChainId => CHAINID_KEYWORD.clone(),
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
+        NativeVariables::CurrentContract => CURRENT_CONTRACT_KEYWORD.clone(),
+        NativeVariables::BlockTime => BLOCK_TIME_KEYWORD.clone(),
     };
     Some(KeywordAPI {
         name: keyword.name,

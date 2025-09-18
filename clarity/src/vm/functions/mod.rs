@@ -642,7 +642,11 @@ fn special_if(
                 eval(&args[2], env, context)
             }
         }
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into()),
+        _ => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BoolType),
+            Box::new(conditional),
+        )
+        .into()),
     }
 }
 
@@ -663,10 +667,14 @@ fn special_asserts(
                 Ok(conditional)
             } else {
                 let thrown = eval(&args[1], env, context)?;
-                Err(ShortReturnType::AssertionFailed(thrown).into())
+                Err(ShortReturnType::AssertionFailed(Box::new(thrown)).into())
             }
         }
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into()),
+        _ => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BoolType),
+            Box::new(conditional),
+        )
+        .into()),
     }
 }
 

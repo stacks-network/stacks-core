@@ -403,8 +403,8 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
             tx_events,
             reason,
         } => ClarityRuntimeTxError::AbortedByCallback {
-            output,
-            assets_modified,
+            output: output.map(|v| *v),
+            assets_modified: *assets_modified,
             tx_events,
             reason,
         },
@@ -1296,7 +1296,7 @@ impl StacksChainState {
                                     // invalidates the block, since this should have prevented the
                                     // block from getting relayed in the first place
                                     if let clarity_error::Parse(ref parse_error) = &other_error {
-                                        match parse_error.err {
+                                        match *parse_error.err {
                                             ParseErrors::ExpressionStackDepthTooDeep
                                             | ParseErrors::VaryExpressionStackDepthTooDeep => {
                                                 info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());

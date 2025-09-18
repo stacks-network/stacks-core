@@ -57,7 +57,8 @@ use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
     Value,
 };
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
+use crate::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
 use crate::util_lib::boot::{boot_code_addr, boot_code_id};
@@ -158,7 +159,7 @@ fn parse(
         DEFAULT_CLI_EPOCH,
         ASTRules::PrecheckSize,
     )
-    .map_err(RuntimeErrorType::ASTError)?;
+    .map_err(|e| RuntimeErrorType::ASTError(Box::new(e)))?;
     Ok(ast.expressions)
 }
 
@@ -171,7 +172,7 @@ trait ClarityStorage {
     fn get_analysis_db(&mut self) -> AnalysisDatabase<'_>;
 }
 
-impl ClarityStorage for WritableMarfStore<'_> {
+impl ClarityStorage for PersistentWritableMarfStore<'_> {
     fn get_clarity_db<'a>(
         &'a mut self,
         headers_db: &'a dyn HeadersDB,
@@ -204,7 +205,7 @@ fn run_analysis_free<C: ClarityStorage>(
     expressions: &mut [SymbolicExpression],
     marf_kv: &mut C,
     save_contract: bool,
-) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     analysis::run_analysis(
         contract_identifier,
@@ -225,7 +226,7 @@ fn run_analysis<C: ClarityStorage>(
     header_db: &CLIHeadersDB,
     marf_kv: &mut C,
     save_contract: bool,
-) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
     let mainnet = header_db.is_mainnet();
     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     let cost_track = LimitedCostTracker::new(
@@ -345,7 +346,10 @@ fn in_block<F, R>(
     f: F,
 ) -> (CLIHeadersDB, MarfedKV, R)
 where
-    F: FnOnce(CLIHeadersDB, WritableMarfStore) -> (CLIHeadersDB, WritableMarfStore, R),
+    F: FnOnce(
+        CLIHeadersDB,
+        PersistentWritableMarfStore,
+    ) -> (CLIHeadersDB, PersistentWritableMarfStore, R),
 {
     // need to load the last block
     let (from, to) = headers_db.advance_cli_chain_tip();
@@ -353,7 +357,7 @@ where
         let marf_tx = marf_kv.begin(&from, &to);
         let (headers_return, marf_return, result) = f(headers_db, marf_tx);
         marf_return
-            .commit_to(&to)
+            .commit_to_processed_block(&to)
             .expect("FATAL: failed to commit block");
         (headers_return, result)
     };
@@ -364,7 +368,7 @@ where
 // chain tip itself.
 fn at_chaintip<F, R>(db_path: &str, mut marf_kv: MarfedKV, f: F) -> R
 where
-    F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
+    F: FnOnce(PersistentWritableMarfStore) -> (PersistentWritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
     let cli_db_path = get_cli_db_path(db_path);
@@ -374,13 +378,13 @@ where
 
     let marf_tx = marf_kv.begin(&from, &to);
     let (marf_return, result) = f(marf_tx);
-    marf_return.rollback_block();
+    marf_return.drop_current_trie();
     result
 }
 
 fn at_block<F, R>(blockhash: &str, mut marf_kv: MarfedKV, f: F) -> R
 where
-    F: FnOnce(WritableMarfStore) -> (WritableMarfStore, R),
+    F: FnOnce(PersistentWritableMarfStore) -> (PersistentWritableMarfStore, R),
 {
     // store CLI data alongside the MARF database state
     let from = StacksBlockId::from_hex(blockhash)
@@ -389,7 +393,7 @@ where
 
     let marf_tx = marf_kv.begin(&from, &to);
     let (marf_return, result) = f(marf_tx);
-    marf_return.rollback_block();
+    marf_return.drop_current_trie();
     result
 }
 
@@ -405,7 +409,7 @@ fn default_chain_id(mainnet: bool) -> u32 {
 fn with_env_costs<F, R>(
     mainnet: bool,
     header_db: &CLIHeadersDB,
-    marf: &mut WritableMarfStore,
+    marf: &mut PersistentWritableMarfStore,
     coverage: Option<&mut CoverageReporter>,
     f: F,
 ) -> (R, ExecutionCost)
@@ -1207,12 +1211,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let mut contract_analysis = match contract_analysis_res {
                 Ok(contract_analysis) => contract_analysis,
-                Err((e, cost_tracker)) => {
+                Err(boxed) => {
+                    let (e, cost_tracker) = *boxed;
                     let mut result = json!({
                         "message": "Checks failed.",
                         "error": {
                             "analysis": serde_json::to_value(&e.diagnostic).unwrap(),
-                        }
+                        },
                     });
                     add_costs(&mut result, costs, cost_tracker.get_total());
                     return (1, Some(result));
@@ -1285,7 +1290,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
                 match run_analysis_free(&contract_id, &mut ast, &mut analysis_marf, true) {
                     Ok(_) => (),
-                    Err((error, _)) => {
+                    Err(boxed) => {
+                        let (error, _) = *boxed;
                         println!("Type check error:\n{}", error);
                         continue;
                     }
@@ -1354,14 +1360,17 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         ),
                     }
                 }
-                Err((error, _)) => (
-                    1,
-                    Some(json!({
-                        "error": {
-                            "analysis": serde_json::to_value(&format!("{}", error)).unwrap()
-                        }
-                    })),
-                ),
+                Err(boxed) => {
+                    let (error, _) = *boxed;
+                    (
+                        1,
+                        Some(json!({
+                            "error": {
+                                "analysis": serde_json::to_value(&format!("{}", error)).unwrap()
+                            }
+                        })),
+                    )
+                }
             }
         }
         "eval" => {
@@ -1697,7 +1706,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     result["events"] = serde_json::Value::Array(events_json);
                     (0, Some(result))
                 }
-                Err((error, cost_tracker)) => {
+                Err(boxed) => {
+                    let (error, cost_tracker) = *boxed;
                     let mut result = json!({
                         "error": {
                             "initialization": serde_json::to_value(&format!("{}", error)).unwrap()

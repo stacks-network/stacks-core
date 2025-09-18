@@ -50,6 +50,6 @@ pub fn mem_type_check(
                 .cloned();
             Ok((first_type, x))
         }
-        Err((e, _)) => Err(e),
+        Err(e) => Err(e.0),
     }
 }

@@ -414,6 +414,8 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            None,
+            false,
         )
     }
 }
@@ -431,7 +433,7 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true)
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true, false)
     }
 
     /// Begin/resume mining a shadow tenure's transactions.

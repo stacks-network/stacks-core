@@ -82,7 +82,7 @@ pub fn check_special_is_response(
     if let TypeSignature::ResponseType(_types) = input {
         Ok(TypeSignature::BoolType)
     } else {
-        Err(CheckErrors::ExpectedResponseType(input.clone()).into())
+        Err(CheckErrors::ExpectedResponseType(Box::new(input)).into())
     }
 }
 
@@ -100,7 +100,7 @@ pub fn check_special_is_optional(
     if let TypeSignature::OptionalType(_type) = input {
         Ok(TypeSignature::BoolType)
     } else {
-        Err(CheckErrors::ExpectedOptionalType(input.clone()).into())
+        Err(CheckErrors::ExpectedOptionalType(Box::new(input)).into())
     }
 }
 
@@ -119,9 +119,12 @@ pub fn check_special_default_to(
     if let TypeSignature::OptionalType(input_type) = input {
         let contained_type = *input_type;
         TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &default, &contained_type)
-            .map_err(|_| CheckErrors::DefaultTypesMustMatch(default, contained_type).into())
+            .map_err(|_| {
+                CheckErrors::DefaultTypesMustMatch(Box::new(default), Box::new(contained_type))
+                    .into()
+            })
     } else {
-        Err(CheckErrors::ExpectedOptionalType(input).into())
+        Err(CheckErrors::ExpectedOptionalType(Box::new(input)).into())
     }
 }
 
@@ -162,7 +165,7 @@ fn inner_unwrap(
                 Ok(ok_type)
             }
         }
-        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(input).into()),
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(Box::new(input)).into()),
     }
 }
 
@@ -180,7 +183,7 @@ fn inner_unwrap_err(
             Ok(err_type)
         }
     } else {
-        Err(CheckErrors::ExpectedResponseType(input).into())
+        Err(CheckErrors::ExpectedResponseType(Box::new(input)).into())
     }
 }
 
@@ -248,7 +251,7 @@ pub fn check_special_try_ret(
                 Ok(ok_type)
             }
         }
-        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(input).into()),
+        _ => Err(CheckErrors::ExpectedOptionalOrResponseType(Box::new(input)).into()),
     }
 }
 
@@ -336,7 +339,10 @@ fn check_special_match_opt(
         &some_branch_type,
         &none_branch_type,
     )
-    .map_err(|_| CheckErrors::MatchArmsMustMatch(some_branch_type, none_branch_type).into())
+    .map_err(|_| {
+        CheckErrors::MatchArmsMustMatch(Box::new(some_branch_type), Box::new(none_branch_type))
+            .into()
+    })
 }
 
 fn check_special_match_resp(
@@ -375,7 +381,10 @@ fn check_special_match_resp(
     analysis_typecheck_cost(checker, &ok_branch_type, &err_branch_type)?;
 
     TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &ok_branch_type, &err_branch_type)
-        .map_err(|_| CheckErrors::MatchArmsMustMatch(ok_branch_type, err_branch_type).into())
+        .map_err(|_| {
+            CheckErrors::MatchArmsMustMatch(Box::new(ok_branch_type), Box::new(err_branch_type))
+                .into()
+        })
 }
 
 pub fn check_special_match(
@@ -394,6 +403,6 @@ pub fn check_special_match(
         TypeSignature::ResponseType(resp_type) => {
             check_special_match_resp(*resp_type, checker, &args[1..], context)
         }
-        _ => Err(CheckErrors::BadMatchInput(input).into()),
+        _ => Err(CheckErrors::BadMatchInput(Box::new(input)).into()),
     }
 }

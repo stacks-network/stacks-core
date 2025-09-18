@@ -144,10 +144,10 @@ fn check_special_get(
             let option_type = TypeSignature::new_option(inner_type)?;
             Ok(option_type)
         } else {
-            Err(CheckErrors::ExpectedTuple(*value_type_sig).into())
+            Err(CheckErrors::ExpectedTuple(value_type_sig).into())
         }
     } else {
-        Err(CheckErrors::ExpectedTuple(argument_type).into())
+        Err(CheckErrors::ExpectedTuple(Box::new(argument_type)).into())
     }
 }
 
@@ -161,13 +161,13 @@ fn check_special_merge(
     let res = checker.type_check(&args[0], context)?;
     let mut base = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
-        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+        _ => Err(CheckErrors::ExpectedTuple(Box::new(res.clone()))),
     }?;
 
     let res = checker.type_check(&args[1], context)?;
     let mut update = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
-        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+        _ => Err(CheckErrors::ExpectedTuple(Box::new(res.clone()))),
     }?;
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleMerge,
@@ -308,8 +308,8 @@ fn check_special_set_var(
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_value_type.clone(),
-            value_type,
+            Box::new(expected_value_type.clone()),
+            Box::new(value_type),
         )))
     } else {
         Ok(TypeSignature::BoolType)
@@ -329,7 +329,7 @@ fn check_special_equals(
     for x_type in arg_types.into_iter() {
         analysis_typecheck_cost(checker, &x_type, &arg_type)?;
         arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &x_type, &arg_type)
-            .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;
+            .map_err(|_| CheckErrors::TypeError(Box::new(x_type), Box::new(arg_type)))?;
     }
 
     Ok(TypeSignature::BoolType)
@@ -351,8 +351,9 @@ fn check_special_if(
 
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
-    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, expr1, expr2)
-        .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
+    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, expr1, expr2).map_err(|_| {
+        CheckErrors::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone())).into()
+    })
 }
 
 fn check_contract_call(

@@ -147,8 +147,8 @@ impl FunctionType {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if !expected_type.admits_type(&StacksEpochId::Epoch2_05, found_type)? {
                         return Err(CheckErrors::TypeError(
-                            expected_type.clone(),
-                            found_type.clone(),
+                            Box::new(expected_type.clone()),
+                            Box::new(found_type.clone()),
                         )
                         .into());
                     }
@@ -165,8 +165,8 @@ impl FunctionType {
                     analysis_typecheck_cost(accounting, expected_type, found_type)?;
                     if !expected_type.admits_type(&StacksEpochId::Epoch2_05, found_type)? {
                         return Err(CheckErrors::TypeError(
-                            expected_type.clone(),
-                            found_type.clone(),
+                            Box::new(expected_type.clone()),
+                            Box::new(found_type.clone()),
                         )
                         .into());
                     }
@@ -182,7 +182,10 @@ impl FunctionType {
                         return Ok(return_type.clone());
                     }
                 }
-                Err(CheckErrors::UnionTypeError(arg_types.clone(), found_type.clone()).into())
+                Err(
+                    CheckErrors::UnionTypeError(arg_types.clone(), Box::new(found_type.clone()))
+                        .into(),
+                )
             }
             FunctionType::ArithmeticVariadic
             | FunctionType::ArithmeticBinary
@@ -202,13 +205,17 @@ impl FunctionType {
                     TypeSignature::UIntType => Ok(TypeSignature::UIntType),
                     _ => Err(CheckErrors::UnionTypeError(
                         vec![TypeSignature::IntType, TypeSignature::UIntType],
-                        first.clone(),
+                        Box::new(first.clone()),
                     )),
                 }?;
                 for found_type in rest.iter() {
                     analysis_typecheck_cost(accounting, &TypeSignature::IntType, found_type)?;
                     if found_type != &return_type {
-                        return Err(CheckErrors::TypeError(return_type, found_type.clone()).into());
+                        return Err(CheckErrors::TypeError(
+                            Box::new(return_type),
+                            Box::new(found_type.clone()),
+                        )
+                        .into());
                     }
                 }
                 Ok(return_type)
@@ -222,13 +229,17 @@ impl FunctionType {
                 if first != &TypeSignature::IntType && first != &TypeSignature::UIntType {
                     return Err(CheckErrors::UnionTypeError(
                         vec![TypeSignature::IntType, TypeSignature::UIntType],
-                        first.clone(),
+                        Box::new(first.clone()),
                     )
                     .into());
                 }
 
                 if first != second {
-                    return Err(CheckErrors::TypeError(first.clone(), second.clone()).into());
+                    return Err(CheckErrors::TypeError(
+                        Box::new(first.clone()),
+                        Box::new(second.clone()),
+                    )
+                    .into());
                 }
 
                 Ok(TypeSignature::BoolType)
@@ -280,9 +291,11 @@ impl FunctionType {
                 (expected_type, value) => {
                     if !expected_type.admits(&StacksEpochId::Epoch2_05, value)? {
                         let actual_type = TypeSignature::type_of(value)?;
-                        return Err(
-                            CheckErrors::TypeError(expected_type.clone(), actual_type).into()
-                        );
+                        return Err(CheckErrors::TypeError(
+                            Box::new(expected_type.clone()),
+                            Box::new(actual_type),
+                        )
+                        .into());
                     }
                 }
             }
@@ -317,9 +330,9 @@ fn type_reserved_variable(variable_name: &str) -> Result<Option<TypeSignature>, 
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
             Regtest => TypeSignature::BoolType,
-            TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight => {
+            TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight | BlockTime | CurrentContract => {
                 return Err(CheckErrors::Expects(
-                    "tx-sponsor, mainnet, chain-id, stacks-block-height, and tenure-height should not reach here in 2.05".into(),
+                    "tx-sponsor, mainnet, chain-id, stacks-block-height, tenure-height, block-time, and current-contract should not reach here in 2.05".into(),
                 )
                 .into())
             }
@@ -374,7 +387,12 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                         &expected_type,
                         &return_type,
                     )
-                    .map_err(|_| CheckErrors::ReturnTypesMustMatch(expected_type, return_type))?,
+                    .map_err(|_| {
+                        CheckErrors::ReturnTypesMustMatch(
+                            Box::new(expected_type),
+                            Box::new(return_type),
+                        )
+                    })?,
                     None => return_type,
                 };
 
@@ -472,7 +490,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
 
         if !expected_type.admits_type(&StacksEpochId::Epoch2_05, &actual_type)? {
             let mut err: CheckError =
-                CheckErrors::TypeError(expected_type.clone(), actual_type).into();
+                CheckErrors::TypeError(Box::new(expected_type.clone()), Box::new(actual_type))
+                    .into();
             err.set_expression(expr);
             Err(err)
         } else {
@@ -609,7 +628,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                             &return_type,
                         )
                         .map_err(|_| {
-                            CheckErrors::ReturnTypesMustMatch(expected.clone(), return_type)
+                            CheckErrors::ReturnTypesMustMatch(
+                                Box::new(expected.clone()),
+                                Box::new(return_type),
+                            )
                         })?
                     } else {
                         return_type
@@ -873,9 +895,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                             .add_public_function_type(f_name, FunctionType::Fixed(f_type))?;
                         return Ok(Some(()));
                     } else {
-                        return Err(
-                            CheckErrors::PublicFunctionMustReturnResponse(f_type.returns).into(),
-                        );
+                        return Err(CheckErrors::PublicFunctionMustReturnResponse(Box::new(
+                            f_type.returns,
+                        ))
+                        .into());
                     }
                 }
                 DefineFunctionsParsed::ReadOnlyFunction { signature, body } => {

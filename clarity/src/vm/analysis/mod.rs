@@ -92,7 +92,7 @@ pub fn mem_type_check(
                 .cloned();
             Ok((first_type, x))
         }
-        Err((e, _)) => Err(e),
+        Err(e) => Err(e.0),
     }
 }
 
@@ -119,7 +119,7 @@ pub fn type_check(
         *version,
         true,
     )
-    .map_err(|(e, _cost_tracker)| e)
+    .map_err(|e| e.0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -132,7 +132,7 @@ pub fn run_analysis(
     epoch: StacksEpochId,
     version: ClarityVersion,
     build_type_map: bool,
-) -> Result<ContractAnalysis, (CheckError, LimitedCostTracker)> {
+) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
     let mut contract_analysis = ContractAnalysis::new(
         contract_identifier.clone(),
         expressions.to_vec(),
@@ -178,7 +178,10 @@ pub fn run_analysis(
     });
     match result {
         Ok(_) => Ok(contract_analysis),
-        Err(e) => Err((e, contract_analysis.take_contract_cost_tracker())),
+        Err(e) => Err(Box::new((
+            e,
+            contract_analysis.take_contract_cost_tracker(),
+        ))),
     }
 }
 

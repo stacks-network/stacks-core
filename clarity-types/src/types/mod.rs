@@ -12,7 +12,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#![allow(clippy::result_large_err)]
 
 pub mod serialization;
 pub mod signatures;
@@ -455,7 +454,11 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(CheckErrors::TypeValueError(TypeSignature::BUFFER_MIN, to_find).into())
+                    Err(CheckErrors::TypeValueError(
+                        Box::new(TypeSignature::BUFFER_MIN),
+                        Box::new(to_find),
+                    )
+                    .into())
                 }
             }
             SequenceData::List(data) => {
@@ -480,10 +483,11 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(
-                        CheckErrors::TypeValueError(TypeSignature::min_string_ascii()?, to_find)
-                            .into(),
+                    Err(CheckErrors::TypeValueError(
+                        Box::new(TypeSignature::min_string_ascii()?),
+                        Box::new(to_find),
                     )
+                    .into())
                 }
             }
             SequenceData::String(CharType::UTF8(data)) => {
@@ -500,10 +504,11 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(
-                        CheckErrors::TypeValueError(TypeSignature::min_string_utf8()?, to_find)
-                            .into(),
+                    Err(CheckErrors::TypeValueError(
+                        Box::new(TypeSignature::min_string_utf8()?),
+                        Box::new(to_find),
                     )
+                    .into())
                 }
             }
         }
