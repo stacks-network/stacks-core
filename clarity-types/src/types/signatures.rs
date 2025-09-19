@@ -885,9 +885,6 @@ impl TypeSignature {
         ))
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    pub const BUFFER_21: TypeSignature = Self::type_buffer_of_size::<21>();
-
     pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(1_u32.try_into().map_err(|_| {

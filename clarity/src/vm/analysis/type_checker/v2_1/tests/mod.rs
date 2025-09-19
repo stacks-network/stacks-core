@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -3421,7 +3422,9 @@ fn test_principal_construct() {
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,
             CheckErrors::TypeError(
                 Box::new(TypeSignature::BUFFER_20),
-                Box::new(TypeSignature::BUFFER_21),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                    21_u32.try_into().unwrap(),
+                ))),
             ),
         ),
         // `int` argument instead of `(buff 1)` for version.
