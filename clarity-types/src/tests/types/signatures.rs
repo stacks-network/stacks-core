@@ -40,6 +40,33 @@ fn test_buffer_length_try_from_u32_trait() {
 }
 
 #[test]
+fn test_buffer_length_try_from_usize_trait() {
+    let buffer = BufferLength::try_from(0_usize).unwrap();
+    assert_eq!(0, buffer.get_value());
+
+    let buffer = BufferLength::try_from(MAX_VALUE_SIZE as usize).unwrap();
+    assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
+
+    let err = BufferLength::try_from(MAX_VALUE_SIZE as usize + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+}
+
+#[test]
+fn test_buffer_length_try_from_i128_trait() {
+    let buffer = BufferLength::try_from(0_i128).unwrap();
+    assert_eq!(0, buffer.get_value());
+
+    let buffer = BufferLength::try_from(MAX_VALUE_SIZE as i128).unwrap();
+    assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
+
+    let err = BufferLength::try_from(MAX_VALUE_SIZE as i128 + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+
+    let err = BufferLength::try_from(-1_i128).unwrap_err();
+    assert_eq!(CheckErrors::ValueOutOfBounds, err);
+}
+
+#[test]
 fn test_buffer_length_to_u32_using_from_trait() {
     let buffer = BufferLength::new_unsafe(0);
     assert_eq!(0, u32::from(&buffer));

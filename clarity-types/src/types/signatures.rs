@@ -137,6 +137,49 @@ impl BufferLength {
     }
 }
 
+impl From<&BufferLength> for u32 {
+    fn from(v: &BufferLength) -> u32 {
+        v.0
+    }
+}
+
+impl From<BufferLength> for u32 {
+    fn from(v: BufferLength) -> u32 {
+        v.0
+    }
+}
+
+impl TryFrom<u32> for BufferLength {
+    type Error = CheckErrors;
+    fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
+        Self::try_from_u32_as_opt(data).ok_or(CheckErrors::ValueTooLarge)
+    }
+}
+
+impl TryFrom<usize> for BufferLength {
+    type Error = CheckErrors;
+    fn try_from(data: usize) -> Result<BufferLength, CheckErrors> {
+        if data > (MAX_VALUE_SIZE as usize) {
+            Err(CheckErrors::ValueTooLarge)
+        } else {
+            Ok(BufferLength(data as u32))
+        }
+    }
+}
+
+impl TryFrom<i128> for BufferLength {
+    type Error = CheckErrors;
+    fn try_from(data: i128) -> Result<BufferLength, CheckErrors> {
+        if data > (MAX_VALUE_SIZE as i128) {
+            Err(CheckErrors::ValueTooLarge)
+        } else if data < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
+        } else {
+            Ok(BufferLength(data as u32))
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length(u32);
 
@@ -265,49 +308,6 @@ impl From<ListTypeData> for TypeSignature {
 impl From<TupleTypeSignature> for TypeSignature {
     fn from(data: TupleTypeSignature) -> Self {
         TupleType(data)
-    }
-}
-
-impl From<&BufferLength> for u32 {
-    fn from(v: &BufferLength) -> u32 {
-        v.0
-    }
-}
-
-impl From<BufferLength> for u32 {
-    fn from(v: BufferLength) -> u32 {
-        v.0
-    }
-}
-
-impl TryFrom<u32> for BufferLength {
-    type Error = CheckErrors;
-    fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
-        Self::try_from_u32_as_opt(data).ok_or(CheckErrors::ValueTooLarge)
-    }
-}
-
-impl TryFrom<usize> for BufferLength {
-    type Error = CheckErrors;
-    fn try_from(data: usize) -> Result<BufferLength, CheckErrors> {
-        if data > (MAX_VALUE_SIZE as usize) {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(BufferLength(data as u32))
-        }
-    }
-}
-
-impl TryFrom<i128> for BufferLength {
-    type Error = CheckErrors;
-    fn try_from(data: i128) -> Result<BufferLength, CheckErrors> {
-        if data > (MAX_VALUE_SIZE as i128) {
-            Err(CheckErrors::ValueTooLarge)
-        } else if data < 0 {
-            Err(CheckErrors::ValueOutOfBounds)
-        } else {
-            Ok(BufferLength(data as u32))
-        }
     }
 }
 
