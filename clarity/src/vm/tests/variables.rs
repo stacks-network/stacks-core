@@ -1270,7 +1270,6 @@ fn test_current_contract(
         version,
         contract,
         None,
-        ASTRules::PrecheckSize,
     );
 
     let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
