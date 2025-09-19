@@ -33,8 +33,12 @@ use crate::types::{FunctionIdentifier, Value};
 
 pub type StackTrace = Vec<FunctionIdentifier>;
 
+/// Wraps error types that do not implement [`PartialEq`], enabling their
+/// use in enums that implement the trait. Any two `IncomparableError` values
+/// are always considered unequal.
 #[derive(Debug)]
 pub struct IncomparableError<T> {
+    /// The wrapped error value.
     pub err: T,
 }
 
