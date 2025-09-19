@@ -105,24 +105,19 @@ mod tuple_type_map_serde {
 pub struct BufferLength(u32);
 
 impl BufferLength {
-    /// Returns the internal `u32` value of this [`BufferLength`].
-    pub fn get_value(&self) -> u32 {
-        self.0
-    }
-
-    /// Attempts to create a [`BufferLength`] from a `u32` at runtime.
-    pub fn try_from_u32(value: u32) -> Result<BufferLength, CheckErrors> {
+    /// Attempts to create a [`BufferLength`] from a [`u32`] as an [`Option`].
+    ///
+    /// This function is primarily intended for internal use when defining
+    /// `const` values, since it returns an [`Option`] that can be unwrapped
+    /// with [`Option::expect`] in a `const fn`.
+    ///
+    /// It can also be reused in a runtime context
+    const fn try_from_u32_as_opt(value: u32) -> Option<BufferLength> {
         if value > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge)
+            None
         } else {
-            Ok(BufferLength(value))
+            Some(BufferLength(value))
         }
-    }
-
-    /// Creates a [`BufferLength`] from a `u32` constant at compile time.
-    pub const fn from_const_u32<const VALUE: u32>() -> Self {
-        assert!(VALUE <= MAX_VALUE_SIZE, "Value Too Large");
-        BufferLength(VALUE)
     }
 }
 
@@ -133,6 +128,12 @@ impl BufferLength {
     /// allowing direct write-access to its internal state.
     pub fn new_unsafe(value: u32) -> Self {
         Self(value)
+    }
+
+    /// Returns the underlying [`u32`] value of this [`BufferLength`].
+    /// This to have an easy read-access to its internal state.
+    pub fn get_value(&self) -> u32 {
+        self.0
     }
 }
 
@@ -312,20 +313,20 @@ impl From<TupleTypeSignature> for TypeSignature {
 
 impl From<&BufferLength> for u32 {
     fn from(v: &BufferLength) -> u32 {
-        v.get_value()
+        v.0
     }
 }
 
 impl From<BufferLength> for u32 {
     fn from(v: BufferLength) -> u32 {
-        v.get_value()
+        v.0
     }
 }
 
 impl TryFrom<u32> for BufferLength {
     type Error = CheckErrors;
     fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
-        BufferLength::try_from_u32(data)
+        Self::try_from_u32_as_opt(data).ok_or(CheckErrors::ValueTooLarge)
     }
 }
 
@@ -907,11 +908,14 @@ impl TypeSignature {
     /// Buffer type with size 1.
     pub const BUFFER_1: TypeSignature = Self::type_buffer_of_size::<1>();
 
-    /// Creates a buffer type with a given size at compile time.
+    /// Creates a buffer type with a given size known at compile time.
+    ///
+    /// This function is intended for defining constant buffer types
+    /// type aliases (e.g., [`TypeSignature::BUFFER_1`]) without repeating logic.
     const fn type_buffer_of_size<const VALUE: u32>() -> Self {
-        SequenceType(SequenceSubtype::BufferType(BufferLength::from_const_u32::<
-            VALUE,
-        >()))
+        SequenceType(SequenceSubtype::BufferType(
+            BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
+        ))
     }
 
     pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {

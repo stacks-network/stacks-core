@@ -23,36 +23,13 @@ use crate::types::{
 };
 
 #[test]
-fn test_buffer_length_from_u32_runtime() {
-    let buffer = BufferLength::try_from_u32(0).unwrap();
-    assert_eq!(0, buffer.get_value());
-
-    let buffer = BufferLength::try_from_u32(MAX_VALUE_SIZE).unwrap();
-    assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
-
-    let err = BufferLength::try_from_u32(MAX_VALUE_SIZE + 1).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
-}
-
-#[test]
-fn test_buffer_length_from_u32_compile_time() {
-    const B_0: BufferLength = BufferLength::from_const_u32::<0>();
-    assert_eq!(0, B_0.get_value());
-
-    const B_MAX: BufferLength = BufferLength::from_const_u32::<MAX_VALUE_SIZE>();
-    assert_eq!(MAX_VALUE_SIZE, B_MAX.get_value());
-
-    //moved to runtime check, otherwise it emits a compilation error
-    std::panic::catch_unwind(|| {
-        const OUT_RANGE: u32 = MAX_VALUE_SIZE + 1;
-        let _ = BufferLength::from_const_u32::<OUT_RANGE>();
-    })
-    .expect_err("panic");
+fn test_max_value_size() {
+    assert_eq!(1024 * 1024, MAX_VALUE_SIZE);
 }
 
 #[test]
 fn test_buffer_length_try_from_u32_trait() {
-    let buffer = BufferLength::try_from(0u32).unwrap();
+    let buffer = BufferLength::try_from(0_u32).unwrap();
     assert_eq!(0, buffer.get_value());
 
     let buffer = BufferLength::try_from(MAX_VALUE_SIZE).unwrap();
@@ -63,7 +40,7 @@ fn test_buffer_length_try_from_u32_trait() {
 }
 
 #[test]
-fn test_buffer_length_to_u32_with_from_trait() {
+fn test_buffer_length_to_u32_using_from_trait() {
     let buffer = BufferLength::new_unsafe(0);
     assert_eq!(0, u32::from(&buffer));
     assert_eq!(0, u32::from(buffer));
@@ -79,6 +56,7 @@ fn test_type_buffer_1() {
     let expected =
         TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(1)));
     let actual = TypeSignature::BUFFER_1;
+
     assert_eq!(expected, actual);
     assert_eq!(5, actual.size().unwrap(), "size should be 5");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
