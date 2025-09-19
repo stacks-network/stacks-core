@@ -21,6 +21,18 @@
 #[macro_use]
 extern crate stacks_common;
 
+use clarity::consts::CHAIN_ID_MAINNET;
+use clarity::types::StacksEpochId;
+use clarity::types::chainstate::StacksPrivateKey;
+use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
+use stackslib::chainstate::stacks::{
+    CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionAuth, TransactionPayload,
+    TransactionVersion,
+};
+use stackslib::core::{
+    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, StacksEpoch, StacksEpochExtension as _,
+};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -30,64 +42,61 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::BufReader;
+use std::io::prelude::*;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{env, fs, io, process, thread};
 
-use blockstack_lib::burnchains::bitcoin::{spv, BitcoinNetworkType};
-use blockstack_lib::burnchains::db::{BurnchainBlockData, BurnchainDB};
-use blockstack_lib::burnchains::{Address, Burnchain, PoxConstants};
-use blockstack_lib::chainstate::burn::db::sortdb::{
-    get_block_commit_by_txid, SortitionDB, SortitionHandle,
-};
-use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
-use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
-use blockstack_lib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use blockstack_lib::chainstate::nakamoto::shadow::{
-    process_shadow_block, shadow_chainstate_repair,
-};
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
-use blockstack_lib::chainstate::stacks::db::{
-    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState,
-};
-use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
-use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
-use blockstack_lib::chainstate::stacks::miner::*;
-use blockstack_lib::chainstate::stacks::{StacksBlockHeader, *};
-use blockstack_lib::clarity::vm::costs::ExecutionCost;
-use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
-use blockstack_lib::clarity::vm::ClarityVersion;
-use blockstack_lib::core::{MemPoolDB, *};
-use blockstack_lib::cost_estimates::metrics::UnitMetric;
-use blockstack_lib::cost_estimates::UnitEstimator;
-use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
-use blockstack_lib::net::db::LocalPeer;
-use blockstack_lib::net::httpcore::{send_http_request, StacksHttpRequest};
-use blockstack_lib::net::p2p::PeerNetwork;
-use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
-use blockstack_lib::util_lib::db::sqlite_open;
-use blockstack_lib::util_lib::strings::UrlString;
-use blockstack_lib::{clarity_cli, cli};
 use libstackerdb::StackerDBChunkData;
-use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
-use serde_json::{json, Value};
-use stacks_common::codec::{read_next, StacksMessageCodec};
+use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
+use serde_json::{Value, json};
+use stacks_common::codec::{StacksMessageCodec, read_next};
+use stacks_common::types::MempoolCollectionBehavior;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::types::MempoolCollectionBehavior;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::util::hash::{Hash160, hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
+use stackslib::burnchains::bitcoin::{BitcoinNetworkType, spv};
+use stackslib::burnchains::db::{BurnchainBlockData, BurnchainDB};
+use stackslib::burnchains::{Address, Burnchain, PoxConstants};
+use stackslib::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionHandle, get_block_commit_by_txid,
+};
+use stackslib::chainstate::burn::operations::BlockstackOperationType;
+use stackslib::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use stackslib::chainstate::coordinator::{OnChainRewardSetProvider, get_reward_cycle_info};
+use stackslib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use stackslib::chainstate::nakamoto::shadow::{process_shadow_block, shadow_chainstate_repair};
+use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stackslib::chainstate::stacks::StacksBlockHeader;
+use stackslib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
+use stackslib::chainstate::stacks::db::{
+    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState,
+};
+use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
+use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
+use stackslib::clarity::vm::ClarityVersion;
+use stackslib::clarity::vm::costs::ExecutionCost;
+use stackslib::clarity::vm::types::StacksAddressExtensions;
+use stackslib::core::MemPoolDB;
+use stackslib::cost_estimates::UnitEstimator;
+use stackslib::cost_estimates::metrics::UnitMetric;
+use stackslib::net::api::getinfo::RPCPeerInfoData;
+use stackslib::net::db::LocalPeer;
+use stackslib::net::httpcore::{StacksHttpRequest, send_http_request};
+use stackslib::net::p2p::PeerNetwork;
+use stackslib::net::relay::Relayer;
+use stackslib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
+use stackslib::util_lib::db::sqlite_open;
+use stackslib::util_lib::strings::UrlString;
+use stackslib::{clarity_cli, cli};
 
 struct P2PSession {
     pub local_peer: LocalPeer,
@@ -311,7 +320,7 @@ fn main() {
     if argv[1] == "--version" {
         println!(
             "{}",
-            &blockstack_lib::version_string(
+            &stackslib::version_string(
                 option_env!("CARGO_PKG_NAME").unwrap_or(&argv[0]),
                 option_env!("STACKS_NODE_VERSION")
             )
@@ -957,7 +966,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "docgen" {
         println!(
             "{}",
-            blockstack_lib::clarity::vm::docs::make_json_api_reference()
+            stackslib::clarity::vm::docs::make_json_api_reference()
         );
         return;
     }
@@ -965,7 +974,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "docgen_boot" {
         println!(
             "{}",
-            blockstack_lib::chainstate::stacks::boot::docs::make_json_boot_contracts_reference()
+            stackslib::chainstate::stacks::boot::docs::make_json_boot_contracts_reference()
         );
         return;
     }
