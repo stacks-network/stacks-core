@@ -33,7 +33,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, TypeSignatureExt as _, BUFF_64,
+    TypeSignature, TypeSignatureExt as _,
 };
 use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
@@ -748,7 +748,7 @@ fn test_at_block() {
             "(at-block (sha512 u0) u1)",
             CheckErrors::TypeError(
                 Box::new(TypeSignature::BUFFER_32),
-                Box::new(BUFF_64.clone()),
+                Box::new(TypeSignature::BUFFER_64),
             ),
         ),
         (

@@ -32,7 +32,7 @@ use crate::vm::types::signatures::{
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
-    TupleTypeSignature, TypeSignature, Value, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
+    TupleTypeSignature, TypeSignature, Value, BUFF_65, MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -995,7 +995,7 @@ impl TypedNativeFunction {
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_64.clone(),
+                TypeSignature::BUFFER_64,
             ))),
             Keccak256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
