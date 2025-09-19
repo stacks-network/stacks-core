@@ -70,11 +70,12 @@ pub enum Error {
 pub enum VmInternalError {
     /// Raised when the VM encounters an invalid or malformed `SymbolicExpression`
     /// e.g., bad variable name or missing argument.
+    /// The `String` provides a message describing the specific issue.
     BadSymbolicRepresentation(String),
     /// A generic, unexpected internal error, indicating a logic failure within
     /// the VM.
-    /// TODO: merge with VmInternalError::Expect
-    InvariantViolation(String),
+    /// The `String` provides a message describing the specific failure.
+    InvariantViolation(String), // TODO: merge with VmInternalError::Expect
     /// The VM failed to produce the final `AssetMap` when finalizing the
     /// execution environment for a transaction.
     FailedToConstructAssetTable,
@@ -82,6 +83,7 @@ pub enum VmInternalError {
     /// execution environment for a transaction.
     FailedToConstructEventBatch,
     /// An error occurred during an interaction with the database.
+    /// The parameter contains the corresponding SQLite error.
     #[cfg(feature = "rusqlite")]
     SqliteError(IncomparableError<SqliteError>),
     /// The file path provided for the MARF database is invalid because it
@@ -91,6 +93,7 @@ pub enum VmInternalError {
     /// storage. Likely due to a file system permissions error or an invalid path
     FailedToCreateDataDirectory,
     /// A failure occurred within the MARF implementation.
+    /// The `String` provides a message describing the specific failure.
     MarfFailure(String),
     /// Failed to construct a tuple value from provided data because it did not
     ///  match the expected type signature.
@@ -101,10 +104,12 @@ pub enum VmInternalError {
     /// An STX transfer failed due to insufficient balance.
     InsufficientBalance,
     /// A generic error occurred during a database operation.
+    /// The `String` represents a descriptive message detailing the specific issue.
     DBError(String),
     /// An internal expectation or assertion failed. This is used for conditions
     /// that are believed to be unreachable but are handled gracefully to prevent
     /// a panic.
+    /// The `String` provides a message describing the failed expectation.
     Expect(String),
 }
 
