@@ -2654,6 +2654,8 @@ mod test {
                 "S1G2081040G2081040G2081040G208105NK8PE5.tenure".to_string(),
                 launch_src,
                 db_name.clone(),
+                "--clarity_version".to_string(),
+                "clarity2".to_string(),
             ],
         );
 
