@@ -212,10 +212,10 @@ impl UnconfirmedState {
         chainstate: &StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
-    ) -> Result<ProcessedUnconfirmedState, Error> {
+    ) -> ProcessedUnconfirmedState {
         if self.last_mblock_seq == u16::MAX {
             // drop them -- nothing to do
-            return Ok(Default::default());
+            return Default::default();
         }
 
         debug!(
@@ -350,14 +350,14 @@ impl UnconfirmedState {
             self.bytes_so_far = 0;
         }
 
-        Ok(ProcessedUnconfirmedState {
+        ProcessedUnconfirmedState {
             total_fees,
             total_burns,
             receipts: all_receipts,
             burn_block_hash,
             burn_block_height,
             burn_block_timestamp,
-        })
+        }
     }
 
     /// Load up the Stacks microblock stream to process, composed of only the new microblocks
@@ -398,10 +398,11 @@ impl UnconfirmedState {
             return Ok(Default::default());
         }
 
-        match self.load_child_microblocks(chainstate)? {
+        let microblocks = match self.load_child_microblocks(chainstate)? {
             Some(microblocks) => self.append_microblocks(chainstate, burn_dbconn, microblocks),
-            None => Ok(Default::default()),
-        }
+            None => Default::default(),
+        };
+        Ok(microblocks)
     }
 
     /// Is there any state to read?
