@@ -76,6 +76,18 @@ fn test_type_buffer_20() {
 }
 
 #[test]
+fn test_type_buffer_33() {
+    let expected =
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(33)));
+    let actual = TypeSignature::BUFFER_33;
+
+    assert_eq!(expected, actual);
+    assert_eq!(37, actual.size().unwrap(), "size should be 37");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
 fn test_least_supertype() {
     let callables = [
         CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),

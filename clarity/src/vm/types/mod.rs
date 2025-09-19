@@ -32,7 +32,7 @@ use crate::vm::errors::CheckErrors;
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature, TypeSignatureExt, BUFF_32, BUFF_33,
+    StringUTF8Length, TupleTypeSignature, TypeSignature, TypeSignatureExt, BUFF_32,
     BUFF_64, BUFF_65,
 };
 use crate::vm::ClarityVersion;
