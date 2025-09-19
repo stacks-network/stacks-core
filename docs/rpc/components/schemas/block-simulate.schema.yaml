@@ -52,19 +52,27 @@ properties:
       properties:
         data:
           type: object
+          description: JSON representation of the transaction payload
         events:
           type: array
           items:
             type: object
+            description: JSON representation of the transaction events
         execution_cost:
           type: object
+          description: costs accounting for the transaction
         hex:
           type: string
+          description: hexadecimal representation of the transaction body
         result:
           type: object
+          description: Clarity value representing the transaction result
         stx_burned:
           type: integer
+          description: number of burned stx
         tx_index:
           type: integer
+          description: index of the transaction in the array of transactions
         txid:
           type: string
+          description: transaction id
