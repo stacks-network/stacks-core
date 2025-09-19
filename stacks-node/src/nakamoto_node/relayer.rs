@@ -682,9 +682,9 @@ impl RelayerThread {
                         "commits_to_tip_tenure?" => commits_to_tip_tenure
                     );
                     // Extend tenure to the new burn view instead of attempting BlockFound
-                    return Some(MinerDirective::ContinueTenure {
+                    return MinerDirective::ContinueTenure {
                         new_burn_view: sn.consensus_hash,
-                    });
+                    };
                 }
             }
         }
