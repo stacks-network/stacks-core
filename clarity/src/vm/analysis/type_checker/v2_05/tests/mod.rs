@@ -25,7 +25,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, UIntType};
 use crate::vm::types::{
     FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _,
-    BUFF_32, BUFF_64,
+    BUFF_64,
 };
 use crate::vm::ClarityVersion;
 mod assets;
@@ -452,7 +452,10 @@ fn test_at_block() {
     let bad = [
         (
             "(at-block (sha512 u0) u1)",
-            CheckErrors::TypeError(Box::new(BUFF_32.clone()), Box::new(BUFF_64.clone())),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(BUFF_64.clone()),
+            ),
         ),
         (
             "(at-block (sha256 u0) u1 u2)",

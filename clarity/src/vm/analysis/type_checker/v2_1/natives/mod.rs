@@ -32,7 +32,7 @@ use crate::vm::types::signatures::{
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
-    TupleTypeSignature, TypeSignature, Value, BUFF_32, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
+    TupleTypeSignature, TypeSignature, Value, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -129,7 +129,7 @@ fn check_special_at_block(
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check(&args[1], context)
 }
 
@@ -706,7 +706,7 @@ fn check_secp256k1_recover(
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check_expects(&args[1], context, &BUFF_65)?;
     Ok(
         TypeSignature::new_response(TypeSignature::BUFFER_33, TypeSignature::UIntType)
@@ -720,7 +720,7 @@ fn check_secp256k1_verify(
     context: &TypingContext,
 ) -> Result<TypeSignature, CheckError> {
     check_argument_count(3, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check_expects(&args[1], context, &BUFF_65)?;
     checker.type_check_expects(&args[2], context, &TypeSignature::BUFFER_33)?;
     Ok(TypeSignature::BoolType)
@@ -979,7 +979,7 @@ impl TypedNativeFunction {
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Sha512Trunc256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
@@ -987,7 +987,7 @@ impl TypedNativeFunction {
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Sha512 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
@@ -1003,7 +1003,7 @@ impl TypedNativeFunction {
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Secp256k1Recover => Special(SpecialNativeFunction(&check_secp256k1_recover)),
             Secp256k1Verify => Special(SpecialNativeFunction(&check_secp256k1_verify)),
@@ -1188,8 +1188,11 @@ impl TypedNativeFunction {
                         )
                     })?,
                 )],
-                returns: TypeSignature::new_response(BUFF_32.clone(), TypeSignature::UIntType)
-                    .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+                returns: TypeSignature::new_response(
+                    TypeSignature::BUFFER_32,
+                    TypeSignature::UIntType,
+                )
+                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             }))),
             ToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
