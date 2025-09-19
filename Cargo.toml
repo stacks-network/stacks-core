@@ -11,6 +11,7 @@ members = [
     "libsigner",
     "stacks-signer",
     "stacks-node",
+    "contrib/stacks-inspect"
 ]
 
 exclude = ["contrib/tools/config-docs-generator"]
