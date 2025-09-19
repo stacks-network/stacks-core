@@ -68,6 +68,7 @@ pub struct RPCSimulatedBlockTransaction {
 pub struct RPCSimulatedBlock {
     pub block_id: StacksBlockId,
     pub block_hash: BlockHeaderHash,
+    pub block_height: u64,
     pub parent_block_id: StacksBlockId,
     pub consensus_hash: ConsensusHash,
     pub fees: u128,
@@ -264,12 +265,14 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                 tenure_tx.rollback_block();
 
                 let block_hash = block.header.block_hash();
+                let block_height = block.header.chain_length;
 
                 let tx_merkle_root = block.header.tx_merkle_root.clone();
 
                 let mut simulated_block = RPCSimulatedBlock {
                     block_id,
                     block_hash,
+                    block_height,
                     parent_block_id,
                     consensus_hash: tenure_id,
                     fees: block_fees,

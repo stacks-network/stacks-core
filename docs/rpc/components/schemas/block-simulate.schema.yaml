@@ -2,9 +2,13 @@ type: object
 properties:
   block_hash:
     type: string
-    description: Consensus hash of the tenure
-    pattern: "^[0-9a-f]{40}$"
+    description: Hash of the block
+    pattern: "^[0-9a-f]{64}$"
   block_id:
+    type: string
+    description: Block ID (index block hash)
+    pattern: "^[0-9a-f]{64}$"
+  block_height:
     type: integer
     description: Height of the Bitcoin block
     format: uint64
@@ -14,16 +18,20 @@ properties:
     pattern: "^[0-9a-f]{40}$"
   fees:
     type: integer
+    description: total fees for the block
   miner_signature:
     type: string
   parent_block_id:
     type: string
+    description: Parent Block ID (index block hash)
+    pattern: "^[0-9a-f]{64}$"
   signer_signature:
     type: array
     items:
       type: string
   state_index_root:
     type: string
+    pattern: "^[0-9a-f]{64}$"
   timestamp:
     type: integer
   tx_merkle_root:

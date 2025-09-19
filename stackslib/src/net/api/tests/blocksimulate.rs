@@ -114,6 +114,8 @@ fn test_try_make_response() {
     assert_eq!(resp.block_id, tip_block.metadata.index_block_hash());
     assert_eq!(resp.parent_block_id, tip_block.parent);
 
+    assert_eq!(resp.block_height, tip_block.metadata.stacks_block_height);
+
     assert!(resp.valid_merkle_root);
 
     assert_eq!(resp.transactions.len(), tip_block.receipts.len());

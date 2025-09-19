@@ -1,6 +1,7 @@
 {
     "block_hash": "732f57eefc4dbfb015c9988d9943c47273d25fbe039220d53f311b307609c83f",
     "block_id": "856f6b08f338164df7422f66337c8ce916b6b0301fcaa09de06c61cfb79e2a45",
+    "block_height": 123,
     "consensus_hash": "33dffda027e2ca3aaf278855c59a8a0b2d2dd51f",
     "fees": 1,
     "miner_signature": "004b2878d7639060c4d183b1338447c06ceb0ad55424856c550a4c988401fdf8cf1fe6e8c05cc0e3ff8d4383590bf700cb5dd1a8bb3269f7125f6e0704b66eade8",
