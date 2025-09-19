@@ -59,7 +59,7 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
 
     // First, check if this is taking unreasonably long. If so, it's probably a deadlock
     let run_count = run_count.unsigned_abs();
-    if run_count > 0 && run_count % ERROR_COUNT == 0 {
+    if run_count > 0 && run_count.is_multiple_of(ERROR_COUNT) {
         error!("Deadlock detected. Waited 5 minutes (estimated) for database lock.";
             "run_count" => run_count,
             "backtrace" => ?Backtrace::capture()
@@ -79,7 +79,7 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
     }
 
     let msg = format!("Database is locked; sleeping {sleep_time_ms}ms and trying again");
-    if run_count > 10 && run_count % 10 == 0 {
+    if run_count > 10 && run_count.is_multiple_of(10) {
         warn!("{msg}";
             "run_count" => run_count,
             "backtrace" => ?Backtrace::capture()

@@ -966,7 +966,11 @@ impl NakamotoBootPlan {
                         // transactions processed in the same order
                         assert_eq!(receipt.transaction.txid(), tx.txid());
                         // no CheckErrors
-                        assert!(receipt.vm_error.is_none());
+                        assert!(
+                            receipt.vm_error.is_none(),
+                            "Receipt had a CheckErrors: {:?}",
+                            &receipt
+                        );
                         // transaction was not aborted post-hoc
                         assert!(!receipt.post_condition_aborted);
                     }

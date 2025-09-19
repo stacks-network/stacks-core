@@ -3307,8 +3307,7 @@ impl PeerNetwork {
         recipient: &NeighborKey,
         available: &BlocksAvailableMap,
         msg_builder: S,
-    ) -> Result<(), net_error>
-    where
+    ) where
         S: FnMut(BlocksAvailableData) -> StacksMessageType,
     {
         let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
@@ -3317,7 +3316,6 @@ impl PeerNetwork {
         }
 
         self.advertize_to_peer(recipient, &wanted, msg_builder);
-        Ok(())
     }
 
     /// Announce blocks that we have to a subset of inbound and outbound peers.
@@ -3367,7 +3365,7 @@ impl PeerNetwork {
             );
             self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| {
                 StacksMessageType::BlocksAvailable(payload)
-            })?;
+            });
         }
         Ok((num_inbound, num_outbound))
     }
@@ -3412,7 +3410,7 @@ impl PeerNetwork {
             );
             self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| {
                 StacksMessageType::MicroblocksAvailable(payload)
-            })?;
+            });
         }
         Ok((num_inbound, num_outbound))
     }
