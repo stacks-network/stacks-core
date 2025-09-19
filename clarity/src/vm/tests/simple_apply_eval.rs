@@ -1016,7 +1016,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::UIntType,
                 TypeSignature::max_string_ascii().unwrap(),
                 TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Int(0)),
         )
@@ -1027,7 +1027,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::UIntType,
                 TypeSignature::max_string_ascii().unwrap(),
                 TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Int(0)),
         )
@@ -1050,7 +1050,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::UIntType,
                 TypeSignature::max_string_ascii().unwrap(),
                 TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -1065,7 +1065,7 @@ fn test_sequence_comparisons_mismatched_types() {
                 TypeSignature::UIntType,
                 TypeSignature::max_string_ascii().unwrap(),
                 TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -1480,7 +1480,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
@@ -1489,7 +1489,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
@@ -1498,7 +1498,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
@@ -1507,7 +1507,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
@@ -1517,7 +1517,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )

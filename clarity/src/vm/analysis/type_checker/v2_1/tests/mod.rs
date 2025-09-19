@@ -101,7 +101,7 @@ fn test_from_consensus_buff() {
         (
             "(from-consensus-buff? int u6)",
             CheckErrors::TypeError(
-                Box::new(TypeSignature::max_buffer().unwrap()),
+                Box::new(TypeSignature::BUFFER_MAX),
                 Box::new(TypeSignature::UIntType),
             ),
         ),

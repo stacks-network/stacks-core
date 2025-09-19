@@ -861,7 +861,8 @@ impl TupleTypeSignature {
 impl TypeSignature {
     /// Buffer type with minimum size. Alias for [`TypeSignature::BUFFER_1`]
     pub const BUFFER_MIN: TypeSignature = TypeSignature::BUFFER_1;
-
+    /// Buffer type with maximum size. Depends on [`MAX_VALUE_SIZE`].
+    pub const BUFFER_MAX: TypeSignature = Self::type_buffer_of_size::<MAX_VALUE_SIZE>();
     /// Buffer type with size 1.
     pub const BUFFER_1: TypeSignature = Self::type_buffer_of_size::<1>();
     /// Buffer type with size 20.
@@ -918,16 +919,6 @@ impl TypeSignature {
                     "FAIL: Max Clarity Value Size is no longer realizable in UTF8 Type".into(),
                 )
             })?),
-        )))
-    }
-
-    pub fn max_buffer() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(MAX_VALUE_SIZE).map_err(|_| {
-                CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size is no longer realizable in Buffer Type".into(),
-                )
-            })?,
         )))
     }
 

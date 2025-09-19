@@ -325,7 +325,7 @@ pub fn from_consensus_buff(
         Ok(buff_data.data)
     } else {
         Err(CheckErrors::TypeValueError(
-            Box::new(TypeSignature::max_buffer()?),
+            Box::new(TypeSignature::BUFFER_MAX),
             Box::new(value),
         ))
     }?;

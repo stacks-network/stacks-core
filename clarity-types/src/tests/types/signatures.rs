@@ -52,6 +52,23 @@ fn test_type_buffer_min_to_be_buffer_1() {
 }
 
 #[test]
+fn test_type_buffer_max() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::BufferType(
+        BufferLength::new_unsafe(MAX_VALUE_SIZE),
+    ));
+    let actual = TypeSignature::BUFFER_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(
+        MAX_VALUE_SIZE + 4,
+        actual.size().unwrap(),
+        "size should be 1_048_580"
+    );
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
 fn test_type_buffer_1() {
     let expected =
         TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(1)));
@@ -270,11 +287,8 @@ fn test_least_supertype() {
         ((UIntType, UIntType), UIntType),
         ((BoolType, BoolType), BoolType),
         (
-            (
-                TypeSignature::max_buffer().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
-            ),
-            TypeSignature::max_buffer().unwrap(),
+            (TypeSignature::BUFFER_MAX, TypeSignature::BUFFER_MAX),
+            TypeSignature::BUFFER_MAX,
         ),
         (
             (
@@ -377,11 +391,8 @@ fn test_least_supertype() {
 
     let matched_pairs = [
         (
-            (
-                TypeSignature::max_buffer().unwrap(),
-                TypeSignature::BUFFER_MIN,
-            ),
-            TypeSignature::max_buffer().unwrap(),
+            (TypeSignature::BUFFER_MAX, TypeSignature::BUFFER_MIN),
+            TypeSignature::BUFFER_MAX,
         ),
         (
             (
@@ -529,7 +540,7 @@ fn test_least_supertype() {
         (IntType, UIntType),
         (BoolType, IntType),
         (
-            TypeSignature::max_buffer().unwrap(),
+            TypeSignature::BUFFER_MAX,
             TypeSignature::max_string_ascii().unwrap(),
         ),
         (

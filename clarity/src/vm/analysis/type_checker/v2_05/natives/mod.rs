@@ -610,7 +610,7 @@ impl TypedNativeFunction {
             }))),
             Hash160 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -618,7 +618,7 @@ impl TypedNativeFunction {
             ))),
             Sha256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -626,7 +626,7 @@ impl TypedNativeFunction {
             ))),
             Sha512Trunc256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -634,7 +634,7 @@ impl TypedNativeFunction {
             ))),
             Sha512 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
@@ -642,7 +642,7 @@ impl TypedNativeFunction {
             ))),
             Keccak256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],

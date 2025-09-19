@@ -41,7 +41,7 @@ macro_rules! native_hash_func {
                     vec![
                         TypeSignature::IntType,
                         TypeSignature::UIntType,
-                        TypeSignature::max_buffer()?,
+                        TypeSignature::BUFFER_MAX,
                     ],
                     Box::new(input),
                 )),
