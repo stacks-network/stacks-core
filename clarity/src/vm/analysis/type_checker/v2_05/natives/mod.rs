@@ -24,7 +24,7 @@ use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_65,
+    TupleTypeSignature, TypeSignature, Value,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -496,7 +496,7 @@ fn check_secp256k1_recover(
 ) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
-    checker.type_check_expects(&args[1], context, &BUFF_65)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
     Ok(
         TypeSignature::new_response(TypeSignature::BUFFER_33, TypeSignature::UIntType)
             .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
@@ -510,7 +510,7 @@ fn check_secp256k1_verify(
 ) -> Result<TypeSignature, CheckError> {
     check_argument_count(3, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
-    checker.type_check_expects(&args[1], context, &BUFF_65)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
     checker.type_check_expects(&args[2], context, &TypeSignature::BUFFER_33)?;
     Ok(TypeSignature::BoolType)
 }

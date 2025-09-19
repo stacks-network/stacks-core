@@ -33,8 +33,8 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash;
 
 pub use self::signatures::{
-    AssetIdentifier, BUFF_65, BufferLength, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature,
+    AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
+    TupleTypeSignature, TypeSignature,
 };
 use crate::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};

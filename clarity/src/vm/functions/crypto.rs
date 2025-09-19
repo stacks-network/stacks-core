@@ -27,7 +27,7 @@ use crate::vm::errors::{
     check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_65};
+use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value};
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
 macro_rules! native_hash_func {
@@ -172,7 +172,7 @@ pub fn special_secp256k1_recover(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(BUFF_65.clone()),
+                    Box::new(TypeSignature::BUFFER_65),
                     Box::new(param1),
                 )
                 .into());
@@ -183,9 +183,11 @@ pub fn special_secp256k1_recover(
             data
         }
         _ => {
-            return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_65),
+                Box::new(param1),
             )
+            .into())
         }
     };
 
@@ -236,7 +238,7 @@ pub fn special_secp256k1_verify(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(BUFF_65.clone()),
+                    Box::new(TypeSignature::BUFFER_65),
                     Box::new(param1),
                 )
                 .into());
@@ -250,9 +252,11 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_65),
+                Box::new(param1),
             )
+            .into())
         }
     };
 
