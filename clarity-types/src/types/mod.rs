@@ -560,10 +560,10 @@ impl SequenceData {
     pub fn concat(&mut self, epoch: &StacksEpochId, other_seq: SequenceData) -> Result<()> {
         match (self, other_seq) {
             (SequenceData::List(inner_data), SequenceData::List(other_inner_data)) => {
-                inner_data.append(epoch, other_inner_data)
+                inner_data.append(epoch, other_inner_data)?;
             }
             (SequenceData::Buffer(inner_data), SequenceData::Buffer(ref mut other_inner_data)) => {
-                inner_data.append(other_inner_data)
+                inner_data.append(other_inner_data);
             }
             (
                 SequenceData::String(CharType::ASCII(inner_data)),
@@ -573,8 +573,8 @@ impl SequenceData {
                 SequenceData::String(CharType::UTF8(inner_data)),
                 SequenceData::String(CharType::UTF8(ref mut other_inner_data)),
             ) => inner_data.append(other_inner_data),
-            _ => Err(RuntimeError::BadTypeConstruction.into()),
-        }?;
+            _ => return Err(RuntimeError::BadTypeConstruction.into()),
+        };
         Ok(())
     }
 
@@ -1240,9 +1240,8 @@ impl BuffData {
         self.data.as_slice()
     }
 
-    fn append(&mut self, other_seq: &mut BuffData) -> Result<()> {
+    fn append(&mut self, other_seq: &mut BuffData) {
         self.data.append(&mut other_seq.data);
-        Ok(())
     }
 
     pub fn empty() -> Self {
@@ -1279,9 +1278,8 @@ impl ListData {
 }
 
 impl ASCIIData {
-    fn append(&mut self, other_seq: &mut ASCIIData) -> Result<()> {
+    fn append(&mut self, other_seq: &mut ASCIIData) {
         self.data.append(&mut other_seq.data);
-        Ok(())
     }
 
     pub fn len(&self) -> Result<BufferLength> {
@@ -1293,9 +1291,8 @@ impl ASCIIData {
 }
 
 impl UTF8Data {
-    fn append(&mut self, other_seq: &mut UTF8Data) -> Result<()> {
+    fn append(&mut self, other_seq: &mut UTF8Data) {
         self.data.append(&mut other_seq.data);
-        Ok(())
     }
 
     pub fn len(&self) -> Result<BufferLength> {
@@ -1529,12 +1526,11 @@ impl TupleData {
     fn new(
         type_signature: TupleTypeSignature,
         data_map: BTreeMap<ClarityName, Value>,
-    ) -> Result<TupleData> {
-        let t = TupleData {
+    ) -> TupleData {
+        TupleData {
             type_signature,
             data_map,
-        };
-        Ok(t)
+        }
     }
 
     /// Return the number of fields in this tuple value
@@ -1562,7 +1558,7 @@ impl TupleData {
             data_map.insert(name, value);
         }
 
-        Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
+        Ok(Self::new(TupleTypeSignature::try_from(type_map)?, data_map))
     }
 
     // TODO: add tests from mutation testing results #4834
@@ -1582,7 +1578,7 @@ impl TupleData {
             }
             data_map.insert(name, value);
         }
-        Self::new(expected.clone(), data_map)
+        Ok(Self::new(expected.clone(), data_map))
     }
 
     pub fn get(&self, name: &str) -> Result<&Value> {
