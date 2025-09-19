@@ -1008,7 +1008,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
                 }
                 DefineFunctionsParsed::ImplTrait { trait_identifier } => {
                     self.contract_context
-                        .add_implemented_trait(trait_identifier.clone())?;
+                        .add_implemented_trait(trait_identifier.clone());
                 }
             };
             Ok(Some(()))
