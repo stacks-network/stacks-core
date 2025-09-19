@@ -32,8 +32,7 @@ use crate::vm::types::signatures::{
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
-    MAX_VALUE_SIZE,
+    TupleTypeSignature, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_64, BUFF_65, MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -677,7 +676,7 @@ fn check_principal_construct(
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;
     checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_1)?;
-    checker.type_check_expects(&args[1], context, &BUFF_20)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_20)?;
     if args.len() > 2 {
         checker.type_check_expects(
             &args[2],
@@ -972,7 +971,7 @@ impl TypedNativeFunction {
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_20.clone(),
+                TypeSignature::BUFFER_20,
             ))),
             Sha256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
@@ -1035,7 +1034,7 @@ impl TypedNativeFunction {
                     fn parse_principal_basic_type() -> Result<TupleTypeSignature, CheckErrors> {
                         TupleTypeSignature::try_from(vec![
                             ("version".into(), TypeSignature::BUFFER_1),
-                            ("hash-bytes".into(), BUFF_20.clone()),
+                            ("hash-bytes".into(), TypeSignature::BUFFER_20),
                             (
                                 "name".into(),
                                 TypeSignature::new_option(

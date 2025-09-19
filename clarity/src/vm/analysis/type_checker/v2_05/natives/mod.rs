@@ -24,7 +24,7 @@ use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    TupleTypeSignature, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -614,7 +614,7 @@ impl TypedNativeFunction {
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_20.clone(),
+                TypeSignature::BUFFER_20,
             ))),
             Sha256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![

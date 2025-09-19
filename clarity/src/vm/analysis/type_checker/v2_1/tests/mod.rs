@@ -33,7 +33,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, TypeSignatureExt as _, BUFF_20, BUFF_32, BUFF_64,
+    TypeSignature, TypeSignatureExt as _, BUFF_32, BUFF_64,
 };
 use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
@@ -3408,13 +3408,16 @@ fn test_principal_construct() {
         // The first buffer is too long, should be `(buff 1)`.
         (
             r#"(principal-construct? 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(Box::new(TypeSignature::BUFFER_1), Box::new(BUFF_20.clone())),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_1),
+                Box::new(TypeSignature::BUFFER_20),
+            ),
         ),
         // The second buffer is too long, should be `(buff 20)`.
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,
             CheckErrors::TypeError(
-                Box::new(BUFF_20.clone()),
+                Box::new(TypeSignature::BUFFER_20),
                 Box::new(TypeSignature::BUFFER_21),
             ),
         ),

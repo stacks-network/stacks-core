@@ -13,7 +13,6 @@ use crate::vm::errors::{
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
 };
-use crate::vm::types::signatures::BUFF_20;
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
@@ -251,7 +250,7 @@ pub fn special_principal_construct(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
             return Err(CheckErrors::TypeValueError(
-                Box::new(BUFF_20.clone()),
+                Box::new(TypeSignature::BUFFER_20),
                 Box::new(hash_bytes),
             )
             .into())
@@ -261,9 +260,11 @@ pub fn special_principal_construct(
     // This must have been a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_hash_bytes.len() > 20 {
-        return Err(
-            CheckErrors::TypeValueError(Box::new(BUFF_20.clone()), Box::new(hash_bytes)).into(),
-        );
+        return Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BUFFER_20),
+            Box::new(hash_bytes),
+        )
+        .into());
     }
 
     // If the hash-bytes buffer has less than 20 bytes, this is a runtime error, because it

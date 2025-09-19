@@ -11,7 +11,7 @@ use crate::vm::{
     errors::CheckErrors,
     functions::principals::PrincipalConstructErrorCode,
     types::TypeSignature::PrincipalType,
-    types::{ResponseData, TypeSignature, BUFF_20},
+    types::{ResponseData, TypeSignature},
 };
 use crate::vm::{execute_with_parameters, ClarityVersion};
 
@@ -998,7 +998,7 @@ fn test_principal_construct_check_errors() {
         )
         .unwrap_err(),
         CheckErrors::TypeValueError(
-            Box::new(BUFF_20.clone()),
+            Box::new(TypeSignature::BUFFER_20),
             Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
             }))),
