@@ -40,11 +40,15 @@ use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 #[derive(Clone)]
 pub struct RPCNakamotoBlockSimulateRequestHandler {
     pub block_id: Option<StacksBlockId>,
+    pub auth: Option<String>,
 }
 
 impl RPCNakamotoBlockSimulateRequestHandler {
-    pub fn new() -> Self {
-        Self { block_id: None }
+    pub fn new(auth: Option<String>) -> Self {
+        Self {
+            block_id: None,
+            auth,
+        }
     }
 }
 
@@ -99,6 +103,16 @@ impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
+        // If no authorization is set, then the block simulation endpoint is not enabled
+        let Some(password) = &self.auth else {
+            return Err(Error::Http(400, "Bad Request.".into()));
+        };
+        let Some(auth_header) = preamble.headers.get("authorization") else {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        };
+        if auth_header != password {
+            return Err(Error::Http(401, "Unauthorized".into()));
+        }
         if preamble.get_content_length() != 0 {
             return Err(Error::DecodeError(
                 "Invalid Http request: expected 0-length body".to_string(),

@@ -30,7 +30,11 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let request = StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]));
+    let mut request =
+        StacksHttpRequest::new_block_simulate(addr.into(), &StacksBlockId([0x01; 32]));
+
+    // add the authorization header
+    request.add_header("authorization".into(), "password".into());
 
     let bytes = request.try_serialize().unwrap();
 
@@ -38,7 +42,9 @@ fn test_try_parse_request() {
 
     let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
 
-    let mut handler = blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new();
+    let mut handler =
+        blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new(Some("password".into()));
+
     let mut parsed_request = http
         .handle_try_parse_request(
             &mut handler,
@@ -50,6 +56,8 @@ fn test_try_parse_request() {
 
     // parsed request consumes headers that would not be in a constructed request
     parsed_request.clear_headers();
+    parsed_request.add_header("authorization".into(), "password".into());
+
     let (preamble, contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
@@ -67,13 +75,22 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing, non-empty Nakamoto block
-    let request =
+    let mut request =
         StacksHttpRequest::new_block_simulate(addr.clone().into(), &rpc_test.canonical_tip);
+    // add the authorization header
+    request.add_header("authorization".into(), "password".into());
     requests.push(request);
 
     // query non-existent block
-    let request =
+    let mut request =
         StacksHttpRequest::new_block_simulate(addr.clone().into(), &StacksBlockId([0x01; 32]));
+    // add the authorization header
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    // unauthenticated request
+    let request =
+        StacksHttpRequest::new_block_simulate(addr.clone().into(), &StacksBlockId([0x00; 32]));
     requests.push(request);
 
     let mut responses = rpc_test.run(requests);
@@ -116,7 +133,7 @@ fn test_try_make_response() {
         );
     }
 
-    // got a failure
+    // got a failure (404)
     let response = responses.remove(0);
     debug!(
         "Response:\n{}\n",
@@ -125,4 +142,14 @@ fn test_try_make_response() {
 
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 404);
+
+    // got another failure (401 this time)
+    let response = responses.remove(0);
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let (preamble, body) = response.destruct();
+    assert_eq!(preamble.status_code, 401);
 }
