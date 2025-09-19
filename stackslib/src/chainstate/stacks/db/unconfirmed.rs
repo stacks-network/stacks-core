@@ -236,8 +236,6 @@ impl UnconfirmedState {
             .get_burn_block_time_for_block(&self.confirmed_chain_tip, None)
             .expect("BUG: unable to get burn block timestamp based on chain tip");
 
-        let ast_rules = burn_dbconn.get_ast_rules(burn_block_height);
-
         let mut last_mblock = self.last_mblock.take();
         let mut last_mblock_seq = self.last_mblock_seq;
         let db_config = chainstate.config();
@@ -295,7 +293,6 @@ impl UnconfirmedState {
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
                         &[mblock.clone()],
-                        ast_rules,
                     ) {
                         Ok(x) => x,
                         Err((e, _)) => {

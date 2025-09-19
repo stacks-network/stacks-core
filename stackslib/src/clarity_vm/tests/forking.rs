@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::analysis::errors::CheckErrors;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
 use clarity::vm::test_util::{
@@ -68,9 +67,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
                  (ok (at-block 0x0101010101010101010101010101010101010101010101010101010101010101 (var-get datum)))))";
 
         eprintln!("Initializing contract...");
-        owned_env
-            .initialize_contract(c, contract, None, ASTRules::PrecheckSize)
-            .unwrap();
+        owned_env.initialize_contract(c, contract, None).unwrap();
     }
 
     fn branch(
@@ -147,9 +144,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
                  (ok (var-get datum))))";
 
         eprintln!("Initializing contract...");
-        owned_env
-            .initialize_contract(c, contract, None, ASTRules::PrecheckSize)
-            .unwrap();
+        owned_env.initialize_contract(c, contract, None).unwrap();
     }
 
     fn branch(
@@ -221,9 +216,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
                  (ok current)))";
 
         eprintln!("Initializing contract...");
-        owned_env
-            .initialize_contract(c_a, contract, None, ASTRules::PrecheckSize)
-            .unwrap();
+        owned_env.initialize_contract(c_a, contract, None).unwrap();
     }
 
     fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
@@ -237,7 +230,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
 
         eprintln!("Initializing contract...");
         let e = owned_env
-            .initialize_contract(c_b, contract, None, ASTRules::PrecheckSize)
+            .initialize_contract(c_b, contract, None)
             .unwrap_err();
         e
     }
@@ -356,7 +349,7 @@ fn initialize_contract(owned_env: &mut OwnedEnvironment) {
 
     let contract_identifier = QualifiedContractIdentifier::new(p1_address, "tokens".into());
     owned_env
-        .initialize_contract(contract_identifier, &contract, None, ASTRules::PrecheckSize)
+        .initialize_contract(contract_identifier, &contract, None)
         .unwrap();
 }
 

@@ -164,7 +164,6 @@ pub mod pox4 {
 
     #[cfg(test)]
     mod tests {
-        use clarity::vm::ast::ASTRules;
         use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
         use clarity::vm::costs::LimitedCostTracker;
         use clarity::vm::types::PrincipalData;
@@ -235,12 +234,7 @@ pub mod pox4 {
                 conn.as_transaction(|clarity_db| {
                     let clarity_version = ClarityVersion::Clarity2;
                     let (ast, analysis) = clarity_db
-                        .analyze_smart_contract(
-                            &pox_contract_id,
-                            clarity_version,
-                            body,
-                            ASTRules::PrecheckSize,
-                        )
+                        .analyze_smart_contract(&pox_contract_id, clarity_version, body)
                         .unwrap();
                     clarity_db
                         .initialize_smart_contract(

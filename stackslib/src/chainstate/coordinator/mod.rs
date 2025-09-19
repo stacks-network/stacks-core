@@ -1808,7 +1808,7 @@ pub fn check_chainstate_db_versions(
         let db_version = SortitionDB::get_db_version_from_path(sortdb_path)?
             .expect("FATAL: could not load sortition DB version");
 
-        if !SortitionDB::is_db_version_supported_in_epoch(cur_epoch, &db_version) {
+        if !SortitionDB::is_db_version_supported_in_epoch(cur_epoch, db_version) {
             error!("Sortition DB at {sortdb_path} does not support epoch {cur_epoch}");
             return Ok(false);
         }

@@ -35,7 +35,7 @@ use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
 use self::type_checker::v2_1::TypeChecker as TypeChecker2_1;
 pub use self::types::{AnalysisPass, ContractAnalysis};
 #[cfg(feature = "rusqlite")]
-use crate::vm::ast::{build_ast_with_rules, ASTRules};
+use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
 #[cfg(feature = "rusqlite")]
 use crate::vm::database::MemoryBackingStore;
@@ -54,16 +54,9 @@ pub fn mem_type_check(
     epoch: StacksEpochId,
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let contract = build_ast_with_rules(
-        &contract_identifier,
-        snippet,
-        &mut (),
-        version,
-        epoch,
-        ASTRules::PrecheckSize,
-    )
-    .map_err(|_| CheckErrors::Expects("Failed to build AST".into()))?
-    .expressions;
+    let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+        .map_err(|_| CheckErrors::Expects("Failed to build AST".into()))?
+        .expressions;
 
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
