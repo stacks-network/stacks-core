@@ -397,7 +397,7 @@ where
             .collect();
 
         // force even number
-        if leaf_hashes.len() % 2 != 0 {
+        if !leaf_hashes.len().is_multiple_of(2) {
             let dup = leaf_hashes[leaf_hashes.len() - 1].clone();
             leaf_hashes.push(dup);
         }
@@ -485,7 +485,7 @@ where
             );
         }
 
-        if hash_index % 2 == 0 {
+        if hash_index.is_multiple_of(2) {
             if hash_index + 1 >= self.nodes[row_index].len() {
                 panic!("Corrupt Merkle tree -- colunn {hash_index} is the last item in row {row_index}");
             }
@@ -612,7 +612,7 @@ pub fn bin_bytes(s: &str) -> Result<Vec<u8>, HexError> {
             next = 0;
         }
     }
-    if s.len() % 8 != 0 {
+    if !s.len().is_multiple_of(8) {
         v.push(next);
     }
     v.reverse();
