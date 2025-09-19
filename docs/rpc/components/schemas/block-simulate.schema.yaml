@@ -1,0 +1,55 @@
+type: object
+properties:
+  block_hash:
+    type: string
+    description: Consensus hash of the tenure
+    pattern: "^[0-9a-f]{40}$"
+  block_id:
+    type: integer
+    description: Height of the Bitcoin block
+    format: uint64
+  consensus_hash:
+    type: string
+    description: Consensus hash of the tenure
+    pattern: "^[0-9a-f]{40}$"
+  fees:
+    type: integer
+  miner_signature:
+    type: string
+  parent_block_id:
+    type: string
+  signer_signature:
+    type: array
+    items:
+      type: string
+  state_index_root:
+    type: string
+  timestamp:
+    type: integer
+  tx_merkle_root:
+    type: string
+  valid_merkle_root:
+    type: boolean
+  transactions:
+    type: array
+    items:
+      type: object
+      properties:
+        data:
+          type: object
+        events:
+          type: array
+          items:
+            type: object
+        execution_cost:
+          type: object
+        hex:
+          type: string
+        result:
+          type: object
+        stx_burned:
+          type: integer
+        tx_index:
+          type: integer
+        txid:
+          type: string
