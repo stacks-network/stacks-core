@@ -173,12 +173,8 @@ impl ContractContext {
         Ok(())
     }
 
-    pub fn add_implemented_trait(
-        &mut self,
-        trait_identifier: TraitIdentifier,
-    ) -> Result<(), StaticCheckError> {
+    pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier) {
         self.implemented_traits.insert(trait_identifier);
-        Ok(())
     }
 
     pub fn get_trait(&self, trait_name: &str) -> Option<&BTreeMap<ClarityName, FunctionSignature>> {

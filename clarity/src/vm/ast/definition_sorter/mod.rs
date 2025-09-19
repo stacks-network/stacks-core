@@ -87,7 +87,7 @@ impl DefinitionSorter {
         )?;
 
         let mut walker = GraphWalker::new();
-        let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
+        let sorted_indexes = walker.get_sorted_dependencies(&self.graph);
 
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
             let functions_names = deps
@@ -461,13 +461,12 @@ impl GraphWalker {
     }
 
     /// Depth-first search producing a post-order sort
-    fn get_sorted_dependencies(&mut self, graph: &Graph) -> ParseResult<Vec<usize>> {
+    fn get_sorted_dependencies(&mut self, graph: &Graph) -> Vec<usize> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
             self.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);
         }
-
-        Ok(sorted_indexes)
+        sorted_indexes
     }
 
     fn sort_dependencies_recursion(

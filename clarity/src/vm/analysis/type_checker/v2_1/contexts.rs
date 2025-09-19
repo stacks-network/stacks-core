@@ -61,7 +61,7 @@ impl TraitContext {
         contract_identifier: QualifiedContractIdentifier,
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-    ) -> Result<(), StaticCheckError> {
+    ) {
         match self {
             Self::Clarity1(map) => {
                 map.insert(trait_name, trait_signature);
@@ -77,7 +77,6 @@ impl TraitContext {
                 );
             }
         }
-        Ok(())
     }
 
     pub fn add_used_trait(
@@ -85,7 +84,7 @@ impl TraitContext {
         alias: ClarityName,
         trait_id: TraitIdentifier,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-    ) -> Result<(), StaticCheckError> {
+    ) {
         match self {
             Self::Clarity1(map) => {
                 map.insert(trait_id.name, trait_signature);
@@ -95,7 +94,6 @@ impl TraitContext {
                 all.insert(trait_id, trait_signature);
             }
         }
-        Ok(())
     }
 
     pub fn get_trait(
@@ -295,7 +293,8 @@ impl ContractContext {
             self.contract_identifier.clone(),
             trait_name,
             trait_signature,
-        )
+        );
+        Ok(())
     }
 
     pub fn add_used_trait(
@@ -308,15 +307,12 @@ impl ContractContext {
             self.check_name_used(&alias)?;
         }
 
-        self.traits.add_used_trait(alias, trait_id, trait_signature)
+        self.traits.add_used_trait(alias, trait_id, trait_signature);
+        Ok(())
     }
 
-    pub fn add_implemented_trait(
-        &mut self,
-        trait_identifier: TraitIdentifier,
-    ) -> Result<(), StaticCheckError> {
+    pub fn add_implemented_trait(&mut self, trait_identifier: TraitIdentifier) {
         self.implemented_traits.insert(trait_identifier);
-        Ok(())
     }
 
     pub fn get_trait(
