@@ -278,9 +278,7 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
             // as-contract? is only available in Clarity 4+
             assert_eq!(
                 CheckErrors::UnknownFunction("as-contract?".to_string()),
-                *type_check_helper_version(code, version)
-                    .unwrap_err()
-                    .err
+                *type_check_helper_version(code, version).unwrap_err().err
             );
         } else {
             assert_eq!(
@@ -296,9 +294,7 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
             // as-contract? is only available in Clarity 4+
             assert_eq!(
                 CheckErrors::UnknownFunction("as-contract?".to_string()),
-                *type_check_helper_version(code, version)
-                    .unwrap_err()
-                    .err
+                *type_check_helper_version(code, version).unwrap_err().err
             );
         } else {
             assert_eq!(
