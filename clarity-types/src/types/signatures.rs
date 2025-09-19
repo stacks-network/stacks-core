@@ -255,12 +255,6 @@ lazy_static! {
             BufferLength::try_from(20u32).expect("BUG: Legal Clarity buffer length marked invalid"),
         ))
     };
-    pub static ref BUFF_21: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(21u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
 
     /// Maximum-sized buffer allowed for `to-ascii?` call.
     pub static ref TO_ASCII_MAX_BUFF: TypeSignature = {
@@ -911,6 +905,9 @@ impl TypeSignature {
             BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
         ))
     }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub const BUFFER_21: TypeSignature = Self::type_buffer_of_size::<21>();
 
     pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(
