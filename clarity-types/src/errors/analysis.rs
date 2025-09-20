@@ -313,6 +313,7 @@ pub enum CheckErrors {
     AllowanceExprNotAllowed,
     ExpectedAllowanceExpr(String),
     WithAllAllowanceNotAllowed,
+    WithAllAllowanceNotAlone,
 }
 
 #[derive(Debug, PartialEq)]
@@ -615,6 +616,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
             CheckErrors::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
             CheckErrors::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
+            CheckErrors::WithAllAllowanceNotAlone => "with-all-assets-unsafe must not be used along with other allowances".into(),
         }
     }
 

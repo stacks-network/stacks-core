@@ -50,12 +50,9 @@ pub fn check_restrict_assets(
     checker.type_check_expects(asset_owner, context, &TypeSignature::PrincipalType)?;
 
     for allowance in allowance_list {
-        check_allowance(
-            checker,
-            allowance,
-            context,
-            &NativeFunctions::RestrictAssets,
-        )?;
+        if check_allowance(checker, allowance, context)? {
+            return Err(CheckErrors::WithAllAllowanceNotAllowed.into());
+        }
     }
 
     // Check the body expressions, ensuring any intermediate responses are handled
@@ -97,12 +94,9 @@ pub fn check_as_contract(
     )?;
 
     for allowance in allowance_list {
-        check_allowance(
-            checker,
-            allowance,
-            context,
-            &NativeFunctions::AsContractSafe,
-        )?;
+        if check_allowance(checker, allowance, context)? && allowance_list.len() > 1 {
+            return Err(CheckErrors::WithAllAllowanceNotAlone.into());
+        }
     }
 
     // Check the body expressions, ensuring any intermediate responses are handled
@@ -133,12 +127,13 @@ pub fn check_allowance_err(
     Err(CheckErrors::AllowanceExprNotAllowed.into())
 }
 
+/// Type check an allowance expression, returning whether it is a
+/// `with-all-assets-unsafe` allowance (which has special rules).
 pub fn check_allowance(
     checker: &mut TypeChecker,
     allowance: &SymbolicExpression,
     context: &TypingContext,
-    parent_expr: &NativeFunctions,
-) -> Result<(), CheckError> {
+) -> Result<bool, CheckError> {
     let list = allowance
         .match_list()
         .ok_or(CheckErrors::ExpectedListApplication)?;
@@ -155,19 +150,13 @@ pub fn check_allowance(
     };
 
     match native_function {
-        NativeFunctions::AllowanceWithStx => {
-            check_allowance_with_stx(checker, args, context, parent_expr)
-        }
-        NativeFunctions::AllowanceWithFt => {
-            check_allowance_with_ft(checker, args, context, parent_expr)
-        }
-        NativeFunctions::AllowanceWithNft => {
-            check_allowance_with_nft(checker, args, context, parent_expr)
-        }
+        NativeFunctions::AllowanceWithStx => check_allowance_with_stx(checker, args, context),
+        NativeFunctions::AllowanceWithFt => check_allowance_with_ft(checker, args, context),
+        NativeFunctions::AllowanceWithNft => check_allowance_with_nft(checker, args, context),
         NativeFunctions::AllowanceWithStacking => {
-            check_allowance_with_stacking(checker, args, context, parent_expr)
+            check_allowance_with_stacking(checker, args, context)
         }
-        NativeFunctions::AllowanceAll => check_allowance_all(checker, args, context, parent_expr),
+        NativeFunctions::AllowanceAll => check_allowance_all(checker, args, context),
         _ => Err(CheckErrors::ExpectedAllowanceExpr(function_name.to_string()).into()),
     }
 }
@@ -178,13 +167,12 @@ fn check_allowance_with_stx(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-    _parent_expr: &NativeFunctions,
-) -> Result<(), CheckError> {
+) -> Result<bool, CheckError> {
     check_argument_count(1, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::UIntType)?;
 
-    Ok(())
+    Ok(false)
 }
 
 /// Type check a `with-ft` allowance expression.
@@ -193,15 +181,14 @@ fn check_allowance_with_ft(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-    _parent_expr: &NativeFunctions,
-) -> Result<(), CheckError> {
+) -> Result<bool, CheckError> {
     check_argument_count(3, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::PrincipalType)?;
     checker.type_check_expects(&args[1], context, &ASCII_128)?;
     checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
 
-    Ok(())
+    Ok(false)
 }
 
 /// Type check a `with-nft` allowance expression.
@@ -210,15 +197,14 @@ fn check_allowance_with_nft(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-    _parent_expr: &NativeFunctions,
-) -> Result<(), CheckError> {
+) -> Result<bool, CheckError> {
     check_argument_count(3, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::PrincipalType)?;
     checker.type_check_expects(&args[1], context, &ASCII_128)?;
     // Asset ID can be any type
 
-    Ok(())
+    Ok(false)
 }
 
 /// Type check a `with-stacking` allowance expression.
@@ -227,13 +213,12 @@ fn check_allowance_with_stacking(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-    _parent_expr: &NativeFunctions,
-) -> Result<(), CheckError> {
+) -> Result<bool, CheckError> {
     check_argument_count(1, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::UIntType)?;
 
-    Ok(())
+    Ok(false)
 }
 
 /// Type check an `with-all-assets-unsafe` allowance expression.
@@ -242,13 +227,8 @@ fn check_allowance_all(
     _checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-    parent_expr: &NativeFunctions,
-) -> Result<(), CheckError> {
+) -> Result<bool, CheckError> {
     check_argument_count(0, args)?;
 
-    if parent_expr != &NativeFunctions::AsContractSafe {
-        return Err(CheckErrors::WithAllAllowanceNotAllowed.into());
-    }
-
-    Ok(())
+    Ok(true)
 }

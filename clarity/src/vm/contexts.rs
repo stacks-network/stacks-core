@@ -455,6 +455,14 @@ impl AssetMap {
         assets.get(asset_identifier).copied()
     }
 
+    pub fn get_all_fungible_tokens(
+        &self,
+        principal: &PrincipalData,
+    ) -> Option<&HashMap<AssetIdentifier, u128>> {
+        let assets = self.token_map.get(principal)?;
+        Some(assets)
+    }
+
     pub fn get_nonfungible_tokens(
         &self,
         principal: &PrincipalData,
@@ -462,6 +470,14 @@ impl AssetMap {
     ) -> Option<&Vec<Value>> {
         let assets = self.asset_map.get(principal)?;
         assets.get(asset_identifier)
+    }
+
+    pub fn get_all_nonfungible_tokens(
+        &self,
+        principal: &PrincipalData,
+    ) -> Option<&HashMap<AssetIdentifier, Vec<Value>>> {
+        let assets = self.asset_map.get(principal)?;
+        Some(assets)
     }
 }
 
@@ -1548,6 +1564,12 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
     fn get_asset_map(&mut self) -> Result<&mut AssetMap> {
         self.asset_maps
             .last_mut()
+            .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
+    }
+
+    pub fn get_readonly_asset_map(&mut self) -> Result<&AssetMap> {
+        self.asset_maps
+            .last()
             .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
     }
 

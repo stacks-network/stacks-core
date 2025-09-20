@@ -270,6 +270,16 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
             "(as-contract? ((with-stx u1000)) (err u1) true)",
             CheckErrors::UncheckedIntermediaryResponses,
         ),
+        // other allowances together with with-all-assets-unsafe (first)
+        (
+            "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
+            CheckErrors::WithAllAllowanceNotAlone,
+        ),
+        // other allowances together with with-all-assets-unsafe (second)
+        (
+            "(as-contract? ((with-stx u1000) (with-all-assets-unsafe)) true)",
+            CheckErrors::WithAllAllowanceNotAlone,
+        ),
     ];
 
     for (code, expected_type) in &good {

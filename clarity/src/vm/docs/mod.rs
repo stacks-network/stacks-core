@@ -1412,7 +1412,7 @@ function returns _err_, any database changes resulting from calling `contract-ca
 If the function returns _ok_, database changes occurred.",
     example: "
 ;; instantiate the sample/contracts/tokens.clar contract first!
-(as-contract (contract-call? .tokens mint! u19)) ;; Returns (ok u19)"
+(as-contract? () (try! (contract-call? .tokens mint! u19))) ;; Returns (ok u19)"
 };
 
 const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
@@ -2374,7 +2374,7 @@ In the event that the `owner` principal isn't materialized, it returns 0.
 ",
     example: "
 (stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns u0
-(stx-get-balance (as-contract tx-sender)) ;; Returns u1000
+(stx-get-balance tx-sender) ;; Returns u1000
 ",
 };
 
@@ -2390,7 +2390,7 @@ unlock height for any locked STX, all denominated in microstacks.
 ",
     example: r#"
 (stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u0))
-(stx-account (as-contract tx-sender)) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u1000))
+(stx-account tx-sender) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u1000))
 "#,
 };
 
@@ -2412,12 +2412,9 @@ one of the following error codes:
 * `(err u4)` -- the `sender` principal is not the current `tx-sender`
 ",
     example: r#"
-(as-contract
-  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
-(as-contract
-  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
-(as-contract
-  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender)) ;; Returns (err u4)
+(stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (ok true)
+(stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (ok true)
+(stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; Returns (err u4)
 "#
 };
 
@@ -2431,8 +2428,7 @@ const STX_TRANSFER_MEMO: SpecialAPI = SpecialAPI {
 This function returns (ok true) if the transfer is successful, or, on an error, returns the same codes as `stx-transfer?`.
 ",
     example: r#"
-(as-contract
-  (stx-transfer-memo? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x010203)) ;; Returns (ok true)
+(stx-transfer-memo? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x010203) ;; Returns (ok true)
 "#
 };
 
@@ -2452,10 +2448,8 @@ one of the following error codes:
 * `(err u4)` -- the `sender` principal is not the current `tx-sender`
 ",
     example: "
-(as-contract
-  (stx-burn? u60 tx-sender)) ;; Returns (ok true)
-(as-contract
-  (stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (err u4)
+(stx-burn? u60 tx-sender) ;; Returns (ok true)
+(stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (err u4)
 "
 };
 
@@ -2589,11 +2583,11 @@ error-prone). Returns:
     or -1 if an asset with no allowance caused the violation.",
     example: r#"
 (restrict-assets? tx-sender ()
-  (try! (stx-transfer? u1000000 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
-) ;; Returns (err -1)
-(restrict-assets? tx-sender ()
   (+ u1 u2)
 ) ;; Returns (ok u3)
+(restrict-assets? tx-sender ()
+  (try! (stx-transfer? u50 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (err -1)
 "#,
 };
 
@@ -2618,16 +2612,16 @@ value from `as-contract?` (nested responses are error-prone). Returns:
     index of the first violated allowance in the list of granted allowances,
     or -1 if an asset with no allowance caused the violation.",
     example: r#"
-(define-public (foo)
-  (as-contract? ()
-    (try! (stx-transfer? u1000000 tx-sender recipient))
-  )
-) ;; Returns (err -1)
-(define-public (bar)
-  (as-contract? ((with-stx u1000000))
-    (try! (stx-transfer? u1000000 tx-sender recipient))
+(let ((recipient tx-sender))
+  (as-contract? ((with-stx u100))
+    (try! (stx-transfer? u50 tx-sender recipient))
   )
 ) ;; Returns (ok true)
+(let ((recipient tx-sender))
+  (as-contract? ()
+    (try! (stx-transfer? u50 tx-sender recipient))
+  )
+) ;; Returns (err -1)
 "#,
 };
 
@@ -2642,13 +2636,13 @@ expression. `with-stx` is not allowed outside of `restrict-assets?` or
 `as-contract?` contexts.",
     example: r#"
 (restrict-assets? tx-sender
-  ((with-stx u1000000))
-  (try! (stx-transfer? u2000000 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
-) ;; Returns (err 0)
-(restrict-assets? tx-sender
-  ((with-stx u1000000))
-  (try! (stx-transfer? u1000000 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+  ((with-stx u100))
+  (try! (stx-transfer? u100 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
 ) ;; Returns (ok true)
+(restrict-assets? tx-sender
+  ((with-stx u50))
+  (try! (stx-transfer? u100 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (err 0)
 "#,
 };
 
@@ -2665,14 +2659,16 @@ not allowed outside of `restrict-assets?` or `as-contract?` contexts. Note that
 the contract. When `"*"` is used for the token name, the allowance applies to
 **all** FTs defined in `contract-id`."#,
     example: r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
 (restrict-assets? tx-sender
-  ((with-ft (contract-of token-trait) "stackaroo" u50))
-  (try! (contract-call? token-trait transfer u100 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none))
-) ;; Returns (err 0)
-(restrict-assets? tx-sender
-  ((with-ft (contract-of token-trait) "stackaroo" u50))
-  (try! (contract-call? token-trait transfer u20 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none))
+  ((with-ft current-contract "stackaroo" u50))
+  (try! (ft-transfer? stackaroo u100 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
 ) ;; Returns (ok true)
+(restrict-assets? tx-sender
+  ((with-ft current-contract "stackaroo" u50))
+  (try! (ft-transfer? stackaroo u100 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+) ;; Returns (err 0)
 "#,
 };
 
@@ -2689,14 +2685,18 @@ expression. `with-nft` is not allowed outside of `restrict-assets?` or
 the `define-non-fungible-token` call in the contract. When `"*"` is used for
 the token name, the allowance applies to **all** NFTs defined in `contract-id`."#,
     example: r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u123 tx-sender)
+(nft-mint? stackaroo u124 tx-sender)
+(nft-mint? stackaroo u125 tx-sender)
 (restrict-assets? tx-sender
-  ((with-nft (contract-of nft-trait) "stackaroo" u123))
-  (try! (contract-call? nft-trait transfer u4 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
-) ;; Returns (err 0)
-(restrict-assets? tx-sender
-  ((with-nft (contract-of nft-trait) "stackaroo" u123))
-  (try! (contract-call? nft-trait transfer u123 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+  ((with-nft current-contract "stackaroo" u123))
+  (try! (nft-transfer? stackaroo u123 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
 ) ;; Returns (ok true)
+(restrict-assets? tx-sender
+  ((with-nft current-contract "stackaroo" u125))
+  (try! (nft-transfer? stackaroo u124 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+) ;; Returns (err 0)
 "#,
 };
 
@@ -2708,9 +2708,9 @@ const ALLOWANCE_WITH_STACKING: SpecialAPI = SpecialAPI {
     description: "Adds a stacking allowance for `amount` uSTX from the
 `asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
 expression. `with-stacking` is not allowed outside of `restrict-assets?` or
-`as-contract?` contexts. This restricts calls to `delegate-stx` and
-`stack-stx` in the active PoX contract to lock up to the amount of uSTX
-specified.",
+`as-contract?` contexts. This restricts calls to the active PoX contract
+that either delegate funds for stacking or stack directly, ensuring that the
+locked amount is limited by the amount of uSTX specified.",
     example: r#"
 (restrict-assets? tx-sender
   ((with-stacking u1000000000000))
@@ -2744,14 +2744,11 @@ dangerous allowance should only be used when the code executing within the
 checking traits against an allow list, passed in from a trusted caller), and
 even then the more restrictive allowances should be preferred when possible.",
     example: r#"
-(define-public (execute-trait (trusted-trait <sample-trait>))
-  (begin
-    (asserts! (is-eq contract-caller TRUSTED_CALLER) ERR_UNTRUSTED_CALLER)
-    (as-contract? ((with-all-assets-unsafe))
-      (contract-call? trusted-trait execute)
-    )
+(let ((recipient tx-sender))
+  (as-contract? ((with-all-assets-unsafe))
+    (try! (stx-transfer? u100 tx-sender recipient))
   )
-)
+) ;; Returns (ok true)
 "#,
 };
 
@@ -2986,6 +2983,7 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::types::StandardPrincipalData;
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
@@ -3229,7 +3227,7 @@ mod test {
         }
     }
 
-    fn docs_execute(store: &mut MemoryBackingStore, program: &str) {
+    fn docs_execute(store: &mut MemoryBackingStore, program: &str, version: ClarityVersion) {
         // execute the program, iterating at each ";; Returns" comment
         // there are maybe more rust-y ways of doing this, but this is the simplest.
         let mut segments = vec![];
@@ -3256,7 +3254,7 @@ mod test {
                 &contract_id,
                 &whole_contract,
                 &mut (),
-                ClarityVersion::latest(),
+                version,
                 StacksEpochId::latest(),
             )
             .unwrap()
@@ -3268,7 +3266,7 @@ mod test {
                 &mut analysis_db,
                 false,
                 &StacksEpochId::latest(),
-                &ClarityVersion::latest(),
+                &version,
             )
             .expect("Failed to type check");
         }
@@ -3281,7 +3279,7 @@ mod test {
                 &contract_id,
                 &total_example,
                 &mut (),
-                ClarityVersion::latest(),
+                version,
                 StacksEpochId::latest(),
             )
             .unwrap()
@@ -3294,7 +3292,7 @@ mod test {
                 &mut analysis_db,
                 false,
                 &StacksEpochId::latest(),
-                &ClarityVersion::latest(),
+                &version,
             )
             .expect("Failed to type check");
             type_results.push(
@@ -3308,8 +3306,7 @@ mod test {
         }
 
         let conn = store.as_docs_clarity_db();
-        let mut contract_context =
-            ContractContext::new(contract_id.clone(), ClarityVersion::latest());
+        let mut contract_context = ContractContext::new(contract_id.clone(), version);
         let mut global_context = GlobalContext::new(
             false,
             CHAIN_ID_TESTNET,
@@ -3385,7 +3382,7 @@ mod test {
 
             let mut store = MemoryBackingStore::new();
             // first, load the samples for contract-call
-            // and give the doc environment's contract some STX
+            // and give the doc environment sender and its contract some STX
             {
                 let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
                 let trait_def_id = QualifiedContractIdentifier::parse(
@@ -3440,6 +3437,7 @@ mod test {
                 }
 
                 let conn = store.as_docs_clarity_db();
+                let sender_principal = PrincipalData::Standard(StandardPrincipalData::transient());
                 let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
                 let docs_principal_id = PrincipalData::Contract(docs_test_id);
                 let mut env = OwnedEnvironment::new(conn, StacksEpochId::latest());
@@ -3453,6 +3451,13 @@ mod test {
                             .global_context
                             .database
                             .get_stx_balance_snapshot_genesis(&docs_principal_id)
+                            .unwrap();
+                        snapshot.set_balance(balance.clone());
+                        snapshot.save().unwrap();
+                        let mut snapshot = e
+                            .global_context
+                            .database
+                            .get_stx_balance_snapshot_genesis(&sender_principal)
                             .unwrap();
                         snapshot.set_balance(balance);
                         snapshot.save().unwrap();
@@ -3479,7 +3484,11 @@ mod test {
                 .collect::<Vec<_>>()
                 .join("\n");
             let the_throws = example.lines().filter(|x| x.contains(";; Throws"));
-            docs_execute(&mut store, &without_throws);
+            docs_execute(
+                &mut store,
+                &without_throws,
+                func_api.max_version.unwrap_or(ClarityVersion::latest()),
+            );
             for expect_err in the_throws {
                 eprintln!("{expect_err}");
                 execute(expect_err).unwrap_err();
