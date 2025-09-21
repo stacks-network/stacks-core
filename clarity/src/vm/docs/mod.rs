@@ -2662,7 +2662,7 @@ the contract. When `"*"` is used for the token name, the allowance applies to
 (define-fungible-token stackaroo)
 (ft-mint? stackaroo u200 tx-sender)
 (restrict-assets? tx-sender
-  ((with-ft current-contract "stackaroo" u50))
+  ((with-ft current-contract "stackaroo" u100))
   (try! (ft-transfer? stackaroo u100 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
 ) ;; Returns (ok true)
 (restrict-assets? tx-sender
