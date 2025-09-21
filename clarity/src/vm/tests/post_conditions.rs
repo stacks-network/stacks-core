@@ -18,7 +18,6 @@ use clarity_types::types::{PrincipalData, QualifiedContractIdentifier, StandardP
 use clarity_types::Value;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::ast::ASTRules;
 use crate::vm::database::STXBalance;
 use crate::vm::{execute_with_parameters_and_call_in_global_context, ClarityVersion};
 
@@ -27,7 +26,6 @@ fn execute(snippet: &str) -> InterpreterResult<Option<Value>> {
         snippet,
         ClarityVersion::Clarity4,
         StacksEpochId::Epoch33,
-        ASTRules::PrecheckSize,
         false,
         |g| {
             // Setup initial balances for the sender and the contract
