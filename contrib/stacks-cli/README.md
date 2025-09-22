@@ -12,7 +12,11 @@ A CLI for building and signing Stacks transactions and interacting with Clarity 
     *   `generate-sk`: Generate a new Stacks private key.
     *   `addresses`: Derive Stacks and Bitcoin addresses from a private key.
 *   **Decoding Helpers:**
-    *   `decode-tx`, `decode-block`, `decode-header`, etc. - Decode raw, hex-encoded data structures.
+    *   `decode-tx`: Decode a hex-encoded transaction.
+    *   `decode-header`: Decode a hex-encoded block header.
+    *   `decode-block`: Decode a hex-encoded block.
+    *   `decode-microblock`: Decode a hex-encoded microblock.
+    *   `decode-microblocks`: Decode a hex-encoded stream of microblocks.
 
 ### Build & Run
 
@@ -45,6 +49,9 @@ cargo run -p stacks-cli -- token-transfer <SENDER_PRIVATE_KEY> <FEE_RATE> <NONCE
 
 # Generate a new key and associated addresses
 cargo run -p stacks-cli -- generate-sk
+
+# Decode a hex-encoded transaction from a string or stdin
+cargo run -p stacks-cli -- decode-tx <HEX_ENCODED_TRANSACTION>
 ```
 
 See `--help` on each subcommand for complete options (e.g., `cargo run -p stacks-cli -- publish -h`).
