@@ -26,9 +26,9 @@ use stacks_common::types::StacksEpochId;
 use crate::errors::CheckErrors;
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
-    CharType, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier,
-    SequenceData, SequencedValue, StandardPrincipalData, TraitIdentifier, Value,
-    WRAPPER_VALUE_SIZE,
+    CharType, MAX_TYPE_DEPTH, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData,
+    QualifiedContractIdentifier, SequenceData, SequencedValue, StandardPrincipalData,
+    TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
@@ -192,11 +192,7 @@ impl StringUTF8Length {
     /// `const` values, since it returns an [`Option`] that can be unwrapped
     /// with [`Option::expect`] in a `const fn`.
     const fn try_from_u32_as_opt(value: u32) -> Option<StringUTF8Length> {
-        let len = match value.checked_mul(4) {
-            Some(v) => v,
-            None => return None,
-        };
-        if len > MAX_VALUE_SIZE {
+        if value > MAX_UTF8_VALUE_SIZE {
             None
         } else {
             Some(StringUTF8Length(value))
@@ -207,16 +203,13 @@ impl StringUTF8Length {
     ///
     /// This function is primarily intended for internal runtime use,
     /// and serves as the central place for all integer validation logic.
-    fn try_from_i128(data: i128) -> Result<Self, CheckErrors> {
-        let len = data
-            .checked_mul(4)
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if len > (MAX_VALUE_SIZE as i128) {
+    fn try_from_i128(value: i128) -> Result<Self, CheckErrors> {
+        if value > MAX_UTF8_VALUE_SIZE as i128 {
             Err(CheckErrors::ValueTooLarge)
-        } else if data < 0 {
+        } else if value < 0 {
             Err(CheckErrors::ValueOutOfBounds)
         } else {
-            Ok(StringUTF8Length(data as u32))
+            Ok(StringUTF8Length(value as u32))
         }
     }
 }
@@ -901,6 +894,8 @@ impl TypeSignature {
 
     /// String UTF8 type with minimum size (`1`).
     pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8::<1>();
+    /// String UTF8 type with maximum size. Depends on [`MAX_UTF8_VALUE_SIZE`].
+    pub const STRING_UTF8_MAX: TypeSignature = Self::type_string_utf8::<MAX_UTF8_VALUE_SIZE>();
 
     /// Creates a buffer type with a given size known at compile time.
     ///
@@ -929,16 +924,6 @@ impl TypeSignature {
     const fn type_string_utf8<const VALUE: u32>() -> Self {
         SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
             StringUTF8Length::try_from_u32_as_opt(VALUE).expect("Invalid utf8 size!"),
-        )))
-    }
-
-    pub fn max_string_utf8() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::UTF8(StringUTF8Length::try_from(MAX_VALUE_SIZE / 4).map_err(|_| {
-                CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size is no longer realizable in UTF8 Type".into(),
-                )
-            })?),
         )))
     }
 

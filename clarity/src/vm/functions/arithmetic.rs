@@ -124,7 +124,7 @@ macro_rules! type_force_binary_comparison_v2 {
                     TypeSignature::IntType,
                     TypeSignature::UIntType,
                     TypeSignature::STRING_ASCII_MAX,
-                    TypeSignature::max_string_utf8()?,
+                    TypeSignature::STRING_UTF8_MAX,
                     TypeSignature::BUFFER_MAX,
                 ],
                 Box::new(x),

@@ -315,7 +315,7 @@ fn test_simple_string_to_int() {
         CheckErrors::UnionTypeValueError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(Value::Int(1))
         )
@@ -380,7 +380,7 @@ fn test_simple_string_to_uint() {
         CheckErrors::UnionTypeValueError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(Value::Int(1))
         )

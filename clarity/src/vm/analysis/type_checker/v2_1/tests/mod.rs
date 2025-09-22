@@ -2232,7 +2232,7 @@ fn test_string_to_ints() {
         CheckErrors::UnionTypeError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(17_u32).unwrap(),
@@ -2241,7 +2241,7 @@ fn test_string_to_ints() {
         CheckErrors::UnionTypeError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(IntType),
         ),
@@ -2250,7 +2250,7 @@ fn test_string_to_ints() {
         CheckErrors::UnionTypeError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(17_u32).unwrap(),
@@ -2259,7 +2259,7 @@ fn test_string_to_ints() {
         CheckErrors::UnionTypeError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(IntType),
         ),

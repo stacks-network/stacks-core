@@ -933,14 +933,14 @@ impl TypedNativeFunction {
             StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
                     TypeSignature::STRING_ASCII_MAX,
-                    TypeSignature::max_string_utf8()?,
+                    TypeSignature::STRING_UTF8_MAX,
                 ],
                 TypeSignature::OptionalType(Box::new(TypeSignature::IntType)),
             ))),
             StringToUInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
                     TypeSignature::STRING_ASCII_MAX,
-                    TypeSignature::max_string_utf8()?,
+                    TypeSignature::STRING_UTF8_MAX,
                 ],
                 TypeSignature::OptionalType(Box::new(TypeSignature::UIntType)),
             ))),
@@ -1201,7 +1201,7 @@ impl TypedNativeFunction {
                     TypeSignature::BoolType,
                     TypeSignature::PrincipalType,
                     TO_ASCII_MAX_BUFF.clone(),
-                    TypeSignature::max_string_utf8()?,
+                    TypeSignature::STRING_UTF8_MAX,
                 ],
                 TypeSignature::new_response(
                     TO_ASCII_RESPONSE_STRING.clone(),

@@ -152,7 +152,7 @@ pub fn native_string_to_int_generic(
         _ => Err(CheckErrors::UnionTypeValueError(
             vec![
                 TypeSignature::STRING_ASCII_MAX,
-                TypeSignature::max_string_utf8()?,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(value),
         )
@@ -278,7 +278,7 @@ pub fn special_to_ascii(
                 TypeSignature::BoolType,
                 TypeSignature::PrincipalType,
                 TO_ASCII_MAX_BUFF.clone(),
-                TypeSignature::max_string_utf8()?,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(value),
         )

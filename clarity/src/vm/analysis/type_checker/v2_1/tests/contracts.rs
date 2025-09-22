@@ -3512,7 +3512,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         TypeSignature::BoolType,
         TypeSignature::PrincipalType,
         TO_ASCII_MAX_BUFF.clone(),
-        TypeSignature::max_string_utf8().unwrap(),
+        TypeSignature::STRING_UTF8_MAX,
     ];
     let test_cases = [
         (

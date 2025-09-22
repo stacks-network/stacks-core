@@ -408,7 +408,7 @@ impl FunctionType {
                             TypeSignature::IntType,
                             TypeSignature::UIntType,
                             TypeSignature::STRING_ASCII_MAX,
-                            TypeSignature::max_string_utf8()?,
+                            TypeSignature::STRING_UTF8_MAX,
                             TypeSignature::BUFFER_MAX,
                         ],
                         Box::new(first.clone()),
