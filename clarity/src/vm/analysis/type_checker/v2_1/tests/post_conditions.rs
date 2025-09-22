@@ -57,7 +57,7 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
         ),
         // multiple allowances
         (
-            "(restrict-assets? tx-sender ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" 0x01) (with-stacking u1000)) true)",
+            "(restrict-assets? tx-sender ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" (list 0x01)) (with-stacking u1000)) true)",
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
         ),
         // multiple body expressions
@@ -149,8 +149,7 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
         (
             &format!(
                 "(restrict-assets? tx-sender ({} ) true)",
-                std::iter::repeat("(with-stx u1)")
-                    .take(130)
+                std::iter::repeat_n("(with-stx u1)", 130)
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
@@ -299,8 +298,7 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
         (
             &format!(
                 "(as-contract? ({} ) true)",
-                std::iter::repeat("(with-stx u1)")
-                    .take(130)
+                std::iter::repeat_n("(with-stx u1)", 130)
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
@@ -671,8 +669,7 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         (
             &format!(
                 "(restrict-assets? tx-sender ((with-nft .token \"token-name\" (list {}))) true)",
-                std::iter::repeat("u1")
-                    .take(130)
+                std::iter::repeat_n("u1", 130)
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
