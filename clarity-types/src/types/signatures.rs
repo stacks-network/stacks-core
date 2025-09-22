@@ -368,10 +368,6 @@ lazy_static! {
     };
 }
 
-pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-    StringUTF8Length(40),
-)));
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
     max_len: u32,
@@ -870,7 +866,7 @@ impl TupleTypeSignature {
 impl TypeSignature {
     /// Buffer type with minimum size. Alias for [`TypeSignature::BUFFER_1`].
     pub const BUFFER_MIN: TypeSignature = TypeSignature::BUFFER_1;
-    /// Buffer type with maximum size. Depends on [`MAX_VALUE_SIZE`].
+    /// Buffer type with maximum size ([`MAX_VALUE_SIZE`]).
     pub const BUFFER_MAX: TypeSignature = Self::type_buffer_of_size::<MAX_VALUE_SIZE>();
     /// Buffer type with size 1.
     pub const BUFFER_1: TypeSignature = Self::type_buffer_of_size::<1>();
@@ -887,15 +883,17 @@ impl TypeSignature {
 
     /// String ASCII type with minimum size (`1`).
     pub const STRING_ASCII_MIN: TypeSignature = Self::type_string_ascii::<1>();
-    /// String ASCII type with maximum size. Depends on [`MAX_VALUE_SIZE`].
+    /// String ASCII type with maximum size ([`MAX_VALUE_SIZE`]).
     pub const STRING_ASCII_MAX: TypeSignature = Self::type_string_ascii::<MAX_VALUE_SIZE>();
     /// String ASCII type with size 40.
     pub const STRING_ASCII_40: TypeSignature = Self::type_string_ascii::<40>();
 
     /// String UTF8 type with minimum size (`1`).
     pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8::<1>();
-    /// String UTF8 type with maximum size. Depends on [`MAX_UTF8_VALUE_SIZE`].
+    /// String UTF8 type with maximum size ([`MAX_UTF8_VALUE_SIZE`]).
     pub const STRING_UTF8_MAX: TypeSignature = Self::type_string_utf8::<MAX_UTF8_VALUE_SIZE>();
+    /// String UTF8 type with size 40.
+    pub const STRING_UTF8_40: TypeSignature = Self::type_string_utf8::<40>();
 
     /// Creates a buffer type with a given size known at compile time.
     ///

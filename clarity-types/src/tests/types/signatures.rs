@@ -18,8 +18,8 @@ use crate::errors::CheckErrors;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    BufferLength, MAX_VALUE_SIZE, MAX_UTF8_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TraitIdentifier, TupleTypeSignature,
+    BufferLength, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier,
+    SequenceSubtype, StringSubtype, StringUTF8Length, TraitIdentifier, TupleTypeSignature,
 };
 
 #[test]
@@ -228,9 +228,6 @@ fn test_string_utf8_length_try_from_u32_trait() {
 
     let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE + 1).unwrap_err();
     assert_eq!(CheckErrors::ValueTooLarge, err);
-
-    let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE + 4).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
 }
 
 #[test]
@@ -246,9 +243,6 @@ fn test_string_utf8_length_try_from_usize_trait() {
 
     let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as usize + 1).unwrap_err();
     assert_eq!(CheckErrors::ValueTooLarge, err);
-
-    let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as usize + 4).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
 }
 
 #[test]
@@ -262,10 +256,7 @@ fn test_string_utf8_length_try_from_i128_trait() {
     let string = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as i128).unwrap();
     assert_eq!(MAX_UTF8_VALUE_SIZE, string.get_value());
 
-    let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE + 1).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
-
-    let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE + 4).unwrap_err();
+    let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as i128 + 1).unwrap_err();
     assert_eq!(CheckErrors::ValueTooLarge, err);
 
     let err = StringUTF8Length::try_from(-1_i128).unwrap_err();
@@ -299,6 +290,19 @@ fn test_type_string_utf8_max() {
         actual.size().unwrap(),
         "size should be 1048580"
     );
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_utf8_40() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+        StringUTF8Length::new_unsafe(40),
+    )));
+    let actual = TypeSignature::STRING_UTF8_40;
+
+    assert_eq!(expected, actual);
+    assert_eq!(164, actual.size().unwrap(), "size should be 164");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
