@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
@@ -242,7 +241,6 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
                         tx,
                         tx_len,
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        ASTRules::PrecheckSize,
                         None,
                     );
                     let err = match tx_result {
