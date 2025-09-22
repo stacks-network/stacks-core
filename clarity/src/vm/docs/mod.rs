@@ -3379,6 +3379,10 @@ mod test {
                 );
                 continue;
             }
+            if func_api.name == "with-stacking" {
+                eprintln!("Skipping with-stacking, because it requires PoX state");
+                continue;
+            }
 
             let mut store = MemoryBackingStore::new();
             // first, load the samples for contract-call
