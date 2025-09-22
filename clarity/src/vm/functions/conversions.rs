@@ -22,7 +22,6 @@ use crate::vm::errors::{
     check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::signatures::TO_ASCII_MAX_BUFF;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -277,7 +276,7 @@ pub fn special_to_ascii(
                 TypeSignature::UIntType,
                 TypeSignature::BoolType,
                 TypeSignature::PrincipalType,
-                TO_ASCII_MAX_BUFF.clone(),
+                TypeSignature::TO_ASCII_BUFFER_MAX,
                 TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(value),

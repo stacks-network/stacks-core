@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::types::MAX_TO_ASCII_BUFFER_LEN;
 use stacks_common::types::StacksEpochId;
 
 pub use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::MAX_TO_ASCII_BUFFER_LEN;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{

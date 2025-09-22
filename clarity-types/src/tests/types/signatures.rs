@@ -18,8 +18,9 @@ use crate::errors::CheckErrors;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    BufferLength, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier,
-    SequenceSubtype, StringSubtype, StringUTF8Length, TraitIdentifier, TupleTypeSignature,
+    BufferLength, MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE,
+    QualifiedContractIdentifier, SequenceSubtype, StringSubtype, StringUTF8Length, TraitIdentifier,
+    TupleTypeSignature,
 };
 
 #[test]
@@ -303,6 +304,19 @@ fn test_type_string_utf8_40() {
 
     assert_eq!(expected, actual);
     assert_eq!(164, actual.size().unwrap(), "size should be 164");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_buffer_for_to_ascii_call() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::BufferType(
+        BufferLength::new_unsafe(MAX_TO_ASCII_BUFFER_LEN),
+    ));
+    let actual = TypeSignature::TO_ASCII_BUFFER_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(524_288, actual.size().unwrap(), "size should be 524_288");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }

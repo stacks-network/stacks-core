@@ -26,9 +26,9 @@ use stacks_common::types::StacksEpochId;
 use crate::errors::CheckErrors;
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
-    CharType, MAX_TYPE_DEPTH, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData,
-    QualifiedContractIdentifier, SequenceData, SequencedValue, StandardPrincipalData,
-    TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
+    CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
+    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    SequencedValue, StandardPrincipalData, TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
@@ -341,23 +341,7 @@ use self::TypeSignature::{
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
-/// Maximum string length returned from `to-ascii?`.
-/// 5 bytes reserved for embedding in response.
-const MAX_TO_ASCII_RESULT_LEN: u32 = MAX_VALUE_SIZE - 5;
-
-/// Maximum buffer length returned from `to-ascii?`.
-/// 2 bytes reserved for "0x" prefix and 2 characters per byte.
-pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
-
 lazy_static! {
-    /// Maximum-sized buffer allowed for `to-ascii?` call.
-    pub static ref TO_ASCII_MAX_BUFF: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(MAX_TO_ASCII_BUFFER_LEN)
-                .expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
     /// Maximum-length string returned from `to-ascii?`
     pub static ref TO_ASCII_RESPONSE_STRING: TypeSignature = {
         #[allow(clippy::expect_used)]
@@ -894,6 +878,10 @@ impl TypeSignature {
     pub const STRING_UTF8_MAX: TypeSignature = Self::type_string_utf8::<MAX_UTF8_VALUE_SIZE>();
     /// String UTF8 type with size 40.
     pub const STRING_UTF8_40: TypeSignature = Self::type_string_utf8::<40>();
+
+    /// Maximum-sized ([`MAX_TO_ASCII_BUFFER_LEN`]) buffer allowed for `to-ascii?` call.
+    pub const TO_ASCII_BUFFER_MAX: TypeSignature =
+        Self::type_buffer_of_size::<MAX_TO_ASCII_BUFFER_LEN>();
 
     /// Creates a buffer type with a given size known at compile time.
     ///

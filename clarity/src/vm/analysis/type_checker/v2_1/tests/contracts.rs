@@ -31,7 +31,7 @@ use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::{CallableSubtype, TO_ASCII_MAX_BUFF, TO_ASCII_RESPONSE_STRING};
+use crate::vm::types::signatures::{CallableSubtype, TO_ASCII_RESPONSE_STRING};
 use crate::vm::types::{
     BufferLength, ListTypeData, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
     StringUTF8Length, TypeSignature,
@@ -3511,7 +3511,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         TypeSignature::UIntType,
         TypeSignature::BoolType,
         TypeSignature::PrincipalType,
-        TO_ASCII_MAX_BUFF.clone(),
+        TypeSignature::TO_ASCII_BUFFER_MAX,
         TypeSignature::STRING_UTF8_MAX,
     ];
     let test_cases = [
