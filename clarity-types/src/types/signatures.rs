@@ -440,13 +440,6 @@ impl TypeSignature {
         }
     }
 
-    pub fn new_string_ascii(len: usize) -> Result<TypeSignature, CheckErrors> {
-        let len = BufferLength::try_from(len)?;
-        Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(len),
-        )))
-    }
-
     pub fn new_string_utf8(len: usize) -> Result<TypeSignature, CheckErrors> {
         let len = StringUTF8Length::try_from(len)?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
