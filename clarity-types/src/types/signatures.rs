@@ -839,19 +839,19 @@ impl TypeSignature {
     /// Buffer type with minimum size. Alias for [`TypeSignature::BUFFER_1`].
     pub const BUFFER_MIN: TypeSignature = TypeSignature::BUFFER_1;
     /// Buffer type with maximum size ([`MAX_VALUE_SIZE`]).
-    pub const BUFFER_MAX: TypeSignature = Self::type_buffer_of_size::<MAX_VALUE_SIZE>();
+    pub const BUFFER_MAX: TypeSignature = Self::type_buffer::<MAX_VALUE_SIZE>();
     /// Buffer type with size 1.
-    pub const BUFFER_1: TypeSignature = Self::type_buffer_of_size::<1>();
+    pub const BUFFER_1: TypeSignature = Self::type_buffer::<1>();
     /// Buffer type with size 20.
-    pub const BUFFER_20: TypeSignature = Self::type_buffer_of_size::<20>();
+    pub const BUFFER_20: TypeSignature = Self::type_buffer::<20>();
     /// Buffer type with size 32.
-    pub const BUFFER_32: TypeSignature = Self::type_buffer_of_size::<32>();
+    pub const BUFFER_32: TypeSignature = Self::type_buffer::<32>();
     /// Buffer type with size 33.
-    pub const BUFFER_33: TypeSignature = Self::type_buffer_of_size::<33>();
+    pub const BUFFER_33: TypeSignature = Self::type_buffer::<33>();
     /// Buffer type with size 64.
-    pub const BUFFER_64: TypeSignature = Self::type_buffer_of_size::<64>();
+    pub const BUFFER_64: TypeSignature = Self::type_buffer::<64>();
     /// Buffer type with size 65.
-    pub const BUFFER_65: TypeSignature = Self::type_buffer_of_size::<65>();
+    pub const BUFFER_65: TypeSignature = Self::type_buffer::<65>();
 
     /// String ASCII type with minimum size (`1`).
     pub const STRING_ASCII_MIN: TypeSignature = Self::type_string_ascii::<1>();
@@ -869,7 +869,7 @@ impl TypeSignature {
 
     /// Maximum-sized ([`MAX_TO_ASCII_BUFFER_LEN`]) buffer allowed for `to-ascii?` call.
     pub const TO_ASCII_BUFFER_MAX: TypeSignature =
-        Self::type_buffer_of_size::<MAX_TO_ASCII_BUFFER_LEN>();
+        Self::type_buffer::<MAX_TO_ASCII_BUFFER_LEN>();
 
     /// Maximum-sized ([`MAX_TO_ASCII_RESULT_LEN`]) string allowed for `to-ascii?` call.
     pub const TO_ASCII_STRING_ASCII_MAX: TypeSignature =
@@ -879,7 +879,7 @@ impl TypeSignature {
     ///
     /// This function is intended for defining constant buffer type
     /// aliases (e.g., [`TypeSignature::BUFFER_1`]) without repeating logic.
-    const fn type_buffer_of_size<const VALUE: u32>() -> Self {
+    const fn type_buffer<const VALUE: u32>() -> Self {
         SequenceType(SequenceSubtype::BufferType(
             BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
         ))
