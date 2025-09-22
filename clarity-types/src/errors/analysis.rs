@@ -315,7 +315,8 @@ pub enum CheckErrors {
     WithAllAllowanceNotAllowed,
     WithAllAllowanceNotAlone,
     WithNftExpectedListOfIdentifiers,
-    MaxIdentifierLengthExceeded(u32),
+    MaxIdentifierLengthExceeded(u32, u32),
+    TooManyAllowances(usize, usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -620,7 +621,8 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
             CheckErrors::WithAllAllowanceNotAlone => "with-all-assets-unsafe must not be used along with other allowances".into(),
             CheckErrors::WithNftExpectedListOfIdentifiers => "with-nft allowance must include a list of asset identifiers".into(),
-            CheckErrors::MaxIdentifierLengthExceeded(max_len) => format!("with-nft allowance identifiers list must not exceed 128 elements, got {max_len}"),
+            CheckErrors::MaxIdentifierLengthExceeded(max_len, len) => format!("with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
+            CheckErrors::TooManyAllowances(max_allowed, found) => format!("too many allowances specified, the maximum is {max_allowed}, found {found}"),
         }
     }
 

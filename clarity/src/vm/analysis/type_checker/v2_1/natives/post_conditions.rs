@@ -25,6 +25,11 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::functions::NativeFunctions;
 
+/// Maximum number of allowances allowed in a `restrict-assets?` or `as-contract?` expression.
+pub(crate) const MAX_ALLOWANCES: usize = 128;
+/// Maximum number of asset identifiers allowed in a `with-nft` allowance expression.
+pub(crate) const MAX_NFT_IDENTIFIERS: u32 = 128;
+
 pub fn check_restrict_assets(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -40,6 +45,10 @@ pub fn check_restrict_assets(
             2,
         ))?;
     let body_exprs = &args[2..];
+
+    if allowance_list.len() > MAX_ALLOWANCES {
+        return Err(CheckErrors::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
+    }
 
     runtime_cost(
         ClarityCostFunction::AnalysisListItemsCheck,
@@ -86,6 +95,10 @@ pub fn check_as_contract(
             1,
         ))?;
     let body_exprs = &args[1..];
+
+    if allowance_list.len() > MAX_ALLOWANCES {
+        return Err(CheckErrors::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
+    }
 
     runtime_cost(
         ClarityCostFunction::AnalysisListItemsCheck,
@@ -208,8 +221,12 @@ fn check_allowance_with_nft(
     let TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) = id_list_ty else {
         return Err(CheckErrors::WithNftExpectedListOfIdentifiers.into());
     };
-    if list_data.get_max_len() > 128 {
-        return Err(CheckErrors::MaxIdentifierLengthExceeded(list_data.get_max_len()).into());
+    if list_data.get_max_len() > MAX_NFT_IDENTIFIERS {
+        return Err(CheckErrors::MaxIdentifierLengthExceeded(
+            MAX_NFT_IDENTIFIERS,
+            list_data.get_max_len(),
+        )
+        .into());
     }
 
     Ok(false)

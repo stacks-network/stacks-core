@@ -14,9 +14,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity_types::errors::CheckErrors;
+use clarity_types::representations::MAX_STRING_LEN;
 use clarity_types::types::TypeSignature;
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
+    MAX_ALLOWANCES, MAX_NFT_IDENTIFIERS,
+};
 use crate::vm::analysis::type_checker::v2_1::tests::type_check_helper_version;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::ClarityVersion;
@@ -140,6 +144,17 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
         (
             "(restrict-assets? tx-sender ((with-stx u1000)) (err u1) true)",
             CheckErrors::UncheckedIntermediaryResponses,
+        ),
+        // too many allowances
+        (
+            &format!(
+                "(restrict-assets? tx-sender ({} ) true)",
+                std::iter::repeat("(with-stx u1)")
+                    .take(130)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            CheckErrors::TooManyAllowances(MAX_ALLOWANCES, 130),
         ),
     ];
 
@@ -279,6 +294,17 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
         (
             "(as-contract? ((with-stx u1000) (with-all-assets-unsafe)) true)",
             CheckErrors::WithAllAllowanceNotAlone,
+        ),
+        // too many allowances
+        (
+            &format!(
+                "(as-contract? ({} ) true)",
+                std::iter::repeat("(with-stx u1)")
+                    .take(130)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            CheckErrors::TooManyAllowances(MAX_ALLOWANCES, 130),
         ),
     ];
 
@@ -481,7 +507,7 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
         (
             "(restrict-assets? tx-sender ((with-ft .token u123 u1000)) true)",
             CheckErrors::TypeError(
-                TypeSignature::new_string_ascii(128).unwrap().into(),
+                TypeSignature::new_string_ascii(MAX_STRING_LEN as usize).unwrap().into(),
                 TypeSignature::UIntType.into(),
             ),
         ),
@@ -505,7 +531,7 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
         (
             "(restrict-assets? tx-sender ((with-ft .token \"this-token-name-is-way-too-long-to-be-valid-because-it-has-more-than-one-hundred-and-twenty-eight-characters-in-it-so-it-is-not-a-valid-token-name\" u1000)) true)",
             CheckErrors::TypeError(
-                TypeSignature::new_string_ascii(128).unwrap().into(),
+                TypeSignature::new_string_ascii(MAX_STRING_LEN as usize).unwrap().into(),
                 TypeSignature::new_string_ascii(146).unwrap().into(),
             ),
         ),
@@ -629,7 +655,7 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         (
             "(restrict-assets? tx-sender ((with-nft .token u123 (list u456))) true)",
             CheckErrors::TypeError(
-                TypeSignature::new_string_ascii(128).unwrap().into(),
+                TypeSignature::new_string_ascii(MAX_STRING_LEN as usize).unwrap().into(),
                 TypeSignature::UIntType.into(),
             ),
         ),
@@ -637,9 +663,20 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         (
             "(restrict-assets? tx-sender ((with-ft .token \"this-token-name-is-way-too-long-to-be-valid-because-it-has-more-than-one-hundred-and-twenty-eight-characters-in-it-so-it-is-not-a-valid-token-name\" u1000)) true)",
             CheckErrors::TypeError(
-                TypeSignature::new_string_ascii(128).unwrap().into(),
+                TypeSignature::new_string_ascii(MAX_STRING_LEN as usize).unwrap().into(),
                 TypeSignature::new_string_ascii(146).unwrap().into(),
             ),
+        ),
+        // too many identifiers (more than 128)
+        (
+            &format!(
+                "(restrict-assets? tx-sender ((with-nft .token \"token-name\" (list {}))) true)",
+                std::iter::repeat("u1")
+                    .take(130)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            CheckErrors::MaxIdentifierLengthExceeded(MAX_NFT_IDENTIFIERS, 130),
         ),
     ];
 
