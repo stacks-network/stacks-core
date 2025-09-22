@@ -288,9 +288,6 @@ lazy_static! {
     };
 }
 
-pub const ASCII_40: TypeSignature = SequenceType(SequenceSubtype::StringType(
-    StringSubtype::ASCII(BufferLength(40)),
-));
 pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
     StringUTF8Length(40),
 )));
@@ -868,6 +865,8 @@ impl TypeSignature {
     pub const STRING_ASCII_MIN: TypeSignature = Self::type_string_ascii::<1>();
     /// String ASCII type with maximum size. Depends on [`MAX_VALUE_SIZE`].
     pub const STRING_ASCII_MAX: TypeSignature = Self::type_string_ascii::<MAX_VALUE_SIZE>();
+    /// String ASCII type with size 40.
+    pub const STRING_ASCII_40: TypeSignature = Self::type_string_ascii::<40>();
 
     /// Creates a buffer type with a given size known at compile time.
     ///

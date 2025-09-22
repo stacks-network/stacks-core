@@ -26,7 +26,7 @@ use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTr
 use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
-    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
+    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
     TO_ASCII_MAX_BUFF, TO_ASCII_RESPONSE_STRING, UTF8_40,
 };
 use crate::vm::types::{
@@ -947,7 +947,7 @@ impl TypedNativeFunction {
             IntToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 // 40 is the longest string one can get from int->string conversion.
-                ASCII_40,
+                TypeSignature::STRING_ASCII_40,
             ))),
             IntToUtf8 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],

@@ -198,6 +198,19 @@ fn test_type_string_ascii_max() {
 }
 
 #[test]
+fn test_type_string_ascii_40() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(40),
+    )));
+    let actual = TypeSignature::STRING_ASCII_40;
+
+    assert_eq!(expected, actual);
+    assert_eq!(44, actual.size().unwrap(), "size should be 44");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
 fn test_least_supertype() {
     let callables = [
         CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
