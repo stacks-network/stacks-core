@@ -407,7 +407,7 @@ impl FunctionType {
                         vec![
                             TypeSignature::IntType,
                             TypeSignature::UIntType,
-                            TypeSignature::max_string_ascii()?,
+                            TypeSignature::STRING_ASCII_MAX,
                             TypeSignature::max_string_utf8()?,
                             TypeSignature::BUFFER_MAX,
                         ],

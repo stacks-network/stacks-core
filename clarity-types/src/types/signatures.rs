@@ -232,7 +232,9 @@ impl SequenceSubtype {
         match &self {
             SequenceSubtype::ListType(list_data) => Ok(list_data.clone().destruct().0),
             SequenceSubtype::BufferType(_) => Ok(TypeSignature::BUFFER_MIN),
-            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => Ok(TypeSignature::STRING_ASCII_MIN),
+            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => {
+                Ok(TypeSignature::STRING_ASCII_MIN)
+            }
             SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_string_utf8(),
         }
     }
@@ -845,7 +847,7 @@ impl TupleTypeSignature {
 }
 
 impl TypeSignature {
-    /// Buffer type with minimum size. Alias for [`TypeSignature::BUFFER_1`]
+    /// Buffer type with minimum size. Alias for [`TypeSignature::BUFFER_1`].
     pub const BUFFER_MIN: TypeSignature = TypeSignature::BUFFER_1;
     /// Buffer type with maximum size. Depends on [`MAX_VALUE_SIZE`].
     pub const BUFFER_MAX: TypeSignature = Self::type_buffer_of_size::<MAX_VALUE_SIZE>();
@@ -862,8 +864,10 @@ impl TypeSignature {
     /// Buffer type with size 65.
     pub const BUFFER_65: TypeSignature = Self::type_buffer_of_size::<65>();
 
-    /// String ASCII type with size 1
+    /// String ASCII type with minimum size (`1`).
     pub const STRING_ASCII_MIN: TypeSignature = Self::type_string_ascii::<1>();
+    /// String ASCII type with maximum size. Depends on [`MAX_VALUE_SIZE`].
+    pub const STRING_ASCII_MAX: TypeSignature = Self::type_string_ascii::<MAX_VALUE_SIZE>();
 
     /// Creates a buffer type with a given size known at compile time.
     ///
@@ -889,16 +893,6 @@ impl TypeSignature {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(1_u32.try_into().map_err(|_| {
                 CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
-            })?),
-        )))
-    }
-
-    pub fn max_string_ascii() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(BufferLength::try_from(MAX_VALUE_SIZE).map_err(|_| {
-                CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".into(),
-                )
             })?),
         )))
     }

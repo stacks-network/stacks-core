@@ -151,7 +151,7 @@ pub fn native_string_to_int_generic(
         }
         _ => Err(CheckErrors::UnionTypeValueError(
             vec![
-                TypeSignature::max_string_ascii()?,
+                TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::max_string_utf8()?,
             ],
             Box::new(value),

@@ -181,6 +181,23 @@ fn test_type_string_ascii_min() {
 }
 
 #[test]
+fn test_type_string_ascii_max() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(MAX_VALUE_SIZE),
+    )));
+    let actual = TypeSignature::STRING_ASCII_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(
+        MAX_VALUE_SIZE + 4,
+        actual.size().unwrap(),
+        "size should be 1_048_580"
+    );
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
 fn test_least_supertype() {
     let callables = [
         CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
@@ -579,10 +596,7 @@ fn test_least_supertype() {
     let bad_pairs = [
         (IntType, UIntType),
         (BoolType, IntType),
-        (
-            TypeSignature::BUFFER_MAX,
-            TypeSignature::max_string_ascii().unwrap(),
-        ),
+        (TypeSignature::BUFFER_MAX, TypeSignature::STRING_ASCII_MAX),
         (
             TypeSignature::list_of(TypeSignature::UIntType, 42).unwrap(),
             TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
@@ -625,10 +639,7 @@ fn test_least_supertype() {
             TypeSignature::PrincipalType,
         ),
         (list_union.clone(), TypeSignature::PrincipalType),
-        (
-            TypeSignature::STRING_ASCII_MIN,
-            list_union_principals,
-        ),
+        (TypeSignature::STRING_ASCII_MIN, list_union_principals),
         (
             TypeSignature::list_of(
                 TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -641,11 +652,8 @@ fn test_least_supertype() {
         ),
         (
             TypeSignature::TupleType(
-                TupleTypeSignature::try_from(vec![(
-                    "b".into(),
-                    TypeSignature::STRING_ASCII_MIN,
-                )])
-                .unwrap(),
+                TupleTypeSignature::try_from(vec![("b".into(), TypeSignature::STRING_ASCII_MIN)])
+                    .unwrap(),
             ),
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![("b".into(), TypeSignature::UIntType)]).unwrap(),

@@ -1014,7 +1014,7 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::max_string_utf8().unwrap(),
                 TypeSignature::BUFFER_MAX,
             ],
@@ -1025,7 +1025,7 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::max_string_utf8().unwrap(),
                 TypeSignature::BUFFER_MAX,
             ],
@@ -1048,7 +1048,7 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::max_string_utf8().unwrap(),
                 TypeSignature::BUFFER_MAX,
             ],
@@ -1063,7 +1063,7 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
                 TypeSignature::max_string_utf8().unwrap(),
                 TypeSignature::BUFFER_MAX,
             ],
