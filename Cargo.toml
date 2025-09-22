@@ -12,7 +12,7 @@ members = [
     "stacks-signer",
     "stacks-node",
     "contrib/stacks-inspect",
-    "contrib/blockstack-cli"
+    "contrib/stacks-cli"
 ]
 
 exclude = ["contrib/tools/config-docs-generator"]

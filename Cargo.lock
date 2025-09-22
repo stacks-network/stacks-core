@@ -481,17 +481,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "blockstack-cli"
-version = "0.1.0"
-dependencies = [
- "clarity 0.0.1",
- "serde_json",
- "stacks-common 0.0.1",
- "stackslib 0.0.1",
- "tempfile",
-]
-
-[[package]]
 name = "bumpalo"
 version = "3.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3115,6 +3104,17 @@ dependencies = [
  "libc",
  "psm",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "stacks-cli"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "serde_json",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tempfile",
 ]
 
 [[package]]
