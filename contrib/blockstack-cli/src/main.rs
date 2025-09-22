@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -18,38 +17,38 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-extern crate blockstack_lib;
 extern crate clarity;
 extern crate stacks_common;
+extern crate stackslib;
 
+use std::io::Read;
 #[cfg(test)]
 use std::io::prelude::*;
-use std::io::Read;
 use std::{env, fs, io};
 
-use blockstack_lib::burnchains::bitcoin::address::{
-    ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use blockstack_lib::burnchains::Address;
-use blockstack_lib::chainstate::stacks::{
-    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use blockstack_lib::clarity_cli::vm_execute;
-use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use blockstack_lib::net::Error as NetError;
-use blockstack_lib::util_lib::strings::StacksString;
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
-use stacks_common::address::{b58, AddressHashMode};
+use stacks_common::address::{AddressHashMode, b58};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
+use stackslib::burnchains::Address;
+use stackslib::burnchains::bitcoin::address::{
+    ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stackslib::chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksBlock,
+    StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+};
+use stackslib::clarity_cli::vm_execute;
+use stackslib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stackslib::net::Error as NetError;
+use stackslib::util_lib::strings::StacksString;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 
@@ -1071,8 +1070,8 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 mod test {
     use std::panic;
 
-    use blockstack_lib::chainstate::stacks::TransactionPostCondition;
     use stacks_common::util::cargo_workspace;
+    use stackslib::chainstate::stacks::TransactionPostCondition;
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -1721,7 +1720,7 @@ mod test {
     fn simple_decode_tx() {
         let tx_args = [
             "decode-tx",
-            "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f"
+            "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f",
         ];
 
         let result = main_handler(to_string_vec(&tx_args)).unwrap();
