@@ -128,7 +128,7 @@ fn eval_allowance(
                 asset_name,
             };
 
-            let asset_id = eval(&rest[1], env, context)?;
+            let asset_id = eval(&rest[2], env, context)?;
 
             Ok(Allowance::Nft(NftAllowance { asset, asset_id }))
         }
@@ -368,6 +368,7 @@ fn check_allowances(
     }
 
     // Check FT movements
+    // TODO: Handle "*" asset name
     if let Some(ft_moved) = assets.get_all_fungible_tokens(owner) {
         for (asset, amount_moved) in ft_moved {
             if let Some(allowance_vec) = ft_allowances.get(asset) {
@@ -387,6 +388,7 @@ fn check_allowances(
     }
 
     // Check NFT movements
+    // TODO: Handle "*" asset name
     if let Some(nft_moved) = assets.get_all_nonfungible_tokens(owner) {
         for (asset, ids_moved) in nft_moved {
             if let Some((index, allowance_map)) = nft_allowances.get(asset) {
