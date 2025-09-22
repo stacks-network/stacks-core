@@ -21,7 +21,7 @@ use clarity::vm::database::sqlite::{
     sqlite_insert_metadata,
 };
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
-use clarity::vm::errors::{VmInternalError, InterpreterResult, RuntimeErrorType};
+use clarity::vm::errors::{InterpreterResult, RuntimeErrorType, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite;
 use rusqlite::Connection;
