@@ -110,13 +110,25 @@ impl BufferLength {
     /// This function is primarily intended for internal use when defining
     /// `const` values, since it returns an [`Option`] that can be unwrapped
     /// with [`Option::expect`] in a `const fn`.
-    ///
-    /// It can also be reused in a runtime context
     const fn try_from_u32_as_opt(value: u32) -> Option<BufferLength> {
         if value > MAX_VALUE_SIZE {
             None
         } else {
             Some(BufferLength(value))
+        }
+    }
+
+    /// Attempts to create a [`BufferLength`] from a [`i128`] as a [`Result`].
+    ///
+    /// This function is primarily intended for internal runtime use,
+    /// and serves as the central place for all integer validation logic.
+    fn try_from_i128(data: i128) -> Result<BufferLength, CheckErrors> {
+        if data > (MAX_VALUE_SIZE as i128) {
+            Err(CheckErrors::ValueTooLarge)
+        } else if data < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
+        } else {
+            Ok(BufferLength(data as u32))
         }
     }
 }
@@ -152,31 +164,21 @@ impl From<BufferLength> for u32 {
 impl TryFrom<u32> for BufferLength {
     type Error = CheckErrors;
     fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
-        Self::try_from_u32_as_opt(data).ok_or(CheckErrors::ValueTooLarge)
+        Self::try_from(data as usize)
     }
 }
 
 impl TryFrom<usize> for BufferLength {
     type Error = CheckErrors;
     fn try_from(data: usize) -> Result<BufferLength, CheckErrors> {
-        if data > (MAX_VALUE_SIZE as usize) {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(BufferLength(data as u32))
-        }
+        Self::try_from(data as i128)
     }
 }
 
 impl TryFrom<i128> for BufferLength {
     type Error = CheckErrors;
     fn try_from(data: i128) -> Result<BufferLength, CheckErrors> {
-        if data > (MAX_VALUE_SIZE as i128) {
-            Err(CheckErrors::ValueTooLarge)
-        } else if data < 0 {
-            Err(CheckErrors::ValueOutOfBounds)
-        } else {
-            Ok(BufferLength(data as u32))
-        }
+        Self::try_from_i128(data)
     }
 }
 
