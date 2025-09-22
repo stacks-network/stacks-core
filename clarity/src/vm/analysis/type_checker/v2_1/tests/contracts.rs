@@ -31,7 +31,7 @@ use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::{CallableSubtype, TO_ASCII_RESPONSE_STRING};
+use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     BufferLength, ListTypeData, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
     StringUTF8Length, TypeSignature,
@@ -3503,8 +3503,11 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
 #[apply(test_clarity_versions)]
 fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let to_ascii_response_type = Some(
-        TypeSignature::new_response(TO_ASCII_RESPONSE_STRING.clone(), TypeSignature::UIntType)
-            .unwrap(),
+        TypeSignature::new_response(
+            TypeSignature::TO_ASCII_STRING_ASCII_MAX,
+            TypeSignature::UIntType,
+        )
+        .unwrap(),
     );
     let to_ascii_expected_types = vec![
         TypeSignature::IntType,

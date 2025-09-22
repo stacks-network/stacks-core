@@ -27,7 +27,6 @@ use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
     CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
-    TO_ASCII_RESPONSE_STRING,
 };
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
@@ -1204,7 +1203,7 @@ impl TypedNativeFunction {
                     TypeSignature::STRING_UTF8_MAX,
                 ],
                 TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
+                    TypeSignature::TO_ASCII_STRING_ASCII_MAX,
                     TypeSignature::UIntType,
                 )
                 .map_err(|_| {

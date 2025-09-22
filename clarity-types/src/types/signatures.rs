@@ -19,7 +19,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::{cmp, fmt};
 
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
@@ -340,17 +339,6 @@ use self::TypeSignature::{
     BoolType, CallableType, IntType, ListUnionType, NoType, OptionalType, PrincipalType,
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
-
-lazy_static! {
-    /// Maximum-length string returned from `to-ascii?`
-    pub static ref TO_ASCII_RESPONSE_STRING: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(BufferLength::try_from(MAX_TO_ASCII_RESULT_LEN)
-                .expect("BUG: Legal Clarity buffer length marked invalid")),
-        ))
-    };
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
@@ -882,6 +870,10 @@ impl TypeSignature {
     /// Maximum-sized ([`MAX_TO_ASCII_BUFFER_LEN`]) buffer allowed for `to-ascii?` call.
     pub const TO_ASCII_BUFFER_MAX: TypeSignature =
         Self::type_buffer_of_size::<MAX_TO_ASCII_BUFFER_LEN>();
+
+    /// Maximum-sized ([`MAX_TO_ASCII_RESULT_LEN`]) string allowed for `to-ascii?` call.
+    pub const TO_ASCII_STRING_ASCII_MAX: TypeSignature =
+        Self::type_string_ascii::<MAX_TO_ASCII_RESULT_LEN>();
 
     /// Creates a buffer type with a given size known at compile time.
     ///

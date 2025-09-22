@@ -48,7 +48,7 @@ pub const MAX_UTF8_VALUE_SIZE: u32 = MAX_VALUE_SIZE / 4;
 
 /// Maximum string length returned from `to-ascii?`.
 /// 5 bytes reserved for embedding in response.
-const MAX_TO_ASCII_RESULT_LEN: u32 = MAX_VALUE_SIZE - 5;
+pub const MAX_TO_ASCII_RESULT_LEN: u32 = MAX_VALUE_SIZE - 5;
 /// Maximum buffer length returned from `to-ascii?`.
 /// 2 bytes reserved for "0x" prefix and 2 characters per byte.
 pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;

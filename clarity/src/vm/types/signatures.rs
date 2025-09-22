@@ -19,7 +19,7 @@ use std::fmt;
 
 pub use clarity_types::types::signatures::{
     AssetIdentifier, BufferLength, CallableSubtype, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature, TO_ASCII_RESPONSE_STRING,
+    StringUTF8Length, TupleTypeSignature, TypeSignature,
 };
 pub use clarity_types::types::Value;
 use stacks_common::types::StacksEpochId;
