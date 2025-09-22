@@ -17,7 +17,7 @@
 use stacks_common::consts::TOKEN_TRANSFER_MEMO_LENGTH;
 
 use super::{TypeChecker, TypingContext};
-use crate::vm::analysis::errors::{check_argument_count, CheckError, CheckErrors};
+use crate::vm::analysis::errors::{check_argument_count, CheckErrors, StaticCheckError};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::representations::SymbolicExpression;
@@ -27,7 +27,7 @@ pub fn check_special_get_owner(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -55,7 +55,7 @@ pub fn check_special_get_balance(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -76,7 +76,7 @@ pub fn check_special_mint_asset(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -107,7 +107,7 @@ pub fn check_special_mint_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -134,7 +134,7 @@ pub fn check_special_transfer_asset(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(4, args)?;
 
     let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -166,7 +166,7 @@ pub fn check_special_transfer_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(4, args)?;
 
     let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -194,7 +194,7 @@ pub fn check_special_stx_transfer(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let amount_type: TypeSignature = TypeSignature::UIntType;
@@ -217,7 +217,7 @@ pub fn check_special_stx_transfer_memo(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(4, args)?;
 
     let amount_type: TypeSignature = TypeSignature::UIntType;
@@ -245,7 +245,7 @@ pub fn check_special_get_token_supply(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -263,7 +263,7 @@ pub fn check_special_burn_asset(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
@@ -294,7 +294,7 @@ pub fn check_special_burn_token(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> Result<TypeSignature, CheckError> {
+) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
 
     let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
