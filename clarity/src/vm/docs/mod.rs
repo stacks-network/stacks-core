@@ -2673,12 +2673,12 @@ the contract. When `"*"` is used for the token name, the allowance applies to
 };
 
 const ALLOWANCE_WITH_NFT: SpecialAPI = SpecialAPI {
-    input_type: "principal (string-ascii 128) T",
-    snippet: "with-nft ${1:contract-id} ${2:asset-name} ${3:asset-identifier}",
+    input_type: "principal (string-ascii 128) (list 128 T)",
+    snippet: "with-nft ${1:contract-id} ${2:asset-name} ${3:asset-identifiers}",
     output_type: "Allowance",
-    signature: "(with-nft contract-id asset-name identifier)",
-    description: r#"Adds an outflow allowance for the non-fungible token
-identified by `identifier` defined in `contract-id` with name `token-name`
+    signature: "(with-nft contract-id asset-name identifiers)",
+    description: r#"Adds an outflow allowance for the non-fungible tokens
+identified by `identifiers` defined in `contract-id` with name `token-name`
 from the `asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
 expression. `with-nft` is not allowed outside of `restrict-assets?` or
 `as-contract?` contexts. Note that `token-name` should match the name used in
@@ -2690,11 +2690,11 @@ the token name, the allowance applies to **all** NFTs defined in `contract-id`."
 (nft-mint? stackaroo u124 tx-sender)
 (nft-mint? stackaroo u125 tx-sender)
 (restrict-assets? tx-sender
-  ((with-nft current-contract "stackaroo" u123))
+  ((with-nft current-contract "stackaroo" (list u123)))
   (try! (nft-transfer? stackaroo u123 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
 ) ;; Returns (ok true)
 (restrict-assets? tx-sender
-  ((with-nft current-contract "stackaroo" u125))
+  ((with-nft current-contract "stackaroo" (list u125)))
   (try! (nft-transfer? stackaroo u124 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
 ) ;; Returns (err 0)
 "#,

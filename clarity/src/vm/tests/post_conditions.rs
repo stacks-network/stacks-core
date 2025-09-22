@@ -105,7 +105,7 @@ fn test_as_contract_stx_all() {
 fn test_as_contract_stx_other_allowances() {
     let snippet = r#"
 (let ((recipient tx-sender))
-  (as-contract? ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" 123))
+  (as-contract? ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" (list 123)))
     (try! (stx-transfer? u50 tx-sender recipient))
   )
 )"#;
@@ -156,7 +156,7 @@ fn test_as_contract_stx_burn_all() {
 #[test]
 fn test_as_contract_stx_burn_other_allowances() {
     let snippet = r#"
-(as-contract? ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" 123))
+(as-contract? ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" (list 123)))
   (try! (stx-burn? u50 tx-sender))
 )"#;
     let expected = Value::error(Value::Int(-1)).unwrap();
@@ -280,7 +280,7 @@ fn test_restrict_assets_stx_all() {
 #[test]
 fn test_restrict_assets_stx_other_allowances() {
     let snippet = r#"
-(restrict-assets? tx-sender ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" 123))
+(restrict-assets? tx-sender ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" (list 123)))
   (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
 )"#;
     let expected = Value::error(Value::Int(-1)).unwrap();
@@ -330,7 +330,7 @@ fn test_restrict_assets_stx_burn_all() {
 #[test]
 fn test_restrict_assets_stx_burn_other_allowances() {
     let snippet = r#"
-(restrict-assets? tx-sender ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" 123))
+(restrict-assets? tx-sender ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" (list 123)))
   (try! (stx-burn? u50 tx-sender))
 )"#;
     let expected = Value::error(Value::Int(-1)).unwrap();

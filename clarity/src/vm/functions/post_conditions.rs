@@ -38,7 +38,7 @@ pub struct FtAllowance {
 
 pub struct NftAllowance {
     asset: AssetIdentifier,
-    asset_id: Value,
+    asset_ids: Vec<Value>,
 }
 
 pub struct StackingAllowance {
@@ -128,9 +128,10 @@ fn eval_allowance(
                 asset_name,
             };
 
-            let asset_id = eval(&rest[2], env, context)?;
+            let asset_id_list = eval(&rest[2], env, context)?;
+            let asset_ids = asset_id_list.expect_list()?;
 
-            Ok(Allowance::Nft(NftAllowance { asset, asset_id }))
+            Ok(Allowance::Nft(NftAllowance { asset, asset_ids }))
         }
         "with-stacking" => {
             if rest.len() != 1 {
@@ -325,7 +326,9 @@ fn check_allowances(
                 let (_, set) = nft_allowances
                     .entry(&nft.asset)
                     .or_insert_with(|| (i, HashSet::new()));
-                set.insert(nft.asset_id.serialize_to_hex()?);
+                for id in &nft.asset_ids {
+                    set.insert(id.serialize_to_hex()?);
+                }
             }
             Allowance::Stacking(stacking) => {
                 stacking_allowances.push((i, stacking.amount));

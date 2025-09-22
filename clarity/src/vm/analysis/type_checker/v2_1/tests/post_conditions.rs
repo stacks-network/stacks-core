@@ -199,7 +199,7 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
         ),
         // multiple allowances
         (
-            "(as-contract? ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" 0x01) (with-stacking u1000)) true)",
+            "(as-contract? ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" (list 0x01)) (with-stacking u1000)) true)",
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
         ),
         // multiple body expressions
@@ -551,47 +551,47 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
     let good = [
         // basic usage with shortcut contract principal
         (
-            r#"(restrict-assets? tx-sender ((with-nft .token "token-name" u1000)) true)"#,
+            r#"(restrict-assets? tx-sender ((with-nft .token "token-name" (list u1000))) true)"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // full literal principal
         (
-            r#"(restrict-assets? tx-sender ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.token "token-name" u1000)) true)"#,
+            r#"(restrict-assets? tx-sender ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.token "token-name" (list u1000))) true)"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // variable principal
         (
-            r#"(let ((contract .token)) (restrict-assets? tx-sender ((with-nft contract "token-name" u1000)) true))"#,
+            r#"(let ((contract .token)) (restrict-assets? tx-sender ((with-nft contract "token-name" (list u1000))) true))"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // variable token name
         (
-            r#"(let ((name "token-name")) (restrict-assets? tx-sender ((with-nft .token name u1000)) true))"#,
+            r#"(let ((name "token-name")) (restrict-assets? tx-sender ((with-nft .token name (list u1000))) true))"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // "*" token name
         (
-            r#"(restrict-assets? tx-sender ((with-nft .token "*" u1000)) true)"#,
+            r#"(restrict-assets? tx-sender ((with-nft .token "*" (list u1000))) true)"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // empty token name
         (
-            r#"(restrict-assets? tx-sender ((with-nft .token "" u1000)) true)"#,
+            r#"(restrict-assets? tx-sender ((with-nft .token "" (list u1000))) true)"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // string asset-id
         (
-            r#"(restrict-assets? tx-sender ((with-nft .token "token-name" "asset-123")) true)"#,
+            r#"(restrict-assets? tx-sender ((with-nft .token "token-name" (list "asset-123"))) true)"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // buffer asset-id
         (
-            r#"(restrict-assets? tx-sender ((with-nft .token "token-name" 0x0123456789)) true)"#,
+            r#"(restrict-assets? tx-sender ((with-nft .token "token-name" (list 0x0123456789))) true)"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // variable asset-id
         (
-            r#"(let ((asset-id u123)) (restrict-assets? tx-sender ((with-nft .token "token-name" asset-id)) true))"#,
+            r#"(let ((asset-id (list u123))) (restrict-assets? tx-sender ((with-nft .token "token-name" asset-id)) true))"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
     ];
@@ -614,12 +614,12 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         ),
         // too many arguments
         (
-            r#"(restrict-assets? tx-sender ((with-nft .token "token-name" u123 u456)) true)"#,
+            r#"(restrict-assets? tx-sender ((with-nft .token "token-name" (list u123) (list u456))) true)"#,
             CheckErrors::IncorrectArgumentCount(3, 4),
         ),
         // wrong type for contract-id - uint instead of principal
         (
-            r#"(restrict-assets? tx-sender ((with-nft u123 "token-name" u456)) true)"#,
+            r#"(restrict-assets? tx-sender ((with-nft u123 "token-name" (list u456))) true)"#,
             CheckErrors::TypeError(
                 TypeSignature::PrincipalType.into(),
                 TypeSignature::UIntType.into(),
@@ -627,7 +627,7 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         ),
         // wrong type for token-name - uint instead of string
         (
-            "(restrict-assets? tx-sender ((with-nft .token u123 u456)) true)",
+            "(restrict-assets? tx-sender ((with-nft .token u123 (list u456))) true)",
             CheckErrors::TypeError(
                 TypeSignature::new_string_ascii(128).unwrap().into(),
                 TypeSignature::UIntType.into(),

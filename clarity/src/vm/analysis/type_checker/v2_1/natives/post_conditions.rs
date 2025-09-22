@@ -17,7 +17,7 @@ use clarity_types::errors::analysis::{check_argument_count, check_arguments_at_l
 use clarity_types::errors::{CheckError, CheckErrors};
 use clarity_types::representations::SymbolicExpression;
 use clarity_types::types::signatures::ASCII_128;
-use clarity_types::types::TypeSignature;
+use clarity_types::types::{SequenceSubtype, TypeSignature};
 
 use crate::vm::analysis::type_checker::contexts::TypingContext;
 use crate::vm::analysis::type_checker::v2_1::TypeChecker;
@@ -202,7 +202,15 @@ fn check_allowance_with_nft(
 
     checker.type_check_expects(&args[0], context, &TypeSignature::PrincipalType)?;
     checker.type_check_expects(&args[1], context, &ASCII_128)?;
-    // Asset ID can be any type
+
+    // Asset identifiers must be a Clarity list with any type of elements
+    let id_list_ty = checker.type_check(&args[2], context)?;
+    let TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) = id_list_ty else {
+        return Err(CheckErrors::WithNftExpectedListOfIdentifiers.into());
+    };
+    if list_data.get_max_len() > 128 {
+        return Err(CheckErrors::MaxIdentifierLengthExceeded(list_data.get_max_len()).into());
+    }
 
     Ok(false)
 }
