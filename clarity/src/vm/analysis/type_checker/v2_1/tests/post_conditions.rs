@@ -580,7 +580,7 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         ),
         // full literal principal
         (
-            r#"(restrict-assets? tx-sender ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.token "token-name" (list u1000))) true)"#,
+            r#"(restrict-assets? tx-sender ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.token "token-name" u1000)) true)"#,
             TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
         ),
         // variable principal
