@@ -15,7 +15,6 @@
 
 use std::fs;
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::types::StacksAddressExtensions;
 use clarity::vm::{ClarityName, ContractName};
 use proptest::prelude::*;
@@ -364,7 +363,6 @@ fn replay_block(
             tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            ASTRules::PrecheckSize,
             None,
         );
         let err = match &tx_result {

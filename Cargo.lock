@@ -3164,6 +3164,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-inspect"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "libstackerdb 0.0.1",
+ "mutants",
+ "rusqlite",
+ "serde_json",
+ "slog",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tikv-jemallocator",
+]
+
+[[package]]
 name = "stacks-node"
 version = "0.1.0"
 dependencies = [
@@ -3314,7 +3329,6 @@ dependencies = [
  "stdext",
  "stx-genesis",
  "tempfile",
- "tikv-jemallocator",
  "time 0.3.41",
  "toml",
  "url",

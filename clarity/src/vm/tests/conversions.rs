@@ -468,13 +468,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
     // Test successful conversions
     let int_to_ascii = "(to-ascii? 9876)";
     assert_eq!(
-        execute_with_parameters(
-            int_to_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(int_to_ascii, version, epoch, false,),
         Ok(Some(
             Value::okay(Value::string_ascii_from_bytes(b"9876".to_vec()).unwrap()).unwrap()
         ))
@@ -482,13 +476,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
 
     let uint_to_ascii = "(to-ascii? u12345678)";
     assert_eq!(
-        execute_with_parameters(
-            uint_to_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(uint_to_ascii, version, epoch, false,),
         Ok(Some(
             Value::okay(Value::string_ascii_from_bytes(b"u12345678".to_vec()).unwrap()).unwrap()
         ))
@@ -496,13 +484,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
 
     let bool_true_to_ascii = "(to-ascii? true)";
     assert_eq!(
-        execute_with_parameters(
-            bool_true_to_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(bool_true_to_ascii, version, epoch, false,),
         Ok(Some(
             Value::okay(Value::string_ascii_from_bytes(b"true".to_vec()).unwrap()).unwrap()
         ))
@@ -510,13 +492,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
 
     let bool_false_to_ascii = "(to-ascii? false)";
     assert_eq!(
-        execute_with_parameters(
-            bool_false_to_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(bool_false_to_ascii, version, epoch, false,),
         Ok(Some(
             Value::okay(Value::string_ascii_from_bytes(b"false".to_vec()).unwrap()).unwrap()
         ))
@@ -524,13 +500,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
 
     let standard_principal_to_ascii = "(to-ascii? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)";
     assert_eq!(
-        execute_with_parameters(
-            standard_principal_to_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(standard_principal_to_ascii, version, epoch, false,),
         Ok(Some(
             Value::okay(
                 Value::string_ascii_from_bytes(
@@ -544,13 +514,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
 
     let contract_principal_to_ascii = "(to-ascii? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)";
     assert_eq!(
-        execute_with_parameters(
-            contract_principal_to_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(contract_principal_to_ascii, version, epoch, false,),
         Ok(Some(
             Value::okay(
                 Value::string_ascii_from_bytes(
@@ -564,13 +528,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
 
     let buffer_to_ascii = "(to-ascii? 0x1234)";
     assert_eq!(
-        execute_with_parameters(
-            buffer_to_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(buffer_to_ascii, version, epoch, false,),
         Ok(Some(
             Value::okay(Value::string_ascii_from_bytes(b"0x1234".to_vec()).unwrap()).unwrap()
         ))
@@ -578,13 +536,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
 
     let utf8_string_to_ascii = "(to-ascii? u\"I am serious, and don't call me Shirley.\")";
     assert_eq!(
-        execute_with_parameters(
-            utf8_string_to_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(utf8_string_to_ascii, version, epoch, false,),
         Ok(Some(
             Value::okay(
                 Value::string_ascii_from_bytes(
@@ -599,69 +551,33 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
     // This should error since the UTF-8 string contains a non-ASCII character
     let utf8_string_with_non_ascii = "(to-ascii? u\"A smiley face emoji: \\u{1F600}\")";
     assert_eq!(
-        execute_with_parameters(
-            utf8_string_with_non_ascii,
-            version,
-            epoch,
-            crate::vm::ast::ASTRules::PrecheckSize,
-            false,
-        ),
+        execute_with_parameters(utf8_string_with_non_ascii, version, epoch, false,),
         Ok(Some(Value::err_uint(1))) // Should return error for non-ASCII UTF8
     );
 
     // Test error cases - these should fail at analysis time with type errors
     let ascii_string_to_ascii = "(to-ascii? \"60 percent of the time, it works every time\")";
-    let result = execute_with_parameters(
-        ascii_string_to_ascii,
-        version,
-        epoch,
-        crate::vm::ast::ASTRules::PrecheckSize,
-        false,
-    );
+    let result = execute_with_parameters(ascii_string_to_ascii, version, epoch, false);
     // This should fail at analysis time since ASCII strings are not allowed
     assert!(result.is_err());
 
     let list_to_ascii = "(to-ascii? (list 1 2 3))";
-    let result = execute_with_parameters(
-        list_to_ascii,
-        version,
-        epoch,
-        crate::vm::ast::ASTRules::PrecheckSize,
-        false,
-    );
+    let result = execute_with_parameters(list_to_ascii, version, epoch, false);
     // This should fail at analysis time since lists are not allowed
     assert!(result.is_err());
 
     let tuple_to_ascii = "(to-ascii? { a: 1, b: u2 })";
-    let result = execute_with_parameters(
-        tuple_to_ascii,
-        version,
-        epoch,
-        crate::vm::ast::ASTRules::PrecheckSize,
-        false,
-    );
+    let result = execute_with_parameters(tuple_to_ascii, version, epoch, false);
     // This should fail at analysis time since tuples are not allowed
     assert!(result.is_err());
 
     let optional_to_ascii = "(to-ascii? (some u789))";
-    let result = execute_with_parameters(
-        optional_to_ascii,
-        version,
-        epoch,
-        crate::vm::ast::ASTRules::PrecheckSize,
-        false,
-    );
+    let result = execute_with_parameters(optional_to_ascii, version, epoch, false);
     // This should fail at analysis time since optionals are not allowed
     assert!(result.is_err());
 
     let response_to_ascii = "(to-ascii? (ok true))";
-    let result = execute_with_parameters(
-        response_to_ascii,
-        version,
-        epoch,
-        crate::vm::ast::ASTRules::PrecheckSize,
-        false,
-    );
+    let result = execute_with_parameters(response_to_ascii, version, epoch, false);
     // This should fail at analysis time since responses are not allowed
     assert!(result.is_err());
 
@@ -669,13 +585,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
         "(to-ascii? 0x{})",
         "ff".repeat(MAX_TO_ASCII_BUFFER_LEN as usize + 1)
     );
-    let result = execute_with_parameters(
-        response_to_ascii,
-        version,
-        epoch,
-        crate::vm::ast::ASTRules::PrecheckSize,
-        false,
-    );
+    let result = execute_with_parameters(response_to_ascii, version, epoch, false);
     // This should fail at analysis time since the value is too big
     assert!(result.is_err());
 }

@@ -212,10 +212,10 @@ impl UnconfirmedState {
         chainstate: &StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
-    ) -> Result<ProcessedUnconfirmedState, Error> {
+    ) -> ProcessedUnconfirmedState {
         if self.last_mblock_seq == u16::MAX {
             // drop them -- nothing to do
-            return Ok(Default::default());
+            return Default::default();
         }
 
         debug!(
@@ -235,8 +235,6 @@ impl UnconfirmedState {
         let burn_block_timestamp = headers_db
             .get_burn_block_time_for_block(&self.confirmed_chain_tip, None)
             .expect("BUG: unable to get burn block timestamp based on chain tip");
-
-        let ast_rules = burn_dbconn.get_ast_rules(burn_block_height);
 
         let mut last_mblock = self.last_mblock.take();
         let mut last_mblock_seq = self.last_mblock_seq;
@@ -295,7 +293,6 @@ impl UnconfirmedState {
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
                         &[mblock.clone()],
-                        ast_rules,
                     ) {
                         Ok(x) => x,
                         Err((e, _)) => {
@@ -350,14 +347,14 @@ impl UnconfirmedState {
             self.bytes_so_far = 0;
         }
 
-        Ok(ProcessedUnconfirmedState {
+        ProcessedUnconfirmedState {
             total_fees,
             total_burns,
             receipts: all_receipts,
             burn_block_hash,
             burn_block_height,
             burn_block_timestamp,
-        })
+        }
     }
 
     /// Load up the Stacks microblock stream to process, composed of only the new microblocks
@@ -398,10 +395,11 @@ impl UnconfirmedState {
             return Ok(Default::default());
         }
 
-        match self.load_child_microblocks(chainstate)? {
+        let microblocks = match self.load_child_microblocks(chainstate)? {
             Some(microblocks) => self.append_microblocks(chainstate, burn_dbconn, microblocks),
-            None => Ok(Default::default()),
-        }
+            None => Default::default(),
+        };
+        Ok(microblocks)
     }
 
     /// Is there any state to read?
