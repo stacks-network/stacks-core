@@ -19,7 +19,7 @@ use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
     BufferLength, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
-    TraitIdentifier, TupleTypeSignature,
+    StringUTF8Length, TraitIdentifier, TupleTypeSignature,
 };
 
 #[test]
@@ -210,6 +210,91 @@ fn test_type_string_ascii_40() {
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
 
+#[test]
+fn test_string_utf8_length_try_from_u32_trait() {
+    let string = StringUTF8Length::try_from(0_u32).unwrap();
+    assert_eq!(0, string.get_value());
+
+    let string = StringUTF8Length::try_from(1_u32).unwrap();
+    assert_eq!(1, string.get_value());
+
+    let string = StringUTF8Length::try_from(MAX_VALUE_SIZE / 4).unwrap();
+    assert_eq!(MAX_VALUE_SIZE / 4, string.get_value());
+
+    let err = StringUTF8Length::try_from((MAX_VALUE_SIZE / 4) + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+
+    let err = StringUTF8Length::try_from((MAX_VALUE_SIZE / 4) + 4).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+}
+
+#[test]
+fn test_string_utf8_length_try_from_usize_trait() {
+    let string = StringUTF8Length::try_from(0_usize).unwrap();
+    assert_eq!(0, string.get_value());
+
+    let string = StringUTF8Length::try_from(1_usize).unwrap();
+    assert_eq!(1, string.get_value());
+
+    let string = StringUTF8Length::try_from(MAX_VALUE_SIZE as usize / 4).unwrap();
+    assert_eq!(MAX_VALUE_SIZE / 4, string.get_value());
+
+    let err = StringUTF8Length::try_from((MAX_VALUE_SIZE as usize / 4) + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+
+    let err = StringUTF8Length::try_from((MAX_VALUE_SIZE as usize / 4) + 4).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+}
+
+#[test]
+fn test_string_utf8_length_try_from_i128_trait() {
+    let string = StringUTF8Length::try_from(0_i128).unwrap();
+    assert_eq!(0, string.get_value());
+
+    let string = StringUTF8Length::try_from(1_i128).unwrap();
+    assert_eq!(1, string.get_value());
+
+    let string = StringUTF8Length::try_from(MAX_VALUE_SIZE as i128 / 4).unwrap();
+    assert_eq!(MAX_VALUE_SIZE / 4, string.get_value());
+
+    let err = StringUTF8Length::try_from((MAX_VALUE_SIZE as i128 / 4) + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+
+    let err = StringUTF8Length::try_from((MAX_VALUE_SIZE as i128 / 4) + 4).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+
+    let err = StringUTF8Length::try_from(-1_i128).unwrap_err();
+    assert_eq!(CheckErrors::ValueOutOfBounds, err);
+}
+
+/*
+#[test]
+fn test_string_utf8_length_try_from_usize_trait() {
+    let buffer = BufferLength::try_from(0_usize).unwrap();
+    assert_eq!(0, buffer.get_value());
+
+    let buffer = BufferLength::try_from(MAX_VALUE_SIZE as usize).unwrap();
+    assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
+
+    let err = BufferLength::try_from(MAX_VALUE_SIZE as usize + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+}
+
+#[test]
+fn test_buffer_length_try_from_i128_trait() {
+    let buffer = BufferLength::try_from(0_i128).unwrap();
+    assert_eq!(0, buffer.get_value());
+
+    let buffer = BufferLength::try_from(MAX_VALUE_SIZE as i128).unwrap();
+    assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
+
+    let err = BufferLength::try_from(MAX_VALUE_SIZE as i128 + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+
+    let err = BufferLength::try_from(-1_i128).unwrap_err();
+    assert_eq!(CheckErrors::ValueOutOfBounds, err);
+}
+*/
 #[test]
 fn test_least_supertype() {
     let callables = [

@@ -122,7 +122,7 @@ impl BufferLength {
     ///
     /// This function is primarily intended for internal runtime use,
     /// and serves as the central place for all integer validation logic.
-    fn try_from_i128(data: i128) -> Result<BufferLength, CheckErrors> {
+    fn try_from_i128(data: i128) -> Result<Self, CheckErrors> {
         if data > (MAX_VALUE_SIZE as i128) {
             Err(CheckErrors::ValueTooLarge)
         } else if data < 0 {
@@ -184,6 +184,74 @@ impl TryFrom<i128> for BufferLength {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length(u32);
+
+impl StringUTF8Length {
+    /// Attempts to create a [`StringUTF8Length`] from a [`i128`] as a [`Result`].
+    ///
+    /// This function is primarily intended for internal runtime use,
+    /// and serves as the central place for all integer validation logic.
+    fn try_from_i128(data: i128) -> Result<Self, CheckErrors> {
+        let len = data
+            .checked_mul(4)
+            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
+        if len > (MAX_VALUE_SIZE as i128) {
+            Err(CheckErrors::ValueTooLarge)
+        } else if data < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
+        } else {
+            Ok(StringUTF8Length(data as u32))
+        }
+    }
+}
+
+/// Test-only utilities for [`StringUTF8Length`].
+#[cfg(test)]
+impl StringUTF8Length {
+    /// Allow to create a [`StringUTF8Length`] in unsafe way,
+    /// allowing direct write-access to its internal state.
+    pub fn new_unsafe(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the underlying [`u32`] value of this [`StringUTF8Length`].
+    /// This to have an easy read-access to its internal state.
+    pub fn get_value(&self) -> u32 {
+        self.0
+    }
+}
+
+impl From<&StringUTF8Length> for u32 {
+    fn from(v: &StringUTF8Length) -> u32 {
+        v.0
+    }
+}
+
+impl From<StringUTF8Length> for u32 {
+    fn from(v: StringUTF8Length) -> u32 {
+        v.0
+    }
+}
+
+impl TryFrom<u32> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: u32) -> Result<StringUTF8Length, CheckErrors> {
+        Self::try_from(data as usize)
+    }
+}
+
+impl TryFrom<usize> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: usize) -> Result<StringUTF8Length, CheckErrors> {
+        Self::try_from(data as i128)
+    }
+}
+
+impl TryFrom<i128> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: i128) -> Result<StringUTF8Length, CheckErrors> {
+        Self::try_from_i128(data)
+    }
+}
 
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
@@ -307,62 +375,6 @@ impl From<ListTypeData> for TypeSignature {
 impl From<TupleTypeSignature> for TypeSignature {
     fn from(data: TupleTypeSignature) -> Self {
         TupleType(data)
-    }
-}
-
-impl From<&StringUTF8Length> for u32 {
-    fn from(v: &StringUTF8Length) -> u32 {
-        v.0
-    }
-}
-
-impl From<StringUTF8Length> for u32 {
-    fn from(v: StringUTF8Length) -> u32 {
-        v.0
-    }
-}
-
-impl TryFrom<u32> for StringUTF8Length {
-    type Error = CheckErrors;
-    fn try_from(data: u32) -> Result<StringUTF8Length, CheckErrors> {
-        let len = data
-            .checked_mul(4)
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if len > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(StringUTF8Length(data))
-        }
-    }
-}
-
-impl TryFrom<usize> for StringUTF8Length {
-    type Error = CheckErrors;
-    fn try_from(data: usize) -> Result<StringUTF8Length, CheckErrors> {
-        let len = data
-            .checked_mul(4)
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if len > (MAX_VALUE_SIZE as usize) {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(StringUTF8Length(data as u32))
-        }
-    }
-}
-
-impl TryFrom<i128> for StringUTF8Length {
-    type Error = CheckErrors;
-    fn try_from(data: i128) -> Result<StringUTF8Length, CheckErrors> {
-        let len = data
-            .checked_mul(4)
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if len > (MAX_VALUE_SIZE as i128) {
-            Err(CheckErrors::ValueTooLarge)
-        } else if data < 0 {
-            Err(CheckErrors::ValueOutOfBounds)
-        } else {
-            Ok(StringUTF8Length(data as u32))
-        }
     }
 }
 
@@ -868,6 +880,9 @@ impl TypeSignature {
     /// String ASCII type with size 40.
     pub const STRING_ASCII_40: TypeSignature = Self::type_string_ascii::<40>();
 
+    /// String UTF8 type with minimum size (`1`).
+    //pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8::<1>();
+
     /// Creates a buffer type with a given size known at compile time.
     ///
     /// This function is intended for defining constant buffer type
@@ -880,14 +895,24 @@ impl TypeSignature {
 
     /// Creates a string ASCII type with a given size known at compile time.
     ///
-    /// This function is intended for defining constant string type
+    /// This function is intended for defining constant ASCII type
     /// aliases (e.g., [`TypeSignature::STRING_ASCII_MIN`]) without repeating logic.
     const fn type_string_ascii<const VALUE: u32>() -> Self {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
             BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
         )))
     }
-
+    /*
+        /// Creates a string UTF8 type with a given size known at compile time.
+        ///
+        /// This function is intended for defining constant UFT8 type
+        /// aliases (e.g., [`TypeSignature::STRING_UTF8_MIN`]) without repeating logic.
+        const fn type_string_utf8<const VALUE: u32>() -> Self {
+            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+                BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
+            )))
+        }
+    */
     pub fn min_string_utf8() -> Result<TypeSignature, CheckErrors> {
         Ok(SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(1_u32.try_into().map_err(|_| {
