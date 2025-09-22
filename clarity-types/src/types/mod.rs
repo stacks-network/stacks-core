@@ -344,7 +344,7 @@ impl SequenceData {
             SequenceData::Buffer(..) => TypeSignature::BUFFER_MIN.size(),
             SequenceData::List(data) => data.type_signature.get_list_item_type().size(),
             SequenceData::String(CharType::ASCII(..)) => TypeSignature::STRING_ASCII_MIN.size(),
-            SequenceData::String(CharType::UTF8(..)) => TypeSignature::min_string_utf8()?.size(),
+            SequenceData::String(CharType::UTF8(..)) => TypeSignature::STRING_UTF8_MIN.size(),
         }?;
         Ok(out)
     }
@@ -504,7 +504,7 @@ impl SequenceData {
                     }
                 } else {
                     Err(CheckErrors::TypeValueError(
-                        Box::new(TypeSignature::min_string_utf8()?),
+                        Box::new(TypeSignature::STRING_UTF8_MIN),
                         Box::new(to_find),
                     )
                     .into())

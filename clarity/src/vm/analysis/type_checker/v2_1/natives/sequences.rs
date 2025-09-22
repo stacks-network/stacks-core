@@ -92,7 +92,7 @@ pub fn check_special_map(
                         (TypeSignature::STRING_ASCII_MIN, ascii_data.into())
                     }
                     StringType(UTF8(utf8_data)) => {
-                        (TypeSignature::min_string_utf8()?, utf8_data.into())
+                        (TypeSignature::STRING_UTF8_MIN, utf8_data.into())
                     }
                 };
                 min_args = min_args.min(len);

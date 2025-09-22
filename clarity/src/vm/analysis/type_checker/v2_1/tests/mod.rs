@@ -1093,12 +1093,12 @@ fn test_index_of() {
             Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
             Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
             Box::new(TypeSignature::STRING_ASCII_MIN),
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
         ),
         CheckErrors::TypeError(
             Box::new(TypeSignature::list_of(TypeSignature::IntType, 1).unwrap()),
@@ -1114,12 +1114,12 @@ fn test_index_of() {
             Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
             Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
             Box::new(TypeSignature::STRING_ASCII_MIN),
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
         ),
         CheckErrors::CouldNotDetermineType,
         CheckErrors::CouldNotDetermineType,

@@ -186,6 +186,23 @@ impl TryFrom<i128> for BufferLength {
 pub struct StringUTF8Length(u32);
 
 impl StringUTF8Length {
+    /// Attempts to create a [`StringUTF8Length`] from a [`u32`] as an [`Option`].
+    ///
+    /// This function is primarily intended for internal use when defining
+    /// `const` values, since it returns an [`Option`] that can be unwrapped
+    /// with [`Option::expect`] in a `const fn`.
+    const fn try_from_u32_as_opt(value: u32) -> Option<StringUTF8Length> {
+        let len = match value.checked_mul(4) {
+            Some(v) => v,
+            None => return None,
+        };
+        if len > MAX_VALUE_SIZE {
+            None
+        } else {
+            Some(StringUTF8Length(value))
+        }
+    }
+
     /// Attempts to create a [`StringUTF8Length`] from a [`i128`] as a [`Result`].
     ///
     /// This function is primarily intended for internal runtime use,
@@ -303,7 +320,9 @@ impl SequenceSubtype {
             SequenceSubtype::StringType(StringSubtype::ASCII(_)) => {
                 Ok(TypeSignature::STRING_ASCII_MIN)
             }
-            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_string_utf8(),
+            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => {
+                Ok(TypeSignature::STRING_UTF8_MIN)
+            }
         }
     }
 
@@ -881,7 +900,7 @@ impl TypeSignature {
     pub const STRING_ASCII_40: TypeSignature = Self::type_string_ascii::<40>();
 
     /// String UTF8 type with minimum size (`1`).
-    //pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8::<1>();
+    pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8::<1>();
 
     /// Creates a buffer type with a given size known at compile time.
     ///
@@ -899,25 +918,17 @@ impl TypeSignature {
     /// aliases (e.g., [`TypeSignature::STRING_ASCII_MIN`]) without repeating logic.
     const fn type_string_ascii<const VALUE: u32>() -> Self {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-            BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
+            BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid ascii size!"),
         )))
     }
-    /*
-        /// Creates a string UTF8 type with a given size known at compile time.
-        ///
-        /// This function is intended for defining constant UFT8 type
-        /// aliases (e.g., [`TypeSignature::STRING_UTF8_MIN`]) without repeating logic.
-        const fn type_string_utf8<const VALUE: u32>() -> Self {
-            SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-                BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
-            )))
-        }
-    */
-    pub fn min_string_utf8() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::UTF8(1_u32.try_into().map_err(|_| {
-                CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
-            })?),
+
+    /// Creates a string UTF8 type with a given size known at compile time.
+    ///
+    /// This function is intended for defining constant UFT8 type
+    /// aliases (e.g., [`TypeSignature::STRING_UTF8_MIN`]) without repeating logic.
+    const fn type_string_utf8<const VALUE: u32>() -> Self {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+            StringUTF8Length::try_from_u32_as_opt(VALUE).expect("Invalid utf8 size!"),
         )))
     }
 
