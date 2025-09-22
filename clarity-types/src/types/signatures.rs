@@ -232,9 +232,7 @@ impl SequenceSubtype {
         match &self {
             SequenceSubtype::ListType(list_data) => Ok(list_data.clone().destruct().0),
             SequenceSubtype::BufferType(_) => Ok(TypeSignature::BUFFER_MIN),
-            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => {
-                TypeSignature::min_string_ascii()
-            }
+            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => Ok(TypeSignature::STRING_ASCII_MIN),
             SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_string_utf8(),
         }
     }
@@ -438,13 +436,6 @@ impl TypeSignature {
         } else {
             Ok(ResponseType(Box::new((ok_type, err_type))))
         }
-    }
-
-    pub fn new_string_utf8(len: usize) -> Result<TypeSignature, CheckErrors> {
-        let len = StringUTF8Length::try_from(len)?;
-        Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
-            StringSubtype::UTF8(len),
-        )))
     }
 
     pub fn is_response_type(&self) -> bool {
@@ -871,21 +862,26 @@ impl TypeSignature {
     /// Buffer type with size 65.
     pub const BUFFER_65: TypeSignature = Self::type_buffer_of_size::<65>();
 
+    /// String ASCII type with size 1
+    pub const STRING_ASCII_MIN: TypeSignature = Self::type_string_ascii::<1>();
+
     /// Creates a buffer type with a given size known at compile time.
     ///
-    /// This function is intended for defining constant buffer types
-    /// type aliases (e.g., [`TypeSignature::BUFFER_1`]) without repeating logic.
+    /// This function is intended for defining constant buffer type
+    /// aliases (e.g., [`TypeSignature::BUFFER_1`]) without repeating logic.
     const fn type_buffer_of_size<const VALUE: u32>() -> Self {
         SequenceType(SequenceSubtype::BufferType(
             BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
         ))
     }
 
-    pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(1_u32.try_into().map_err(|_| {
-                CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
-            })?),
+    /// Creates a string ASCII type with a given size known at compile time.
+    ///
+    /// This function is intended for defining constant string type
+    /// aliases (e.g., [`TypeSignature::STRING_ASCII_MIN`]) without repeating logic.
+    const fn type_string_ascii<const VALUE: u32>() -> Self {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
         )))
     }
 

@@ -343,7 +343,7 @@ impl SequenceData {
         let out = match self {
             SequenceData::Buffer(..) => TypeSignature::BUFFER_MIN.size(),
             SequenceData::List(data) => data.type_signature.get_list_item_type().size(),
-            SequenceData::String(CharType::ASCII(..)) => TypeSignature::min_string_ascii()?.size(),
+            SequenceData::String(CharType::ASCII(..)) => TypeSignature::STRING_ASCII_MIN.size(),
             SequenceData::String(CharType::UTF8(..)) => TypeSignature::min_string_utf8()?.size(),
         }?;
         Ok(out)
@@ -483,7 +483,7 @@ impl SequenceData {
                     }
                 } else {
                     Err(CheckErrors::TypeValueError(
-                        Box::new(TypeSignature::min_string_ascii()?),
+                        Box::new(TypeSignature::STRING_ASCII_MIN),
                         Box::new(to_find),
                     )
                     .into())

@@ -720,14 +720,14 @@ fn test_index_of() {
         ),
         CheckErrors::TypeError(
             Box::new(TypeSignature::BUFFER_MIN),
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
             Box::new(TypeSignature::min_string_utf8().unwrap()),
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
             Box::new(TypeSignature::min_string_utf8().unwrap()),
         ),
         CheckErrors::CouldNotDetermineType,

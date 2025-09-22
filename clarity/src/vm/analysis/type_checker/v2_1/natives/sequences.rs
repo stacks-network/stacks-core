@@ -89,7 +89,7 @@ pub fn check_special_map(
                     ListType(list_data) => list_data.destruct(),
                     BufferType(buffer_data) => (TypeSignature::BUFFER_MIN, buffer_data.into()),
                     StringType(ASCII(ascii_data)) => {
-                        (TypeSignature::min_string_ascii()?, ascii_data.into())
+                        (TypeSignature::STRING_ASCII_MIN, ascii_data.into())
                     }
                     StringType(UTF8(utf8_data)) => {
                         (TypeSignature::min_string_utf8()?, utf8_data.into())

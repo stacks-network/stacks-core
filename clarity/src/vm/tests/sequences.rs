@@ -122,7 +122,7 @@ fn test_index_of() {
             Box::new(execute("\"a\"").unwrap().unwrap()),
         ),
         CheckErrors::TypeValueError(
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
             Box::new(execute("u\"a\"").unwrap().unwrap()),
         ),
     ];

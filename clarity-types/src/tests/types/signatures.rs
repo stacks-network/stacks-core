@@ -18,8 +18,8 @@ use crate::errors::CheckErrors;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    BufferLength, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier,
-    TupleTypeSignature,
+    BufferLength, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
+    TraitIdentifier, TupleTypeSignature,
 };
 
 #[test]
@@ -163,6 +163,19 @@ fn test_type_buffer_65() {
 
     assert_eq!(expected, actual);
     assert_eq!(69, actual.size().unwrap(), "size should be 69");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_ascii_min() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(1),
+    )));
+    let actual = TypeSignature::STRING_ASCII_MIN;
+
+    assert_eq!(expected, actual);
+    assert_eq!(5, actual.size().unwrap(), "size should be 5");
     assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
     assert_eq!(1, actual.depth(), "depth should be 1");
 }
@@ -430,7 +443,7 @@ fn test_least_supertype() {
         ),
         (
             (
-                TypeSignature::min_string_ascii().unwrap(),
+                TypeSignature::STRING_ASCII_MIN,
                 TypeSignature::bound_string_ascii_type(17).unwrap(),
             ),
             TypeSignature::bound_string_ascii_type(17).unwrap(),
@@ -508,7 +521,7 @@ fn test_least_supertype() {
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![(
                         "b".into(),
-                        TypeSignature::min_string_ascii().unwrap(),
+                        TypeSignature::STRING_ASCII_MIN,
                     )])
                     .unwrap(),
                 ),
@@ -530,7 +543,7 @@ fn test_least_supertype() {
         ),
         (
             (
-                TypeSignature::new_option(TypeSignature::min_string_ascii().unwrap()).unwrap(),
+                TypeSignature::new_option(TypeSignature::STRING_ASCII_MIN).unwrap(),
                 TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17).unwrap())
                     .unwrap(),
             ),
@@ -613,7 +626,7 @@ fn test_least_supertype() {
         ),
         (list_union.clone(), TypeSignature::PrincipalType),
         (
-            TypeSignature::min_string_ascii().unwrap(),
+            TypeSignature::STRING_ASCII_MIN,
             list_union_principals,
         ),
         (
@@ -624,13 +637,13 @@ fn test_least_supertype() {
                 5,
             )
             .unwrap(),
-            TypeSignature::list_of(TypeSignature::min_string_ascii().unwrap(), 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::STRING_ASCII_MIN, 3).unwrap(),
         ),
         (
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![(
                     "b".into(),
-                    TypeSignature::min_string_ascii().unwrap(),
+                    TypeSignature::STRING_ASCII_MIN,
                 )])
                 .unwrap(),
             ),
@@ -639,7 +652,7 @@ fn test_least_supertype() {
             ),
         ),
         (
-            TypeSignature::new_option(TypeSignature::min_string_ascii().unwrap()).unwrap(),
+            TypeSignature::new_option(TypeSignature::STRING_ASCII_MIN).unwrap(),
             TypeSignature::new_option(TypeSignature::min_string_utf8().unwrap()).unwrap(),
         ),
         (
