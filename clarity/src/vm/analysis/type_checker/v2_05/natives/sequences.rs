@@ -129,7 +129,7 @@ pub fn check_special_filter(
 
     {
         let input_type = match argument_type {
-            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
+            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
             _ => Err(CheckErrors::ExpectedSequence(Box::new(
                 argument_type.clone(),
             ))),
@@ -172,7 +172,7 @@ pub fn check_special_fold(
     let argument_type = checker.type_check(&args[1], context)?;
 
     let input_type = match argument_type {
-        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()?),
+        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()),
         _ => Err(CheckErrors::ExpectedSequence(Box::new(argument_type))),
     }?;
 
@@ -420,7 +420,7 @@ pub fn check_special_index_of(
     let list_type = checker.type_check(&args[0], context)?;
 
     let expected_input_type = match list_type {
-        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
+        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
         _ => Err(CheckErrors::ExpectedSequence(Box::new(list_type))),
     }?;
 

@@ -305,16 +305,12 @@ pub enum SequenceSubtype {
 }
 
 impl SequenceSubtype {
-    pub fn unit_type(&self) -> Result<TypeSignature, CheckErrors> {
+    pub fn unit_type(&self) -> TypeSignature {
         match &self {
-            SequenceSubtype::ListType(list_data) => Ok(list_data.clone().destruct().0),
-            SequenceSubtype::BufferType(_) => Ok(TypeSignature::BUFFER_MIN),
-            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => {
-                Ok(TypeSignature::STRING_ASCII_MIN)
-            }
-            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => {
-                Ok(TypeSignature::STRING_UTF8_MIN)
-            }
+            SequenceSubtype::ListType(list_data) => list_data.clone().destruct().0,
+            SequenceSubtype::BufferType(_) => TypeSignature::BUFFER_MIN,
+            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => TypeSignature::STRING_ASCII_MIN,
+            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::STRING_UTF8_MIN,
         }
     }
 

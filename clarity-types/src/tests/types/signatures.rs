@@ -711,8 +711,7 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::new_option(TypeSignature::STRING_ASCII_MIN).unwrap(),
-                TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17))
-                    .unwrap(),
+                TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17)).unwrap(),
             ),
             TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17)).unwrap(),
         ),
