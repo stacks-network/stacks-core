@@ -38,12 +38,12 @@ use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 
 #[derive(Clone)]
-pub struct RPCNakamotoBlockSimulateRequestHandler {
+pub struct RPCNakamotoBlockReplayRequestHandler {
     pub block_id: Option<StacksBlockId>,
     pub auth: Option<String>,
 }
 
-impl RPCNakamotoBlockSimulateRequestHandler {
+impl RPCNakamotoBlockReplayRequestHandler {
     pub fn new(auth: Option<String>) -> Self {
         Self {
             block_id: None,
@@ -55,7 +55,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
         &self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
-    ) -> Result<RPCSimulatedBlock, ChainError> {
+    ) -> Result<RPCReplayedBlock, ChainError> {
         let Some(block_id) = &self.block_id else {
             return Err(ChainError::InvalidStacksBlock("block_id is None".into()));
         };
@@ -179,7 +179,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             block_fees += tx.get_tx_fee() as u128;
         }
 
-        let simulated_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
+        let replayed_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
 
         tenure_tx.rollback_block();
 
@@ -188,7 +188,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
 
         let tx_merkle_root = block.header.tx_merkle_root.clone();
 
-        let mut simulated_block = RPCSimulatedBlock {
+        let mut replayed_block = RPCReplayedBlock {
             block_id: block_id.clone(),
             block_hash,
             block_height,
@@ -201,7 +201,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             miner_signature: block.header.miner_signature,
             signer_signature: block.header.signer_signature,
             transactions: vec![],
-            valid_merkle_root: tx_merkle_root == simulated_block.header.tx_merkle_root,
+            valid_merkle_root: tx_merkle_root == replayed_block.header.tx_merkle_root,
         };
 
         for receipt in txs_receipts {
@@ -220,7 +220,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
                 TransactionOrigin::Burn(_) => None,
             };
             let txid = receipt.transaction.txid();
-            let transaction = RPCSimulatedBlockTransaction {
+            let transaction = RPCReplayedBlockTransaction {
                 txid,
                 tx_index: receipt.tx_index,
                 data: transaction_data,
@@ -230,15 +230,15 @@ impl RPCNakamotoBlockSimulateRequestHandler {
                 execution_cost: receipt.execution_cost,
                 events,
             };
-            simulated_block.transactions.push(transaction);
+            replayed_block.transactions.push(transaction);
         }
 
-        Ok(simulated_block)
+        Ok(replayed_block)
     }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RPCSimulatedBlockTransaction {
+pub struct RPCReplayedBlockTransaction {
     pub txid: Txid,
     pub tx_index: u32,
     pub data: Option<StacksTransaction>,
@@ -250,7 +250,7 @@ pub struct RPCSimulatedBlockTransaction {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RPCSimulatedBlock {
+pub struct RPCReplayedBlock {
     pub block_id: StacksBlockId,
     pub block_hash: BlockHeaderHash,
     pub block_height: u64,
@@ -262,22 +262,22 @@ pub struct RPCSimulatedBlock {
     pub timestamp: u64,
     pub miner_signature: MessageSignature,
     pub signer_signature: Vec<MessageSignature>,
-    pub transactions: Vec<RPCSimulatedBlockTransaction>,
+    pub transactions: Vec<RPCReplayedBlockTransaction>,
     pub valid_merkle_root: bool,
 }
 
 /// Decode the HTTP request
-impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
+impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
     fn verb(&self) -> &'static str {
         "GET"
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/blocks/simulate/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
+        Regex::new(r#"^/v3/blocks/replay/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v3/blocks/simulate/:block_id"
+        "/v3/blocks/replay/:block_id"
     }
 
     /// Try to decode this request.
@@ -289,7 +289,7 @@ impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
         query: Option<&str>,
         _body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
-        // If no authorization is set, then the block simulation endpoint is not enabled
+        // If no authorization is set, then the block replay endpoint is not enabled
         let Some(password) = &self.auth else {
             return Err(Error::Http(400, "Bad Request.".into()));
         };
@@ -321,7 +321,7 @@ impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
+impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -339,14 +339,14 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
             .take()
             .ok_or(NetError::SendError("Missing `block_id`".into()))?;
 
-        let simulated_block_res =
+        let replayed_block_res =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
                 self.block_replay(sortdb, chainstate)
             });
 
         // start loading up the block
-        let simulated_block = match simulated_block_res {
-            Ok(simulated_block) => simulated_block,
+        let replayed_block = match replayed_block_res {
+            Ok(replayed_block) => replayed_block,
             Err(ChainError::NoSuchBlockError) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
@@ -366,18 +366,18 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
         };
 
         let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let body = HttpResponseContents::try_from_json(&simulated_block)?;
+        let body = HttpResponseContents::try_from_json(&replayed_block)?;
         Ok((preamble, body))
     }
 }
 
 impl StacksHttpRequest {
-    /// Make a new block_simulate request to this endpoint
-    pub fn new_block_simulate(host: PeerHost, block_id: &StacksBlockId) -> StacksHttpRequest {
+    /// Make a new block_replay request to this endpoint
+    pub fn new_block_replay(host: PeerHost, block_id: &StacksBlockId) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/blocks/simulate/{block_id}"),
+            format!("/v3/blocks/replay/{block_id}"),
             HttpRequestContents::new(),
         )
         .expect("FATAL: failed to construct request from infallible data")
@@ -385,7 +385,7 @@ impl StacksHttpRequest {
 }
 
 /// Decode the HTTP response
-impl HttpResponse for RPCNakamotoBlockSimulateRequestHandler {
+impl HttpResponse for RPCNakamotoBlockReplayRequestHandler {
     /// Decode this response from a byte stream.  This is called by the client to decode this
     /// message
     fn try_parse_response(
@@ -393,17 +393,17 @@ impl HttpResponse for RPCNakamotoBlockSimulateRequestHandler {
         preamble: &HttpResponsePreamble,
         body: &[u8],
     ) -> Result<HttpResponsePayload, Error> {
-        let rpc_simulated_block: RPCSimulatedBlock = parse_json(preamble, body)?;
-        Ok(HttpResponsePayload::try_from_json(rpc_simulated_block)?)
+        let rpc_replayed_block: RPCReplayedBlock = parse_json(preamble, body)?;
+        Ok(HttpResponsePayload::try_from_json(rpc_replayed_block)?)
     }
 }
 
 impl StacksHttpResponse {
-    pub fn decode_simulated_block(self) -> Result<RPCSimulatedBlock, NetError> {
+    pub fn decode_replayed_block(self) -> Result<RPCReplayedBlock, NetError> {
         let contents = self.get_http_payload_ok()?;
         let response_json: serde_json::Value = contents.try_into()?;
-        let simulated_block: RPCSimulatedBlock = serde_json::from_value(response_json)
+        let replayed_block: RPCReplayedBlock = serde_json::from_value(response_json)
             .map_err(|_e| Error::DecodeError("Failed to decode JSON".to_string()))?;
-        Ok(simulated_block)
+        Ok(replayed_block)
     }
 }

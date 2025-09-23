@@ -159,8 +159,8 @@ components:
       $ref: ./components/schemas/get-stacker-set.schema.yaml
     TenureBlocks:
       $ref: ./components/schemas/tenure-blocks.schema.yaml
-    BlockSimulate:
-      $ref: ./components/schemas/block-simulate.schema.yaml
+    BlockReplay:
+      $ref: ./components/schemas/block-replay.schema.yaml
 
 paths:
   /v2/transactions:
@@ -2200,15 +2200,15 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
-  /v3/blocks/simulate/{block_id}:
+  /v3/blocks/replay/{block_id}:
     get:
-      summary: Simulate mining of a block and returns its content
+      summary: Replay mining of a block and returns its content
       tags:
         - Blocks
       security: []
-      operationId: blockSimulate
+      operationId: blockReplay
       description: |
-        Simulate the mining of a block (no data is written in the MARF) and returns its content.
+        Replay the mining of a block (no data is written in the MARF) and returns its content.
       parameters:
         - name: block_id
           in: path
@@ -2219,13 +2219,13 @@ paths:
             pattern: "^[0-9a-f]{64}$"
       responses:
         "200":
-          description: Content of the simulated block
+          description: Content of the replayed block
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/BlockSimulate"
+                $ref: "#/components/schemas/BlockReplay"
               example:
-                $ref: "./components/examples/block-simulate.example.json"
+                $ref: "./components/examples/block-replay.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
