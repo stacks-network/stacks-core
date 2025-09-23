@@ -3437,7 +3437,7 @@ fn test_principal_construct() {
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
             CheckErrors::TypeError(
                 Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
-                Box::new(TypeSignature::bound_string_ascii_type(41)),
+                Box::new(SequenceType(StringType(ASCII(41_u32.try_into().unwrap())))),
             ),
         ),
         // bad argument type for `name`

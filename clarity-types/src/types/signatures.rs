@@ -904,7 +904,7 @@ impl TypeSignature {
     }
 
     /// Create a string ASCII type with a given len.
-    #[cfg(any(test, feature = "testing"))]
+    #[cfg(test)]
     pub const fn bound_string_ascii_type(len: u32) -> Self {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
             BufferLength::try_from_u32_as_opt(len).expect("Invalid ascii size!"),
