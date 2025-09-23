@@ -3549,6 +3549,11 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             Ok(to_ascii_response_type.clone()),
         ),
         (
+            &format!("(to-ascii? 0x{})", "ff".repeat(524284)),
+            "max len buffer type",
+            Ok(to_ascii_response_type.clone()),
+        ),
+        (
             &format!("(to-ascii? 0x{})", "ff".repeat(524285)),
             "oversized buffer type",
             Err(CheckErrors::UnionTypeError(
