@@ -835,80 +835,82 @@ impl TypeSignature {
     /// Buffer type with minimum length. Alias for [`TypeSignature::BUFFER_1`].
     pub const BUFFER_MIN: TypeSignature = TypeSignature::BUFFER_1;
     /// Buffer type with maximum length ([`MAX_VALUE_SIZE`]).
-    pub const BUFFER_MAX: TypeSignature = Self::type_buffer::<MAX_VALUE_SIZE>();
+    pub const BUFFER_MAX: TypeSignature = Self::type_buffer_const(MAX_VALUE_SIZE);
     /// Buffer type with length 1.
-    pub const BUFFER_1: TypeSignature = Self::type_buffer::<1>();
+    pub const BUFFER_1: TypeSignature = Self::type_buffer_const(1);
     /// Buffer type with length 20.
-    pub const BUFFER_20: TypeSignature = Self::type_buffer::<20>();
+    pub const BUFFER_20: TypeSignature = Self::type_buffer_const(20);
     /// Buffer type with length 32.
-    pub const BUFFER_32: TypeSignature = Self::type_buffer::<32>();
+    pub const BUFFER_32: TypeSignature = Self::type_buffer_const(32);
     /// Buffer type with length 33.
-    pub const BUFFER_33: TypeSignature = Self::type_buffer::<33>();
+    pub const BUFFER_33: TypeSignature = Self::type_buffer_const(33);
     /// Buffer type with length 64.
-    pub const BUFFER_64: TypeSignature = Self::type_buffer::<64>();
+    pub const BUFFER_64: TypeSignature = Self::type_buffer_const(64);
     /// Buffer type with length 65.
-    pub const BUFFER_65: TypeSignature = Self::type_buffer::<65>();
+    pub const BUFFER_65: TypeSignature = Self::type_buffer_const(65);
 
     /// String ASCII type with minimum length (`1`).
-    pub const STRING_ASCII_MIN: TypeSignature = Self::type_string_ascii::<1>();
+    pub const STRING_ASCII_MIN: TypeSignature = Self::type_ascii_const(1);
     /// String ASCII type with maximum length ([`MAX_VALUE_SIZE`]).
-    pub const STRING_ASCII_MAX: TypeSignature = Self::type_string_ascii::<MAX_VALUE_SIZE>();
+    pub const STRING_ASCII_MAX: TypeSignature = Self::type_ascii_const(MAX_VALUE_SIZE);
     /// String ASCII type with length 40.
-    pub const STRING_ASCII_40: TypeSignature = Self::type_string_ascii::<40>();
+    pub const STRING_ASCII_40: TypeSignature = Self::type_ascii_const(40);
 
     /// String UTF8 type with minimum length (`1`).
-    pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8::<1>();
+    pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8(1);
     /// String UTF8 type with maximum length ([`MAX_UTF8_VALUE_SIZE`]).
-    pub const STRING_UTF8_MAX: TypeSignature = Self::type_string_utf8::<MAX_UTF8_VALUE_SIZE>();
+    pub const STRING_UTF8_MAX: TypeSignature = Self::type_string_utf8(MAX_UTF8_VALUE_SIZE);
     /// String UTF8 type with length 40.
-    pub const STRING_UTF8_40: TypeSignature = Self::type_string_utf8::<40>();
+    pub const STRING_UTF8_40: TypeSignature = Self::type_string_utf8(40);
 
     /// Longest ([`MAX_TO_ASCII_BUFFER_LEN`]) buffer allowed for `to-ascii?` call.
-    pub const TO_ASCII_BUFFER_MAX: TypeSignature = Self::type_buffer::<MAX_TO_ASCII_BUFFER_LEN>();
+    pub const TO_ASCII_BUFFER_MAX: TypeSignature = Self::type_buffer_const(MAX_TO_ASCII_BUFFER_LEN);
     /// Longest ([`MAX_TO_ASCII_RESULT_LEN`]) string allowed for `to-ascii?` call.
     pub const TO_ASCII_STRING_ASCII_MAX: TypeSignature =
-        Self::type_string_ascii::<MAX_TO_ASCII_RESULT_LEN>();
+        Self::type_ascii_const(MAX_TO_ASCII_RESULT_LEN);
 
     /// Longest ([`CONTRACT_MAX_NAME_LENGTH`]) string allowed for `contract-name`.
     pub const CONTRACT_NAME_STRING_ASCII_MAX: TypeSignature =
-        Self::type_string_ascii::<{ CONTRACT_MAX_NAME_LENGTH as u32 }>();
+        Self::type_ascii_const(CONTRACT_MAX_NAME_LENGTH as u32);
 
-    /// Creates a buffer type with a given size known at compile time.
+    /// Creates a buffer type with the specified length.
     ///
-    /// This function is intended for defining constant buffer type
-    /// aliases (e.g., [`TypeSignature::BUFFER_1`]) without repeating logic.
-    const fn type_buffer<const VALUE: u32>() -> Self {
+    /// # Note
+    /// This function is intended for use in constant contexts or for testing purposes.
+    /// It may panic if the provided length is invalid.
+    const fn type_buffer_const(len: u32) -> Self {
         SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid buffer size!"),
+            BufferLength::try_from_u32_as_opt(len).expect("Invalid buffer length!"),
         ))
     }
 
-    /// Creates a string ASCII type with a given size known at compile time.
+    /// Creates a string ASCII type with the specified length.
     ///
-    /// This function is intended for defining constant ASCII type
-    /// aliases (e.g., [`TypeSignature::STRING_ASCII_MIN`]) without repeating logic.
-    const fn type_string_ascii<const VALUE: u32>() -> Self {
+    /// # Note
+    /// This function is intended for use in constant contexts or for testing purposes.
+    /// It may panic if the provided length is invalid.
+    const fn type_ascii_const(len: u32) -> Self {
         SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-            BufferLength::try_from_u32_as_opt(VALUE).expect("Invalid ascii size!"),
+            BufferLength::try_from_u32_as_opt(len).expect("Invalid ascii length!"),
         )))
     }
 
-    /// Creates a string UTF8 type with a given size known at compile time.
+    /// Creates a string UTF8 type with the specified length.
     ///
-    /// This function is intended for defining constant UFT8 type
-    /// aliases (e.g., [`TypeSignature::STRING_UTF8_MIN`]) without repeating logic.
-    const fn type_string_utf8<const VALUE: u32>() -> Self {
+    /// # Note
+    /// This function is intended for use in constant contexts or for testing purposes.
+    /// It may panic if the provided length is invalid.
+    const fn type_string_utf8(len: u32) -> Self {
         SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-            StringUTF8Length::try_from_u32_as_opt(VALUE).expect("Invalid utf8 size!"),
+            StringUTF8Length::try_from_u32_as_opt(len).expect("Invalid utf8 length!"),
         )))
     }
 
-    /// Create a string ASCII type with a given len.
+    /// Creates a string ASCII type with the specified length.
+    /// It may panic if the provided length is invalid.
     #[cfg(test)]
-    pub const fn bound_string_ascii_type(len: u32) -> Self {
-        SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
-            BufferLength::try_from_u32_as_opt(len).expect("Invalid ascii size!"),
-        )))
+    pub const fn new_ascii_type_checked(len: u32) -> Self {
+        Self::type_ascii_const(len)
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)

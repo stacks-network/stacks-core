@@ -411,9 +411,9 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::NoType,
-                TypeSignature::bound_string_ascii_type(17),
+                TypeSignature::new_ascii_type_checked(17),
             ),
-            TypeSignature::bound_string_ascii_type(17),
+            TypeSignature::new_ascii_type_checked(17),
         ),
         (
             (TypeSignature::NoType, TypeSignature::STRING_UTF8_MAX),
@@ -508,10 +508,10 @@ fn test_least_supertype() {
         ),
         (
             (
-                TypeSignature::bound_string_ascii_type(17),
-                TypeSignature::bound_string_ascii_type(17),
+                TypeSignature::new_ascii_type_checked(17),
+                TypeSignature::new_ascii_type_checked(17),
             ),
-            TypeSignature::bound_string_ascii_type(17),
+            TypeSignature::new_ascii_type_checked(17),
         ),
         (
             (
@@ -613,9 +613,9 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::STRING_ASCII_MIN,
-                TypeSignature::bound_string_ascii_type(17),
+                TypeSignature::new_ascii_type_checked(17),
             ),
-            TypeSignature::bound_string_ascii_type(17),
+            TypeSignature::new_ascii_type_checked(17),
         ),
         (
             (
@@ -697,7 +697,7 @@ fn test_least_supertype() {
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![(
                         "b".into(),
-                        TypeSignature::bound_string_ascii_type(17),
+                        TypeSignature::new_ascii_type_checked(17),
                     )])
                     .unwrap(),
                 ),
@@ -705,7 +705,7 @@ fn test_least_supertype() {
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![(
                     "b".into(),
-                    TypeSignature::bound_string_ascii_type(17),
+                    TypeSignature::new_ascii_type_checked(17),
                 )])
                 .unwrap(),
             ),
@@ -713,9 +713,9 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::new_option(TypeSignature::STRING_ASCII_MIN).unwrap(),
-                TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17)).unwrap(),
+                TypeSignature::new_option(TypeSignature::new_ascii_type_checked(17)).unwrap(),
             ),
-            TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17)).unwrap(),
+            TypeSignature::new_option(TypeSignature::new_ascii_type_checked(17)).unwrap(),
         ),
         (
             (
@@ -754,7 +754,7 @@ fn test_least_supertype() {
         ),
         (
             TypeSignature::STRING_UTF8_MIN,
-            TypeSignature::bound_string_ascii_type(17),
+            TypeSignature::new_ascii_type_checked(17),
         ),
         (TypeSignature::STRING_UTF8_MIN, TypeSignature::BUFFER_MIN),
         (
