@@ -26,7 +26,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use crate::vm::{
     ast::ASTRules,
     contexts::AssetMapEntry,
-    errors::{CheckErrors, RuntimeError},
+    errors::{CheckErrorKind, RuntimeError},
     tests::{
         execute, is_committed, is_err_code, symbols_from_values, tl_env_factory as env_factory,
         TopLevelMemoryEnvironmentGenerator,
@@ -622,7 +622,7 @@ fn test_simple_token_system(
 
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        Error::Unchecked(CheckErrorKind::TypeValueError(_, _))
     ));
 
     let (result, asset_map, _events) = execute_transaction(
@@ -856,7 +856,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        Error::Unchecked(CheckErrorKind::TypeValueError(_, _))
     ));
 
     let err = owned_env
@@ -869,7 +869,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        Error::Unchecked(CheckErrorKind::TypeValueError(_, _))
     ));
 
     owned_env

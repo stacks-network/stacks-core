@@ -24,7 +24,7 @@ use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     FixedFunction, FunctionArg, FunctionType, TupleTypeSignature, TypeSignature,
 };
-use crate::vm::{CheckErrors, ClarityName, ClarityVersion};
+use crate::vm::{CheckErrorKind, ClarityName, ClarityVersion};
 
 pub fn build_contract_interface(
     contract_analysis: &ContractAnalysis,
@@ -278,7 +278,7 @@ impl ContractInterfaceFunction {
                             FunctionType::Fixed(FixedFunction { returns, .. }) => {
                                 ContractInterfaceAtomType::from_type_signature(returns)
                             }
-                            _ => return Err(CheckErrors::Expects(
+                            _ => return Err(CheckErrorKind::Expects(
                                 "Contract functions should only have fixed function return types!"
                                     .into(),
                             )
@@ -290,7 +290,7 @@ impl ContractInterfaceFunction {
                             ContractInterfaceFunctionArg::from_function_args(args)
                         }
                         _ => {
-                            return Err(CheckErrors::Expects(
+                            return Err(CheckErrorKind::Expects(
                                 "Contract functions should only have fixed function arguments!"
                                     .into(),
                             )
@@ -402,7 +402,7 @@ impl ContractInterface {
 
     pub fn serialize(&self) -> Result<String, StaticCheckError> {
         serde_json::to_string(self).map_err(|_| {
-            CheckErrors::Expects("Failed to serialize contract interface".into()).into()
+            CheckErrorKind::Expects("Failed to serialize contract interface".into()).into()
         })
     }
 }

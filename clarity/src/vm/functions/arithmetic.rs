@@ -21,7 +21,7 @@ use integer_sqrt::IntegerSquareRoot;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult, RuntimeError,
+    check_argument_count, CheckErrorKind, InterpreterError, InterpreterResult, RuntimeError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
@@ -76,7 +76,7 @@ macro_rules! type_force_binary_arithmetic {
         match ($x, $y) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (x, _) => Err(CheckErrors::UnionTypeValueError(
+            (x, _) => Err(CheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 Box::new(x),
             )
@@ -91,7 +91,7 @@ macro_rules! type_force_binary_comparison_v1 {
         match ($x, $y) {
             (Value::Int(x), Value::Int(y)) => I128Ops::$function(x, y),
             (Value::UInt(x), Value::UInt(y)) => U128Ops::$function(x, y),
-            (x, _) => Err(CheckErrors::UnionTypeValueError(
+            (x, _) => Err(CheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 Box::new(x),
             )
@@ -119,7 +119,7 @@ macro_rules! type_force_binary_comparison_v2 {
                 Value::Sequence(SequenceData::Buffer(BuffData { data: x })),
                 Value::Sequence(SequenceData::Buffer(BuffData { data: y })),
             ) => BuffOps::$function(x, y),
-            (x, _) => Err(CheckErrors::UnionTypeValueError(
+            (x, _) => Err(CheckErrorKind::UnionTypeValueError(
                 vec![
                     TypeSignature::IntType,
                     TypeSignature::UIntType,
@@ -139,7 +139,7 @@ macro_rules! type_force_unary_arithmetic {
         match $x {
             Value::Int(x) => I128Ops::$function(x),
             Value::UInt(x) => U128Ops::$function(x),
-            x => Err(CheckErrors::UnionTypeValueError(
+            x => Err(CheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 Box::new(x),
             )
@@ -155,14 +155,14 @@ macro_rules! type_force_variadic_arithmetic {
     ($function: ident, $args: expr) => {{
         let first = $args
             .get(0)
-            .ok_or(CheckErrors::IncorrectArgumentCount(1, $args.len()))?;
+            .ok_or(CheckErrorKind::IncorrectArgumentCount(1, $args.len()))?;
         match first {
             Value::Int(_) => {
                 let typed_args: Result<Vec<_>, _> = $args
                     .drain(..)
                     .map(|x| match x {
                         Value::Int(value) => Ok(value),
-                        _ => Err(CheckErrors::TypeValueError(
+                        _ => Err(CheckErrorKind::TypeValueError(
                             Box::new(TypeSignature::IntType),
                             Box::new(x.clone()),
                         )),
@@ -176,7 +176,7 @@ macro_rules! type_force_variadic_arithmetic {
                     .drain(..)
                     .map(|x| match x {
                         Value::UInt(value) => Ok(value),
-                        _ => Err(CheckErrors::TypeValueError(
+                        _ => Err(CheckErrorKind::TypeValueError(
                             Box::new(TypeSignature::UIntType),
                             Box::new(x.clone()),
                         )),
@@ -185,7 +185,7 @@ macro_rules! type_force_variadic_arithmetic {
                 let checked_args = typed_args?;
                 U128Ops::$function(&checked_args)
             }
-            _ => Err(CheckErrors::UnionTypeValueError(
+            _ => Err(CheckErrorKind::UnionTypeValueError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 Box::new(first.clone()),
             )
@@ -254,7 +254,7 @@ macro_rules! make_arithmetic_ops {
             fn sub(args: &[$type]) -> InterpreterResult<Value> {
                 let (first, rest) = args
                     .split_first()
-                    .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
+                    .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 0))?;
                 if rest.len() == 0 {
                     // return negation
                     return Self::make_value(
@@ -280,7 +280,7 @@ macro_rules! make_arithmetic_ops {
             fn div(args: &[$type]) -> InterpreterResult<Value> {
                 let (first, rest) = args
                     .split_first()
-                    .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
+                    .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 0))?;
                 let result = rest
                     .iter()
                     .try_fold(*first, |acc: $type, x: &$type| acc.checked_div(*x))
@@ -598,14 +598,14 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<
                 let result = input.wrapping_shl(shamt);
                 Ok(Value::UInt(result))
             }
-            _ => Err(CheckErrors::UnionTypeError(
+            _ => Err(CheckErrorKind::UnionTypeError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 Box::new(TypeSignature::type_of(&input)?),
             )
             .into()),
         }
     } else {
-        Err(CheckErrors::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(pos)).into())
+        Err(CheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(pos)).into())
     }
 }
 
@@ -624,14 +624,14 @@ pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult
                 let result = input.wrapping_shr(shamt);
                 Ok(Value::UInt(result))
             }
-            _ => Err(CheckErrors::UnionTypeError(
+            _ => Err(CheckErrorKind::UnionTypeError(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 Box::new(TypeSignature::type_of(&input)?),
             )
             .into()),
         }
     } else {
-        Err(CheckErrors::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(pos)).into())
+        Err(CheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(pos)).into())
     }
 }
 
@@ -640,7 +640,10 @@ pub fn native_to_uint(input: Value) -> InterpreterResult<Value> {
         let uint_val = u128::try_from(int_val).map_err(|_| RuntimeError::ArithmeticUnderflow)?;
         Ok(Value::UInt(uint_val))
     } else {
-        Err(CheckErrors::TypeValueError(Box::new(TypeSignature::IntType), Box::new(input)).into())
+        Err(
+            CheckErrorKind::TypeValueError(Box::new(TypeSignature::IntType), Box::new(input))
+                .into(),
+        )
     }
 }
 
@@ -649,6 +652,9 @@ pub fn native_to_int(input: Value) -> InterpreterResult<Value> {
         let int_val = i128::try_from(uint_val).map_err(|_| RuntimeError::ArithmeticOverflow)?;
         Ok(Value::Int(int_val))
     } else {
-        Err(CheckErrors::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(input)).into())
+        Err(
+            CheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(input))
+                .into(),
+        )
     }
 }

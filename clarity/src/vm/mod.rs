@@ -73,7 +73,7 @@ use crate::vm::costs::{
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
 use crate::vm::errors::{
-    CheckErrors, Error, InterpreterError, InterpreterResult as Result, RuntimeError,
+    CheckErrorKind, Error, InterpreterError, InterpreterResult as Result, RuntimeError,
 };
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
@@ -183,7 +183,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
             runtime_cost(ClarityCostFunction::LookupVariableSize, env, value.size()?)?;
             let (value, _) =
                 Value::sanitize_value(env.epoch(), &TypeSignature::type_of(&value)?, value)
-                    .ok_or_else(|| CheckErrors::CouldNotDetermineType)?;
+                    .ok_or_else(|| CheckErrorKind::CouldNotDetermineType)?;
             Ok(value)
         } else if let Some(callable_data) = context.lookup_callable_contract(name) {
             if env.contract_context.get_clarity_version() < &ClarityVersion::Clarity2 {
@@ -192,7 +192,7 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
                 Ok(Value::CallableContract(callable_data.clone()))
             }
         } else {
-            Err(CheckErrors::UndefinedVariable(name.to_string()).into())
+            Err(CheckErrorKind::UndefinedVariable(name.to_string()).into())
         }
     }
 }
@@ -208,7 +208,7 @@ pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType
         let user_function = env
             .contract_context
             .lookup_function(name)
-            .ok_or(CheckErrors::UndefinedFunction(name.to_string()))?;
+            .ok_or(CheckErrorKind::UndefinedFunction(name.to_string()))?;
         Ok(CallableType::UserFunction(user_function))
     }
 }
@@ -234,7 +234,7 @@ pub fn apply(
     // do recursion check on user functions.
     let track_recursion = matches!(function, CallableType::UserFunction(_));
     if track_recursion && env.call_stack.contains(&identifier) {
-        return Err(CheckErrors::CircularReference(vec![identifier.to_string()]).into());
+        return Err(CheckErrorKind::CircularReference(vec![identifier.to_string()]).into());
     }
 
     if env.call_stack.depth() >= MAX_CALL_STACK_DEPTH {
@@ -341,11 +341,11 @@ pub fn eval(
         List(ref children) => {
             let (function_variable, rest) = children
                 .split_first()
-                .ok_or(CheckErrors::NonFunctionApplication)?;
+                .ok_or(CheckErrorKind::NonFunctionApplication)?;
 
             let function_name = function_variable
                 .match_atom()
-                .ok_or(CheckErrors::BadFunctionName)?;
+                .ok_or(CheckErrorKind::BadFunctionName)?;
             let f = lookup_function(function_name, env)?;
             apply(&f, rest, env, context)
         }

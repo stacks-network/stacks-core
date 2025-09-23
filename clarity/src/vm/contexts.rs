@@ -36,7 +36,9 @@ use crate::vm::database::{
     ClarityDatabase, DataMapMetadata, DataVariableMetadata, FungibleTokenMetadata,
     NonFungibleTokenMetadata,
 };
-use crate::vm::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeError};
+use crate::vm::errors::{
+    CheckErrorKind, InterpreterError, InterpreterResult as Result, RuntimeError,
+};
 use crate::vm::events::*;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
@@ -1114,11 +1116,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
             let contract = self.global_context.database.get_contract(contract_identifier)?;
 
             let func = contract.contract_context.lookup_function(tx_name)
-                .ok_or_else(|| { CheckErrors::UndefinedFunction(tx_name.to_string()) })?;
+                .ok_or_else(|| { CheckErrorKind::UndefinedFunction(tx_name.to_string()) })?;
             if !allow_private && !func.is_public() {
-                return Err(CheckErrors::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(CheckErrorKind::NoSuchPublicFunction(contract_identifier.to_string(), tx_name.to_string()).into());
             } else if read_only && !func.is_read_only() {
-                return Err(CheckErrors::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
+                return Err(CheckErrorKind::PublicFunctionNotReadOnly(contract_identifier.to_string(), tx_name.to_string()).into());
             }
 
             let args: Result<Vec<Value>> = args.iter()
@@ -1132,7 +1134,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                         self.epoch(),
                         &expected_type,
                         value.clone(),
-                    ).ok_or_else(|| CheckErrors::TypeValueError(
+                    ).ok_or_else(|| CheckErrorKind::TypeValueError(
                             Box::new(expected_type),
                             Box::new(value.clone()),
                         )
@@ -1146,7 +1148,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
 
             let func_identifier = func.get_identifier();
             if self.call_stack.contains(&func_identifier) {
-                return Err(CheckErrors::CircularReference(vec![func_identifier.to_string()]).into())
+                return Err(CheckErrorKind::CircularReference(vec![func_identifier.to_string()]).into())
             }
             self.call_stack.insert(&func_identifier, true);
             let res = self.execute_function_as_transaction(&func, &args, Some(&contract.contract_context), allow_private);
@@ -1288,7 +1290,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                 .has_contract(&contract_identifier)
             {
                 return Err(
-                    CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into(),
+                    CheckErrorKind::ContractAlreadyExists(contract_identifier.to_string()).into(),
                 );
             }
 
@@ -1764,7 +1766,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 self.commit()?;
                 Ok(result)
             } else {
-                Err(CheckErrors::PublicFunctionMustReturnResponse(Box::new(
+                Err(CheckErrorKind::PublicFunctionMustReturnResponse(Box::new(
                     TypeSignature::type_of(&result)?,
                 ))
                 .into())
