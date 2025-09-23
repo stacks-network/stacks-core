@@ -2,7 +2,7 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
+use crate::vm::analysis::{AnalysisDatabase, CheckErrors, ContractAnalysis, StaticCheckError};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
@@ -19,7 +19,7 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 pub enum ClarityError {
     /// Error during static type-checking or semantic analysis.
     /// The `StaticCheckError` wraps the specific type-checking error, including diagnostic details.
-    Analysis(CheckError),
+    StaticCheck(StaticCheckError),
     /// Error during lexical or syntactic parsing.
     /// The `ParseError` wraps the specific parsing error, such as invalid syntax or tokens.
     Parse(ParseError),
@@ -52,7 +52,7 @@ impl fmt::Display for ClarityError {
             ClarityError::CostError(ref a, ref b) => {
                 write!(f, "Cost Error: {a} cost exceeded budget of {b} cost")
             }
-            ClarityError::Analysis(ref e) => fmt::Display::fmt(e, f),
+            ClarityError::StaticCheck(ref e) => fmt::Display::fmt(e, f),
             ClarityError::Parse(ref e) => fmt::Display::fmt(e, f),
             ClarityError::AbortedByCallback { reason, .. } => {
                 write!(f, "Post condition aborted transaction: {reason}")
@@ -68,7 +68,7 @@ impl std::error::Error for ClarityError {
         match *self {
             ClarityError::CostError(ref _a, ref _b) => None,
             ClarityError::AbortedByCallback { .. } => None,
-            ClarityError::Analysis(ref e) => Some(e),
+            ClarityError::StaticCheck(ref e) => Some(e),
             ClarityError::Parse(ref e) => Some(e),
             ClarityError::Interpreter(ref e) => Some(e),
             ClarityError::BadTransaction(ref _s) => None,
@@ -76,8 +76,8 @@ impl std::error::Error for ClarityError {
     }
 }
 
-impl From<CheckError> for ClarityError {
-    fn from(e: CheckError) -> Self {
+impl From<StaticCheckError> for ClarityError {
+    fn from(e: StaticCheckError) -> Self {
         match *e.err {
             CheckErrors::CostOverflow => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
@@ -89,7 +89,7 @@ impl From<CheckError> for ClarityError {
             CheckErrors::ExecutionTimeExpired => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            _ => ClarityError::Analysis(e),
+            _ => ClarityError::StaticCheck(e),
         }
     }
 }
@@ -269,7 +269,7 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         identifier: &QualifiedContractIdentifier,
         contract_analysis: &ContractAnalysis,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.with_analysis_db(|db, cost_tracker| {
             db.begin();
             let result = db.insert_contract(identifier, contract_analysis);

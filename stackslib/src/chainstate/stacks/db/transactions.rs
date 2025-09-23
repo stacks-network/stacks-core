@@ -194,7 +194,7 @@ impl StacksTransactionReceipt {
         error: ClarityError,
     ) -> StacksTransactionReceipt {
         let error_string = match error {
-            ClarityError::Analysis(ref check_error) => {
+            ClarityError::StaticCheck(ref check_error) => {
                 if let Some(span) = check_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
@@ -380,7 +380,7 @@ pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxErro
                 err_type: "runtime error",
             }
         }
-        ClarityError::Interpreter(InterpreterError::ShortReturn(_)) => {
+        ClarityError::Interpreter(InterpreterError::EarlyReturn(_)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
@@ -1310,7 +1310,7 @@ impl StacksChainState {
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
-                                if let ClarityError::Analysis(err) = &other_error {
+                                if let ClarityError::StaticCheck(err) = &other_error {
                                     if err.err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
