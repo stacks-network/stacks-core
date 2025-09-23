@@ -74,22 +74,23 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             .get_nakamoto_block_rowid(&block_id)?
             .ok_or(ChainError::NoSuchBlockError)?;
 
-        let mut blob_fd = db_conn
-            .open_nakamoto_block(rowid, false)
-            .map_err(|e| {
-                let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
-                warn!("{}", &msg);
-                msg
-            })
-            .unwrap();
+        let mut blob_fd = match db_conn.open_nakamoto_block(rowid, false).map_err(|e| {
+            let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
+            warn!("{}", &msg);
+            msg
+        }) {
+            Ok(blob_fd) => blob_fd,
+            Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
+        };
 
-        let block = NakamotoBlock::consensus_deserialize(&mut blob_fd)
-            .map_err(|e| {
-                let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
-                warn!("{}", &msg);
-                msg
-            })
-            .unwrap();
+        let block = match NakamotoBlock::consensus_deserialize(&mut blob_fd).map_err(|e| {
+            let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
+            warn!("{}", &msg);
+            msg
+        }) {
+            Ok(block) => block,
+            Err(e) => return Err(ChainError::InvalidStacksBlock(e)),
+        };
 
         let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
             Ok(burn_dbconn) => burn_dbconn,
@@ -121,7 +122,7 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             ));
         };
 
-        let mut builder = NakamotoBlockBuilder::new(
+        let mut builder = match NakamotoBlockBuilder::new(
             &parent_stacks_header,
             &block.header.consensus_hash,
             block.header.burn_spent,
@@ -130,16 +131,22 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             block.header.pox_treatment.len(),
             None,
             None,
-        )
-        .unwrap();
+        ) {
+            Ok(builder) => builder,
+            Err(e) => return Err(e),
+        };
 
-        let mut miner_tenure_info = builder
-            .load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause)
-            .unwrap();
+        let mut miner_tenure_info =
+            match builder.load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause) {
+                Ok(miner_tenure_info) => miner_tenure_info,
+                Err(e) => return Err(e),
+            };
+
         let burn_chain_height = miner_tenure_info.burn_tip_height;
-        let mut tenure_tx = builder
-            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
-            .unwrap();
+        let mut tenure_tx = match builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info) {
+            Ok(tenure_tx) => tenure_tx,
+            Err(e) => return Err(e),
+        };
 
         let mut block_fees: u128 = 0;
         let mut txs_receipts = vec![];
