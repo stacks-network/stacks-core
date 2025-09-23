@@ -19,7 +19,7 @@ use clarity_types::types::serialization::SerializationError;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterResult as Result, VmInternalError,
+    check_argument_count, CheckErrorKind, InterpreterResult as Result, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::TO_ASCII_MAX_BUFF;
@@ -57,7 +57,7 @@ pub fn buff_to_int_generic(
                 > BufferLength::try_from(16_u32)
                     .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?
             {
-                Err(CheckErrors::TypeValueError(
+                Err(CheckErrorKind::TypeValueError(
                     Box::new(SequenceType(BufferType(
                         BufferLength::try_from(16_u32)
                             .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?,
@@ -83,7 +83,7 @@ pub fn buff_to_int_generic(
                 Ok(value)
             }
         }
-        _ => Err(CheckErrors::TypeValueError(
+        _ => Err(CheckErrorKind::TypeValueError(
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(16_u32)
                     .map_err(|_| VmInternalError::Expect("Failed to construct".into()))?,
@@ -149,7 +149,7 @@ pub fn native_string_to_int_generic(
                 Err(_error) => Ok(Value::none()),
             }
         }
-        _ => Err(CheckErrors::UnionTypeValueError(
+        _ => Err(CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::max_string_ascii()?,
                 TypeSignature::max_string_utf8()?,
@@ -205,7 +205,7 @@ pub fn native_int_to_string_generic(
                 VmInternalError::Expect("Unexpected error converting UInt to string.".into())
             })?)
         }
-        _ => Err(CheckErrors::UnionTypeValueError(
+        _ => Err(CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(value),
         )
@@ -271,7 +271,7 @@ pub fn special_to_ascii(
                 Err(_) => Ok(Value::err_uint(1)), // Invalid UTF8
             }
         }
-        _ => Err(CheckErrors::UnionTypeValueError(
+        _ => Err(CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -324,7 +324,7 @@ pub fn from_consensus_buff(
     let input_bytes = if let Value::Sequence(SequenceData::Buffer(buff_data)) = value {
         Ok(buff_data.data)
     } else {
-        Err(CheckErrors::TypeValueError(
+        Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::max_buffer()?),
             Box::new(value),
         ))
@@ -346,7 +346,7 @@ pub fn from_consensus_buff(
     ) {
         Ok(value) => value,
         Err(SerializationError::UnexpectedSerialization) => {
-            return Err(CheckErrors::Expects("UnexpectedSerialization".into()).into());
+            return Err(CheckErrorKind::Expects("UnexpectedSerialization".into()).into());
         }
         Err(_) => return Ok(Value::none()),
     };

@@ -24,7 +24,7 @@ use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp25
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterResult as Result, VmInternalError,
+    check_argument_count, CheckErrorKind, InterpreterResult as Result, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};
@@ -37,7 +37,7 @@ macro_rules! native_hash_func {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::Sequence(SequenceData::Buffer(value)) => Ok(value.data),
-                _ => Err(CheckErrors::UnionTypeValueError(
+                _ => Err(CheckErrorKind::UnionTypeValueError(
                     vec![
                         TypeSignature::IntType,
                         TypeSignature::UIntType,
@@ -102,7 +102,7 @@ pub fn special_principal_of(
     let pub_key = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(BUFF_33.clone()),
                     Box::new(param0),
                 )
@@ -112,7 +112,7 @@ pub fn special_principal_of(
         }
         _ => {
             return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_33.clone()), Box::new(param0)).into(),
+                CheckErrorKind::TypeValueError(Box::new(BUFF_33.clone()), Box::new(param0)).into(),
             )
         }
     };
@@ -148,7 +148,7 @@ pub fn special_secp256k1_recover(
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(BUFF_32.clone()),
                     Box::new(param0),
                 )
@@ -158,7 +158,7 @@ pub fn special_secp256k1_recover(
         }
         _ => {
             return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(param0)).into(),
+                CheckErrorKind::TypeValueError(Box::new(BUFF_32.clone()), Box::new(param0)).into(),
             )
         }
     };
@@ -167,7 +167,7 @@ pub fn special_secp256k1_recover(
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(BUFF_65.clone()),
                     Box::new(param1),
                 )
@@ -180,12 +180,14 @@ pub fn special_secp256k1_recover(
         }
         _ => {
             return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
+                CheckErrorKind::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
             )
         }
     };
 
-    match secp256k1_recover(message, signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature) {
+    match secp256k1_recover(message, signature)
+        .map_err(|_| CheckErrorKind::InvalidSecp65k1Signature)
+    {
         Ok(pubkey) => Ok(Value::okay(
             Value::buff_from(pubkey.to_vec())
                 .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?,
@@ -210,7 +212,7 @@ pub fn special_secp256k1_verify(
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(BUFF_32.clone()),
                     Box::new(param0),
                 )
@@ -220,7 +222,7 @@ pub fn special_secp256k1_verify(
         }
         _ => {
             return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(param0)).into(),
+                CheckErrorKind::TypeValueError(Box::new(BUFF_32.clone()), Box::new(param0)).into(),
             )
         }
     };
@@ -229,7 +231,7 @@ pub fn special_secp256k1_verify(
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(BUFF_65.clone()),
                     Box::new(param1),
                 )
@@ -245,7 +247,7 @@ pub fn special_secp256k1_verify(
         }
         _ => {
             return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
+                CheckErrorKind::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
             )
         }
     };
@@ -254,7 +256,7 @@ pub fn special_secp256k1_verify(
     let pubkey = match param2 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(BUFF_33.clone()),
                     Box::new(param2),
                 )
@@ -264,7 +266,7 @@ pub fn special_secp256k1_verify(
         }
         _ => {
             return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_33.clone()), Box::new(param2)).into(),
+                CheckErrorKind::TypeValueError(Box::new(BUFF_33.clone()), Box::new(param2)).into(),
             )
         }
     };

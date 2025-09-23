@@ -24,7 +24,7 @@ use super::costs::{CostErrors, CostOverflowingMath};
 use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
 use super::ClarityVersion;
-use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::errors::CheckErrorKind;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -156,7 +156,7 @@ impl DefinedFunction {
 
         let mut context = LocalContext::new();
         if args.len() != self.arguments.len() {
-            Err(CheckErrors::IncorrectArgumentCount(
+            Err(CheckErrorKind::IncorrectArgumentCount(
                 self.arguments.len(),
                 args.len(),
             ))?
@@ -227,7 +227,7 @@ impl DefinedFunction {
                     }
                     _ => {
                         if !type_sig.admits(env.epoch(), value)? {
-                            return Err(CheckErrors::TypeValueError(
+                            return Err(CheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
                                 Box::new(value.clone()),
                             )
@@ -238,7 +238,7 @@ impl DefinedFunction {
                             .insert(name.clone(), value.clone())
                             .is_some()
                         {
-                            return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                            return Err(CheckErrorKind::NameAlreadyUsed(name.to_string()).into());
                         }
                     }
                 }
@@ -272,7 +272,7 @@ impl DefinedFunction {
                     }
                     _ => {
                         if !type_sig.admits(env.epoch(), &cast_value)? {
-                            return Err(CheckErrors::TypeValueError(
+                            return Err(CheckErrorKind::TypeValueError(
                                 Box::new(type_sig.clone()),
                                 Box::new(cast_value),
                             )
@@ -282,7 +282,7 @@ impl DefinedFunction {
                 }
 
                 if context.variables.insert(name.clone(), cast_value).is_some() {
-                    return Err(CheckErrors::NameAlreadyUsed(name.to_string()).into());
+                    return Err(CheckErrorKind::NameAlreadyUsed(name.to_string()).into());
                 }
             }
         }
@@ -309,11 +309,13 @@ impl DefinedFunction {
         let trait_name = trait_identifier.name.to_string();
         let constraining_trait = contract_defining_trait
             .lookup_trait_definition(&trait_name)
-            .ok_or(CheckErrors::TraitReferenceUnknown(trait_name.to_string()))?;
+            .ok_or(CheckErrorKind::TraitReferenceUnknown(
+                trait_name.to_string(),
+            ))?;
         let expected_sig =
             constraining_trait
                 .get(&self.name)
-                .ok_or(CheckErrors::TraitMethodUnknown(
+                .ok_or(CheckErrorKind::TraitMethodUnknown(
                     trait_name.to_string(),
                     self.name.to_string(),
                 ))?;
@@ -321,7 +323,7 @@ impl DefinedFunction {
         let args = self.arg_types.to_vec();
         if !expected_sig.check_args_trait_compliance(epoch, args)? {
             return Err(
-                CheckErrors::BadTraitImplementation(trait_name, self.name.to_string()).into(),
+                CheckErrorKind::BadTraitImplementation(trait_name, self.name.to_string()).into(),
             );
         }
 
@@ -449,7 +451,7 @@ fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Val
                     Some(ty) => ty,
                     None => {
                         // This should be unreachable if the type-checker has already run successfully
-                        return Err(CheckErrors::TypeValueError(
+                        return Err(CheckErrorKind::TypeValueError(
                             Box::new(type_sig.clone()),
                             Box::new(value.clone()),
                         )

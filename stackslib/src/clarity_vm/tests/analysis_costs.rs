@@ -17,7 +17,7 @@
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::errors::CheckErrors;
+use clarity::vm::errors::CheckErrorKind;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::test_util::TEST_HEADER_DB;
 use clarity::vm::tests::{test_only_mainnet_to_chain_id, UnitTestBurnStateDB};
@@ -340,10 +340,10 @@ fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: Stacks
                 &contract_self,
                 ASTRules::PrecheckSize,
             );
-            let Err(ClarityError::Analysis(check_error)) = analysis_result else {
+            let Err(ClarityError::StaticCheck(check_error)) = analysis_result else {
                 panic!("Bad analysis result: {:?}", &analysis_result);
             };
-            let CheckErrors::UndefinedVariable(var_name) = *check_error.err else {
+            let CheckErrorKind::UndefinedVariable(var_name) = *check_error.err else {
                 panic!("Bad analysis error: {:?}", &check_error);
             };
             assert_eq!(var_name, "foo".to_string());

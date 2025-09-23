@@ -16,7 +16,7 @@
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, InterpreterResult as Result,
     SyntaxBindingErrorType, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
@@ -49,7 +49,7 @@ pub fn tuple_get(
     //    if the tuple argument is an option type, then return option(field-name).
     check_argument_count(2, args)?;
 
-    let arg_name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+    let arg_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
 
     let value = eval(&args[1], env, context)?;
 
@@ -66,7 +66,7 @@ pub fn tuple_get(
                         })?)
                     } else {
                         Err(
-                            CheckErrors::ExpectedTuple(Box::new(TypeSignature::type_of(&data)?))
+                            CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(&data)?))
                                 .into(),
                         )
                     }
@@ -78,21 +78,21 @@ pub fn tuple_get(
             runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
             tuple_data.get_owned(arg_name)
         }
-        _ => Err(CheckErrors::ExpectedTuple(Box::new(TypeSignature::type_of(&value)?)).into()),
+        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(&value)?)).into()),
     }
 }
 
 pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
-        _ => Err(CheckErrors::ExpectedTuple(Box::new(
+        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(
             TypeSignature::type_of(&base)?,
         ))),
     }?;
 
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
-        _ => Err(CheckErrors::ExpectedTuple(Box::new(
+        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(
             TypeSignature::type_of(&update)?,
         ))),
     }?;

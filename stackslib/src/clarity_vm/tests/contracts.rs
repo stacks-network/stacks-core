@@ -17,7 +17,7 @@
 use clarity::types::StacksEpochId;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::Error as ClarityError;
-use clarity::vm::errors::{CheckErrors, Error};
+use clarity::vm::errors::{CheckErrorKind, Error};
 use clarity::vm::types::SequenceData::Buffer;
 use clarity::vm::types::{
     BuffData, OptionalData, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
@@ -53,8 +53,8 @@ fn test_get_burn_block_info_eval() {
                 contract,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UnknownFunction(func_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
+                if let CheckErrorKind::UnknownFunction(func_name) = *check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -78,8 +78,8 @@ fn test_get_burn_block_info_eval() {
                 contract,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UnknownFunction(func_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
+                if let CheckErrorKind::UnknownFunction(func_name) = *check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -179,8 +179,8 @@ fn test_get_block_info_eval_v210() {
                 contract,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::NoSuchBlockInfoProperty(name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
+                if let CheckErrorKind::NoSuchBlockInfoProperty(name) = *check_error.err {
                     assert_eq!(name, "block-reward");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -204,8 +204,8 @@ fn test_get_block_info_eval_v210() {
                 contract,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::NoSuchBlockInfoProperty(name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
+                if let CheckErrorKind::NoSuchBlockInfoProperty(name) = *check_error.err {
                     assert_eq!(name, "block-reward");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -367,8 +367,8 @@ fn trait_invocation_205_with_stored_principal() {
         let error = publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version)
             .unwrap_err();
         match error {
-            ClarityError::Analysis(ref e) => match *e.err {
-                CheckErrors::TypeError(..) => (),
+            ClarityError::StaticCheck(ref e) => match *e.err {
+                CheckErrorKind::TypeError(..) => (),
                 _ => panic!("Unexpected error: {:?}", error),
             },
             _ => panic!("Unexpected error: {:?}", error),
@@ -461,7 +461,7 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(trait_ref_type, value))) = error {
+            if let ClarityError::Interpreter(Error::Unchecked(CheckErrorKind::TypeValueError(trait_ref_type, value))) = error {
                 assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
                 panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
@@ -485,7 +485,7 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(trait_ref_type, value))) = error {
+            if let ClarityError::Interpreter(Error::Unchecked(CheckErrorKind::TypeValueError(trait_ref_type, value))) = error {
                 assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
                 panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
@@ -935,8 +935,8 @@ fn test_block_heights() {
                 contract_clarity3,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
+                if let CheckErrorKind::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -971,8 +971,8 @@ fn test_block_heights() {
                 contract_clarity3,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
+                if let CheckErrorKind::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -988,8 +988,8 @@ fn test_block_heights() {
                 contract_clarity1,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
+                if let CheckErrorKind::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "block-height");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
