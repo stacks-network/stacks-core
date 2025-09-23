@@ -976,15 +976,11 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
 
 /// Parse --clarity_version flag. Defaults to version for DEFAULT_CLI_EPOCH.
 fn parse_clarity_version_flag(argv: &mut Vec<String>) -> ClarityVersion {
-    if let Ok(optarg) = consume_arg(argv, &["--clarity_version"], true) {
-        if let Some(s) = optarg {
-            friendly_expect(
-                s.parse::<ClarityVersion>(),
-                &format!("Invalid clarity version: {}", s),
-            )
-        } else {
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH)
-        }
+    if let Ok(Some(s)) = consume_arg(argv, &["--clarity_version"], true) {
+        friendly_expect(
+            s.parse::<ClarityVersion>(),
+            &format!("Invalid clarity version: {s}"),
+        )
     } else {
         ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH)
     }
@@ -1278,7 +1274,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             loop {
                 let content: String = {
                     let mut buffer = String::new();
-                    stdout.write(b"> ").unwrap_or_else(|e| {
+                    stdout.write_all(b"> ").unwrap_or_else(|e| {
                         panic!("Failed to write stdout prompt string:\n{e}");
                     });
                     stdout.flush().unwrap_or_else(|e| {

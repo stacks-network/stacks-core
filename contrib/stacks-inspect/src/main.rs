@@ -19,6 +19,7 @@ extern crate stacks_common;
 use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
+use clarity_cli::DEFAULT_CLI_EPOCH;
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
@@ -43,7 +44,6 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{env, fs, io, process, thread};
 
-use clarity_cli;
 use libstackerdb::StackerDBChunkData;
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
 use serde_json::{Value, json};
@@ -896,7 +896,7 @@ check if the associated microblocks can be downloaded
         }
         let program: String = fs::read_to_string(&argv[2])
             .unwrap_or_else(|_| panic!("Error reading file: {}", argv[2]));
-        let clarity_version = ClarityVersion::default_for_epoch(clarity_cli::DEFAULT_CLI_EPOCH);
+        let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
         match clarity_cli::vm_execute(&program, clarity_version) {
             Ok(Some(result)) => println!("{result}"),
             Ok(None) => println!(),
