@@ -137,6 +137,7 @@ fn test_path(name: &str) -> String {
     format!("/tmp/stacks-node-tests/nakamoto-tests/{}", name)
 }
 
+pub mod consensus;
 pub mod node;
 
 #[test]
