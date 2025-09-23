@@ -371,41 +371,72 @@ fn check_allowances(
     }
 
     // Check FT movements
-    // TODO: Handle "*" asset name
     if let Some(ft_moved) = assets.get_all_fungible_tokens(owner) {
         for (asset, amount_moved) in ft_moved {
+            // Build merged allowance list: exact-match entries + wildcard entries for the same contract
+            let mut merged: Vec<(usize, u128)> = Vec::new();
+
             if let Some(allowance_vec) = ft_allowances.get(asset) {
-                // Check against the FT allowances
-                for (index, allowance) in allowance_vec {
-                    if *amount_moved > *allowance {
-                        return Ok(Some(i128::try_from(*index).map_err(|_| {
-                            InterpreterError::Expect("failed to convert index to i128".into())
-                        })?));
-                    }
-                }
-            } else {
+                merged.extend(allowance_vec.iter().cloned());
+            }
+
+            if let Some(wildcard_vec) = ft_allowances.get(&AssetIdentifier {
+                contract_identifier: asset.contract_identifier.clone(),
+                asset_name: "*".into(),
+            }) {
+                merged.extend(wildcard_vec.iter().cloned());
+            }
+
+            if merged.is_empty() {
                 // No allowance for this asset, any movement is a violation
                 return Ok(Some(-1));
+            }
+
+            // Sort by allowance index so we check allowances in order
+            merged.sort_by_key(|(idx, _)| *idx);
+
+            for (index, allowance) in merged {
+                if *amount_moved > allowance {
+                    return Ok(Some(i128::try_from(index).map_err(|_| {
+                        InterpreterError::Expect("failed to convert index to i128".into())
+                    })?));
+                }
             }
         }
     }
 
     // Check NFT movements
-    // TODO: Handle "*" asset name
     if let Some(nft_moved) = assets.get_all_nonfungible_tokens(owner) {
         for (asset, ids_moved) in nft_moved {
+            let mut merged: Vec<(usize, HashSet<String>)> = Vec::new();
             if let Some((index, allowance_map)) = nft_allowances.get(asset) {
+                merged.push((*index, allowance_map.clone()));
+            }
+
+            if let Some((index, allowance_map)) = nft_allowances.get(&AssetIdentifier {
+                contract_identifier: asset.contract_identifier.clone(),
+                asset_name: "*".into(),
+            }) {
+                merged.push((*index, allowance_map.clone()));
+            }
+
+            if merged.is_empty() {
+                // No allowance for this asset, any movement is a violation
+                return Ok(Some(-1));
+            }
+
+            // Sort by allowance index so we check allowances in order
+            merged.sort_by_key(|(idx, _)| *idx);
+
+            for (index, allowance_map) in merged {
                 // Check against the NFT allowances
                 for id_moved in ids_moved {
                     if !allowance_map.contains(&id_moved.serialize_to_hex()?) {
-                        return Ok(Some(i128::try_from(*index).map_err(|_| {
+                        return Ok(Some(i128::try_from(index).map_err(|_| {
                             InterpreterError::Expect("failed to convert index to i128".into())
                         })?));
                     }
                 }
-            } else {
-                // No allowance for this asset, any movement is a violation
-                return Ok(Some(-1));
             }
         }
     }

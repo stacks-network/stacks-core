@@ -354,6 +354,124 @@ fn test_as_contract_with_ft_multiple_allowances_one_low() {
 }
 
 #[test]
+fn test_as_contract_with_ft_wildcard_ok() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "*" u100))
+    (try! (ft-transfer? stackaroo u100 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_ft_wildcard_exceeds() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "*" u10))
+    (try! (ft-transfer? stackaroo u50 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_ft_wildcard_other_allowances() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract?
+    (
+      (with-stx u200)
+      (with-ft .other "*" u100) ;; other contract, same token name
+      (with-ft current-contract "other" u100) ;; same contract, different token name
+      (with-nft .token "*" (list 123))
+    )
+    (try! (ft-transfer? stackaroo u50 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(-1)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_ft_wildcard_multiple_allowances_both_low() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "*" u30) (with-ft current-contract "*" u20))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_ft_wildcard_multiple_allowances_both_ok() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "*" u300) (with-ft current-contract "*" u200))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_ft_wildcard_multiple_allowances_one_low() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "*" u100) (with-ft current-contract "*" u20))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(1)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_ft_wildcard_multiple_allowances_low1() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "*" u20) (with-ft current-contract "stackaroo" u20))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_ft_wildcard_multiple_allowances_low2() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-ft current-contract "stackaroo" u20) (with-ft current-contract "*" u20))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
 fn test_as_contract_with_nft_ok() {
     let snippet = r#"
 (define-non-fungible-token stackaroo uint)
@@ -483,6 +601,145 @@ fn test_as_contract_with_nft_empty_id_list() {
 (nft-mint? stackaroo u123 current-contract)
 (let ((recipient tx-sender))
   (as-contract? ((with-nft current-contract "stackaroo" (list)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_ok() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "*" (list u123)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_not_allowed() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 current-contract)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "*" (list u122)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_other_allowances() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract?
+    (
+      (with-stx u123)
+      (with-nft .other "*" (list u123)) ;; other contract, same token name
+      (with-nft current-contract "other" (list u123)) ;; same contract, different token name
+      (with-ft .token "*" u123)
+    )
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(-1)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_multiple_allowances_both_different() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 current-contract)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "*" (list u122)) (with-nft current-contract "*" (list u124)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_multiple_allowances_including() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 current-contract)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "*" (list u122)) (with-nft current-contract "*" (list u123)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_multiple_allowances_in_list() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 current-contract)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "*" (list u122 u123)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_empty_id_list() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 current-contract)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "*" (list)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_multiple_allowances_order1() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 current-contract)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "*" (list u122)) (with-nft current-contract "stackaroo" (list u124)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_as_contract_with_nft_wildcard_multiple_allowances_order2() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 current-contract)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "stackaroo" (list u122)) (with-nft current-contract "*" (list u124)))
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
@@ -777,6 +1034,124 @@ fn test_restrict_assets_with_ft_multiple_allowances_one_low() {
 }
 
 #[test]
+fn test_restrict_assets_with_ft_wildcard_ok() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-ft current-contract "*" u100))
+    (try! (ft-transfer? stackaroo u100 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_ft_wildcard_exceeds() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-ft current-contract "*" u10))
+    (try! (ft-transfer? stackaroo u50 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_ft_wildcard_other_allowances() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender
+    (
+      (with-stx u200)
+      (with-ft .other "*" u100) ;; other contract, same token name
+      (with-ft current-contract "other" u100) ;; same contract, different token name
+      (with-nft .token "*" (list 123))
+    )
+    (try! (ft-transfer? stackaroo u50 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(-1)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_ft_wildcard_multiple_allowances_both_low() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-ft current-contract "*" u30) (with-ft current-contract "*" u20))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_ft_wildcard_multiple_allowances_both_ok() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-ft current-contract "*" u300) (with-ft current-contract "*" u200))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_ft_wildcard_multiple_allowances_one_low() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-ft current-contract "*" u100) (with-ft current-contract "*" u20))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(1)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_ft_wildcard_multiple_allowances_low1() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-ft current-contract "*" u20) (with-ft current-contract "stackaroo" u20))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_ft_wildcard_multiple_allowances_low2() {
+    let snippet = r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-ft current-contract "stackaroo" u20) (with-ft current-contract "*" u20))
+    (try! (ft-transfer? stackaroo u40 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
 fn test_restrict_assets_with_nft_ok() {
     let snippet = r#"
 (define-non-fungible-token stackaroo uint)
@@ -906,6 +1281,145 @@ fn test_restrict_assets_with_nft_empty_id_list() {
 (nft-mint? stackaroo u123 tx-sender)
 (let ((recipient 'SP000000000000000000002Q6VF78))
   (restrict-assets? tx-sender ((with-nft current-contract "stackaroo" (list)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_ok() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "*" (list u123)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_not_allowed() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "*" (list u122)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_other_allowances() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender
+    (
+      (with-stx u123)
+      (with-nft .other "*" (list u123)) ;; other contract, same token name
+      (with-nft current-contract "other" (list u123)) ;; same contract, different token name
+      (with-ft .token "*" u123)
+    )
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(-1)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_multiple_allowances_both_different() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "*" (list u122)) (with-nft current-contract "*" (list u124)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_multiple_allowances_including() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "*" (list u122)) (with-nft current-contract "*" (list u123)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_multiple_allowances_in_list() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "*" (list u122 u123)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_empty_id_list() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "*" (list)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_multiple_allowances_order1() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "*" (list u122)) (with-nft current-contract "stackaroo" (list u124)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::Int(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_nft_wildcard_multiple_allowances_order2() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "stackaroo" (list u122)) (with-nft current-contract "*" (list u124)))
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
