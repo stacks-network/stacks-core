@@ -836,44 +836,44 @@ impl TupleTypeSignature {
 }
 
 impl TypeSignature {
-    /// Buffer type with minimum size. Alias for [`TypeSignature::BUFFER_1`].
+    /// Buffer type with minimum length. Alias for [`TypeSignature::BUFFER_1`].
     pub const BUFFER_MIN: TypeSignature = TypeSignature::BUFFER_1;
-    /// Buffer type with maximum size ([`MAX_VALUE_SIZE`]).
+    /// Buffer type with maximum length ([`MAX_VALUE_SIZE`]).
     pub const BUFFER_MAX: TypeSignature = Self::type_buffer::<MAX_VALUE_SIZE>();
-    /// Buffer type with size 1.
+    /// Buffer type with length 1.
     pub const BUFFER_1: TypeSignature = Self::type_buffer::<1>();
-    /// Buffer type with size 20.
+    /// Buffer type with length 20.
     pub const BUFFER_20: TypeSignature = Self::type_buffer::<20>();
-    /// Buffer type with size 32.
+    /// Buffer type with length 32.
     pub const BUFFER_32: TypeSignature = Self::type_buffer::<32>();
-    /// Buffer type with size 33.
+    /// Buffer type with length 33.
     pub const BUFFER_33: TypeSignature = Self::type_buffer::<33>();
-    /// Buffer type with size 64.
+    /// Buffer type with length 64.
     pub const BUFFER_64: TypeSignature = Self::type_buffer::<64>();
-    /// Buffer type with size 65.
+    /// Buffer type with length 65.
     pub const BUFFER_65: TypeSignature = Self::type_buffer::<65>();
 
-    /// String ASCII type with minimum size (`1`).
+    /// String ASCII type with minimum length (`1`).
     pub const STRING_ASCII_MIN: TypeSignature = Self::type_string_ascii::<1>();
-    /// String ASCII type with maximum size ([`MAX_VALUE_SIZE`]).
+    /// String ASCII type with maximum length ([`MAX_VALUE_SIZE`]).
     pub const STRING_ASCII_MAX: TypeSignature = Self::type_string_ascii::<MAX_VALUE_SIZE>();
-    /// String ASCII type with size 40.
+    /// String ASCII type with length 40.
     pub const STRING_ASCII_40: TypeSignature = Self::type_string_ascii::<40>();
 
-    /// String UTF8 type with minimum size (`1`).
+    /// String UTF8 type with minimum length (`1`).
     pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8::<1>();
-    /// String UTF8 type with maximum size ([`MAX_UTF8_VALUE_SIZE`]).
+    /// String UTF8 type with maximum length ([`MAX_UTF8_VALUE_SIZE`]).
     pub const STRING_UTF8_MAX: TypeSignature = Self::type_string_utf8::<MAX_UTF8_VALUE_SIZE>();
-    /// String UTF8 type with size 40.
+    /// String UTF8 type with length 40.
     pub const STRING_UTF8_40: TypeSignature = Self::type_string_utf8::<40>();
 
-    /// Maximum-sized ([`MAX_TO_ASCII_BUFFER_LEN`]) buffer allowed for `to-ascii?` call.
+    /// Longest ([`MAX_TO_ASCII_BUFFER_LEN`]) buffer allowed for `to-ascii?` call.
     pub const TO_ASCII_BUFFER_MAX: TypeSignature = Self::type_buffer::<MAX_TO_ASCII_BUFFER_LEN>();
-    /// Maximum-sized ([`MAX_TO_ASCII_RESULT_LEN`]) string allowed for `to-ascii?` call.
+    /// Longest ([`MAX_TO_ASCII_RESULT_LEN`]) string allowed for `to-ascii?` call.
     pub const TO_ASCII_STRING_ASCII_MAX: TypeSignature =
         Self::type_string_ascii::<MAX_TO_ASCII_RESULT_LEN>();
 
-    /// Maximum-sized ([`CONTRACT_MAX_NAME_LENGTH`]) string allowed for `contract-name`.
+    /// Longest ([`CONTRACT_MAX_NAME_LENGTH`]) string allowed for `contract-name`.
     pub const CONTRACT_NAME_STRING_ASCII_MAX: TypeSignature =
         Self::type_string_ascii::<{ CONTRACT_MAX_NAME_LENGTH as u32 }>();
 
