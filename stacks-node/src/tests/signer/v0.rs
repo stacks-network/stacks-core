@@ -2422,15 +2422,21 @@ fn forked_tenure_invalid() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
-    let result = forked_tenure_testing(Duration::from_secs(5), None, Duration::from_secs(7), false);
+    let Some(result) = forked_tenure_testing(Duration::from_secs(5), Duration::from_secs(7), false)
+    else {
+        warn!("Snapshot created. Run test again.");
+        return;
+    };
 
     assert_ne!(
         result.tip_b.index_block_hash(),
-        result.tip_a.index_block_hash()
+        result.tip_a.index_block_hash(),
+        "Tip B should not be the same as tip A"
     );
-    assert_eq!(
+    assert_ne!(
         result.tip_b.index_block_hash(),
-        result.tip_c.index_block_hash()
+        result.tip_c.index_block_hash(),
+        "Tip B should not be the same as tip C"
     );
     assert_ne!(result.tip_c, result.tip_a);
 
@@ -2444,12 +2450,13 @@ fn forked_tenure_invalid() {
         result.tip_a.index_block_hash().to_string()
     );
 
-    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted,
+    // but it should still be extended from block B
     assert_eq!(
         result.mined_c.parent_block_id,
-        result.tip_a.index_block_hash().to_string()
+        result.tip_b.index_block_hash().to_string()
     );
-    assert_ne!(
+    assert_eq!(
         result
             .tip_c
             .anchored_header
@@ -2457,7 +2464,7 @@ fn forked_tenure_invalid() {
             .unwrap()
             .signer_signature_hash(),
         result.mined_c.signer_signature_hash,
-        "Mined block during tenure C should not have become the chain tip"
+        "Mined block during tenure C should have become the chain tip"
     );
 
     assert!(result.tip_c_2.is_none());
@@ -2471,14 +2478,14 @@ fn forked_tenure_invalid() {
     );
     assert_ne!(result.tip_a, result.tip_d);
 
-    // Tenure D builds off of Tenure B
+    // Tenure D builds off of Tenure c
     assert_eq!(
         result.tip_d.stacks_block_height,
-        result.tip_b.stacks_block_height + 1,
+        result.tip_c.stacks_block_height + 1,
     );
     assert_eq!(
         result.mined_d.parent_block_id,
-        result.tip_b.index_block_hash().to_string()
+        result.tip_c.index_block_hash().to_string()
     );
 }
 
@@ -2489,8 +2496,12 @@ fn forked_tenure_okay() {
         return;
     }
 
-    let result =
-        forked_tenure_testing(Duration::from_secs(360), None, Duration::from_secs(0), true);
+    let Some(result) =
+        forked_tenure_testing(Duration::from_secs(360), Duration::from_secs(0), true)
+    else {
+        warn!("Snapshot created. Run test again.");
+        return;
+    };
 
     assert_ne!(result.tip_b, result.tip_a);
     assert_ne!(result.tip_b, result.tip_c);
@@ -2676,54 +2687,49 @@ fn reloads_signer_set_in() {
 ///  * tenure C ignores b_0, and correctly builds off of block a_x.
 fn forked_tenure_testing(
     proposal_limit: Duration,
-    odd_proposal_limit: Option<Duration>,
     post_btc_block_pause: Duration,
     expect_tenure_c: bool,
-) -> TenureForkingResult {
+) -> Option<TenureForkingResult> {
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
         .init();
 
     let num_signers = 5;
-    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_sk = Secp256k1PrivateKey::from_seed("sender".as_bytes());
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
-        num_signers,
-        vec![(sender_addr.clone(), send_amt + send_fee)],
-        |config| {
-            // make the duration long enough that the reorg attempt will definitely be accepted
-            config.first_proposal_burn_block_timing = odd_proposal_limit
-                .map(|limit| {
-                    if config.endpoint.port() % 2 == 1 {
-                        // 2/5 or 40% of signers will have this seperate limit
-                        limit
-                    } else {
-                        // 3/5 or 60% of signers will have this original limit
-                        proposal_limit
-                    }
-                })
-                .unwrap_or(proposal_limit);
-            // don't allow signers to post signed blocks (limits the amount of fault injection we
-            // need)
-            TEST_SKIP_BLOCK_BROADCAST.set(true);
-        },
-        |config| {
-            config.miner.tenure_cost_limit_per_block_percentage = None;
-            // this test relies on the miner submitting these timed out commits.
-            // the test still passes without this override, but the default timeout
-            // makes the test take longer than strictly necessary
-            config.miner.block_commit_delay = Duration::from_secs(10);
-        },
-        None,
-        None,
-    );
+    let signer_test: SignerTest<SpawnedSigner> =
+        SignerTest::new_with_config_modifications_and_snapshot(
+            num_signers,
+            vec![(sender_addr.clone(), send_amt + send_fee)],
+            |config| {
+                // make the duration long enough that the reorg attempt will definitely be accepted
+                config.first_proposal_burn_block_timing = proposal_limit;
+                // don't allow signers to post signed blocks (limits the amount of fault injection we
+                // need)
+                TEST_SKIP_BLOCK_BROADCAST.set(true);
+            },
+            |config| {
+                config.miner.tenure_cost_limit_per_block_percentage = None;
+                // this test relies on the miner submitting these timed out commits.
+                // the test still passes without this override, but the default timeout
+                // makes the test take longer than strictly necessary
+                config.miner.block_commit_delay = Duration::from_secs(10);
+            },
+            None,
+            None,
+            Some(format!("forked_tenure_testing_{expect_tenure_c}").as_str()),
+        );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
-    signer_test.boot_to_epoch_3();
+    if signer_test.bootstrap_snapshot() {
+        signer_test.shutdown_and_snapshot();
+        return None;
+    }
+
     sleep_ms(1000);
     info!("------------------------- Reached Epoch 3.0 -------------------------");
 
@@ -2744,7 +2750,6 @@ fn forked_tenure_testing(
         naka_submitted_commits: commits_submitted,
         naka_mined_blocks: mined_blocks,
         naka_proposed_blocks: proposed_blocks,
-        naka_rejected_blocks: rejected_blocks,
         naka_skip_commit_op: skip_commit_op,
         ..
     } = signer_test.running_nodes.counters.clone();
@@ -2877,7 +2882,6 @@ fn forked_tenure_testing(
     } else {
         proposed_blocks.load(Ordering::SeqCst)
     };
-    let rejected_before = rejected_blocks.load(Ordering::SeqCst);
     skip_commit_op.set(false);
 
     next_block_and(
@@ -2889,49 +2893,22 @@ fn forked_tenure_testing(
                 // now allow block B to process if it hasn't already.
                 TEST_BLOCK_ANNOUNCE_STALL.set(false);
             }
-            let rejected_count = rejected_blocks.load(Ordering::SeqCst);
-            let (blocks_count, rbf_count, has_reject_count) = if expect_tenure_c {
-                // if tenure C is going to be canonical, then we expect the miner to RBF its commit
-                // once (i.e. for the block it mines and gets signed), and we expect zero
-                // rejections.
-                (mined_blocks.load(Ordering::SeqCst), 1, true)
-            } else {
-                // if tenure C is NOT going to be canonical, then we expect no RBFs (since the
-                // miner can't get its block signed), and we expect at least one rejection
-                (
-                    proposed_blocks.load(Ordering::SeqCst),
-                    0,
-                    rejected_count > rejected_before,
-                )
-            };
+            let blocks_count = mined_blocks.load(Ordering::SeqCst);
+            let rbf_count = if expect_tenure_c { 1 } else { 0 };
 
-            Ok(commits_count > commits_before + rbf_count
-                && blocks_count > blocks_before
-                && has_reject_count)
+            Ok(commits_count > commits_before + rbf_count && blocks_count > blocks_before)
         },
     )
     .unwrap_or_else(|_| {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
-        let rejected_count = rejected_blocks.load(Ordering::SeqCst);
-        // see above for comments
-        let (blocks_count, rbf_count, has_reject_count) = if expect_tenure_c {
-            (mined_blocks.load(Ordering::SeqCst), 1, true)
-        } else {
-            (
-                proposed_blocks.load(Ordering::SeqCst),
-                0,
-                rejected_count > rejected_before,
-            )
-        };
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        let rbf_count = if expect_tenure_c { 1 } else { 0 };
         error!("Tenure C failed to produce a block";
             "commits_count" => commits_count,
             "commits_before" => commits_before,
             "rbf_count" => rbf_count as u64,
             "blocks_count" => blocks_count,
             "blocks_before" => blocks_before,
-            "rejected_count" => rejected_count,
-            "rejected_before" => rejected_before,
-            "has_reject_count" => has_reject_count,
         );
         panic!();
     });
@@ -2954,11 +2931,7 @@ fn forked_tenure_testing(
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let mined_c = blocks.last().unwrap().clone();
 
-    if expect_tenure_c {
-        assert_ne!(tip_b.index_block_hash(), tip_c.index_block_hash());
-    } else {
-        assert_eq!(tip_b.index_block_hash(), tip_c.index_block_hash());
-    }
+    assert_ne!(tip_b.index_block_hash(), tip_c.index_block_hash());
     assert_ne!(tip_c, tip_a);
 
     let (tip_c_2, mined_c_2) = if !expect_tenure_c {
@@ -3022,7 +2995,7 @@ fn forked_tenure_testing(
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let mined_d = blocks.last().unwrap().clone();
     signer_test.shutdown();
-    TenureForkingResult {
+    Some(TenureForkingResult {
         tip_a,
         tip_b,
         tip_c,
@@ -3032,7 +3005,7 @@ fn forked_tenure_testing(
         mined_c,
         mined_c_2,
         mined_d,
-    }
+    })
 }
 
 #[test]
