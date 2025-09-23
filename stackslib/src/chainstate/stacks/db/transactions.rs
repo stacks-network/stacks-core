@@ -253,7 +253,7 @@ impl StacksTransactionReceipt {
         tx: StacksTransaction,
         cost: ExecutionCost,
         contract_analysis: ContractAnalysis,
-        error: CheckErrors,
+        error: CheckErrorKind,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -272,7 +272,7 @@ impl StacksTransactionReceipt {
     pub fn from_runtime_failure_contract_call(
         tx: StacksTransaction,
         cost: ExecutionCost,
-        error: CheckErrors,
+        error: CheckErrorKind,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -367,7 +367,7 @@ pub enum ClarityRuntimeTxError {
         reason: String,
     },
     CostError(ExecutionCost, ExecutionCost),
-    AnalysisError(CheckErrors),
+    AnalysisError(CheckErrorKind),
     Rejectable(ClarityError),
 }
 

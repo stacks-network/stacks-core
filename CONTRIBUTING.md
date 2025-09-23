@@ -498,7 +498,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///
     /// # Errors
     ///
-    /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only
+    /// - Returns CheckErrorKind::WriteAttemptedInReadOnly if there is a read-only
     ///   violation, i.e. if some function marked read-only attempts to modify
     ///   the chainstate.
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticCheckError>
