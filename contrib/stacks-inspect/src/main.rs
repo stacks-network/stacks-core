@@ -43,6 +43,7 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{env, fs, io, process, thread};
 
+use clarity_cli;
 use libstackerdb::StackerDBChunkData;
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
 use serde_json::{Value, json};
@@ -91,7 +92,6 @@ use stackslib::net::relay::Relayer;
 use stackslib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
 use stackslib::util_lib::db::sqlite_open;
 use stackslib::util_lib::strings::UrlString;
-use stackslib::{clarity_cli, cli};
 
 struct P2PSession {
     pub local_peer: LocalPeer,
@@ -301,7 +301,7 @@ fn main() {
         process::exit(1);
     }
 
-    let common_opts = cli::drain_common_opts(&mut argv, 1);
+    let common_opts = stackslib::cli::drain_common_opts(&mut argv, 1);
 
     if argv[1] == "--version" {
         println!(
@@ -789,7 +789,7 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "try-mine" {
-        cli::command_try_mine(&argv[1..], common_opts.config.as_ref());
+        stackslib::cli::command_try_mine(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
@@ -1582,17 +1582,17 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "replay-block" {
-        cli::command_replay_block(&argv[1..], common_opts.config.as_ref());
+        stackslib::cli::command_replay_block(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
     if argv[1] == "replay-naka-block" {
-        cli::command_replay_block_nakamoto(&argv[1..], common_opts.config.as_ref());
+        stackslib::cli::command_replay_block_nakamoto(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
     if argv[1] == "replay-mock-mining" {
-        cli::command_replay_mock_mining(&argv[1..], common_opts.config.as_ref());
+        stackslib::cli::command_replay_mock_mining(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
@@ -1601,7 +1601,7 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "contract-hash" {
-        cli::command_contract_hash(&argv[1..], common_opts.config.as_ref());
+        stackslib::cli::command_contract_hash(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 

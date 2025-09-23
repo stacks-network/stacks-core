@@ -143,6 +143,7 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
 pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch32;
 
 struct EvalInput {
+    #[allow(dead_code)]
     marf_kv: MarfedKV,
     contract_identifier: QualifiedContractIdentifier,
     content: String,
