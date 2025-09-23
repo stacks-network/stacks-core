@@ -17,7 +17,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
@@ -2620,12 +2619,16 @@ pub fn make_contract_tx(
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
     tx_signer.sign_origin(sender).unwrap();
 
-    let tx_contract_signed = tx_signer.get_tx().unwrap();
-    tx_contract_signed
+    tx_signer.get_tx().unwrap()
 }
 
-#[test]
-fn test_static_problematic_tests() {
+struct DeepTransactions {
+    pub tx_high: StacksTransaction,
+    pub tx_edge: StacksTransaction,
+    pub tx_exceeds: StacksTransaction,
+}
+
+fn setup_deep_txs() -> DeepTransactions {
     let spender_sk_1 = StacksPrivateKey::random();
     let spender_sk_2 = StacksPrivateKey::random();
     let spender_sk_3 = StacksPrivateKey::random();
@@ -2633,7 +2636,7 @@ fn test_static_problematic_tests() {
     let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
-    let tx_edge_body = format!("{}u1 {}", tx_edge_body_start, tx_edge_body_end);
+    let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");
 
     let tx_edge = make_contract_tx(
         &spender_sk_1,
@@ -2647,7 +2650,7 @@ fn test_static_problematic_tests() {
     let exceeds_repeat_factor = edge_repeat_factor + 1;
     let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
     let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-    let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
+    let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");
 
     let tx_exceeds = make_contract_tx(
         &spender_sk_2,
@@ -2661,7 +2664,7 @@ fn test_static_problematic_tests() {
     let high_repeat_factor = 128 * 1024;
     let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
     let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
-    let tx_high_body = format!("{}u1 {}", tx_high_body_start, tx_high_body_end);
+    let tx_high_body = format!("{tx_high_body_start}u1 {tx_high_body_end}");
 
     let tx_high = make_contract_tx(
         &spender_sk_3,
@@ -2670,49 +2673,46 @@ fn test_static_problematic_tests() {
         "test-high",
         &tx_high_body,
     );
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_edge,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_exceeds,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_high,
-        ASTRules::Typical
-    )
-    .is_ok());
+    DeepTransactions {
+        tx_high,
+        tx_edge,
+        tx_exceeds,
+    }
+}
 
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_edge,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_exceeds,
-        ASTRules::PrecheckSize
-    )
-    .is_err());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_high,
-        ASTRules::PrecheckSize
-    )
-    .is_err());
+#[rstest]
+#[case::epoch20(StacksEpochId::Epoch20)]
+#[case::epoch2_05(StacksEpochId::Epoch2_05)]
+fn static_problematic_txs_pre_epoch21(#[case] epoch_id: StacksEpochId) {
+    let DeepTransactions {
+        tx_high,
+        tx_edge,
+        tx_exceeds,
+    } = setup_deep_txs();
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_edge).is_ok());
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_exceeds).is_err());
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_high).is_err());
+}
+
+#[rstest]
+#[case::epoch_21(StacksEpochId::Epoch21)]
+#[case::epoch_22(StacksEpochId::Epoch22)]
+#[case::epoch_23(StacksEpochId::Epoch23)]
+#[case::epoch_24(StacksEpochId::Epoch24)]
+#[case::epoch_25(StacksEpochId::Epoch25)]
+#[case::epoch_30(StacksEpochId::Epoch30)]
+#[case::epoch_31(StacksEpochId::Epoch31)]
+#[case::epoch_32(StacksEpochId::Epoch32)]
+#[case::epoch_33(StacksEpochId::Epoch33)]
+fn static_problematic_txs_post_epoch21(#[case] epoch_id: StacksEpochId) {
+    let DeepTransactions {
+        tx_high,
+        tx_edge,
+        tx_exceeds,
+    } = setup_deep_txs();
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_edge).is_err());
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_exceeds).is_err());
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_high).is_err());
 }
 
 #[test]
@@ -2753,16 +2753,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
     // activate new AST rules right away
     let mut peer = TestPeer::new(peer_config);
-    let mut sortdb = peer.sortdb.take().unwrap();
-    {
-        let mut tx = sortdb
-            .tx_begin()
-            .expect("FATAL: failed to begin tx on sortition DB");
-        SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 1)
-            .expect("FATAL: failed to override AST PrecheckSize rule height");
-        tx.commit()
-            .expect("FATAL: failed to commit sortition DB transaction");
-    }
+    let sortdb = peer.sortdb.take().unwrap();
     peer.sortdb = Some(sortdb);
 
     let chainstate_path = peer.chainstate_path.clone();
@@ -2776,22 +2767,11 @@ fn process_new_blocks_rejects_problematic_asts() {
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let high_repeat_factor = 128 * 1024;
-    let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
-    let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
-    let tx_high_body = format!("{}u1 {}", tx_high_body_start, tx_high_body_end);
-
-    let bad_tx = make_contract_tx(
-        &privk,
-        0,
-        (tx_high_body.len() * 100) as u64,
-        "test-high",
-        &tx_high_body,
-    );
-    let bad_txid = bad_tx.txid();
-    let bad_tx_len = {
+    let DeepTransactions { tx_high, .. } = setup_deep_txs();
+    let tx_high_txid = tx_high.txid();
+    let tx_high_len = {
         let mut bytes = vec![];
-        bad_tx.consensus_serialize(&mut bytes).unwrap();
+        tx_high.consensus_serialize(&mut bytes).unwrap();
         bytes.len() as u64
     };
 
@@ -2913,10 +2893,10 @@ fn process_new_blocks_rejects_problematic_asts() {
                     block_builder,
                     chainstate,
                     &sortdb.index_handle(&tip.sortition_id),
-                    vec![coinbase_tx.clone(), bad_tx.clone()],
+                    vec![coinbase_tx.clone(), tx_high.clone()],
                 )
             {
-                assert_eq!(txid, bad_txid);
+                assert_eq!(txid, tx_high_txid);
             } else {
                 panic!("Did not get Error::ProblematicTransaction");
             }
@@ -2940,7 +2920,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             .unwrap();
 
             let mut bad_block = bad_block.0;
-            bad_block.txs.push(bad_tx.clone());
+            bad_block.txs.push(tx_high.clone());
 
             let txid_vecs: Vec<_> = bad_block
                 .txs
@@ -2971,7 +2951,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
             // miner should fail with just the bad tx, since it's problematic
             let mblock_err = microblock_builder
-                .mine_next_microblock_from_txs(vec![(bad_tx.clone(), bad_tx_len)], &mblock_privk)
+                .mine_next_microblock_from_txs(vec![(tx_high.clone(), tx_high_len)], &mblock_privk)
                 .unwrap_err();
             if let ChainstateError::NoTransactionsToMine = mblock_err {
             } else {
@@ -2988,14 +2968,14 @@ fn process_new_blocks_rejects_problematic_asts() {
 
             let mut bad_mblock = microblock_builder
                 .mine_next_microblock_from_txs(
-                    vec![(token_transfer, tt_len), (bad_tx.clone(), bad_tx_len)],
+                    vec![(token_transfer, tt_len), (tx_high.clone(), tx_high_len)],
                     &mblock_privk,
                 )
                 .unwrap();
 
             // miner shouldn't include the bad tx, since it's problematic
             assert_eq!(bad_mblock.txs.len(), 1);
-            bad_mblock.txs.push(bad_tx.clone());
+            bad_mblock.txs.push(tx_high.clone());
 
             // force it in anyway
             let txid_vecs: Vec<_> = bad_mblock
@@ -3058,7 +3038,7 @@ fn process_new_blocks_rejects_problematic_asts() {
         StacksMessage {
             preamble,
             relayers: vec![],
-            payload: StacksMessageType::Transaction(bad_tx.clone()),
+            payload: StacksMessageType::Transaction(tx_high.clone()),
         },
     ];
     let mut unsolicited = HashMap::new();

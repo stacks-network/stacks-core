@@ -3107,6 +3107,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-cli"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "serde_json",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tempfile",
+]
+
+[[package]]
 name = "stacks-common"
 version = "0.0.1"
 dependencies = [
@@ -3161,6 +3172,21 @@ dependencies = [
  "time 0.2.27",
  "toml",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "stacks-inspect"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "libstackerdb 0.0.1",
+ "mutants",
+ "rusqlite",
+ "serde_json",
+ "slog",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tikv-jemallocator",
 ]
 
 [[package]]
@@ -3314,7 +3340,6 @@ dependencies = [
  "stdext",
  "stx-genesis",
  "tempfile",
- "tikv-jemallocator",
  "time 0.3.41",
  "toml",
  "url",

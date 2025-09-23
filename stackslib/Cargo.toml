@@ -19,16 +19,8 @@ name = "blockstack_lib"
 path = "src/lib.rs"
 
 [[bin]]
-name = "stacks-inspect"
-path = "src/main.rs"
-
-[[bin]]
 name = "clarity-cli"
 path = "src/clarity_cli_main.rs"
-
-[[bin]]
-name = "blockstack-cli"
-path = "src/blockstack_cli.rs"
 
 [dependencies]
 rand = { workspace = true }
@@ -53,9 +45,6 @@ siphasher = "0.3.7"
 rusqlite = { workspace = true }
 time = "0.3.41"
 toml = { workspace = true }
-
-[target.'cfg(not(any(target_os = "macos",target_os="windows", target_arch = "arm" )))'.dependencies]
-tikv-jemallocator = {workspace = true}
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

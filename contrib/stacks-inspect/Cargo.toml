@@ -1,0 +1,19 @@
+[package]
+name = "stacks-inspect"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
+clarity = { path = "../../clarity", default-features = false }
+libstackerdb = { path = "../../libstackerdb", default-features = false }
+stacks-common = { path = "../../stacks-common", default-features = false }
+rusqlite = { workspace = true }
+serde_json = { workspace = true }
+slog = { workspace = true }
+
+[target.'cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))'.dependencies]
+tikv-jemallocator = { workspace = true }
+
+[dev-dependencies]
+mutants = "0.0.3"

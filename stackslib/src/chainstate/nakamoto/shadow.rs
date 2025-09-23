@@ -507,8 +507,6 @@ impl NakamotoBlockBuilder {
         tenure_id_consensus_hash: &ConsensusHash,
         txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> {
-        use clarity::vm::ast::ASTRules;
-
         debug!(
             "Build shadow Nakamoto block from {} transactions",
             txs.len()
@@ -539,7 +537,6 @@ impl NakamotoBlockBuilder {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             ) {
                 TransactionResult::Success(..) => {

@@ -22,7 +22,6 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -1338,7 +1337,6 @@ impl StacksChainState {
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
-                        ASTRules::PrecheckSize,
                         None,
                     )
                 })?;
@@ -1965,7 +1963,6 @@ impl StacksChainState {
             burn_dbconn,
             contract,
             code,
-            ASTRules::PrecheckSize,
         );
         result.unwrap()
     }
@@ -1984,7 +1981,6 @@ impl StacksChainState {
             burn_dbconn,
             contract,
             code,
-            ASTRules::PrecheckSize,
         )
     }
 
