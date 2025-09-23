@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::CheckErrors;
+use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
@@ -265,7 +265,7 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                 }
             }
             Ok(Some(Err(e))) => match e {
-                Unchecked(CheckErrors::CostBalanceExceeded(actual_cost, _))
+                Unchecked(CheckErrorKind::CostBalanceExceeded(actual_cost, _))
                     if actual_cost.write_count > 0 =>
                 {
                     CallReadOnlyResponse {

@@ -19,7 +19,7 @@ use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
 use crate::Error;
-use crate::errors::{CheckErrors, InterpreterError, RuntimeErrorType};
+use crate::errors::{CheckErrorKind, InterpreterError, RuntimeErrorType};
 use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
     QualifiedContractIdentifier, SequenceData, SequencedValue as _, StandardPrincipalData,
@@ -38,12 +38,12 @@ fn test_constructors() {
     );
     assert_eq!(
         ListTypeData::new_list(TypeSignature::IntType, MAX_VALUE_SIZE),
-        Err(CheckErrors::ValueTooLarge)
+        Err(CheckErrorKind::ValueTooLarge)
     );
 
     assert_eq!(
         Value::buff_from(vec![0; (MAX_VALUE_SIZE + 1) as usize]),
-        Err(CheckErrors::ValueTooLarge.into())
+        Err(CheckErrorKind::ValueTooLarge.into())
     );
 
     // Test that wrappers (okay, error, some)
@@ -52,17 +52,17 @@ fn test_constructors() {
     //   isn't causing the error).
     assert_eq!(
         Value::okay(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(CheckErrors::ValueTooLarge.into())
+        Err(CheckErrorKind::ValueTooLarge.into())
     );
 
     assert_eq!(
         Value::error(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(CheckErrors::ValueTooLarge.into())
+        Err(CheckErrorKind::ValueTooLarge.into())
     );
 
     assert_eq!(
         Value::some(Value::buff_from(vec![0; (MAX_VALUE_SIZE) as usize]).unwrap()),
-        Err(CheckErrors::ValueTooLarge.into())
+        Err(CheckErrorKind::ValueTooLarge.into())
     );
 
     // Test that the depth limit is correctly enforced:
@@ -86,24 +86,24 @@ fn test_constructors() {
     let inner_value = cons().unwrap();
     assert_eq!(
         TupleData::from_data(vec![("a".into(), inner_value.clone())]),
-        Err(CheckErrors::TypeSignatureTooDeep.into())
+        Err(CheckErrorKind::TypeSignatureTooDeep.into())
     );
 
     assert_eq!(
         Value::list_from(vec![inner_value.clone()]),
-        Err(CheckErrors::TypeSignatureTooDeep.into())
+        Err(CheckErrorKind::TypeSignatureTooDeep.into())
     );
     assert_eq!(
         Value::okay(inner_value.clone()),
-        Err(CheckErrors::TypeSignatureTooDeep.into())
+        Err(CheckErrorKind::TypeSignatureTooDeep.into())
     );
     assert_eq!(
         Value::error(inner_value.clone()),
-        Err(CheckErrors::TypeSignatureTooDeep.into())
+        Err(CheckErrorKind::TypeSignatureTooDeep.into())
     );
     assert_eq!(
         Value::some(inner_value),
-        Err(CheckErrors::TypeSignatureTooDeep.into())
+        Err(CheckErrorKind::TypeSignatureTooDeep.into())
     );
 
     if std::env::var("CIRCLE_TESTING") == Ok("1".to_string()) {
@@ -115,7 +115,7 @@ fn test_constructors() {
     if (u32::MAX as usize) < usize::MAX {
         assert_eq!(
             Value::buff_from(vec![0; (u32::MAX as usize) + 10]),
-            Err(CheckErrors::ValueTooLarge.into())
+            Err(CheckErrorKind::ValueTooLarge.into())
         );
     }
 }

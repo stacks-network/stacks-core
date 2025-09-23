@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use super::{check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypingContext};
-use crate::vm::analysis::errors::{CheckErrors, StaticCheckError, SyntaxBindingErrorType};
+use crate::vm::analysis::errors::{CheckErrorKind, StaticCheckError, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 use crate::vm::diagnostic::DiagnosableError;
@@ -117,7 +117,7 @@ fn inner_handle_tuple_get(
 
     let return_type = tuple_type_sig
         .field_type(field_to_get)
-        .ok_or(StaticCheckError::new(CheckErrors::NoSuchTupleField(
+        .ok_or(StaticCheckError::new(CheckErrorKind::NoSuchTupleField(
             field_to_get.to_string(),
             tuple_type_sig.clone(),
         )))?
@@ -132,7 +132,9 @@ fn check_special_get(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
 
-    let field_to_get = args[0].match_atom().ok_or(CheckErrors::BadTupleFieldName)?;
+    let field_to_get = args[0]
+        .match_atom()
+        .ok_or(CheckErrorKind::BadTupleFieldName)?;
 
     let argument_type = checker.type_check(&args[1], context)?;
 
@@ -144,10 +146,10 @@ fn check_special_get(
             let option_type = TypeSignature::new_option(inner_type)?;
             Ok(option_type)
         } else {
-            Err(CheckErrors::ExpectedTuple(value_type_sig).into())
+            Err(CheckErrorKind::ExpectedTuple(value_type_sig).into())
         }
     } else {
-        Err(CheckErrors::ExpectedTuple(Box::new(argument_type)).into())
+        Err(CheckErrorKind::ExpectedTuple(Box::new(argument_type)).into())
     }
 }
 
@@ -161,13 +163,13 @@ fn check_special_merge(
     let res = checker.type_check(&args[0], context)?;
     let mut base = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
-        _ => Err(CheckErrors::ExpectedTuple(Box::new(res.clone()))),
+        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(res.clone()))),
     }?;
 
     let res = checker.type_check(&args[1], context)?;
     let mut update = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
-        _ => Err(CheckErrors::ExpectedTuple(Box::new(res.clone()))),
+        _ => Err(CheckErrorKind::ExpectedTuple(Box::new(res.clone()))),
     }?;
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleMerge,
@@ -208,7 +210,7 @@ pub fn check_special_tuple_cons(
     )?;
 
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
-        .map_err(|e| CheckErrors::BadTupleConstruction(e.message()))?;
+        .map_err(|e| CheckErrorKind::BadTupleConstruction(e.message()))?;
 
     Ok(TypeSignature::TupleType(tuple_signature))
 }
@@ -222,7 +224,7 @@ fn check_special_let(
 
     let binding_list = args[0]
         .match_list()
-        .ok_or(StaticCheckError::new(CheckErrors::BadLetSyntax))?;
+        .ok_or(StaticCheckError::new(CheckErrorKind::BadLetSyntax))?;
 
     let mut out_context = context.extend()?;
 
@@ -234,7 +236,7 @@ fn check_special_let(
         |var_name, var_sexp| {
             checker.contract_context.check_name_used(var_name)?;
             if out_context.lookup_variable_type(var_name).is_some() {
-                return Err(StaticCheckError::new(CheckErrors::NameAlreadyUsed(
+                return Err(StaticCheckError::new(CheckErrorKind::NameAlreadyUsed(
                     var_name.to_string(),
                 )));
             }
@@ -265,12 +267,12 @@ fn check_special_fetch_var(
 
     let var_name = args[0]
         .match_atom()
-        .ok_or(StaticCheckError::new(CheckErrors::BadMapName))?;
+        .ok_or(StaticCheckError::new(CheckErrorKind::BadMapName))?;
 
     let value_type = checker
         .contract_context
         .get_persisted_variable_type(var_name)
-        .ok_or(StaticCheckError::new(CheckErrors::NoSuchDataVariable(
+        .ok_or(StaticCheckError::new(CheckErrorKind::NoSuchDataVariable(
             var_name.to_string(),
         )))?;
 
@@ -290,14 +292,14 @@ fn check_special_set_var(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let var_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
+    let var_name = args[0].match_atom().ok_or(CheckErrorKind::BadMapName)?;
 
     let value_type = checker.type_check(&args[1], context)?;
 
     let expected_value_type = checker
         .contract_context
         .get_persisted_variable_type(var_name)
-        .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -307,7 +309,7 @@ fn check_special_set_var(
     analysis_typecheck_cost(&mut checker.cost_track, &value_type, expected_value_type)?;
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
-        Err(StaticCheckError::new(CheckErrors::TypeError(
+        Err(StaticCheckError::new(CheckErrorKind::TypeError(
             Box::new(expected_value_type.clone()),
             Box::new(value_type),
         )))
@@ -329,7 +331,7 @@ fn check_special_equals(
     for x_type in arg_types.into_iter() {
         analysis_typecheck_cost(checker, &x_type, &arg_type)?;
         arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &x_type, &arg_type)
-            .map_err(|_| CheckErrors::TypeError(Box::new(x_type), Box::new(arg_type)))?;
+            .map_err(|_| CheckErrorKind::TypeError(Box::new(x_type), Box::new(arg_type)))?;
     }
 
     Ok(TypeSignature::BoolType)
@@ -352,7 +354,7 @@ fn check_special_if(
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
     TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, expr1, expr2).map_err(|_| {
-        CheckErrors::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone())).into()
+        CheckErrorKind::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone())).into()
     })
 }
 
@@ -363,9 +365,9 @@ fn check_contract_call(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let func_name = args[1]
-        .match_atom()
-        .ok_or(StaticCheckError::new(CheckErrors::ContractCallExpectName))?;
+    let func_name = args[1].match_atom().ok_or(StaticCheckError::new(
+        CheckErrorKind::ContractCallExpectName,
+    ))?;
     checker.type_map.set_type(&args[1], no_type())?;
 
     let expected_sig = match &args[0].expr {
@@ -389,7 +391,7 @@ fn check_contract_call(
                 {
                     Ok(function)
                 } else {
-                    Err(StaticCheckError::new(CheckErrors::NoSuchPublicFunction(
+                    Err(StaticCheckError::new(CheckErrorKind::NoSuchPublicFunction(
                         contract_identifier.to_string(),
                         func_name.to_string(),
                     )))
@@ -412,7 +414,7 @@ fn check_contract_call(
                 Some(trait_id) => trait_id,
                 _ => {
                     return Err(
-                        CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
+                        CheckErrorKind::TraitReferenceUnknown(trait_instance.to_string()).into(),
                     );
                 }
             };
@@ -420,12 +422,12 @@ fn check_contract_call(
             runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
 
             let trait_signature = checker.contract_context.get_trait(&trait_id.name).ok_or(
-                CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()),
+                CheckErrorKind::TraitReferenceUnknown(trait_id.name.to_string()),
             )?;
             let func_signature =
                 trait_signature
                     .get(func_name)
-                    .ok_or(CheckErrors::TraitMethodUnknown(
+                    .ok_or(CheckErrorKind::TraitMethodUnknown(
                         trait_id.name.to_string(),
                         func_name.to_string(),
                     ))?;
@@ -438,7 +440,11 @@ fn check_contract_call(
 
             func_signature.clone()
         }
-        _ => return Err(StaticCheckError::new(CheckErrors::ContractCallExpectName)),
+        _ => {
+            return Err(StaticCheckError::new(
+                CheckErrorKind::ContractCallExpectName,
+            ))
+        }
     };
 
     check_argument_count(expected_sig.args.len(), &args[2..])?;
@@ -458,12 +464,16 @@ fn check_contract_of(
 
     let trait_instance = match &args[0].expr {
         SymbolicExpressionType::Atom(trait_instance) => trait_instance,
-        _ => return Err(StaticCheckError::new(CheckErrors::ContractOfExpectsTrait)),
+        _ => {
+            return Err(StaticCheckError::new(
+                CheckErrorKind::ContractOfExpectsTrait,
+            ))
+        }
     };
 
     let trait_id = match context.lookup_trait_reference_type(trait_instance) {
         Some(trait_id) => trait_id,
-        _ => return Err(CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into()),
+        _ => return Err(CheckErrorKind::TraitReferenceUnknown(trait_instance.to_string()).into()),
     };
 
     runtime_cost(ClarityCostFunction::ContractOf, checker, 1)?;
@@ -471,7 +481,7 @@ fn check_contract_of(
     checker
         .contract_context
         .get_trait(&trait_id.name)
-        .ok_or_else(|| CheckErrors::TraitReferenceUnknown(trait_id.name.to_string()))?;
+        .ok_or_else(|| CheckErrorKind::TraitReferenceUnknown(trait_id.name.to_string()))?;
 
     Ok(TypeSignature::PrincipalType)
 }
@@ -485,7 +495,7 @@ fn check_principal_of(
     checker.type_check_expects(&args[0], context, &BUFF_33)?;
     Ok(
         TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType)
-            .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+            .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
     )
 }
 
@@ -499,7 +509,7 @@ fn check_secp256k1_recover(
     checker.type_check_expects(&args[1], context, &BUFF_65)?;
     Ok(
         TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType)
-            .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+            .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
     )
 }
 
@@ -523,16 +533,16 @@ fn check_get_block_info(
     check_arguments_at_least(2, args)?;
 
     let block_info_prop_str = args[0].match_atom().ok_or(StaticCheckError::new(
-        CheckErrors::GetBlockInfoExpectPropertyName,
+        CheckErrorKind::GetBlockInfoExpectPropertyName,
     ))?;
 
     let block_info_prop = BlockInfoProperty::lookup_by_name_at_version(
         block_info_prop_str,
         &ClarityVersion::Clarity1,
     )
-    .ok_or(StaticCheckError::new(CheckErrors::NoSuchBlockInfoProperty(
-        block_info_prop_str.to_string(),
-    )))?;
+    .ok_or(StaticCheckError::new(
+        CheckErrorKind::NoSuchBlockInfoProperty(block_info_prop_str.to_string()),
+    ))?;
 
     checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
 
@@ -557,7 +567,7 @@ impl TypedNativeFunction {
 
     pub fn type_native_function(
         function: &NativeFunctions,
-    ) -> Result<TypedNativeFunction, CheckErrors> {
+    ) -> Result<TypedNativeFunction, CheckErrorKind> {
         use self::TypedNativeFunction::{Simple, Special};
         use crate::vm::functions::NativeFunctions::*;
         let out = match function {
@@ -579,7 +589,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::IntType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        CheckErrors::Expects(
+                        CheckErrorKind::Expects(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -590,7 +600,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::UIntType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        CheckErrors::Expects(
+                        CheckErrorKind::Expects(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -601,7 +611,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::BoolType,
                     ClarityName::try_from("value".to_owned()).map_err(|_| {
-                        CheckErrors::Expects(
+                        CheckErrorKind::Expects(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -654,7 +664,7 @@ impl TypedNativeFunction {
                 args: vec![FunctionArg::new(
                     TypeSignature::PrincipalType,
                     ClarityName::try_from("owner".to_owned()).map_err(|_| {
-                        CheckErrors::Expects(
+                        CheckErrorKind::Expects(
                             "FAIL: ClarityName failed to accept default arg name".into(),
                         )
                     })?,
@@ -666,7 +676,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::UIntType,
                         ClarityName::try_from("amount".to_owned()).map_err(|_| {
-                            CheckErrors::Expects(
+                            CheckErrorKind::Expects(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -674,7 +684,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
                         ClarityName::try_from("sender".to_owned()).map_err(|_| {
-                            CheckErrors::Expects(
+                            CheckErrorKind::Expects(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -682,7 +692,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
                         ClarityName::try_from("recipient".to_owned()).map_err(|_| {
-                            CheckErrors::Expects(
+                            CheckErrorKind::Expects(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -692,14 +702,14 @@ impl TypedNativeFunction {
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+                .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
             }))),
             StxBurn => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![
                     FunctionArg::new(
                         TypeSignature::UIntType,
                         ClarityName::try_from("amount".to_owned()).map_err(|_| {
-                            CheckErrors::Expects(
+                            CheckErrorKind::Expects(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -707,7 +717,7 @@ impl TypedNativeFunction {
                     FunctionArg::new(
                         TypeSignature::PrincipalType,
                         ClarityName::try_from("sender".to_owned()).map_err(|_| {
-                            CheckErrors::Expects(
+                            CheckErrorKind::Expects(
                                 "FAIL: ClarityName failed to accept default arg name".into(),
                             )
                         })?,
@@ -717,7 +727,7 @@ impl TypedNativeFunction {
                     TypeSignature::BoolType,
                     TypeSignature::UIntType,
                 )
-                .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
+                .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
             }))),
             GetTokenBalance => Special(SpecialNativeFunction(&assets::check_special_get_balance)),
             GetAssetOwner => Special(SpecialNativeFunction(&assets::check_special_get_owner)),
@@ -783,7 +793,7 @@ impl TypedNativeFunction {
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
             | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash | ToAscii => {
-                return Err(CheckErrors::Expects(
+                return Err(CheckErrorKind::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
                 ));
             }
