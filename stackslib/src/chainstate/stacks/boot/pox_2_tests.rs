@@ -438,11 +438,12 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
         .burnchain
         .reward_cycle_to_block_height(cycle_number);
 
-    let tip_epoch = SortitionDB::get_stacks_epoch(peer.sortdb().conn(), current_burn_height as u64)
-        .unwrap()
-        .unwrap();
+    let tip_epoch =
+        SortitionDB::get_stacks_epoch(peer.chain.sortdb().conn(), current_burn_height as u64)
+            .unwrap()
+            .unwrap();
 
-    let cycle_start_epoch = SortitionDB::get_stacks_epoch(peer.sortdb().conn(), cycle_start)
+    let cycle_start_epoch = SortitionDB::get_stacks_epoch(peer.chain.sortdb().conn(), cycle_start)
         .unwrap()
         .unwrap();
 
@@ -776,7 +777,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     };
 
     // our "tenure counter" is now at 0
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
 
     // first tenure is empty
@@ -794,7 +795,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
@@ -854,7 +855,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     //  should be accepted (checked via the tx receipt). Also, importantly,
     //  the cost tracker should assign costs to Charlie's transaction.
     //  This is also checked by the transaction receipt.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // our "tenure counter" is now at 9
     assert_eq!(tip.block_height, 9 + EMPTY_SORTITIONS as u64);
@@ -880,7 +881,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10, and 11
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_pox_2_lockup(
         &bob,
@@ -904,7 +905,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_balance, 0);
 
     // Now, Bob tries to lock in PoX v1 too, but it shouldn't work!
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_pox_lockup(
         &bob,
@@ -921,7 +922,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let block_id = peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
 
     // our "tenure counter" is now at 12
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 12 + EMPTY_SORTITIONS as u64);
     // One more empty tenure to reach the unlock height
     let block_id = peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -932,7 +933,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     // At this point, the auto unlock height for v1 accounts should be reached.
     //  let Alice stack in PoX v2
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // our "tenure counter" is now at 13
     assert_eq!(tip.block_height, 13 + EMPTY_SORTITIONS as u64);
@@ -963,7 +964,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // our "tenure counter" is now at 31
     assert_eq!(tip.block_height, 31 + EMPTY_SORTITIONS as u64);
@@ -1174,7 +1175,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10, and 11
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let alice_lockup = make_pox_2_lockup(
         &alice,
@@ -1245,7 +1246,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -1470,7 +1471,7 @@ fn delegate_stack_increase() {
     }
 
     // in the next tenure, PoX 2 should now exist.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // submit delegation tx
     let success_alice_delegation = alice_nonce;
@@ -1528,7 +1529,7 @@ fn delegate_stack_increase() {
     //  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -1822,7 +1823,7 @@ fn stack_increase() {
     }
 
     // in the next tenure, PoX 2 should now exist.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // submit an increase: this should fail, because Alice is not yet locked
     let fail_no_lock_tx = alice_nonce;
@@ -1876,7 +1877,7 @@ fn stack_increase() {
     //  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -2059,7 +2060,7 @@ fn test_lock_period_invariant_extend_transition() {
     let ALICE_LOCKUP = 1024 * POX_THRESHOLD_STEPS_USTX;
 
     // our "tenure counter" is now at 0
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
 
     // first tenure is empty
@@ -2074,7 +2075,7 @@ fn test_lock_period_invariant_extend_transition() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
@@ -2138,7 +2139,7 @@ fn test_lock_period_invariant_extend_transition() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // Alice _will_ auto-unlock: she can stack-extend in PoX v2
     let alice_lockup = make_pox_2_extend(
@@ -2311,7 +2312,7 @@ fn test_pox_extend_transition_pox_2() {
     };
 
     // our "tenure counter" is now at 0
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
 
     // first tenure is empty
@@ -2326,7 +2327,7 @@ fn test_pox_extend_transition_pox_2() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
@@ -2392,7 +2393,7 @@ fn test_pox_extend_transition_pox_2() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_pox_2_lockup(
         &bob,
@@ -2451,7 +2452,7 @@ fn test_pox_extend_transition_pox_2() {
         alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     // our "tenure counter" is now at 15
     assert_eq!(tip.block_height, 15 + EMPTY_SORTITIONS as u64);
 
@@ -2468,7 +2469,7 @@ fn test_pox_extend_transition_pox_2() {
     }
 
     // our "tenure counter" is now at 32
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 32 + EMPTY_SORTITIONS as u64);
 
     // Alice would have unlocked under v1 rules, so try to stack again via PoX 1 and expect a runtime error
@@ -2736,7 +2737,7 @@ fn test_delegate_extend_transition_pox_2() {
     };
 
     // our "tenure counter" is now at 0
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
 
     // first tenure is empty
@@ -2751,7 +2752,7 @@ fn test_delegate_extend_transition_pox_2() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let delegate_tx = make_pox_contract_call(
         &alice,
         0,
@@ -2883,7 +2884,7 @@ fn test_delegate_extend_transition_pox_2() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_delegate_tx = make_pox_2_contract_call(
         &bob,
@@ -3090,7 +3091,7 @@ fn test_delegate_extend_transition_pox_2() {
         alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     // our "tenure counter" is now at 15
     assert_eq!(tip.block_height, 15 + EMPTY_SORTITIONS as u64);
 
@@ -3156,7 +3157,7 @@ fn test_delegate_extend_transition_pox_2() {
     }
 
     // our "tenure counter" is now at 32
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 32 + EMPTY_SORTITIONS as u64);
 
     // Alice would have unlocked under v1 rules, so try to stack again via PoX 1 and expect a runtime error
@@ -3375,7 +3376,7 @@ fn test_pox_2_getters() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let cur_reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -3645,8 +3646,9 @@ fn test_get_pox_addrs() {
         let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
@@ -3923,8 +3925,9 @@ fn test_stack_with_segwit() {
         let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
@@ -4257,7 +4260,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let cur_reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -4463,7 +4466,7 @@ fn stack_aggregation_increase() {
     }
 
     // in the next tenure, PoX 2 should now exist.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // submit delegation tx for alice
     let alice_delegation_1 = make_pox_2_contract_call(
@@ -4529,7 +4532,7 @@ fn stack_aggregation_increase() {
     //  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -4552,7 +4555,7 @@ fn stack_aggregation_increase() {
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let cur_reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -4603,7 +4606,7 @@ fn stack_aggregation_increase() {
     bob_nonce += 1;
 
     latest_block = peer.tenure_with_txs(&txs_to_submit, &mut coinbase_nonce);
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let cur_reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -4900,7 +4903,7 @@ fn stack_in_both_pox1_and_pox2() {
     }
 
     // in the next tenure, PoX 2 should now exist.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // our "tenure counter" is now at 10
     assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);

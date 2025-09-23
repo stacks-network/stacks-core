@@ -481,8 +481,9 @@ impl<'a> TestRPC<'a> {
             tx.commit().unwrap();
         }
 
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         let mut anchor_cost = ExecutionCost::ZERO;
         let mut anchor_size = 0;
 
@@ -544,7 +545,7 @@ impl<'a> TestRPC<'a> {
 
         // build 1-block microblock stream with the contract-call and the unconfirmed contract
         let microblock = {
-            let sortdb = peer_1.sortdb.take().unwrap();
+            let sortdb = peer_1.chain.sortdb.take().unwrap();
             Relayer::setup_unconfirmed_state(peer_1.chainstate(), &sortdb).unwrap();
             let mblock = {
                 let sort_iconn = sortdb.index_handle_at_tip();
@@ -567,7 +568,7 @@ impl<'a> TestRPC<'a> {
                     .unwrap();
                 microblock
             };
-            peer_1.sortdb = Some(sortdb);
+            peer_1.chain.sortdb = Some(sortdb);
             mblock
         };
 
@@ -596,8 +597,8 @@ impl<'a> TestRPC<'a> {
                 .unwrap();
 
             // process microblock stream to generate unconfirmed state
-            let sortdb1 = peer_1.sortdb.take().unwrap();
-            let sortdb2 = peer_2.sortdb.take().unwrap();
+            let sortdb1 = peer_1.chain.sortdb.take().unwrap();
+            let sortdb2 = peer_2.chain.sortdb.take().unwrap();
             peer_1
                 .chainstate()
                 .reload_unconfirmed_state(&sortdb1.index_handle_at_tip(), canonical_tip.clone())
@@ -606,8 +607,8 @@ impl<'a> TestRPC<'a> {
                 .chainstate()
                 .reload_unconfirmed_state(&sortdb2.index_handle_at_tip(), canonical_tip.clone())
                 .unwrap();
-            peer_1.sortdb = Some(sortdb1);
-            peer_2.sortdb = Some(sortdb2);
+            peer_1.chain.sortdb = Some(sortdb1);
+            peer_2.chain.sortdb = Some(sortdb2);
         }
 
         let mut mempool_txids = vec![];
@@ -683,23 +684,23 @@ impl<'a> TestRPC<'a> {
         mempool_tx.commit().unwrap();
         peer_2.mempool.replace(mempool);
 
-        let peer_1_sortdb = peer_1.sortdb.take().unwrap();
-        let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+        let peer_1_sortdb = peer_1.chain.sortdb.take().unwrap();
+        let mut peer_1_stacks_node = peer_1.chain.stacks_node.take().unwrap();
         let _ = peer_1
             .network
             .refresh_burnchain_view(&peer_1_sortdb, &mut peer_1_stacks_node.chainstate, false)
             .unwrap();
-        peer_1.sortdb = Some(peer_1_sortdb);
-        peer_1.stacks_node = Some(peer_1_stacks_node);
+        peer_1.chain.sortdb = Some(peer_1_sortdb);
+        peer_1.chain.stacks_node = Some(peer_1_stacks_node);
 
-        let peer_2_sortdb = peer_2.sortdb.take().unwrap();
-        let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
+        let peer_2_sortdb = peer_2.chain.sortdb.take().unwrap();
+        let mut peer_2_stacks_node = peer_2.chain.stacks_node.take().unwrap();
         let _ = peer_2
             .network
             .refresh_burnchain_view(&peer_2_sortdb, &mut peer_2_stacks_node.chainstate, false)
             .unwrap();
-        peer_2.sortdb = Some(peer_2_sortdb);
-        peer_2.stacks_node = Some(peer_2_stacks_node);
+        peer_2.chain.sortdb = Some(peer_2_sortdb);
+        peer_2.chain.stacks_node = Some(peer_2_stacks_node);
 
         // insert some fake Atlas attachment data
         let attachment = Attachment {
@@ -741,8 +742,9 @@ impl<'a> TestRPC<'a> {
             .unwrap();
 
         // next tip, coinbase
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let mut tx_coinbase = StacksTransaction::new(
             TransactionVersion::Testnet,
@@ -928,29 +930,29 @@ impl<'a> TestRPC<'a> {
             32,
         );
 
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
         let nakamoto_tip = {
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             let tip =
                 NakamotoChainState::get_canonical_block_header(peer.chainstate().db(), &sortdb)
                     .unwrap()
                     .unwrap();
-            peer.sortdb = Some(sortdb);
+            peer.chain.sortdb = Some(sortdb);
             tip
         };
 
         // sanity check
         let other_tip =
-            SortitionDB::get_canonical_burn_chain_tip(other_peer.sortdb().conn()).unwrap();
+            SortitionDB::get_canonical_burn_chain_tip(other_peer.chain.sortdb().conn()).unwrap();
         let other_nakamoto_tip = {
-            let sortdb = other_peer.sortdb.take().unwrap();
+            let sortdb = other_peer.chain.sortdb.take().unwrap();
             let tip = NakamotoChainState::get_canonical_block_header(
                 other_peer.chainstate().db(),
                 &sortdb,
             )
             .unwrap()
             .unwrap();
-            other_peer.sortdb = Some(sortdb);
+            other_peer.chain.sortdb = Some(sortdb);
             tip
         };
 
@@ -1031,29 +1033,29 @@ impl<'a> TestRPC<'a> {
             32,
         );
 
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
         let nakamoto_tip = {
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             let tip =
                 NakamotoChainState::get_canonical_block_header(peer.chainstate().db(), &sortdb)
                     .unwrap()
                     .unwrap();
-            peer.sortdb = Some(sortdb);
+            peer.chain.sortdb = Some(sortdb);
             tip
         };
 
         // sanity check
         let other_tip =
-            SortitionDB::get_canonical_burn_chain_tip(other_peer.sortdb().conn()).unwrap();
+            SortitionDB::get_canonical_burn_chain_tip(other_peer.chain.sortdb().conn()).unwrap();
         let other_nakamoto_tip = {
-            let sortdb = other_peer.sortdb.take().unwrap();
+            let sortdb = other_peer.chain.sortdb.take().unwrap();
             let tip = NakamotoChainState::get_canonical_block_header(
                 other_peer.chainstate().db(),
                 &sortdb,
             )
             .unwrap()
             .unwrap();
-            other_peer.sortdb = Some(sortdb);
+            other_peer.chain.sortdb = Some(sortdb);
             tip
         };
 
@@ -1126,8 +1128,8 @@ impl<'a> TestRPC<'a> {
             convo_send_recv(&mut convo_1, &mut convo_2);
 
             // hack around the borrow-checker
-            let peer_1_sortdb = peer_1.sortdb.take().unwrap();
-            let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+            let peer_1_sortdb = peer_1.chain.sortdb.take().unwrap();
+            let mut peer_1_stacks_node = peer_1.chain.stacks_node.take().unwrap();
 
             if unconfirmed_state {
                 Relayer::setup_unconfirmed_state(
@@ -1156,16 +1158,16 @@ impl<'a> TestRPC<'a> {
                 convo_1.chat(&mut node_state).unwrap();
             }
 
-            peer_1.sortdb = Some(peer_1_sortdb);
-            peer_1.stacks_node = Some(peer_1_stacks_node);
+            peer_1.chain.sortdb = Some(peer_1_sortdb);
+            peer_1.chain.stacks_node = Some(peer_1_stacks_node);
             peer_1.mempool = Some(peer_1_mempool);
             peer_2.mempool = Some(peer_2_mempool);
 
             debug!("test_rpc: Peer 2 sends to Peer 1");
 
             // hack around the borrow-checker
-            let peer_2_sortdb = peer_2.sortdb.take().unwrap();
-            let mut peer_2_stacks_node = peer_2.stacks_node.take().unwrap();
+            let peer_2_sortdb = peer_2.chain.sortdb.take().unwrap();
+            let mut peer_2_stacks_node = peer_2.chain.stacks_node.take().unwrap();
             let mut peer_2_mempool = peer_2.mempool.take().unwrap();
 
             let _ = peer_2
@@ -1200,8 +1202,8 @@ impl<'a> TestRPC<'a> {
                 convo_2.chat(&mut node_state).unwrap();
             }
 
-            peer_2.sortdb = Some(peer_2_sortdb);
-            peer_2.stacks_node = Some(peer_2_stacks_node);
+            peer_2.chain.sortdb = Some(peer_2_sortdb);
+            peer_2.chain.stacks_node = Some(peer_2_stacks_node);
             peer_2.mempool = Some(peer_2_mempool);
 
             convo_send_recv(&mut convo_2, &mut convo_1);
@@ -1211,8 +1213,8 @@ impl<'a> TestRPC<'a> {
             // hack around the borrow-checker
             convo_send_recv(&mut convo_1, &mut convo_2);
 
-            let peer_1_sortdb = peer_1.sortdb.take().unwrap();
-            let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+            let peer_1_sortdb = peer_1.chain.sortdb.take().unwrap();
+            let mut peer_1_stacks_node = peer_1.chain.stacks_node.take().unwrap();
 
             let _ = peer_1
                 .network
@@ -1227,15 +1229,15 @@ impl<'a> TestRPC<'a> {
                 .unwrap();
             }
 
-            peer_1.sortdb = Some(peer_1_sortdb);
-            peer_1.stacks_node = Some(peer_1_stacks_node);
+            peer_1.chain.sortdb = Some(peer_1_sortdb);
+            peer_1.chain.stacks_node = Some(peer_1_stacks_node);
 
             let resp_opt = loop {
                 debug!("Peer 1 try get response");
                 convo_send_recv(&mut convo_1, &mut convo_2);
                 {
-                    let peer_1_sortdb = peer_1.sortdb.take().unwrap();
-                    let mut peer_1_stacks_node = peer_1.stacks_node.take().unwrap();
+                    let peer_1_sortdb = peer_1.chain.sortdb.take().unwrap();
+                    let mut peer_1_stacks_node = peer_1.chain.stacks_node.take().unwrap();
                     let mut peer_1_mempool = peer_1.mempool.take().unwrap();
 
                     let rpc_args = peer_1
@@ -1255,8 +1257,8 @@ impl<'a> TestRPC<'a> {
 
                     convo_1.chat(&mut node_state).unwrap();
 
-                    peer_1.sortdb = Some(peer_1_sortdb);
-                    peer_1.stacks_node = Some(peer_1_stacks_node);
+                    peer_1.chain.sortdb = Some(peer_1_sortdb);
+                    peer_1.chain.stacks_node = Some(peer_1_stacks_node);
                     peer_1.mempool = Some(peer_1_mempool);
                 }
 

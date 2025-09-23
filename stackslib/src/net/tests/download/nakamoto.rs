@@ -39,6 +39,7 @@ use crate::chainstate::stacks::{
     TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
     TransactionPayload, TransactionVersion,
 };
+use crate::chainstate::test::TestChainstate;
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::test_util::to_addr;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
@@ -400,13 +401,13 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     let peer = make_nakamoto_peer_from_invs(function_name!(), &observer, rc_len as u32, 3, bitvecs);
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    peer.mine_malleablized_blocks = false;
+    peer.chain.mine_malleablized_blocks = false;
 
     let nakamoto_start =
         NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
 
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let all_sortitions = peer.chain.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
 
     assert_eq!(tip.block_height, 51);
 
@@ -606,7 +607,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -617,7 +618,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -681,7 +682,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -692,7 +693,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -780,7 +781,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -791,7 +792,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -878,7 +879,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -889,7 +890,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -955,7 +956,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -966,7 +967,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -1018,7 +1019,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -1029,7 +1030,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -1328,8 +1329,8 @@ fn test_make_tenure_downloaders() {
     let nakamoto_start =
         NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
 
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let all_sortitions = peer.chain.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
 
     assert_eq!(tip.block_height, 51);
 
@@ -1339,7 +1340,7 @@ fn test_make_tenure_downloaders() {
 
     // test load_wanted_tenures()
     {
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
+        let ih = peer.chain.sortdb().index_handle(&tip.sortition_id);
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
             &ih,
             tip.block_height - rc_len,
@@ -1381,7 +1382,7 @@ fn test_make_tenure_downloaders() {
 
     // test load_wanted_tenures_for_reward_cycle
     {
-        let sortdb = peer.sortdb();
+        let sortdb = peer.chain.sortdb();
         let rc = sortdb
             .pox_constants
             .block_height_to_reward_cycle(sortdb.first_block_height, tip.block_height)
@@ -1390,7 +1391,7 @@ fn test_make_tenure_downloaders() {
         let wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures_for_reward_cycle(
             rc,
             &tip,
-            peer.sortdb(),
+            peer.chain.sortdb(),
         )
         .unwrap();
         assert_eq!(wanted_tenures.len(), rc_len as usize);
@@ -1412,7 +1413,7 @@ fn test_make_tenure_downloaders() {
         let err = NakamotoDownloadStateMachine::load_wanted_tenures_for_reward_cycle(
             rc + 1,
             &tip,
-            peer.sortdb(),
+            peer.chain.sortdb(),
         )
         .unwrap_err();
         assert!(matches!(err, NetError::DBError(DBError::NotFoundError)));
@@ -1420,7 +1421,7 @@ fn test_make_tenure_downloaders() {
 
     // test load_wanted_tenures_at_tip
     {
-        let sortdb = peer.sortdb();
+        let sortdb = peer.chain.sortdb();
         let wanted_tenures =
             NakamotoDownloadStateMachine::load_wanted_tenures_at_tip(None, &tip, sortdb, &[])
                 .unwrap();
@@ -1473,8 +1474,8 @@ fn test_make_tenure_downloaders() {
 
     // test inner_update_processed_wanted_tenures
     {
-        let sortdb = peer.sortdb();
-        let ih = peer.sortdb().index_handle(&tip.sortition_id);
+        let sortdb = peer.chain.sortdb();
+        let ih = peer.chain.sortdb().index_handle(&tip.sortition_id);
         let mut wanted_tenures = NakamotoDownloadStateMachine::load_wanted_tenures(
             &ih,
             nakamoto_start,
@@ -1503,7 +1504,7 @@ fn test_make_tenure_downloaders() {
     // test find_available_tenures
     {
         // test for reward cycle
-        let sortdb = peer.sortdb();
+        let sortdb = peer.chain.sortdb();
         let rc = sortdb
             .pox_constants
             .block_height_to_reward_cycle(sortdb.first_block_height, tip.block_height)
@@ -1660,7 +1661,7 @@ fn test_make_tenure_downloaders() {
 
     // test find_tenure_block_ids
     {
-        let sortdb = peer.sortdb();
+        let sortdb = peer.chain.sortdb();
         let rc = sortdb
             .pox_constants
             .block_height_to_reward_cycle(sortdb.first_block_height, tip.block_height)
@@ -1752,7 +1753,7 @@ fn test_make_tenure_downloaders() {
         // the tenure-start blocks correspond to the wanted tenure ID consensus hash
         for (i, wt) in rc_wanted_tenures.iter().enumerate() {
             // this may be before epoch 3.0
-            let sortdb = peer.sortdb();
+            let sortdb = peer.chain.sortdb();
             let sn = SortitionDB::get_block_snapshot_consensus(
                 sortdb.conn(),
                 &wt.tenure_id_consensus_hash,
@@ -1793,7 +1794,7 @@ fn test_make_tenure_downloaders() {
     // test make_ibd_download_schedule
     // test make_rarest_first_download_schedule
     {
-        let sortdb = peer.sortdb();
+        let sortdb = peer.chain.sortdb();
         let rc = sortdb
             .pox_constants
             .block_height_to_reward_cycle(sortdb.first_block_height, tip.block_height)
@@ -1894,7 +1895,7 @@ fn test_make_tenure_downloaders() {
     {
         let mut downloaders = NakamotoTenureDownloaderSet::new();
 
-        let sortdb = peer.sortdb();
+        let sortdb = peer.chain.sortdb();
         let rc = sortdb
             .pox_constants
             .block_height_to_reward_cycle(sortdb.first_block_height, tip.block_height)
@@ -2110,8 +2111,8 @@ fn test_nakamoto_download_run_2_peers() {
     let nakamoto_start =
         NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
 
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let all_sortitions = peer.chain.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
     let nakamoto_tip = peer
         .sortdb()
         .index_handle(&tip.sortition_id)
@@ -2129,7 +2130,7 @@ fn test_nakamoto_download_run_2_peers() {
     let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
 
     let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn()).unwrap();
 
     // boot up the boot peer's burnchain
     for height in 25..tip.block_height {
@@ -2137,7 +2138,7 @@ fn test_nakamoto_download_run_2_peers() {
             .get_burnchain_block_ops_at_height(height + 1)
             .unwrap_or_default();
         let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
+            let ih = peer.chain.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
             sn
         };
@@ -2147,14 +2148,18 @@ fn test_nakamoto_download_run_2_peers() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestChainstate::make_next_burnchain_block(
             &boot_peer.config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestChainstate::add_burnchain_block(
+            &boot_peer.config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2164,7 +2169,7 @@ fn test_nakamoto_download_run_2_peers() {
     thread::scope(|s| {
         s.spawn(move || {
             let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.chain.sortdb().conn())
                     .unwrap();
             loop {
                 boot_peer
@@ -2172,8 +2177,10 @@ fn test_nakamoto_download_run_2_peers() {
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                        boot_peer.chain.sortdb().conn(),
+                    )
+                    .unwrap();
 
                 last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh.clone();
@@ -2219,8 +2226,8 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     let nakamoto_start =
         NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
 
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let all_sortitions = peer.chain.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
     let nakamoto_tip = peer
         .sortdb()
         .index_handle(&tip.sortition_id)
@@ -2236,7 +2243,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
 
     let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn()).unwrap();
 
     // boot up the boot peer's burnchain
     for height in 25..tip.block_height {
@@ -2244,7 +2251,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             .get_burnchain_block_ops_at_height(height + 1)
             .unwrap_or_default();
         let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
+            let ih = peer.chain.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
             sn
         };
@@ -2261,7 +2268,11 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestChainstate::add_burnchain_block(
+            &boot_peer.config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2271,7 +2282,7 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     thread::scope(|s| {
         s.spawn(move || {
             let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.chain.sortdb().conn())
                     .unwrap();
             loop {
                 boot_peer
@@ -2279,8 +2290,10 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                        boot_peer.chain.sortdb().conn(),
+                    )
+                    .unwrap();
 
                 last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh.clone();
@@ -2344,7 +2357,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
     let naka_tip = peer.network.stacks_tip.block_id();
 
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let sortdb = peer.chain.sortdb_ref().reopen().unwrap();
     let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
 
     let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
@@ -2405,10 +2418,10 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
 
     let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn()).unwrap();
 
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let all_sortitions = peer.chain.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
     let nakamoto_tip = peer
         .sortdb()
         .index_handle(&tip.sortition_id)
@@ -2424,7 +2437,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
             .get_burnchain_block_ops_at_height(height + 1)
             .unwrap_or_default();
         let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
+            let ih = peer.chain.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
             sn
         };
@@ -2441,7 +2454,11 @@ fn test_nakamoto_microfork_download_run_2_peers() {
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestChainstate::add_burnchain_block(
+            &boot_peer.config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2451,7 +2468,7 @@ fn test_nakamoto_microfork_download_run_2_peers() {
     thread::scope(|s| {
         s.spawn(move || {
             let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.chain.sortdb().conn())
                     .unwrap();
             loop {
                 boot_peer
@@ -2459,8 +2476,10 @@ fn test_nakamoto_microfork_download_run_2_peers() {
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                        boot_peer.chain.sortdb().conn(),
+                    )
+                    .unwrap();
 
                 last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh.clone();
@@ -2521,7 +2540,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
     let naka_tip = peer.network.stacks_tip.block_id();
 
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let sortdb = peer.chain.sortdb_ref().reopen().unwrap();
     let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
 
     let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
@@ -2569,8 +2588,8 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
         peer.mine_nakamoto_on(vec![next_block.clone()]);
     }
 
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let all_sortitions = peer.chain.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
     let nakamoto_tip = peer
         .sortdb()
         .index_handle(&tip.sortition_id)
@@ -2591,7 +2610,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
 
     let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn()).unwrap();
 
     // boot up the boot peer's burnchain
     for height in 25..tip.block_height {
@@ -2599,7 +2618,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
             .get_burnchain_block_ops_at_height(height + 1)
             .unwrap_or_default();
         let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
+            let ih = peer.chain.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
             sn
         };
@@ -2616,15 +2635,19 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestChainstate::add_burnchain_block(
+            &boot_peer.config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
 
     {
-        let mut node = boot_peer.stacks_node.take().unwrap();
+        let mut node = boot_peer.chain.stacks_node.take().unwrap();
         let tx = node.chainstate.staging_db_tx_begin().unwrap();
         tx.add_shadow_block(&shadow_block).unwrap();
         tx.commit().unwrap();
-        boot_peer.stacks_node = Some(node);
+        boot_peer.chain.stacks_node = Some(node);
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2634,7 +2657,7 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     thread::scope(|s| {
         s.spawn(move || {
             let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.chain.sortdb().conn())
                     .unwrap();
             loop {
                 boot_peer
@@ -2642,8 +2665,10 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                        boot_peer.chain.sortdb().conn(),
+                    )
+                    .unwrap();
 
                 last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh;
@@ -2701,7 +2726,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
     let naka_tip = peer.network.stacks_tip.block_id();
 
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let sortdb = peer.chain.sortdb_ref().reopen().unwrap();
     let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
 
     let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
@@ -2778,8 +2803,8 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
         peer.mine_nakamoto_on(vec![next_block.clone()]);
     }
 
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let all_sortitions = peer.chain.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
     let nakamoto_tip = peer
         .sortdb()
         .index_handle(&tip.sortition_id)
@@ -2793,7 +2818,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
 
     let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn()).unwrap();
 
     // boot up the boot peer's burnchain
     for height in 25..tip.block_height {
@@ -2801,7 +2826,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
             .get_burnchain_block_ops_at_height(height + 1)
             .unwrap_or_default();
         let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
+            let ih = peer.chain.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
             sn
         };
@@ -2818,16 +2843,20 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestChainstate::add_burnchain_block(
+            &boot_peer.config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
     {
-        let mut node = boot_peer.stacks_node.take().unwrap();
+        let mut node = boot_peer.chain.stacks_node.take().unwrap();
         let tx = node.chainstate.staging_db_tx_begin().unwrap();
         for shadow_block in shadow_blocks.into_iter() {
             tx.add_shadow_block(&shadow_block).unwrap();
         }
         tx.commit().unwrap();
-        boot_peer.stacks_node = Some(node);
+        boot_peer.chain.stacks_node = Some(node);
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2837,7 +2866,7 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     thread::scope(|s| {
         s.spawn(move || {
             let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.chain.sortdb().conn())
                     .unwrap();
             loop {
                 boot_peer
@@ -2845,8 +2874,10 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                        boot_peer.chain.sortdb().conn(),
+                    )
+                    .unwrap();
 
                 last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh;
@@ -2904,7 +2935,7 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     let naka_tip_bh = peer.network.stacks_tip.block_hash.clone();
     let naka_tip = peer.network.stacks_tip.block_id();
 
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let sortdb = peer.chain.sortdb_ref().reopen().unwrap();
     let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
 
     let naka_tip_header = NakamotoChainState::get_block_header_nakamoto(chainstate.db(), &naka_tip)
@@ -2981,8 +3012,8 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
         peer.mine_nakamoto_on(vec![next_block.clone()]);
     }
 
-    let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
-    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
+    let all_sortitions = peer.chain.sortdb().get_all_snapshots().unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb().conn()).unwrap();
     let nakamoto_tip = peer
         .sortdb()
         .index_handle(&tip.sortition_id)
@@ -2998,7 +3029,7 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     let mut boot_peer = peer.neighbor_with_observer(privk, Some(&boot_observer));
 
     let (canonical_stacks_tip_ch, canonical_stacks_tip_bhh) =
-        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+        SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn()).unwrap();
 
     // boot up the boot peer's burnchain
     for height in 25..tip.block_height {
@@ -3006,7 +3037,7 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
             .get_burnchain_block_ops_at_height(height + 1)
             .unwrap_or_default();
         let sn = {
-            let ih = peer.sortdb().index_handle(&tip.sortition_id);
+            let ih = peer.chain.sortdb().index_handle(&tip.sortition_id);
             let sn = ih.get_block_snapshot_by_height(height).unwrap().unwrap();
             sn
         };
@@ -3023,16 +3054,20 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestChainstate::add_burnchain_block(
+            &boot_peer.config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
     {
-        let mut node = boot_peer.stacks_node.take().unwrap();
+        let mut node = boot_peer.chain.stacks_node.take().unwrap();
         let tx = node.chainstate.staging_db_tx_begin().unwrap();
         for shadow_block in shadow_blocks.into_iter() {
             tx.add_shadow_block(&shadow_block).unwrap();
         }
         tx.commit().unwrap();
-        boot_peer.stacks_node = Some(node);
+        boot_peer.chain.stacks_node = Some(node);
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -3042,7 +3077,7 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     thread::scope(|s| {
         s.spawn(move || {
             let (mut last_stacks_tip_ch, mut last_stacks_tip_bhh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
+                SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.chain.sortdb().conn())
                     .unwrap();
             loop {
                 boot_peer
@@ -3050,8 +3085,10 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
                     .unwrap();
 
                 let (stacks_tip_ch, stacks_tip_bhh) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(boot_peer.sortdb().conn())
-                        .unwrap();
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(
+                        boot_peer.chain.sortdb().conn(),
+                    )
+                    .unwrap();
 
                 last_stacks_tip_ch = stacks_tip_ch.clone();
                 last_stacks_tip_bhh = stacks_tip_bhh;

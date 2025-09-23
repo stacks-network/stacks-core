@@ -657,13 +657,14 @@ mod test {
 
         let mut peer = TestPeer::new(peer_config);
 
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height
         };
 
@@ -674,9 +675,10 @@ mod test {
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -754,7 +756,7 @@ mod test {
 
             // build 1-block microblock stream
             let microblocks = {
-                let sortdb = peer.sortdb.take().unwrap();
+                let sortdb = peer.chain.sortdb.take().unwrap();
                 let sort_iconn = sortdb
                     .index_handle_at_block(peer.chainstate(), &canonical_tip)
                     .unwrap();
@@ -813,7 +815,7 @@ mod test {
                     microblock
                 };
 
-                peer.sortdb = Some(sortdb);
+                peer.chain.sortdb = Some(sortdb);
                 vec![microblock]
             };
 
@@ -829,7 +831,7 @@ mod test {
             }
 
             // process microblock stream to generate unconfirmed state
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             let iconn = sortdb
                 .index_handle_at_block(peer.chainstate(), &canonical_tip)
                 .unwrap();
@@ -848,14 +850,15 @@ mod test {
                 })
                 .unwrap()
                 .unwrap();
-            peer.sortdb = Some(sortdb);
+            peer.chain.sortdb = Some(sortdb);
 
             // move 1 stx per round
             assert_eq!(recv_balance.amount_unlocked(), (tenure_id + 1) as u128);
             let (canonical_burn, canonical_block) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+                SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn())
+                    .unwrap();
 
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             let iconn = sortdb
                 .index_handle_at_block(peer.chainstate(), &canonical_tip)
                 .unwrap();
@@ -869,7 +872,7 @@ mod test {
                     })
                 })
                 .unwrap();
-            peer.sortdb = Some(sortdb);
+            peer.chain.sortdb = Some(sortdb);
 
             assert_eq!(confirmed_recv_balance.amount_unlocked(), tenure_id as u128);
             eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked(), confirmed_recv_balance.amount_unlocked(), &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
@@ -894,13 +897,14 @@ mod test {
 
         let mut peer = TestPeer::new(peer_config);
 
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             tip.block_height
         };
 
@@ -911,9 +915,10 @@ mod test {
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -990,7 +995,7 @@ mod test {
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
             // build microblock stream iteratively, and test balances at each additional microblock
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             let microblocks = {
                 let sort_iconn = sortdb
                     .index_handle_at_block(peer.chainstate(), &canonical_tip)
@@ -1055,7 +1060,7 @@ mod test {
                 }
                 microblocks
             };
-            peer.sortdb = Some(sortdb);
+            peer.chain.sortdb = Some(sortdb);
 
             // store microblock stream
             for (i, mblock) in microblocks.into_iter().enumerate() {
@@ -1068,7 +1073,7 @@ mod test {
                     .unwrap();
 
                 // process microblock stream to generate unconfirmed state
-                let sortdb = peer.sortdb.take().unwrap();
+                let sortdb = peer.chain.sortdb.take().unwrap();
                 peer.chainstate()
                     .reload_unconfirmed_state(&sortdb.index_handle_at_tip(), canonical_tip.clone())
                     .unwrap();
@@ -1087,7 +1092,7 @@ mod test {
                     )
                     .unwrap()
                     .unwrap();
-                peer.sortdb = Some(sortdb);
+                peer.chain.sortdb = Some(sortdb);
 
                 // move 100 ustx per round -- 10 per mblock
                 assert_eq!(
@@ -1095,9 +1100,10 @@ mod test {
                     (100 * tenure_id + 10 * (i + 1)) as u128
                 );
                 let (canonical_burn, canonical_block) =
-                    SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+                    SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn())
+                        .unwrap();
 
-                let sortdb = peer.sortdb.take().unwrap();
+                let sortdb = peer.chain.sortdb.take().unwrap();
                 let confirmed_recv_balance = peer
                     .chainstate()
                     .with_read_only_clarity_tx(
@@ -1112,7 +1118,7 @@ mod test {
                         },
                     )
                     .unwrap();
-                peer.sortdb = Some(sortdb);
+                peer.chain.sortdb = Some(sortdb);
 
                 assert_eq!(
                     confirmed_recv_balance.amount_unlocked(),
@@ -1147,14 +1153,15 @@ mod test {
         let burnchain = peer_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let num_blocks = 5;
         let num_microblocks = 3;
         let first_stacks_block_height = {
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             tip.block_height
         };
 
@@ -1170,9 +1177,10 @@ mod test {
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -1284,8 +1292,8 @@ mod test {
                 &stacks_block.block_hash(),
             );
 
-            let mut sortdb = peer.sortdb.take().unwrap();
-            let mut inner_node = peer.stacks_node.take().unwrap();
+            let mut sortdb = peer.chain.sortdb.take().unwrap();
+            let mut inner_node = peer.chain.stacks_node.take().unwrap();
 
             for i in 0..num_microblocks {
                 Relayer::refresh_unconfirmed(&mut inner_node.chainstate, &mut sortdb);
@@ -1368,17 +1376,17 @@ mod test {
                     .unwrap();
             }
 
-            peer.sortdb = Some(sortdb);
-            peer.stacks_node = Some(inner_node);
+            peer.chain.sortdb = Some(sortdb);
+            peer.chain.stacks_node = Some(inner_node);
         }
 
         let (consensus_hash, canonical_block) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
+            SortitionDB::get_canonical_stacks_chain_tip_hash(peer.chain.sortdb().conn()).unwrap();
         let canonical_tip =
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &canonical_block);
 
         // process microblock stream to generate unconfirmed state
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let iconn = sortdb
             .index_handle_at_block(peer.chainstate(), &canonical_tip)
             .unwrap();
@@ -1397,7 +1405,7 @@ mod test {
             })
             .unwrap()
             .unwrap();
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         // all valid txs were processed
         assert_eq!(db_recv_balance.amount_unlocked(), recv_balance);

@@ -79,7 +79,7 @@ fn make_simple_pox_4_lock(
     let addr = key_to_stacks_addr(key);
     let pox_addr = PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
     let signer_pk = StacksPublicKey::from_private(key);
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let next_reward_cycle = peer
         .config
         .burnchain
@@ -369,7 +369,7 @@ fn pox_extend_transition() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
@@ -416,12 +416,14 @@ fn pox_extend_transition() {
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
     assert_eq!(alice_balance, 0);
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     // produce blocks until epoch 2.1
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch21].start_height {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
+        < epochs[StacksEpochId::Epoch21].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
         alice_rewards_to_v2_start_checks(latest_block.clone(), &mut peer);
     }
@@ -430,7 +432,7 @@ fn pox_extend_transition() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_pox_2_lockup(
         &bob,
@@ -475,7 +477,7 @@ fn pox_extend_transition() {
 
     // produce blocks until the v2 reward cycles start
     let height_target = burnchain.reward_cycle_to_block_height(first_v2_cycle) - 1;
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // alice is still locked, balance should be 0
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -488,7 +490,9 @@ fn pox_extend_transition() {
     v2_rewards_checks(latest_block, &mut peer);
 
     // roll the chain forward until just before Epoch-2.2
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch22].start_height {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
+        < epochs[StacksEpochId::Epoch22].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // at this point, alice's balance should be locked, and so should bob's
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -515,13 +519,13 @@ fn pox_extend_transition() {
     assert_eq!(bob_account.amount_unlocked(), INITIAL_BALANCE);
 
     // Roll to pox4 activation and re-do the above stack-extend tests
-    while get_tip(peer.sortdb.as_ref()).block_height
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
         < u64::from(burnchain.pox_constants.pox_4_activation_height)
     {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let alice_signer_private = Secp256k1PrivateKey::random();
     let alice_signer_key = Secp256k1PublicKey::from_private(&alice_signer_private);
@@ -569,7 +573,7 @@ fn pox_extend_transition() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     // check that the "raw" reward set will contain entries for alice at the cycle start
@@ -598,7 +602,7 @@ fn pox_extend_transition() {
     assert_eq!(alice_balance, 0);
 
     // advance to the first v3 reward cycle
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -621,7 +625,7 @@ fn pox_extend_transition() {
         2,
     );
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let bob_lockup = make_pox_4_lockup(
         &bob,
         2,
@@ -818,7 +822,7 @@ fn pox_extend_transition() {
 }
 
 fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
     let addrs_and_payout = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
@@ -900,10 +904,11 @@ fn pox_lock_unlock() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        if get_tip(peer.chain.sortdb.as_ref()).block_height
+            > epochs[StacksEpochId::Epoch21].start_height
         {
             assert_latest_was_burn(&mut peer);
         }
@@ -911,11 +916,11 @@ fn pox_lock_unlock() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let mut txs = vec![];
-    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let tip_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let reward_cycle = burnchain.block_height_to_reward_cycle(tip_height).unwrap() as u128;
     let stackers: Vec<_> = keys
         .iter()
@@ -960,13 +965,13 @@ fn pox_lock_unlock() {
 
     // Advance to start of rewards cycle stackers are participating in
     let target_height = burnchain.pox_constants.pox_4_activation_height + 5;
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     // now we should be in the reward phase, produce the reward blocks
@@ -976,7 +981,7 @@ fn pox_lock_unlock() {
 
     // Check that STX are locked for 2 reward cycles
     for _ in 0..lock_period {
-        let tip = get_tip(peer.sortdb.as_ref());
+        let tip = get_tip(peer.chain.sortdb.as_ref());
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
@@ -1081,10 +1086,11 @@ fn pox_3_defunct() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        if get_tip(peer.chain.sortdb.as_ref()).block_height
+            > epochs[StacksEpochId::Epoch21].start_height
         {
             assert_latest_was_burn(&mut peer);
         }
@@ -1092,11 +1098,11 @@ fn pox_3_defunct() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let mut txs = vec![];
-    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let tip_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let stackers: Vec<_> = keys
         .iter()
         .zip([
@@ -1153,13 +1159,13 @@ fn pox_3_defunct() {
 
     // Advance to start of rewards cycle stackers are participating in
     let target_height = burnchain.pox_constants.pox_4_activation_height + 5;
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     // now we should be in the reward phase, produce the reward blocks
@@ -1168,7 +1174,7 @@ fn pox_3_defunct() {
 
     // Check next 3 reward cycles
     for _ in 0..=lock_period {
-        let tip = get_tip(peer.sortdb.as_ref());
+        let tip = get_tip(peer.chain.sortdb.as_ref());
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
@@ -1211,10 +1217,11 @@ fn pox_3_unlocks() {
     // Advance to a few blocks before pox 3 unlock
     let target_height = burnchain.pox_constants.v3_unlock_height - 14;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        if get_tip(peer.chain.sortdb.as_ref()).block_height
+            > epochs[StacksEpochId::Epoch21].start_height
         {
             assert_latest_was_burn(&mut peer);
         }
@@ -1222,11 +1229,11 @@ fn pox_3_unlocks() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let mut txs = vec![];
-    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let tip_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let stackers: Vec<_> = keys
         .iter()
         .zip([
@@ -1264,7 +1271,7 @@ fn pox_3_unlocks() {
 
     // Check that STX are locked for 2 reward cycles
     for _ in 0..2 {
-        let tip = get_tip(peer.sortdb.as_ref());
+        let tip = get_tip(peer.chain.sortdb.as_ref());
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
@@ -1308,18 +1315,18 @@ fn pox_3_unlocks() {
 
     // Advance to v3 unlock
     let target_height = burnchain.pox_constants.v3_unlock_height;
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     // Check that STX are not locked for 3 reward cycles after pox4 starts
     for _ in 0..3 {
-        let tip = get_tip(peer.sortdb.as_ref());
+        let tip = get_tip(peer.chain.sortdb.as_ref());
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
@@ -1396,7 +1403,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -1405,11 +1412,11 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let lock_period = 1;
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
 
     // stack-stx
@@ -1483,7 +1490,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     steph_nonce += 1;
 
     // alice delegates STX to bob
-    let target_height = get_tip(peer.sortdb.as_ref()).block_height
+    let target_height = get_tip(peer.chain.sortdb.as_ref()).block_height
         + (3 * pox_constants.reward_cycle_length as u64) // 3 cycles (next cycle + 2)
         + 1; // additional few blocks shouldn't matter to unlock-cycle
     let alice_delegate = make_pox_4_delegate_stx(
@@ -1497,7 +1504,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     let alice_delegate_nonce = alice_nonce;
     alice_nonce += 1;
 
-    let curr_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let curr_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let bob_delegate_stack_nonce = bob_nonce;
     let bob_delegate_stack = make_pox_4_delegate_stack_stx(
         &bob,
@@ -1544,7 +1551,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
         &mut coinbase_nonce,
     ));
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
     assert_eq!(tipId, latest_block.unwrap());
 
@@ -1784,11 +1791,11 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
     // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
-    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
+    while !burnchain.is_in_prepare_phase(get_tip(peer.chain.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -1797,11 +1804,11 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height,
+        get_tip(peer.chain.sortdb.as_ref()).block_height,
     );
 
     let lock_period = 1;
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
 
     // stack-stx
@@ -1875,7 +1882,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     steph_nonce += 1;
 
     // alice delegates STX to bob
-    let target_height = get_tip(peer.sortdb.as_ref()).block_height
+    let target_height = get_tip(peer.chain.sortdb.as_ref()).block_height
         + (3 * pox_constants.reward_cycle_length as u64) // 3 cycles (next cycle + 2)
         + 1; // additional few blocks shouldn't matter to unlock-cycle
     let alice_delegate = make_pox_4_delegate_stx(
@@ -1889,7 +1896,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     let alice_delegate_nonce = alice_nonce;
     alice_nonce += 1;
 
-    let curr_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let curr_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let bob_delegate_stack_nonce = bob_nonce;
     let bob_delegate_stack = make_pox_4_delegate_stack_stx(
         &bob,
@@ -1936,7 +1943,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
         &mut coinbase_nonce,
     ));
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
     assert_eq!(tipId, latest_block.clone().unwrap());
 
@@ -2215,11 +2222,11 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
     // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
-    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
+    while !burnchain.is_in_prepare_phase(get_tip(peer.chain.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -2228,15 +2235,15 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let lock_period = 2;
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
 
     // alice delegates STX to bob
-    let target_height = get_tip(peer.sortdb.as_ref()).block_height
+    let target_height = get_tip(peer.chain.sortdb.as_ref()).block_height
         + (3 * pox_constants.reward_cycle_length as u64) // 3 cycles (next cycle + 2)
         + 1; // additional few blocks shouldn't matter to unlock-cycle
     let alice_delegate = make_pox_4_delegate_stx(
@@ -2250,7 +2257,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     let alice_delegate_nonce = alice_nonce;
     alice_nonce += 1;
 
-    let curr_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let curr_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let bob_delegate_stack_nonce = bob_nonce;
     let bob_delegate_stack = make_pox_4_delegate_stack_stx(
         &bob,
@@ -2291,7 +2298,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
         &mut coinbase_nonce,
     ));
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
     assert_eq!(tipId, latest_block.unwrap());
 
@@ -2440,11 +2447,11 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
     // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined, whatever txs we create now won't be included in the reward set)
-    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height + 1) {
+    while !burnchain.is_in_prepare_phase(get_tip(peer.chain.sortdb.as_ref()).block_height + 1) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -2452,7 +2459,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap()) * 120 / 100; // * 1.2
@@ -2477,7 +2484,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
         &steph_pox_addr,
         steph_lock_period,
         &steph_signing_key,
-        get_tip(peer.sortdb.as_ref()).block_height,
+        get_tip(peer.chain.sortdb.as_ref()).block_height,
         Some(signature),
         u128::MAX,
         1,
@@ -2560,11 +2567,11 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
     // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
-    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
+    while !burnchain.is_in_prepare_phase(get_tip(peer.chain.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -2572,7 +2579,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap()) * 120 / 100; // * 1.2
@@ -2597,7 +2604,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
         &steph_pox_addr,
         steph_lock_period,
         &steph_signing_key,
-        get_tip(peer.sortdb.as_ref()).block_height,
+        get_tip(peer.chain.sortdb.as_ref()).block_height,
         Some(signature),
         u128::MAX,
         1,
@@ -2681,7 +2688,7 @@ fn pox_4_delegate_stack_increase_events() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -2697,7 +2704,7 @@ fn pox_4_delegate_stack_increase_events() {
         alice_principal.clone(),
         amount / 2,
         bob_pox_addr.clone(),
-        get_tip(peer.sortdb.as_ref()).block_height as u128,
+        get_tip(peer.chain.sortdb.as_ref()).block_height as u128,
         2,
     );
 
@@ -2791,15 +2798,15 @@ fn pox_4_revoke_delegate_stx_events() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let current_cycle = get_current_reward_cycle(&peer, &burnchain);
     let next_cycle = current_cycle + 1;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
@@ -2845,7 +2852,7 @@ fn pox_4_revoke_delegate_stx_events() {
 
     // check delegate with expiry
 
-    let target_height = get_tip(peer.sortdb.as_ref()).block_height + 10;
+    let target_height = get_tip(peer.chain.sortdb.as_ref()).block_height + 10;
     let alice_delegate_2 = make_pox_4_delegate_stx(
         &alice,
         alice_nonce,
@@ -2860,7 +2867,7 @@ fn pox_4_revoke_delegate_stx_events() {
     peer.tenure_with_txs(&[alice_delegate_2], &mut coinbase_nonce);
 
     // produce blocks until delegation expired
-    while get_tip(peer.sortdb.as_ref()).block_height <= target_height {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height <= target_height {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -3015,7 +3022,7 @@ fn verify_signer_key_signatures() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -5089,11 +5096,11 @@ fn stack_increase_different_signer_keys(use_nakamoto: bool) {
 }
 
 pub fn assert_latest_was_burn(peer: &mut TestPeer) {
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
 
-    let conn = peer.sortdb().conn();
+    let conn = peer.chain.sortdb().conn();
 
     // check the *parent* burn block, because that's what we'll be
     //  checking with get_burn_pox_addr_info
@@ -5105,7 +5112,7 @@ pub fn assert_latest_was_burn(peer: &mut TestPeer) {
     assert!(commit.burn_fee > 0);
 
     let (addrs, payout) = get_burn_pox_addr_info(peer);
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
     info!("Checking burn outputs at burn_height = {burn_height}");
@@ -5122,11 +5129,11 @@ pub fn assert_latest_was_burn(peer: &mut TestPeer) {
 }
 
 fn assert_latest_was_pox(peer: &mut TestPeer) -> Vec<PoxAddress> {
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
 
-    let conn = peer.sortdb().conn();
+    let conn = peer.chain.sortdb().conn();
 
     // check the *parent* burn block, because that's what we'll be
     //  checking with get_burn_pox_addr_info
@@ -6767,7 +6774,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
 
     info!("---- Booting into Nakamoto Peer ----");
     let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], Some(observer));
-    let sort_db = peer.sortdb.as_ref().unwrap();
+    let sort_db = peer.chain.sortdb.as_ref().unwrap();
     let latest_block = sort_db
         .index_handle_at_tip()
         .get_nakamoto_tip_block_id()
@@ -6775,7 +6782,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
         .unwrap();
     let coinbase_nonce = 0;
 
-    let burn_block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let burn_block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let reward_cycle = burnchain
         .block_height_to_reward_cycle(burn_block_height)
         .unwrap() as u128;
@@ -9113,7 +9120,7 @@ pub fn prepare_pox4_test<'a>(
 
         info!("---- Booting into Nakamoto Peer ----");
         let peer = boot_plan.boot_into_nakamoto_peer(vec![], observer);
-        let sort_db = peer.sortdb.as_ref().unwrap();
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
         let latest_block = sort_db
             .index_handle_at_tip()
             .get_nakamoto_tip_block_id()
@@ -9121,7 +9128,7 @@ pub fn prepare_pox4_test<'a>(
             .unwrap();
         let coinbase_nonce = 0;
 
-        let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+        let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
 
         info!("Block height: {}", block_height);
 
@@ -9139,16 +9146,16 @@ pub fn prepare_pox4_test<'a>(
         let target_height = burnchain.pox_constants.pox_4_activation_height;
         let mut coinbase_nonce = 0;
         let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             // if we reach epoch 2.1, perform the check
-            if get_tip(peer.sortdb.as_ref()).block_height
+            if get_tip(peer.chain.sortdb.as_ref()).block_height
                 > epochs[StacksEpochId::Epoch21].start_height
             {
                 assert_latest_was_burn(&mut peer);
             }
         }
-        let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+        let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
         (
             burnchain,
             peer,
@@ -9178,9 +9185,10 @@ pub fn tenure_with_txs_fallible(
         tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
         let tenure_change_tx = peer
+            .chain
             .miner
             .make_nakamoto_tenure_change(tenure_change.clone());
-        let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
         let blocks_and_sizes = peer.make_nakamoto_tenure_and(
             tenure_change_tx,
@@ -9202,8 +9210,8 @@ pub fn tenure_with_txs_fallible(
             .map(|(block, _, _)| block)
             .collect();
 
-        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         let latest_block = sort_db
             .index_handle_at_tip()
             .get_nakamoto_tip_block_id()
@@ -9230,8 +9238,8 @@ pub fn tenure_with_txs(
         tenure_change.tenure_consensus_hash = consensus_hash.clone();
         tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
-        let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
-        let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+        let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
         let blocks_and_sizes = peer.make_nakamoto_tenure(
             tenure_change_tx,
@@ -9251,8 +9259,8 @@ pub fn tenure_with_txs(
             .map(|(block, _, _)| block)
             .collect();
 
-        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         let latest_block = sort_db
             .index_handle_at_tip()
             .get_nakamoto_tip_block_id()
@@ -9328,13 +9336,14 @@ fn missed_slots_no_unlock() {
         + 1;
 
     // produce blocks until epoch 2.5
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch25].start_height
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
+        <= epochs[StacksEpochId::Epoch25].start_height
     {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     // perform lockups so we can test that pox-4 does not exhibit unlock-on-miss behavior
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let alice_lockup =
         make_simple_pox_4_lock(&alice, &mut peer, 1024 * POX_THRESHOLD_STEPS_USTX, 6);
@@ -9377,7 +9386,7 @@ fn missed_slots_no_unlock() {
     );
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -9578,12 +9587,13 @@ fn no_lockups_2_5() {
         + 1;
 
     // produce blocks until epoch 2.5
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch25].start_height
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
+        <= epochs[StacksEpochId::Epoch25].start_height
     {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
 
@@ -9618,7 +9628,7 @@ fn no_lockups_2_5() {
     );
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 

@@ -51,6 +51,7 @@ use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, *};
+use crate::chainstate::test::TestChainstate;
 use crate::core::{BOOT_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER};
 use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::test::{TestPeer, *};
@@ -696,6 +697,7 @@ impl TestStacksNode {
         mut after_block: G,
         malleablize: bool,
         mined_canonical: bool,
+        timestamp: Option<u64>,
     ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost, Vec<NakamotoBlock>)>, ChainstateError>
     where
         S: FnMut(&mut NakamotoBlockBuilder),
@@ -804,6 +806,9 @@ impl TestStacksNode {
                     &coinbase.clone().unwrap(),
                 )
             };
+            if let Some(timestamp) = timestamp {
+                builder.header.timestamp = timestamp;
+            }
             miner_setup(&mut builder);
 
             tenure_change = None;
@@ -971,7 +976,11 @@ impl TestStacksNode {
 
             for processed_block in processed_blocks {
                 debug!("Begin check Nakamoto block {}", &processed_block.block_id());
-                TestPeer::check_processed_nakamoto_block(sortdb, chainstate, &processed_block);
+                TestChainstate::check_processed_nakamoto_block(
+                    sortdb,
+                    chainstate,
+                    &processed_block,
+                );
                 debug!("End check Nakamoto block {}", &processed_block.block_id());
             }
             blocks.push((nakamoto_block, size, cost));
@@ -1060,7 +1069,7 @@ impl TestStacksNode {
     }
 }
 
-impl TestPeer<'_> {
+impl TestChainstate<'_> {
     /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
     /// Stacks 2.x block.
     /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
@@ -1189,63 +1198,61 @@ impl TestPeer<'_> {
                 None
             };
 
-        let last_key = if let Some((ch, parent_tenure_start_block_id)) =
+        let Some((ch, parent_tenure_start_block_id)) =
             parent_consensus_hash_and_tenure_start_id_opt.clone()
-        {
-            // it's possible that the parent was a shadow block.
-            // if so, find the highest non-shadow ancestor's block-commit, so we can
-            let mut cursor = ch;
-            let (tenure_sn, tenure_block_commit) = loop {
-                let tenure_sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &cursor)
-                    .unwrap()
-                    .unwrap();
-
-                let Some(tenure_block_commit) = get_block_commit_by_txid(
-                    sortdb.conn(),
-                    &tenure_sn.sortition_id,
-                    &tenure_sn.winning_block_txid,
-                )
-                .unwrap() else {
-                    // parent must be a shadow block
-                    let header = NakamotoChainState::get_block_header_nakamoto(
-                        stacks_node.chainstate.db(),
-                        &parent_tenure_start_block_id,
-                    )
-                    .unwrap()
-                    .unwrap()
-                    .anchored_header
-                    .as_stacks_nakamoto()
-                    .cloned()
-                    .unwrap();
-
-                    if !header.is_shadow_block() {
-                        panic!("Parent tenure start block ID {} has no block-commit and is not a shadow block", &parent_tenure_start_block_id);
-                    }
-
-                    cursor = stacks_node
-                        .chainstate
-                        .index_conn()
-                        .get_parent_tenure_consensus_hash(&parent_tenure_start_block_id, &cursor)
-                        .unwrap()
-                        .unwrap();
-
-                    continue;
-                };
-                break (tenure_sn, tenure_block_commit);
-            };
-
-            let tenure_leader_key = SortitionDB::get_leader_key_at(
-                &sortdb.index_conn(),
-                tenure_block_commit.key_block_ptr.into(),
-                tenure_block_commit.key_vtxindex.into(),
-                &tenure_sn.sortition_id,
-            )
-            .unwrap()
-            .unwrap();
-            tenure_leader_key
-        } else {
+        else {
             panic!("No leader key");
         };
+        // it's possible that the parent was a shadow block.
+        // if so, find the highest non-shadow ancestor's block-commit, so we can
+        let mut cursor = ch;
+        let (tenure_sn, tenure_block_commit) = loop {
+            let tenure_sn = SortitionDB::get_block_snapshot_consensus(sortdb.conn(), &cursor)
+                .unwrap()
+                .unwrap();
+
+            let Some(tenure_block_commit) = get_block_commit_by_txid(
+                sortdb.conn(),
+                &tenure_sn.sortition_id,
+                &tenure_sn.winning_block_txid,
+            )
+            .unwrap() else {
+                // parent must be a shadow block
+                let header = NakamotoChainState::get_block_header_nakamoto(
+                    stacks_node.chainstate.db(),
+                    &parent_tenure_start_block_id,
+                )
+                .unwrap()
+                .unwrap()
+                .anchored_header
+                .as_stacks_nakamoto()
+                .cloned()
+                .unwrap();
+
+                if !header.is_shadow_block() {
+                    panic!("Parent tenure start block ID {} has no block-commit and is not a shadow block", &parent_tenure_start_block_id);
+                }
+
+                cursor = stacks_node
+                    .chainstate
+                    .index_conn()
+                    .get_parent_tenure_consensus_hash(&parent_tenure_start_block_id, &cursor)
+                    .unwrap()
+                    .unwrap();
+
+                continue;
+            };
+            break (tenure_sn, tenure_block_commit);
+        };
+
+        let last_key = SortitionDB::get_leader_key_at(
+            &sortdb.index_conn(),
+            tenure_block_commit.key_block_ptr.into(),
+            tenure_block_commit.key_vtxindex.into(),
+            &tenure_sn.sortition_id,
+        )
+        .unwrap()
+        .unwrap();
 
         let network_id = self.config.network_id;
         let chainstate_path = self.chainstate_path.clone();
@@ -1275,52 +1282,47 @@ impl TestPeer<'_> {
         }
 
         // patch in reward set info
-        match get_nakamoto_next_recipients(
+        let recipients = get_nakamoto_next_recipients(
             &tip,
             &mut sortdb,
             &mut stacks_node.chainstate,
             &tenure_change_payload.previous_tenure_end,
             &self.config.burnchain,
-        ) {
-            Ok(recipients) => {
-                block_commit_op.commit_outs = match recipients {
-                    Some(info) => {
-                        let mut recipients = info
-                            .recipients
-                            .into_iter()
-                            .map(|x| x.0)
-                            .collect::<Vec<PoxAddress>>();
-                        if recipients.len() == 1 {
-                            recipients.push(PoxAddress::standard_burn_address(false));
-                        }
-                        recipients
-                    }
-                    None => {
-                        if self
-                            .config
-                            .burnchain
-                            .is_in_prepare_phase(burn_block.block_height)
-                        {
-                            vec![PoxAddress::standard_burn_address(false)]
-                        } else {
-                            vec![
-                                PoxAddress::standard_burn_address(false),
-                                PoxAddress::standard_burn_address(false),
-                            ]
-                        }
-                    }
-                };
-                test_debug!(
-                    "Block commit at height {} has {} recipients: {:?}",
-                    block_commit_op.block_height,
-                    block_commit_op.commit_outs.len(),
-                    &block_commit_op.commit_outs
-                );
+        )
+        .unwrap_or_else(|e| panic!("Failure fetching recipient set: {e:?}"));
+        block_commit_op.commit_outs = match recipients {
+            Some(info) => {
+                let mut recipients = info
+                    .recipients
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<PoxAddress>>();
+                if recipients.len() == 1 {
+                    recipients.push(PoxAddress::standard_burn_address(false));
+                }
+                recipients
             }
-            Err(e) => {
-                panic!("Failure fetching recipient set: {e:?}");
+            None => {
+                if self
+                    .config
+                    .burnchain
+                    .is_in_prepare_phase(burn_block.block_height)
+                {
+                    vec![PoxAddress::standard_burn_address(false)]
+                } else {
+                    vec![
+                        PoxAddress::standard_burn_address(false),
+                        PoxAddress::standard_burn_address(false),
+                    ]
+                }
             }
         };
+        test_debug!(
+            "Block commit at height {} has {} recipients: {:?}",
+            block_commit_op.block_height,
+            block_commit_op.commit_outs.len(),
+            &block_commit_op.commit_outs
+        );
 
         burn_ops.push(BlockstackOperationType::LeaderBlockCommit(block_commit_op));
 
@@ -1391,104 +1393,63 @@ impl TestPeer<'_> {
     /// take the consensus hash, and feed it in here.
     ///
     /// Returns the blocks, their sizes, and runtime costs
-    pub fn make_nakamoto_tenure<F>(
+    pub fn make_nakamoto_tenure(
         &mut self,
         tenure_change: StacksTransaction,
         coinbase: StacksTransaction,
-        signers: &mut TestSigners,
-        block_builder: F,
-    ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
-    where
-        F: FnMut(
-            &mut TestMiner,
-            &mut StacksChainState,
-            &SortitionDB,
-            &[(NakamotoBlock, u64, ExecutionCost)],
-        ) -> Vec<StacksTransaction>,
-    {
-        self.make_nakamoto_tenure_and(
-            tenure_change,
-            coinbase,
-            signers,
-            |_| {},
-            block_builder,
-            |_| true,
-        )
-        .unwrap()
-    }
-
-    /// Produce and process a Nakamoto tenure, after processing the block-commit from
-    /// begin_nakamoto_tenure().  You'd process the burnchain ops from begin_nakamoto_tenure(),
-    /// take the consensus hash, and feed it in here.
-    ///
-    /// Returns the blocks, their sizes, and runtime costs
-    pub fn make_nakamoto_tenure_and<S, F, G>(
-        &mut self,
-        tenure_change: StacksTransaction,
-        coinbase: StacksTransaction,
-        signers: &mut TestSigners,
-        miner_setup: S,
-        block_builder: F,
-        after_block: G,
-    ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost)>, ChainstateError>
-    where
-        S: FnMut(&mut NakamotoBlockBuilder),
-        F: FnMut(
-            &mut TestMiner,
-            &mut StacksChainState,
-            &SortitionDB,
-            &[(NakamotoBlock, u64, ExecutionCost)],
-        ) -> Vec<StacksTransaction>,
-        G: FnMut(&mut NakamotoBlock) -> bool,
-    {
+        timestamp: Option<u64>,
+    ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost)>, ChainstateError> {
         let cycle = self.get_reward_cycle();
-        self.with_dbs(|peer, sortdb, stacks_node, mempool| {
-            // Ensure the signers are setup for the current cycle
-            signers.generate_aggregate_key(cycle);
+        let mut signers = self.config.test_signers.clone().unwrap_or_default();
+        signers.generate_aggregate_key(cycle);
 
-            let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
-                &mut stacks_node.chainstate,
-                sortdb,
-                &mut peer.miner,
-                signers,
-                &tenure_change
-                    .try_as_tenure_change()
-                    .unwrap()
-                    .tenure_consensus_hash
-                    .clone(),
-                Some(tenure_change),
-                Some(coinbase),
-                &mut peer.coord,
-                miner_setup,
-                block_builder,
-                after_block,
-                peer.mine_malleablized_blocks,
-                peer.nakamoto_parent_tenure_opt.is_none(),
-            )?;
+        let mut sortdb = self.sortdb.take().unwrap();
+        let mut stacks_node = self.stacks_node.take().unwrap();
+        let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
+            &mut stacks_node.chainstate,
+            &mut sortdb,
+            &mut self.miner,
+            &mut signers,
+            &tenure_change
+                .try_as_tenure_change()
+                .unwrap()
+                .tenure_consensus_hash
+                .clone(),
+            Some(tenure_change),
+            Some(coinbase),
+            &mut self.coord,
+            |_| {},
+            |_, _, _, _| vec![],
+            |_| true,
+            self.mine_malleablized_blocks,
+            self.nakamoto_parent_tenure_opt.is_none(),
+            timestamp,
+        )?;
 
-            let just_blocks = blocks
-                .clone()
-                .into_iter()
-                .map(|(block, _, _, _)| block)
-                .collect();
+        let just_blocks = blocks
+            .clone()
+            .into_iter()
+            .map(|(block, _, _, _)| block)
+            .collect();
 
-            stacks_node.add_nakamoto_tenure_blocks(just_blocks);
+        stacks_node.add_nakamoto_tenure_blocks(just_blocks);
 
-            let mut malleablized_blocks: Vec<NakamotoBlock> = blocks
-                .clone()
-                .into_iter()
-                .flat_map(|(_, _, _, malleablized)| malleablized)
-                .collect();
+        let mut malleablized_blocks: Vec<NakamotoBlock> = blocks
+            .clone()
+            .into_iter()
+            .flat_map(|(_, _, _, malleablized)| malleablized)
+            .collect();
 
-            peer.malleablized_blocks.append(&mut malleablized_blocks);
+        self.malleablized_blocks.append(&mut malleablized_blocks);
 
-            let block_data = blocks
-                .into_iter()
-                .map(|(blk, sz, cost, _)| (blk, sz, cost))
-                .collect();
+        let block_data = blocks
+            .into_iter()
+            .map(|(blk, sz, cost, _)| (blk, sz, cost))
+            .collect();
 
-            Ok(block_data)
-        })
+        self.sortdb = Some(sortdb);
+        self.stacks_node = Some(stacks_node);
+        Ok(block_data)
     }
 
     /// Produce and process a Nakamoto tenure extension.
@@ -1501,6 +1462,7 @@ impl TestPeer<'_> {
         tenure_extend_tx: StacksTransaction,
         signers: &mut TestSigners,
         block_builder: F,
+        timestamp: Option<u64>,
     ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
     where
         F: FnMut(
@@ -1552,6 +1514,7 @@ impl TestPeer<'_> {
             |_| true,
             self.mine_malleablized_blocks,
             self.nakamoto_parent_tenure_opt.is_none(),
+            timestamp,
         )
         .unwrap();
 
@@ -1580,47 +1543,6 @@ impl TestPeer<'_> {
         self.sortdb = Some(sortdb);
 
         block_data
-    }
-
-    /// Accept a new Nakamoto tenure via the relayer, and then try to process them.
-    pub fn process_nakamoto_tenure(&mut self, blocks: Vec<NakamotoBlock>) {
-        debug!("Peer will process {} Nakamoto blocks", blocks.len());
-
-        let mut sortdb = self.sortdb.take().unwrap();
-        let mut node = self.stacks_node.take().unwrap();
-
-        let tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
-
-        node.add_nakamoto_tenure_blocks(blocks.clone());
-        for block in blocks.iter() {
-            let mut sort_handle = sortdb.index_handle(&tip);
-            let block_id = block.block_id();
-            debug!("Process Nakamoto block {} ({:?}", &block_id, &block.header);
-            let accepted = Relayer::process_new_nakamoto_block(
-                &self.network.burnchain,
-                &sortdb,
-                &mut sort_handle,
-                &mut node.chainstate,
-                &self.network.stacks_tip.block_id(),
-                block,
-                None,
-                NakamotoBlockObtainMethod::Pushed,
-            )
-            .unwrap();
-            if accepted.is_accepted() {
-                test_debug!("Accepted Nakamoto block {}", &block_id);
-                self.coord.handle_new_nakamoto_stacks_block().unwrap();
-
-                debug!("Begin check Nakamoto block {}", &block.block_id());
-                TestPeer::check_processed_nakamoto_block(&mut sortdb, &mut node.chainstate, block);
-                debug!("Eegin check Nakamoto block {}", &block.block_id());
-            } else {
-                test_debug!("Did NOT accept Nakamoto block {}", &block_id);
-            }
-        }
-
-        self.sortdb = Some(sortdb);
-        self.stacks_node = Some(node);
     }
 
     /// Get the tenure-start block of the parent tenure of `tenure_id_consensus_hash`
@@ -2453,6 +2375,209 @@ impl TestPeer<'_> {
             .is_none());
         }
     }
+}
+
+impl TestPeer<'_> {
+    pub fn begin_nakamoto_tenure(
+        &mut self,
+        tenure_change_cause: TenureChangeCause,
+    ) -> (
+        Vec<BlockstackOperationType>,
+        TenureChangePayload,
+        LeaderKeyRegisterOp,
+    ) {
+        self.chain.begin_nakamoto_tenure(tenure_change_cause)
+    }
+    /// Accept a new Nakamoto tenure via the relayer, and then try to process them.
+    pub fn process_nakamoto_tenure(&mut self, blocks: Vec<NakamotoBlock>) {
+        debug!("Peer will process {} Nakamoto blocks", blocks.len());
+
+        let mut sortdb = self.chain.sortdb.take().unwrap();
+        let mut node = self.chain.stacks_node.take().unwrap();
+
+        let tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+
+        node.add_nakamoto_tenure_blocks(blocks.clone());
+        for block in blocks.iter() {
+            let mut sort_handle = sortdb.index_handle(&tip);
+            let block_id = block.block_id();
+            debug!("Process Nakamoto block {block_id} ({:?}", &block.header);
+            let accepted = Relayer::process_new_nakamoto_block(
+                &self.network.burnchain,
+                &sortdb,
+                &mut sort_handle,
+                &mut node.chainstate,
+                &self.network.stacks_tip.block_id(),
+                block,
+                None,
+                NakamotoBlockObtainMethod::Pushed,
+            )
+            .unwrap();
+            if accepted.is_accepted() {
+                test_debug!("Accepted Nakamoto block {block_id}");
+                self.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+
+                debug!("Begin check Nakamoto block {}", &block.block_id());
+                TestChainstate::check_processed_nakamoto_block(
+                    &mut sortdb,
+                    &mut node.chainstate,
+                    block,
+                );
+                debug!("Eegin check Nakamoto block {}", &block.block_id());
+            } else {
+                test_debug!("Did NOT accept Nakamoto block {block_id}");
+            }
+        }
+
+        self.chain.sortdb = Some(sortdb);
+        self.chain.stacks_node = Some(node);
+    }
+
+    /// Make the VRF proof for this tenure.
+    /// Call after processing the block-commit
+    pub fn make_nakamoto_vrf_proof(&mut self, miner_key: LeaderKeyRegisterOp) -> VRFProof {
+        self.chain.make_nakamoto_vrf_proof(miner_key)
+    }
+
+    /// Produce and process a Nakamoto tenure, after processing the block-commit from
+    /// begin_nakamoto_tenure().  You'd process the burnchain ops from begin_nakamoto_tenure(),
+    /// take the consensus hash, and feed it in here.
+    ///
+    /// Returns the blocks, their sizes, and runtime costs
+    pub fn make_nakamoto_tenure<F>(
+        &mut self,
+        tenure_change: StacksTransaction,
+        coinbase: StacksTransaction,
+        signers: &mut TestSigners,
+        block_builder: F,
+    ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
+    where
+        F: FnMut(
+            &mut TestMiner,
+            &mut StacksChainState,
+            &SortitionDB,
+            &[(NakamotoBlock, u64, ExecutionCost)],
+        ) -> Vec<StacksTransaction>,
+    {
+        self.make_nakamoto_tenure_and(
+            tenure_change,
+            coinbase,
+            signers,
+            |_| {},
+            block_builder,
+            |_| true,
+        )
+        .unwrap()
+    }
+
+    /// Produce and process a Nakamoto tenure, after processing the block-commit from
+    /// begin_nakamoto_tenure().  You'd process the burnchain ops from begin_nakamoto_tenure(),
+    /// take the consensus hash, and feed it in here.
+    ///
+    /// Returns the blocks, their sizes, and runtime costs
+    pub fn make_nakamoto_tenure_and<S, F, G>(
+        &mut self,
+        tenure_change: StacksTransaction,
+        coinbase: StacksTransaction,
+        signers: &mut TestSigners,
+        miner_setup: S,
+        block_builder: F,
+        after_block: G,
+    ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost)>, ChainstateError>
+    where
+        S: FnMut(&mut NakamotoBlockBuilder),
+        F: FnMut(
+            &mut TestMiner,
+            &mut StacksChainState,
+            &SortitionDB,
+            &[(NakamotoBlock, u64, ExecutionCost)],
+        ) -> Vec<StacksTransaction>,
+        G: FnMut(&mut NakamotoBlock) -> bool,
+    {
+        let cycle = self.get_reward_cycle();
+        self.with_dbs(|peer, sortdb, stacks_node, mempool| {
+            // Ensure the signers are setup for the current cycle
+            signers.generate_aggregate_key(cycle);
+
+            let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
+                &mut stacks_node.chainstate,
+                sortdb,
+                &mut peer.chain.miner,
+                signers,
+                &tenure_change
+                    .try_as_tenure_change()
+                    .unwrap()
+                    .tenure_consensus_hash
+                    .clone(),
+                Some(tenure_change),
+                Some(coinbase),
+                &mut peer.chain.coord,
+                miner_setup,
+                block_builder,
+                after_block,
+                peer.chain.mine_malleablized_blocks,
+                peer.chain.nakamoto_parent_tenure_opt.is_none(),
+                None,
+            )?;
+
+            let just_blocks = blocks
+                .clone()
+                .into_iter()
+                .map(|(block, _, _, _)| block)
+                .collect();
+
+            stacks_node.add_nakamoto_tenure_blocks(just_blocks);
+
+            let mut malleablized_blocks: Vec<NakamotoBlock> = blocks
+                .clone()
+                .into_iter()
+                .flat_map(|(_, _, _, malleablized)| malleablized)
+                .collect();
+
+            peer.chain
+                .malleablized_blocks
+                .append(&mut malleablized_blocks);
+
+            let block_data = blocks
+                .into_iter()
+                .map(|(blk, sz, cost, _)| (blk, sz, cost))
+                .collect();
+
+            Ok(block_data)
+        })
+    }
+
+    /// Produce and process a Nakamoto tenure extension.
+    /// `tenure_change_payload` is the original tenure-change payload for this tenure.
+    /// `last_tenure_block_header` is the final block's header produced in the last batch of blocks
+    /// `num_blocks_so_far` is the number of blocks produced so far in this tenure,
+    /// Returns the blocks, their sizes, and runtime costs
+    pub fn make_nakamoto_tenure_extension<F>(
+        &mut self,
+        tenure_extend_tx: StacksTransaction,
+        signers: &mut TestSigners,
+        block_builder: F,
+        timestamp: Option<u64>,
+    ) -> Vec<(NakamotoBlock, u64, ExecutionCost)>
+    where
+        F: FnMut(
+            &mut TestMiner,
+            &mut StacksChainState,
+            &SortitionDB,
+            &[(NakamotoBlock, u64, ExecutionCost)],
+        ) -> Vec<StacksTransaction>,
+    {
+        self.chain.make_nakamoto_tenure_extension(
+            tenure_extend_tx,
+            signers,
+            block_builder,
+            timestamp,
+        )
+    }
+
+    pub fn try_process_block(&mut self, block: &NakamotoBlock) -> Result<bool, ChainstateError> {
+        self.chain.try_process_block(block)
+    }
 
     /// Add a shadow tenure on a given tip.
     /// * Advance the burnchain and create an empty sortition (so we have a new consensus hash)
@@ -2467,13 +2592,11 @@ impl TestPeer<'_> {
         let (_, _, tenure_id_consensus_hash) = self.next_burnchain_block(vec![]);
 
         test_debug!(
-            "\n\nMake shadow tenure for tenure {} off of tip {}\n\n",
-            &tenure_id_consensus_hash,
-            &naka_tip_id
+            "\n\nMake shadow tenure for tenure {tenure_id_consensus_hash} off of tip {naka_tip_id}\n\n"
         );
 
-        let mut stacks_node = self.stacks_node.take().unwrap();
-        let sortdb = self.sortdb.take().unwrap();
+        let mut stacks_node = self.chain.stacks_node.take().unwrap();
+        let sortdb = self.chain.sortdb.take().unwrap();
 
         let shadow_block = NakamotoBlockBuilder::make_shadow_tenure(
             &mut stacks_node.chainstate,
@@ -2487,12 +2610,13 @@ impl TestPeer<'_> {
         // Get the reward set
         let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let reward_set = load_nakamoto_reward_set(
-            self.miner
+            self.chain
+                .miner
                 .burnchain
                 .block_height_to_reward_cycle(sort_tip_sn.block_height)
                 .expect("FATAL: no reward cycle for sortition"),
             &sort_tip_sn.sortition_id,
-            &self.miner.burnchain,
+            &self.chain.miner.burnchain,
             &mut stacks_node.chainstate,
             &shadow_block.header.parent_block_id,
             &sortdb,
@@ -2554,11 +2678,11 @@ impl TestPeer<'_> {
 
         drop(rollback_tx);
 
-        self.stacks_node = Some(stacks_node);
-        self.sortdb = Some(sortdb);
+        self.chain.stacks_node = Some(stacks_node);
+        self.chain.sortdb = Some(sortdb);
 
         // process it
-        self.coord.handle_new_nakamoto_stacks_block().unwrap();
+        self.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
 
         // verify that it processed
         self.refresh_burnchain_view();

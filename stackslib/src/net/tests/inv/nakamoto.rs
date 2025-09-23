@@ -64,7 +64,7 @@ pub fn peer_get_nakamoto_invs<'a>(
     let mut get_nakamoto_invs = vec![];
     for reward_cycle in reward_cycles {
         let consensus_hash = {
-            let sortdb = peer.sortdb();
+            let sortdb = peer.chain.sortdb();
             let reward_cycle_start_height = sortdb
                 .pox_constants
                 .reward_cycle_to_block_height(sortdb.first_block_height, *reward_cycle);
@@ -161,8 +161,8 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     assert_eq!(reward_cycle_invs.len(), 10);
 
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
@@ -243,8 +243,8 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     assert_eq!(reward_cycle_invs.len(), 8);
 
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
@@ -318,8 +318,8 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     assert_eq!(reward_cycle_invs.len(), 10);
 
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
@@ -875,7 +875,7 @@ fn test_nakamoto_inv_sync_state_machine() {
         NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
 
     let tip = {
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap()
     };
     let total_rcs = peer
@@ -909,11 +909,11 @@ fn test_nakamoto_inv_sync_state_machine() {
     // `observer`
     std::thread::scope(|s| {
         s.spawn(|| {
-            let sortdb = other_peer.sortdb.take().unwrap();
+            let sortdb = other_peer.chain.sortdb.take().unwrap();
             inv_machine
                 .process_getnakamotoinv_begins(&mut other_peer.network, &sortdb, false)
                 .unwrap();
-            other_peer.sortdb = Some(sortdb);
+            other_peer.chain.sortdb = Some(sortdb);
 
             let mut last_learned_rc = 0;
             loop {
@@ -942,11 +942,11 @@ fn test_nakamoto_inv_sync_state_machine() {
                     break;
                 }
 
-                let sortdb = other_peer.sortdb.take().unwrap();
+                let sortdb = other_peer.chain.sortdb.take().unwrap();
                 inv_machine
                     .process_getnakamotoinv_begins(&mut other_peer.network, &sortdb, false)
                     .unwrap();
-                other_peer.sortdb = Some(sortdb);
+                other_peer.chain.sortdb = Some(sortdb);
             }
 
             sx.send(true).unwrap();
@@ -999,7 +999,7 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
 
     let tip = {
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap()
     };
     let total_rcs = peer
@@ -1135,7 +1135,7 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         initial_balances,
     );
     peer.refresh_burnchain_view();
-    peer.mine_malleablized_blocks = false;
+    peer.chain.mine_malleablized_blocks = false;
 
     let mut invgen = InvGenerator::new().with_tip_ancestor_search_depth(5);
     let mut invgen_no_cache = InvGenerator::new_no_cache().with_tip_ancestor_search_depth(5);
@@ -1144,7 +1144,7 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
     // ---------------------- basic operations ----------------------
     //
 
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let sortdb = peer.chain.sortdb_ref().reopen().unwrap();
     let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
 
     let first_burn_block_height = sortdb.first_block_height;
@@ -1766,12 +1766,12 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
         initial_balances,
     );
     peer.refresh_burnchain_view();
-    peer.mine_malleablized_blocks = false;
+    peer.chain.mine_malleablized_blocks = false;
 
     let mut invgen = InvGenerator::new().with_tip_ancestor_search_depth(5);
     let mut invgen_no_cache = InvGenerator::new_no_cache().with_tip_ancestor_search_depth(5);
 
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let sortdb = peer.chain.sortdb_ref().reopen().unwrap();
     let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
 
     let first_burn_block_height = sortdb.first_block_height;
@@ -2274,9 +2274,9 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
         initial_balances,
     );
     peer.refresh_burnchain_view();
-    peer.mine_malleablized_blocks = false;
+    peer.chain.mine_malleablized_blocks = false;
 
-    let sortdb = peer.sortdb_ref().reopen().unwrap();
+    let sortdb = peer.chain.sortdb_ref().reopen().unwrap();
     let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
     let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 

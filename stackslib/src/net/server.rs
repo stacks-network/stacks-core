@@ -682,7 +682,7 @@ mod test {
         let (http_sx, http_rx) = sync_channel(1);
 
         let network_id = peer.config.network_id;
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let (num_events_sx, num_events_rx) = sync_channel(1);
         let http_thread = thread::spawn(move || {

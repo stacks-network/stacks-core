@@ -23,6 +23,7 @@ use crate::burnchains::db::BurnchainHeaderReader;
 use crate::burnchains::tests::BURNCHAIN_TEST_BLOCK_TIME;
 use crate::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainView, PoxConstants};
 use crate::chainstate::coordinator::tests::get_burnchain;
+use crate::chainstate::test::TestChainstate;
 use crate::net::chat::ConversationP2P;
 use crate::net::inv::inv2x::*;
 use crate::net::test::*;
@@ -580,8 +581,9 @@ fn test_sync_inv_set_blocks_microblocks_available() {
 
     let num_blocks = 5;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -594,15 +596,16 @@ fn test_sync_inv_set_blocks_microblocks_available() {
     }
 
     let (tip, num_burn_blocks) = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         let num_burn_blocks = sn.block_height - peer_1.config.burnchain.first_block_height;
         (sn, num_burn_blocks)
     };
 
     let nk = peer_1.to_neighbor().addr;
 
-    let sortdb = peer_1.sortdb.take().unwrap();
+    let sortdb = peer_1.chain.sortdb.take().unwrap();
     peer_1.network.init_inv_sync_epoch2x(&sortdb);
     match peer_1.network.inv_state {
         Some(ref mut inv) => {
@@ -612,10 +615,10 @@ fn test_sync_inv_set_blocks_microblocks_available() {
             panic!("No inv state");
         }
     };
-    peer_1.sortdb = Some(sortdb);
+    peer_1.chain.sortdb = Some(sortdb);
 
     for i in 0..num_blocks {
-        let sortdb = peer_1.sortdb.take().unwrap();
+        let sortdb = peer_1.chain.sortdb.take().unwrap();
         let sn = {
             let ic = sortdb.index_conn();
             let sn = SortitionDB::get_ancestor_snapshot(
@@ -628,11 +631,11 @@ fn test_sync_inv_set_blocks_microblocks_available() {
             eprintln!("{:?}", &sn);
             sn
         };
-        peer_1.sortdb = Some(sortdb);
+        peer_1.chain.sortdb = Some(sortdb);
     }
 
     for i in 0..num_blocks {
-        let sortdb = peer_1.sortdb.take().unwrap();
+        let sortdb = peer_1.chain.sortdb.take().unwrap();
         match peer_1.network.inv_state {
             Some(ref mut inv) => {
                 assert!(!inv
@@ -733,7 +736,7 @@ fn test_sync_inv_set_blocks_microblocks_available() {
                 panic!("No inv state");
             }
         }
-        peer_1.sortdb = Some(sortdb);
+        peer_1.chain.sortdb = Some(sortdb);
     }
 }
 
@@ -750,8 +753,9 @@ fn test_sync_inv_make_inv_messages() {
     let mut peer_1 = TestPeer::new(peer_1_config);
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -763,8 +767,9 @@ fn test_sync_inv_make_inv_messages() {
     }
 
     let (tip, num_burn_blocks) = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         let num_burn_blocks = sn.block_height - peer_1.config.burnchain.first_block_height;
         (sn, num_burn_blocks)
     };
@@ -1249,42 +1254,42 @@ fn test_inv_sync_start_reward_cycle() {
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
+        .get_block_scan_start(peer_1.chain.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 7);
 
     peer_1.network.connection_opts.inv_reward_cycles = 1;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
+        .get_block_scan_start(peer_1.chain.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 7);
 
     peer_1.network.connection_opts.inv_reward_cycles = 2;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
+        .get_block_scan_start(peer_1.chain.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 6);
 
     peer_1.network.connection_opts.inv_reward_cycles = 3;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
+        .get_block_scan_start(peer_1.chain.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 5);
 
     peer_1.network.connection_opts.inv_reward_cycles = 300;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 10);
+        .get_block_scan_start(peer_1.chain.sortdb.as_ref().unwrap(), 10);
     assert_eq!(block_scan_start, 0);
 
     peer_1.network.connection_opts.inv_reward_cycles = 0;
 
     let block_scan_start = peer_1
         .network
-        .get_block_scan_start(peer_1.sortdb.as_ref().unwrap(), 1);
+        .get_block_scan_start(peer_1.chain.sortdb.as_ref().unwrap(), 1);
     assert_eq!(block_scan_start, 1);
 }
 
@@ -1339,9 +1344,10 @@ fn test_sync_inv_2_peers_plain() {
 
         let num_blocks = GETPOXINV_MAX_BITLEN * 2;
         let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer_1.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height + 1
         };
 
@@ -1356,9 +1362,10 @@ fn test_sync_inv_2_peers_plain() {
         }
 
         let num_burn_blocks = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer_1.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height + 1
         };
 
@@ -1510,9 +1517,10 @@ fn test_sync_inv_2_peers_stale() {
 
         let num_blocks = GETPOXINV_MAX_BITLEN * 2;
         let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer_1.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height + 1
         };
 
@@ -1611,9 +1619,10 @@ fn test_sync_inv_2_peers_unstable() {
         let num_blocks = GETPOXINV_MAX_BITLEN * 2;
 
         let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer_1.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height + 1
         };
 
@@ -1625,7 +1634,7 @@ fn test_sync_inv_2_peers_unstable() {
                 peer_2.next_burnchain_block(burn_ops.clone());
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+            TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
             // NOTE: the nodes only differ by one block -- they agree on the same PoX vector
             if i + 1 < num_blocks {
@@ -1640,21 +1649,24 @@ fn test_sync_inv_2_peers_unstable() {
 
         // tips must differ
         {
-            let sn1 =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
-            let sn2 =
-                SortitionDB::get_canonical_burn_chain_tip(peer_2.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn1 = SortitionDB::get_canonical_burn_chain_tip(
+                peer_1.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
+            let sn2 = SortitionDB::get_canonical_burn_chain_tip(
+                peer_2.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             assert_ne!(sn1.burn_header_hash, sn2.burn_header_hash);
         }
 
         let num_stable_blocks = num_blocks - stable_confs;
 
         let num_burn_blocks = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer_1.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height + 1
         };
 
