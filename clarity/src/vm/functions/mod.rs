@@ -20,7 +20,7 @@ use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, EarlyReturnError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, EarlyReturnError,
     InterpreterResult as Result, SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
@@ -600,7 +600,7 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
 fn native_begin(mut args: Vec<Value>) -> Result<Value> {
     match args.pop() {
         Some(v) => Ok(v),
-        None => Err(CheckErrors::RequiresAtLeastArguments(1, 0).into()),
+        None => Err(CheckErrorKind::RequiresAtLeastArguments(1, 0).into()),
     }
 }
 
@@ -642,7 +642,7 @@ fn special_if(
                 eval(&args[2], env, context)
             }
         }
-        _ => Err(CheckErrors::TypeValueError(
+        _ => Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
             Box::new(conditional),
         )
@@ -670,7 +670,7 @@ fn special_asserts(
                 Err(EarlyReturnError::AssertionFailed(Box::new(thrown)).into())
             }
         }
-        _ => Err(CheckErrors::TypeValueError(
+        _ => Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
             Box::new(conditional),
         )
@@ -685,7 +685,7 @@ pub fn handle_binding_list<F, E>(
 ) -> std::result::Result<(), E>
 where
     F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
-    E: for<'a> From<(CheckErrors, &'a SymbolicExpression)>,
+    E: for<'a> From<(CheckErrorKind, &'a SymbolicExpression)>,
 {
     for (i, binding) in bindings.iter().enumerate() {
         let binding_expression = binding.match_list().ok_or_else(|| {
@@ -739,7 +739,7 @@ fn special_let(
     check_arguments_at_least(2, args)?;
 
     // parse and eval the bindings.
-    let bindings = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;
+    let bindings = args[0].match_list().ok_or(CheckErrorKind::BadLetSyntax)?;
 
     runtime_cost(ClarityCostFunction::Let, env, bindings.len())?;
 
@@ -753,7 +753,7 @@ fn special_let(
             if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
                 env.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {
-                    return Err(CheckErrors::NameAlreadyUsed(binding_name.clone().into()).into())
+                    return Err(CheckErrorKind::NameAlreadyUsed(binding_name.clone().into()).into())
                 }
 
             let binding_value = eval(var_sexp, env, &inner_context)?;
@@ -821,7 +821,7 @@ fn special_contract_of(
 
     let contract_ref = match &args[0].expr {
         SymbolicExpressionType::Atom(contract_ref) => contract_ref,
-        _ => return Err(CheckErrors::ContractOfExpectsTrait.into()),
+        _ => return Err(CheckErrorKind::ContractOfExpectsTrait.into()),
     };
 
     let contract_identifier = match context.lookup_callable_contract(contract_ref) {
@@ -830,12 +830,12 @@ fn special_contract_of(
                 .database
                 .get_contract(&trait_data.contract_identifier)
                 .map_err(|_e| {
-                    CheckErrors::NoSuchContract(trait_data.contract_identifier.to_string())
+                    CheckErrorKind::NoSuchContract(trait_data.contract_identifier.to_string())
                 })?;
 
             &trait_data.contract_identifier
         }
-        _ => return Err(CheckErrors::ContractOfExpectsTrait.into()),
+        _ => return Err(CheckErrorKind::ContractOfExpectsTrait.into()),
     };
 
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));

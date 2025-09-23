@@ -7,7 +7,7 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrors,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
     InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::{
@@ -61,7 +61,7 @@ pub fn special_is_standard(
     let version = if let Value::Principal(ref p) = owner {
         p.version()
     } else {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(owner),
         )
@@ -169,7 +169,7 @@ pub fn special_principal_destruct(
             (issuer.0, issuer.1, Some(name))
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::PrincipalType),
                 Box::new(principal),
             )
@@ -211,7 +211,10 @@ pub fn special_principal_construct(
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
-                Err(CheckErrors::TypeValueError(Box::new(BUFF_1.clone()), Box::new(version)).into())
+                Err(
+                    CheckErrorKind::TypeValueError(Box::new(BUFF_1.clone()), Box::new(version))
+                        .into(),
+                )
             };
         }
     };
@@ -219,7 +222,7 @@ pub fn special_principal_construct(
     let version_byte = if verified_version.len() > 1 {
         // should have been caught by the type-checker
         return Err(
-            CheckErrors::TypeValueError(Box::new(BUFF_1.clone()), Box::new(version)).into(),
+            CheckErrorKind::TypeValueError(Box::new(BUFF_1.clone()), Box::new(version)).into(),
         );
     } else if verified_version.is_empty() {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
@@ -244,7 +247,7 @@ pub fn special_principal_construct(
     let verified_hash_bytes = match hash_bytes {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(BUFF_20.clone()),
                 Box::new(hash_bytes),
             )
@@ -255,9 +258,11 @@ pub fn special_principal_construct(
     // This must have been a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_hash_bytes.len() > 20 {
-        return Err(
-            CheckErrors::TypeValueError(Box::new(BUFF_20.clone()), Box::new(hash_bytes)).into(),
-        );
+        return Err(CheckErrorKind::TypeValueError(
+            Box::new(BUFF_20.clone()),
+            Box::new(hash_bytes),
+        )
+        .into());
     }
 
     // If the hash-bytes buffer has less than 20 bytes, this is a runtime error, because it
@@ -277,7 +282,7 @@ pub fn special_principal_construct(
         let name_bytes = match name {
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
             _ => {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::contract_name_string_ascii_type()?),
                     Box::new(name),
                 )
@@ -294,7 +299,7 @@ pub fn special_principal_construct(
 
         // if it's too long, then this should have been caught by the type-checker
         if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::contract_name_string_ascii_type()?),
                 Box::new(Value::from(name_bytes)),
             )

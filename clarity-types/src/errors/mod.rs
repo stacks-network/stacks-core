@@ -20,7 +20,7 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckErrors, StaticCheckError};
+pub use analysis::{CheckErrorKind, StaticCheckError};
 pub use ast::{ParseError, ParseErrors, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
@@ -51,7 +51,7 @@ pub enum VmExecutionError {
     /// dynamic expression construction (e.g., using runtime data like VRF seeds) creates structures
     /// violating type or resource constraints (e.g., excessive stack depth).
     /// The `CheckErrorKind` wraps the specific type-checking error encountered at runtime.
-    Unchecked(CheckErrors),
+    Unchecked(CheckErrorKind),
     Interpreter(InterpreterError),
     /// Errors that occur during runtime execution of Clarity code, such as arithmetic errors or
     /// invalid operations, expected as part of contract evaluation.
@@ -208,7 +208,7 @@ impl From<CostErrors> for VmExecutionError {
             CostErrors::Expect(s) => VmExecutionError::from(InterpreterError::Expect(format!(
                 "Interpreter failure during cost calculation: {s}"
             ))),
-            other_err => VmExecutionError::from(CheckErrors::from(other_err)),
+            other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
         }
     }
 }
@@ -219,14 +219,14 @@ impl From<RuntimeErrorType> for VmExecutionError {
     }
 }
 
-impl From<CheckErrors> for VmExecutionError {
-    fn from(err: CheckErrors) -> Self {
+impl From<CheckErrorKind> for VmExecutionError {
+    fn from(err: CheckErrorKind) -> Self {
         VmExecutionError::Unchecked(err)
     }
 }
 
-impl From<(CheckErrors, &SymbolicExpression)> for VmExecutionError {
-    fn from(err: (CheckErrors, &SymbolicExpression)) -> Self {
+impl From<(CheckErrorKind, &SymbolicExpression)> for VmExecutionError {
+    fn from(err: (CheckErrorKind, &SymbolicExpression)) -> Self {
         VmExecutionError::Unchecked(err.0)
     }
 }

@@ -15,7 +15,7 @@
 use std::io::Write;
 
 use crate::VmExecutionError;
-use crate::errors::{CheckErrors, InterpreterError};
+use crate::errors::{CheckErrorKind, InterpreterError};
 use crate::types::serialization::SerializationError;
 use crate::types::{
     ASCIIData, CharType, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -394,7 +394,7 @@ fn try_deser_large_tuple() {
 fn try_overflow_stack() {
     let input = "08080808080808080808070707080807080808080808080708080808080708080707080707080807080808080808080708080808080708080707080708070807080808080808080708080808080708080708080808080808080807070807080808080808070808070707080807070808070808080808070808070708070807080808080808080707080708070807080708080808080808070808080808070808070808080808080808080707080708080808080807080807070708080707080807080808080807080807070807080708080808080808070708070808080808080708080707070808070708080807080807070708";
     assert_eq!(
-        Err(CheckErrors::TypeSignatureTooDeep.into()),
+        Err(CheckErrorKind::TypeSignatureTooDeep.into()),
         Value::try_deserialize_hex_untyped(input)
     );
 }

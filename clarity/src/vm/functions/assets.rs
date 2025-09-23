@@ -20,7 +20,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker};
 use crate::vm::database::STXBalance;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
+    check_argument_count, CheckErrorKind, InterpreterError, InterpreterResult as Result,
     RuntimeErrorType, VmExecutionError,
 };
 use crate::vm::representations::SymbolicExpression;
@@ -109,7 +109,7 @@ pub fn special_stx_balance(
         Ok(Value::UInt(balance))
     } else {
         Err(
-            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(owner))
+            CheckErrorKind::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(owner))
                 .into(),
         )
     }
@@ -181,7 +181,7 @@ pub fn special_stx_transfer(
     {
         stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
-        Err(CheckErrors::BadTransferSTXArguments.into())
+        Err(CheckErrorKind::BadTransferSTXArguments.into())
     }
 }
 
@@ -207,7 +207,7 @@ pub fn special_stx_transfer_memo(
     {
         stx_transfer_consolidated(env, from, to, amount, memo)
     } else {
-        Err(CheckErrors::BadTransferSTXArguments.into())
+        Err(CheckErrorKind::BadTransferSTXArguments.into())
     }
 }
 
@@ -225,7 +225,7 @@ pub fn special_stx_account(
     let principal = if let Value::Principal(p) = owner {
         p
     } else {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::PrincipalType),
             Box::new(owner),
         )
@@ -309,7 +309,7 @@ pub fn special_stx_burn(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::BadTransferSTXArguments.into())
+        Err(CheckErrorKind::BadTransferSTXArguments.into())
     }
 }
 
@@ -322,7 +322,7 @@ pub fn special_mint_token(
 
     runtime_cost(ClarityCostFunction::FtMint, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let amount = eval(&args[1], env, context)?;
     let to = eval(&args[2], env, context)?;
@@ -336,7 +336,7 @@ pub fn special_mint_token(
             .contract_context
             .meta_ft
             .get(token_name)
-            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
+            .ok_or(CheckErrorKind::NoSuchFT(token_name.to_string()))?;
 
         env.global_context.database.checked_increase_token_supply(
             &env.contract_context.contract_identifier,
@@ -374,7 +374,7 @@ pub fn special_mint_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::BadMintFTArguments.into())
+        Err(CheckErrorKind::BadMintFTArguments.into())
     }
 }
 
@@ -385,7 +385,7 @@ pub fn special_mint_asset_v200(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
     let to = eval(&args[2], env, context)?;
@@ -394,7 +394,7 @@ pub fn special_mint_asset_v200(
         .contract_context
         .meta_nft
         .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
@@ -404,7 +404,7 @@ pub fn special_mint_asset_v200(
     )?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
         )
@@ -445,7 +445,7 @@ pub fn special_mint_asset_v200(
         Ok(Value::okay_true())
     } else {
         Err(
-            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(to))
+            CheckErrorKind::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(to))
                 .into(),
         )
     }
@@ -460,7 +460,7 @@ pub fn special_mint_asset_v205(
 ) -> Result<Value> {
     check_argument_count(3, args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
     let to = eval(&args[2], env, context)?;
@@ -469,7 +469,7 @@ pub fn special_mint_asset_v205(
         .contract_context
         .meta_nft
         .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
@@ -478,7 +478,7 @@ pub fn special_mint_asset_v205(
     runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
         )
@@ -519,7 +519,7 @@ pub fn special_mint_asset_v205(
         Ok(Value::okay_true())
     } else {
         Err(
-            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(to))
+            CheckErrorKind::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(to))
                 .into(),
         )
     }
@@ -532,7 +532,7 @@ pub fn special_transfer_asset_v200(
 ) -> Result<Value> {
     check_argument_count(4, args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
     let from = eval(&args[2], env, context)?;
@@ -542,7 +542,7 @@ pub fn special_transfer_asset_v200(
         .contract_context
         .meta_nft
         .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
@@ -552,7 +552,7 @@ pub fn special_transfer_asset_v200(
     )?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
         )
@@ -614,7 +614,7 @@ pub fn special_transfer_asset_v200(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::BadTransferNFTArguments.into())
+        Err(CheckErrorKind::BadTransferNFTArguments.into())
     }
 }
 
@@ -627,7 +627,7 @@ pub fn special_transfer_asset_v205(
 ) -> Result<Value> {
     check_argument_count(4, args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
     let from = eval(&args[2], env, context)?;
@@ -637,7 +637,7 @@ pub fn special_transfer_asset_v205(
         .contract_context
         .meta_nft
         .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
@@ -646,7 +646,7 @@ pub fn special_transfer_asset_v205(
     runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
         )
@@ -708,7 +708,7 @@ pub fn special_transfer_asset_v205(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::BadTransferNFTArguments.into())
+        Err(CheckErrorKind::BadTransferNFTArguments.into())
     }
 }
 
@@ -721,7 +721,7 @@ pub fn special_transfer_token(
 
     runtime_cost(ClarityCostFunction::FtTransfer, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let amount = eval(&args[1], env, context)?;
     let from = eval(&args[2], env, context)?;
@@ -745,7 +745,7 @@ pub fn special_transfer_token(
             .contract_context
             .meta_ft
             .get(token_name)
-            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
+            .ok_or(CheckErrorKind::NoSuchFT(token_name.to_string()))?;
 
         let from_bal = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
@@ -809,7 +809,7 @@ pub fn special_transfer_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::BadTransferFTArguments.into())
+        Err(CheckErrorKind::BadTransferFTArguments.into())
     }
 }
 
@@ -822,7 +822,7 @@ pub fn special_get_balance(
 
     runtime_cost(ClarityCostFunction::FtBalance, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let owner = eval(&args[1], env, context)?;
 
@@ -831,7 +831,7 @@ pub fn special_get_balance(
             .contract_context
             .meta_ft
             .get(token_name)
-            .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?;
+            .ok_or(CheckErrorKind::NoSuchFT(token_name.to_string()))?;
 
         let balance = env.global_context.database.get_ft_balance(
             &env.contract_context.contract_identifier,
@@ -842,7 +842,7 @@ pub fn special_get_balance(
         Ok(Value::UInt(balance))
     } else {
         Err(
-            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(owner))
+            CheckErrorKind::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(owner))
                 .into(),
         )
     }
@@ -855,7 +855,7 @@ pub fn special_get_owner_v200(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
 
@@ -863,7 +863,7 @@ pub fn special_get_owner_v200(
         .contract_context
         .meta_nft
         .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
@@ -873,7 +873,7 @@ pub fn special_get_owner_v200(
     )?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
         )
@@ -903,7 +903,7 @@ pub fn special_get_owner_v205(
 ) -> Result<Value> {
     check_argument_count(2, args)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
 
@@ -911,7 +911,7 @@ pub fn special_get_owner_v205(
         .contract_context
         .meta_nft
         .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
@@ -920,7 +920,7 @@ pub fn special_get_owner_v205(
     runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
         )
@@ -950,7 +950,7 @@ pub fn special_get_token_supply(
 
     runtime_cost(ClarityCostFunction::FtSupply, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let supply = env
         .global_context
@@ -968,7 +968,7 @@ pub fn special_burn_token(
 
     runtime_cost(ClarityCostFunction::FtBurn, env, 0)?;
 
-    let token_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let token_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let amount = eval(&args[1], env, context)?;
     let from = eval(&args[2], env, context)?;
@@ -1022,7 +1022,7 @@ pub fn special_burn_token(
 
         Ok(Value::okay_true())
     } else {
-        Err(CheckErrors::BadBurnFTArguments.into())
+        Err(CheckErrorKind::BadBurnFTArguments.into())
     }
 }
 
@@ -1035,7 +1035,7 @@ pub fn special_burn_asset_v200(
 
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
     let sender = eval(&args[2], env, context)?;
@@ -1044,7 +1044,7 @@ pub fn special_burn_asset_v200(
         .contract_context
         .meta_nft
         .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     runtime_cost(
@@ -1054,7 +1054,7 @@ pub fn special_burn_asset_v200(
     )?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
         )
@@ -1106,10 +1106,11 @@ pub fn special_burn_asset_v200(
 
         Ok(Value::okay_true())
     } else {
-        Err(
-            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(sender))
-                .into(),
+        Err(CheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::PrincipalType),
+            Box::new(sender),
         )
+        .into())
     }
 }
 
@@ -1124,7 +1125,7 @@ pub fn special_burn_asset_v205(
 
     runtime_cost(ClarityCostFunction::NftBurn, env, 0)?;
 
-    let asset_name = args[0].match_atom().ok_or(CheckErrors::BadTokenName)?;
+    let asset_name = args[0].match_atom().ok_or(CheckErrorKind::BadTokenName)?;
 
     let asset = eval(&args[1], env, context)?;
     let sender = eval(&args[2], env, context)?;
@@ -1133,7 +1134,7 @@ pub fn special_burn_asset_v205(
         .contract_context
         .meta_nft
         .get(asset_name)
-        .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?;
+        .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?;
     let expected_asset_type = &nft_metadata.key_type;
 
     let asset_size = asset
@@ -1142,7 +1143,7 @@ pub fn special_burn_asset_v205(
     runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
-        return Err(CheckErrors::TypeValueError(
+        return Err(CheckErrorKind::TypeValueError(
             Box::new(expected_asset_type.clone()),
             Box::new(asset),
         )
@@ -1194,9 +1195,10 @@ pub fn special_burn_asset_v205(
 
         Ok(Value::okay_true())
     } else {
-        Err(
-            CheckErrors::TypeValueError(Box::new(TypeSignature::PrincipalType), Box::new(sender))
-                .into(),
+        Err(CheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::PrincipalType),
+            Box::new(sender),
         )
+        .into())
     }
 }
