@@ -20,7 +20,7 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckError, CheckErrors};
+pub use analysis::{CheckErrors, StaticCheckError};
 pub use ast::{ParseError, ParseErrors, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
@@ -46,7 +46,7 @@ pub enum Error {
     Unchecked(CheckErrors),
     Interpreter(InterpreterError),
     Runtime(RuntimeError, Option<StackTrace>),
-    ShortReturn(ShortReturnType),
+    EarlyReturn(EarlyReturnError),
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -135,8 +135,15 @@ pub enum RuntimeError {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ShortReturnType {
-    ExpectedValue(Box<Value>),
+/// Errors triggered during Clarity contract evaluation that cause early termination.
+/// These errors halt evaluation and fail the transaction.
+pub enum EarlyReturnError {
+    /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
+    /// The `Box<Value>` holds the original or thrown value. Triggered by `try!`, `unwrap-or`, or
+    /// `unwrap-err-or`.
+    UnwrapFailed(Box<Value>),
+    /// An 'asserts!' expression evaluated to false.
+    /// The `Box<Value>` holds the value provided as the second argument to `asserts!`.
     AssertionFailed(Box<Value>),
 }
 
@@ -153,7 +160,7 @@ impl PartialEq<Error> for Error {
         match (self, other) {
             (Error::Runtime(x, _), Error::Runtime(y, _)) => x == y,
             (Error::Unchecked(x), Error::Unchecked(y)) => x == y,
-            (Error::ShortReturn(x), Error::ShortReturn(y)) => x == y,
+            (Error::EarlyReturn(x), Error::EarlyReturn(y)) => x == y,
             (Error::Interpreter(x), Error::Interpreter(y)) => x == y,
             _ => false,
         }
@@ -239,9 +246,9 @@ impl From<(CheckErrors, &SymbolicExpression)> for Error {
     }
 }
 
-impl From<ShortReturnType> for Error {
-    fn from(err: ShortReturnType) -> Self {
-        Error::ShortReturn(err)
+impl From<EarlyReturnError> for Error {
+    fn from(err: EarlyReturnError) -> Self {
+        Error::EarlyReturn(err)
     }
 }
 
@@ -256,11 +263,11 @@ impl From<Error> for () {
     fn from(_err: Error) -> Self {}
 }
 
-impl From<ShortReturnType> for Value {
-    fn from(val: ShortReturnType) -> Self {
+impl From<EarlyReturnError> for Value {
+    fn from(val: EarlyReturnError) -> Self {
         match val {
-            ShortReturnType::ExpectedValue(v) => *v,
-            ShortReturnType::AssertionFailed(v) => *v,
+            EarlyReturnError::UnwrapFailed(v) => *v,
+            EarlyReturnError::AssertionFailed(v) => *v,
         }
     }
 }
@@ -272,15 +279,15 @@ mod test {
     #[test]
     fn equality() {
         assert_eq!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true)))),
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
+            Error::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(true)))),
+            Error::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(true))))
         );
         assert_eq!(
             Error::Interpreter(InterpreterError::InterpreterError("".to_string())),
             Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
         assert!(
-            Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(true))))
+            Error::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(true))))
                 != Error::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
     }

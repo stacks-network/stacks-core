@@ -24,8 +24,8 @@ use crate::vm::analysis::contract_interface_builder::build_contract_interface;
 use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::analysis::type_checker::v2_1::tests::mem_type_check;
 use crate::vm::analysis::{
-    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, CheckError,
-    ContractAnalysis,
+    mem_type_check as mem_run_analysis, run_analysis, AnalysisDatabase, ContractAnalysis,
+    StaticCheckError,
 };
 use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
@@ -40,7 +40,7 @@ use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression};
 
 fn mem_type_check_v1(
     snippet: &str,
-) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
+) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     mem_run_analysis(snippet, ClarityVersion::Clarity1, StacksEpochId::latest())
 }
 
@@ -56,7 +56,7 @@ pub fn type_check(
     expressions: &mut [SymbolicExpression],
     analysis_db: &mut AnalysisDatabase,
     save_contract: bool,
-) -> Result<ContractAnalysis, CheckError> {
+) -> Result<ContractAnalysis, StaticCheckError> {
     type_check_version(
         contract_identifier,
         expressions,
@@ -74,7 +74,7 @@ pub fn type_check_version(
     save_contract: bool,
     epoch: StacksEpochId,
     version: ClarityVersion,
-) -> Result<ContractAnalysis, CheckError> {
+) -> Result<ContractAnalysis, StaticCheckError> {
     run_analysis(
         contract_identifier,
         expressions,
@@ -1507,7 +1507,7 @@ fn test_traits_multi_contract(#[case] version: ClarityVersion) {
     });
     match result {
         Ok(_) if version >= ClarityVersion::Clarity2 => (),
-        Err(CheckError { err, .. }) if version < ClarityVersion::Clarity2 => match *err {
+        Err(StaticCheckError { err, .. }) if version < ClarityVersion::Clarity2 => match *err {
             CheckErrors::TraitMethodUnknown(trait_name, function) => {
                 assert_eq!(trait_name.as_str(), "a");
                 assert_eq!(function.as_str(), "do-it");

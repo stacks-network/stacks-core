@@ -294,7 +294,7 @@ impl DefinedFunction {
         match result {
             Ok(r) => Ok(r),
             Err(e) => match e {
-                Error::ShortReturn(v) => Ok(v.into()),
+                Error::EarlyReturn(v) => Ok(v.into()),
                 _ => Err(e),
             },
         }

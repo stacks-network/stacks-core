@@ -43,7 +43,7 @@ use crate::chainstate::stacks::boot::{
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::clarity::vm::analysis::errors::CheckError;
+use crate::clarity::vm::analysis::errors::StaticCheckError;
 use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::clarity::vm::ast::{build_ast_with_rules, ASTRules};
 use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
@@ -205,7 +205,7 @@ fn run_analysis_free<C: ClarityStorage>(
     expressions: &mut [SymbolicExpression],
     marf_kv: &mut C,
     save_contract: bool,
-) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     analysis::run_analysis(
         contract_identifier,
@@ -226,7 +226,7 @@ fn run_analysis<C: ClarityStorage>(
     header_db: &CLIHeadersDB,
     marf_kv: &mut C,
     save_contract: bool,
-) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     let mainnet = header_db.is_mainnet();
     let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
     let cost_track = LimitedCostTracker::new(
