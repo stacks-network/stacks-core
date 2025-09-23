@@ -20,7 +20,7 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckError, CheckErrors};
+pub use analysis::{CheckErrors, StaticCheckError};
 pub use ast::{ParseError, ParseErrors, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
@@ -62,7 +62,7 @@ pub enum VmExecutionError {
     /// insufficient results (e.g., unwrapping an empty `Option`).
     /// The `EarlyReturnError` wraps the specific early return condition, detailing the premature
     /// termination cause.
-    ShortReturn(ShortReturnType),
+    EarlyReturn(EarlyReturnError),
 }
 
 /// InterpreterErrors are errors that *should never* occur.
@@ -120,8 +120,15 @@ pub enum RuntimeErrorType {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum ShortReturnType {
-    ExpectedValue(Box<Value>),
+/// Errors triggered during Clarity contract evaluation that cause early termination.
+/// These errors halt evaluation and fail the transaction.
+pub enum EarlyReturnError {
+    /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
+    /// The `Box<Value>` holds the original or thrown value. Triggered by `try!`, `unwrap-or`, or
+    /// `unwrap-err-or`.
+    UnwrapFailed(Box<Value>),
+    /// An 'asserts!' expression evaluated to false.
+    /// The `Box<Value>` holds the value provided as the second argument to `asserts!`.
     AssertionFailed(Box<Value>),
 }
 
@@ -138,7 +145,7 @@ impl PartialEq<VmExecutionError> for VmExecutionError {
         match (self, other) {
             (VmExecutionError::Runtime(x, _), VmExecutionError::Runtime(y, _)) => x == y,
             (VmExecutionError::Unchecked(x), VmExecutionError::Unchecked(y)) => x == y,
-            (VmExecutionError::ShortReturn(x), VmExecutionError::ShortReturn(y)) => x == y,
+            (VmExecutionError::EarlyReturn(x), VmExecutionError::EarlyReturn(y)) => x == y,
             (VmExecutionError::Interpreter(x), VmExecutionError::Interpreter(y)) => x == y,
             _ => false,
         }
@@ -224,9 +231,9 @@ impl From<(CheckErrors, &SymbolicExpression)> for VmExecutionError {
     }
 }
 
-impl From<ShortReturnType> for VmExecutionError {
-    fn from(err: ShortReturnType) -> Self {
-        VmExecutionError::ShortReturn(err)
+impl From<EarlyReturnError> for VmExecutionError {
+    fn from(err: EarlyReturnError) -> Self {
+        VmExecutionError::EarlyReturn(err)
     }
 }
 
@@ -241,11 +248,11 @@ impl From<VmExecutionError> for () {
     fn from(_err: VmExecutionError) -> Self {}
 }
 
-impl From<ShortReturnType> for Value {
-    fn from(val: ShortReturnType) -> Self {
+impl From<EarlyReturnError> for Value {
+    fn from(val: EarlyReturnError) -> Self {
         match val {
-            ShortReturnType::ExpectedValue(v) => *v,
-            ShortReturnType::AssertionFailed(v) => *v,
+            EarlyReturnError::UnwrapFailed(v) => *v,
+            EarlyReturnError::AssertionFailed(v) => *v,
         }
     }
 }
@@ -257,10 +264,10 @@ mod test {
     #[test]
     fn equality() {
         assert_eq!(
-            VmExecutionError::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(
+            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(
                 true
             )))),
-            VmExecutionError::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(
+            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(
                 true
             ))))
         );
@@ -269,7 +276,7 @@ mod test {
             VmExecutionError::Interpreter(InterpreterError::InterpreterError("".to_string()))
         );
         assert!(
-            VmExecutionError::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Bool(
+            VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(
                 true
             )))) != VmExecutionError::Interpreter(InterpreterError::InterpreterError(
                 "".to_string()

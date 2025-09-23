@@ -1719,7 +1719,7 @@ fn simple_epoch21_test() {
         )
         .expect_err("2.0 'bad' contract should not deploy successfully")
         {
-            ClarityError::Analysis(e) => {
+            ClarityError::StaticCheck(e) => {
                 assert_eq!(*e.err, CheckErrors::UnknownFunction("stx-account".into()));
             }
             e => panic!("Should have caused an analysis error: {:#?}", e),

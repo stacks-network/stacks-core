@@ -20,8 +20,8 @@ use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
-    ShortReturnType, SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
+    check_argument_count, check_arguments_at_least, CheckErrors, EarlyReturnError,
+    InterpreterResult as Result, SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -667,7 +667,7 @@ fn special_asserts(
                 Ok(conditional)
             } else {
                 let thrown = eval(&args[1], env, context)?;
-                Err(ShortReturnType::AssertionFailed(Box::new(thrown)).into())
+                Err(EarlyReturnError::AssertionFailed(Box::new(thrown)).into())
             }
         }
         _ => Err(CheckErrors::TypeValueError(

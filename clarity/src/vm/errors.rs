@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use clarity_types::errors::{
-    IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType, ShortReturnType,
+    EarlyReturnError, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
     VmExecutionError,
 };
 

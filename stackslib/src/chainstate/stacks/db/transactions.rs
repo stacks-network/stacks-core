@@ -196,7 +196,7 @@ impl StacksTransactionReceipt {
         error: clarity::vm::clarity::Error,
     ) -> StacksTransactionReceipt {
         let error_string = match error {
-            clarity_error::Analysis(ref check_error) => {
+            clarity_error::StaticCheck(ref check_error) => {
                 if let Some(span) = check_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
@@ -382,7 +382,7 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
                 err_type: "runtime error",
             }
         }
-        clarity_error::Interpreter(VmExecutionError::ShortReturn(_)) => {
+        clarity_error::Interpreter(VmExecutionError::EarlyReturn(_)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
@@ -1312,7 +1312,7 @@ impl StacksChainState {
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
-                                if let clarity_error::Analysis(err) = &other_error {
+                                if let clarity_error::StaticCheck(err) = &other_error {
                                     if err.err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));

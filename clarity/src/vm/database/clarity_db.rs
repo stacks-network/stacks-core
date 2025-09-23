@@ -764,7 +764,7 @@ impl<'a> ClarityDatabase<'a> {
         self.store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
-            //    the analysis will propagate that as a CheckError anyways.
+            //    the analysis will propagate that as a StaticCheckError anyways.
             .ok()
             .flatten()
             .map(|x| ContractAnalysis::deserialize(&x))
