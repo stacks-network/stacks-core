@@ -23,6 +23,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 
 use crate::burnchains::Txid;
+use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
@@ -48,6 +49,172 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             block_id: None,
             auth,
         }
+    }
+
+    pub fn block_replay(
+        &self,
+        sortdb: &SortitionDB,
+        chainstate: &mut StacksChainState,
+    ) -> Result<RPCSimulatedBlock, ChainError> {
+        let Some(block_id) = &self.block_id else {
+            return Err(ChainError::InvalidStacksBlock("block_id is None".into()));
+        };
+
+        let Some((tenure_id, parent_block_id)) = chainstate
+            .nakamoto_blocks_db()
+            .get_tenure_and_parent_block_id(&block_id)?
+        else {
+            return Err(ChainError::NoSuchBlockError);
+        };
+
+        let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
+        let db_conn = StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
+        let rowid = db_conn
+            .conn()
+            .get_nakamoto_block_rowid(&block_id)?
+            .ok_or(ChainError::NoSuchBlockError)?;
+
+        let mut blob_fd = db_conn
+            .open_nakamoto_block(rowid, false)
+            .map_err(|e| {
+                let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
+                warn!("{}", &msg);
+                msg
+            })
+            .unwrap();
+
+        let block = NakamotoBlock::consensus_deserialize(&mut blob_fd)
+            .map_err(|e| {
+                let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
+                warn!("{}", &msg);
+                msg
+            })
+            .unwrap();
+
+        let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
+            Ok(burn_dbconn) => burn_dbconn,
+            Err(_) => return Err(ChainError::NoSuchBlockError),
+        };
+
+        let tenure_change = block
+            .txs
+            .iter()
+            .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
+        let coinbase = block
+            .txs
+            .iter()
+            .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
+        let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(tc.cause),
+            _ => None,
+        });
+
+        let parent_stacks_header =
+            NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)
+                .unwrap()
+                .unwrap();
+        let mut builder = NakamotoBlockBuilder::new(
+            &parent_stacks_header,
+            &block.header.consensus_hash,
+            block.header.burn_spent,
+            tenure_change,
+            coinbase,
+            block.header.pox_treatment.len(),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let mut miner_tenure_info = builder
+            .load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause)
+            .unwrap();
+        let burn_chain_height = miner_tenure_info.burn_tip_height;
+        let mut tenure_tx = builder
+            .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+            .unwrap();
+
+        let mut block_fees: u128 = 0;
+        let mut txs_receipts = vec![];
+
+        for (i, tx) in block.txs.iter().enumerate() {
+            let tx_len = tx.tx_len();
+
+            let tx_result = builder.try_mine_tx_with_len(
+                &mut tenure_tx,
+                tx,
+                tx_len,
+                &BlockLimitFunction::NO_LIMIT_HIT,
+                None,
+            );
+            let err = match tx_result {
+                TransactionResult::Success(tx_result) => {
+                    txs_receipts.push(tx_result.receipt);
+                    Ok(())
+                }
+                _ => Err(format!("Problematic tx {i}")),
+            };
+            if let Err(reason) = err {
+                panic!("Rejected block tx: {reason}");
+            }
+
+            block_fees += tx.get_tx_fee() as u128;
+        }
+
+        let simulated_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
+
+        tenure_tx.rollback_block();
+
+        let block_hash = block.header.block_hash();
+        let block_height = block.header.chain_length;
+
+        let tx_merkle_root = block.header.tx_merkle_root.clone();
+
+        let mut simulated_block = RPCSimulatedBlock {
+            block_id: block_id.clone(),
+            block_hash,
+            block_height,
+            parent_block_id,
+            consensus_hash: tenure_id,
+            fees: block_fees,
+            tx_merkle_root: block.header.tx_merkle_root,
+            state_index_root: block.header.state_index_root,
+            timestamp: block.header.timestamp,
+            miner_signature: block.header.miner_signature,
+            signer_signature: block.header.signer_signature,
+            transactions: vec![],
+            valid_merkle_root: tx_merkle_root == simulated_block.header.tx_merkle_root,
+        };
+
+        for receipt in txs_receipts {
+            let events = receipt
+                .events
+                .iter()
+                .enumerate()
+                .map(|(event_index, event)| {
+                    event
+                        .json_serialize(event_index, &receipt.transaction.txid(), true)
+                        .unwrap()
+                })
+                .collect();
+            let transaction_data = match &receipt.transaction {
+                TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
+                TransactionOrigin::Burn(_) => None,
+            };
+            let txid = receipt.transaction.txid();
+            let transaction = RPCSimulatedBlockTransaction {
+                txid,
+                tx_index: receipt.tx_index,
+                data: transaction_data,
+                hex: receipt.transaction.serialize_to_dbstring(),
+                result: receipt.result,
+                stx_burned: receipt.stx_burned,
+                execution_cost: receipt.execution_cost,
+                events,
+            };
+            simulated_block.transactions.push(transaction);
+        }
+
+        Ok(simulated_block)
     }
 }
 
@@ -155,164 +322,7 @@ impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
 
         let simulated_block_res =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                let block_id = block_id.clone();
-                let Some((tenure_id, parent_block_id)) = chainstate
-                    .nakamoto_blocks_db()
-                    .get_tenure_and_parent_block_id(&block_id)?
-                else {
-                    return Err(ChainError::NoSuchBlockError);
-                };
-
-                let staging_db_path = chainstate.get_nakamoto_staging_blocks_path()?;
-                let db_conn =
-                    StacksChainState::open_nakamoto_staging_blocks(&staging_db_path, false)?;
-                let rowid = db_conn
-                    .conn()
-                    .get_nakamoto_block_rowid(&block_id)?
-                    .ok_or(ChainError::NoSuchBlockError)?;
-
-                let mut blob_fd = db_conn
-                    .open_nakamoto_block(rowid, false)
-                    .map_err(|e| {
-                        let msg = format!("Failed to open Nakamoto block {}: {:?}", &block_id, &e);
-                        warn!("{}", &msg);
-                        msg
-                    })
-                    .unwrap();
-
-                let block = NakamotoBlock::consensus_deserialize(&mut blob_fd)
-                    .map_err(|e| {
-                        let msg = format!("Failed to read Nakamoto block {}: {:?}", &block_id, &e);
-                        warn!("{}", &msg);
-                        msg
-                    })
-                    .unwrap();
-
-                let burn_dbconn = match sortdb.index_handle_at_block(chainstate, &parent_block_id) {
-                    Ok(burn_dbconn) => burn_dbconn,
-                    Err(_) => return Err(ChainError::NoSuchBlockError),
-                };
-
-                let tenure_change = block
-                    .txs
-                    .iter()
-                    .find(|tx| matches!(tx.payload, TransactionPayload::TenureChange(..)));
-                let coinbase = block
-                    .txs
-                    .iter()
-                    .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-                let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-                    TransactionPayload::TenureChange(tc) => Some(tc.cause),
-                    _ => None,
-                });
-
-                let parent_stacks_header =
-                    NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)
-                        .unwrap()
-                        .unwrap();
-                let mut builder = NakamotoBlockBuilder::new(
-                    &parent_stacks_header,
-                    &block.header.consensus_hash,
-                    block.header.burn_spent,
-                    tenure_change,
-                    coinbase,
-                    block.header.pox_treatment.len(),
-                    None,
-                    None,
-                )
-                .unwrap();
-
-                let mut miner_tenure_info = builder
-                    .load_ephemeral_tenure_info(chainstate, &burn_dbconn, tenure_cause)
-                    .unwrap();
-                let burn_chain_height = miner_tenure_info.burn_tip_height;
-                let mut tenure_tx = builder
-                    .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
-                    .unwrap();
-
-                let mut block_fees: u128 = 0;
-                let mut txs_receipts = vec![];
-
-                for (i, tx) in block.txs.iter().enumerate() {
-                    let tx_len = tx.tx_len();
-
-                    let tx_result = builder.try_mine_tx_with_len(
-                        &mut tenure_tx,
-                        tx,
-                        tx_len,
-                        &BlockLimitFunction::NO_LIMIT_HIT,
-                        None,
-                    );
-                    let err = match tx_result {
-                        TransactionResult::Success(tx_result) => {
-                            txs_receipts.push(tx_result.receipt);
-                            Ok(())
-                        }
-                        _ => Err(format!("Problematic tx {i}")),
-                    };
-                    if let Err(reason) = err {
-                        panic!("Rejected block tx: {reason}");
-                    }
-
-                    block_fees += tx.get_tx_fee() as u128;
-                }
-
-                let simulated_block =
-                    builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
-
-                tenure_tx.rollback_block();
-
-                let block_hash = block.header.block_hash();
-                let block_height = block.header.chain_length;
-
-                let tx_merkle_root = block.header.tx_merkle_root.clone();
-
-                let mut simulated_block = RPCSimulatedBlock {
-                    block_id,
-                    block_hash,
-                    block_height,
-                    parent_block_id,
-                    consensus_hash: tenure_id,
-                    fees: block_fees,
-                    tx_merkle_root: block.header.tx_merkle_root,
-                    state_index_root: block.header.state_index_root,
-                    timestamp: block.header.timestamp,
-                    miner_signature: block.header.miner_signature,
-                    signer_signature: block.header.signer_signature,
-                    transactions: vec![],
-                    valid_merkle_root: tx_merkle_root == simulated_block.header.tx_merkle_root,
-                };
-
-                for receipt in txs_receipts {
-                    let events = receipt
-                        .events
-                        .iter()
-                        .enumerate()
-                        .map(|(event_index, event)| {
-                            event
-                                .json_serialize(event_index, &receipt.transaction.txid(), true)
-                                .unwrap()
-                        })
-                        .collect();
-                    let transaction_data = match &receipt.transaction {
-                        TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
-                        TransactionOrigin::Burn(_) => None,
-                    };
-                    let txid = receipt.transaction.txid();
-                    let transaction = RPCSimulatedBlockTransaction {
-                        txid,
-                        tx_index: receipt.tx_index,
-                        data: transaction_data,
-                        hex: receipt.transaction.serialize_to_dbstring(),
-                        result: receipt.result,
-                        stx_burned: receipt.stx_burned,
-                        execution_cost: receipt.execution_cost,
-                        events,
-                    };
-                    simulated_block.transactions.push(transaction);
-                }
-
-                Ok(simulated_block)
+                self.block_replay(sortdb, chainstate)
             });
 
         // start loading up the block

@@ -18,6 +18,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use stacks_common::types::chainstate::StacksBlockId;
 
+use crate::chainstate::stacks::Error as ChainError;
 use crate::net::api::blocksimulate;
 use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
@@ -61,6 +62,30 @@ fn test_try_parse_request() {
     let (preamble, contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
+}
+
+#[test]
+fn test_block_reply_errors() {
+    let mut handler =
+        blocksimulate::RPCNakamotoBlockSimulateRequestHandler::new(Some("password".into()));
+
+    let test_observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+
+    let sort_db = rpc_test.peer_1.sortdb.take().unwrap();
+    let chainstate = rpc_test.peer_1.chainstate();
+
+    let err = handler.block_replay(&sort_db, chainstate).err().unwrap();
+
+    assert!(matches!(err, ChainError::InvalidStacksBlock(_)));
+    assert_eq!(err.to_string(), "block_id is None");
+
+    handler.block_id = Some(StacksBlockId([0x01; 32]));
+
+    let err = handler.block_replay(&sort_db, chainstate).err().unwrap();
+
+    assert!(matches!(err, ChainError::NoSuchBlockError));
+    assert_eq!(err.to_string(), "No such Stacks block");
 }
 
 #[test]
