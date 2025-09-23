@@ -15,6 +15,7 @@
 use std::collections::HashSet;
 
 use crate::errors::CheckErrors;
+use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
@@ -337,6 +338,19 @@ fn test_type_string_max_ascii_for_to_ascii_call() {
 }
 
 #[test]
+fn test_type_string_max_ascii_for_contract_name() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(CONTRACT_MAX_NAME_LENGTH as u32),
+    )));
+    let actual = TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(44, actual.size().unwrap(), "size should be 44");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
 fn test_least_supertype() {
     let callables = [
         CallableSubtype::Principal(QualifiedContractIdentifier::local("foo").unwrap()),
@@ -395,9 +409,9 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::NoType,
-                TypeSignature::bound_string_ascii_type(17).unwrap(),
+                TypeSignature::bound_string_ascii_type(17),
             ),
-            TypeSignature::bound_string_ascii_type(17).unwrap(),
+            TypeSignature::bound_string_ascii_type(17),
         ),
         (
             (TypeSignature::NoType, TypeSignature::STRING_UTF8_MAX),
@@ -492,10 +506,10 @@ fn test_least_supertype() {
         ),
         (
             (
-                TypeSignature::bound_string_ascii_type(17).unwrap(),
-                TypeSignature::bound_string_ascii_type(17).unwrap(),
+                TypeSignature::bound_string_ascii_type(17),
+                TypeSignature::bound_string_ascii_type(17),
             ),
-            TypeSignature::bound_string_ascii_type(17).unwrap(),
+            TypeSignature::bound_string_ascii_type(17),
         ),
         (
             (
@@ -597,9 +611,9 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::STRING_ASCII_MIN,
-                TypeSignature::bound_string_ascii_type(17).unwrap(),
+                TypeSignature::bound_string_ascii_type(17),
             ),
-            TypeSignature::bound_string_ascii_type(17).unwrap(),
+            TypeSignature::bound_string_ascii_type(17),
         ),
         (
             (
@@ -681,7 +695,7 @@ fn test_least_supertype() {
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![(
                         "b".into(),
-                        TypeSignature::bound_string_ascii_type(17).unwrap(),
+                        TypeSignature::bound_string_ascii_type(17),
                     )])
                     .unwrap(),
                 ),
@@ -689,7 +703,7 @@ fn test_least_supertype() {
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![(
                     "b".into(),
-                    TypeSignature::bound_string_ascii_type(17).unwrap(),
+                    TypeSignature::bound_string_ascii_type(17),
                 )])
                 .unwrap(),
             ),
@@ -697,10 +711,10 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::new_option(TypeSignature::STRING_ASCII_MIN).unwrap(),
-                TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17).unwrap())
+                TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17))
                     .unwrap(),
             ),
-            TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17).unwrap()).unwrap(),
+            TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17)).unwrap(),
         ),
         (
             (
@@ -739,7 +753,7 @@ fn test_least_supertype() {
         ),
         (
             TypeSignature::STRING_UTF8_MIN,
-            TypeSignature::bound_string_ascii_type(17).unwrap(),
+            TypeSignature::bound_string_ascii_type(17),
         ),
         (TypeSignature::STRING_UTF8_MIN, TypeSignature::BUFFER_MIN),
         (
@@ -818,15 +832,4 @@ fn test_least_supertype() {
             CheckErrors::TypeError(..)
         );
     }
-}
-
-#[test]
-fn test_type_signature_bound_string_ascii_type_returns_check_errors() {
-    let err = TypeSignature::bound_string_ascii_type(MAX_VALUE_SIZE + 1).unwrap_err();
-    assert_eq!(
-        CheckErrors::Expects(
-            "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".to_string()
-        ),
-        err
-    );
 }

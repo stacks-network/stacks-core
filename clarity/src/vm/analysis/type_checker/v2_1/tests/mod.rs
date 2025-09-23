@@ -3436,15 +3436,15 @@ fn test_principal_construct() {
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
             CheckErrors::TypeError(
-                Box::new(TypeSignature::contract_name_string_ascii_type().unwrap()),
-                Box::new(TypeSignature::bound_string_ascii_type(41).unwrap()),
+                Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
+                Box::new(TypeSignature::bound_string_ascii_type(41)),
             ),
         ),
         // bad argument type for `name`
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 u123)"#,
             CheckErrors::TypeError(
-                Box::new(TypeSignature::contract_name_string_ascii_type().unwrap()),
+                Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                 Box::new(UIntType),
             ),
         ),

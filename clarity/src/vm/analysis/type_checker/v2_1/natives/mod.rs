@@ -680,7 +680,7 @@ fn check_principal_construct(
         checker.type_check_expects(
             &args[2],
             context,
-            &TypeSignature::contract_name_string_ascii_type()?,
+            &TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX,
         )?;
     }
     Ok(TypeSignature::new_response(
@@ -1037,7 +1037,7 @@ impl TypedNativeFunction {
                             (
                                 "name".into(),
                                 TypeSignature::new_option(
-                                    TypeSignature::contract_name_string_ascii_type()?,
+                                    TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX,
                                 )
                                 .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
                             ),

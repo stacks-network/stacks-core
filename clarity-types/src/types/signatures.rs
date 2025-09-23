@@ -868,12 +868,14 @@ impl TypeSignature {
     pub const STRING_UTF8_40: TypeSignature = Self::type_string_utf8::<40>();
 
     /// Maximum-sized ([`MAX_TO_ASCII_BUFFER_LEN`]) buffer allowed for `to-ascii?` call.
-    pub const TO_ASCII_BUFFER_MAX: TypeSignature =
-        Self::type_buffer::<MAX_TO_ASCII_BUFFER_LEN>();
-
+    pub const TO_ASCII_BUFFER_MAX: TypeSignature = Self::type_buffer::<MAX_TO_ASCII_BUFFER_LEN>();
     /// Maximum-sized ([`MAX_TO_ASCII_RESULT_LEN`]) string allowed for `to-ascii?` call.
     pub const TO_ASCII_STRING_ASCII_MAX: TypeSignature =
         Self::type_string_ascii::<MAX_TO_ASCII_RESULT_LEN>();
+
+    /// Maximum-sized ([`CONTRACT_MAX_NAME_LENGTH`]) string allowed for `contract-name`.
+    pub const CONTRACT_NAME_STRING_ASCII_MAX: TypeSignature =
+        Self::type_string_ascii::<{ CONTRACT_MAX_NAME_LENGTH as u32 }>();
 
     /// Creates a buffer type with a given size known at compile time.
     ///
@@ -905,19 +907,11 @@ impl TypeSignature {
         )))
     }
 
-    pub fn contract_name_string_ascii_type() -> Result<TypeSignature, CheckErrors> {
-        TypeSignature::bound_string_ascii_type(CONTRACT_MAX_NAME_LENGTH.try_into().map_err(
-            |_| CheckErrors::Expects("FAIL: contract name max length exceeds u32 space".into()),
-        )?)
-    }
-
-    pub fn bound_string_ascii_type(max_len: u32) -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(BufferLength::try_from(max_len).map_err(|_| {
-                CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".into(),
-                )
-            })?),
+    /// Create a string ASCII type with a given len.
+    #[cfg(any(test, feature = "testing"))]
+    pub const fn bound_string_ascii_type(len: u32) -> Self {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            BufferLength::try_from_u32_as_opt(len).expect("Invalid ascii size!"),
         )))
     }
 

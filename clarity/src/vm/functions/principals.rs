@@ -285,7 +285,7 @@ pub fn special_principal_construct(
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
             _ => {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(TypeSignature::contract_name_string_ascii_type()?),
+                    Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                     Box::new(name),
                 )
                 .into())
@@ -302,7 +302,7 @@ pub fn special_principal_construct(
         // if it's too long, then this should have been caught by the type-checker
         if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
             return Err(CheckErrors::TypeValueError(
-                Box::new(TypeSignature::contract_name_string_ascii_type()?),
+                Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                 Box::new(Value::from(name_bytes)),
             )
             .into());
