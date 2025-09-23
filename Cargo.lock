@@ -3107,6 +3107,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-cli"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "serde_json",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tempfile",
+]
+
+[[package]]
 name = "stacks-common"
 version = "0.0.1"
 dependencies = [

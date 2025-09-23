@@ -22,10 +22,6 @@ path = "src/lib.rs"
 name = "clarity-cli"
 path = "src/clarity_cli_main.rs"
 
-[[bin]]
-name = "blockstack-cli"
-path = "src/blockstack_cli.rs"
-
 [dependencies]
 rand = { workspace = true }
 rand_core = { workspace = true }
