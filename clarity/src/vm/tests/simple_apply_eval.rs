@@ -31,7 +31,7 @@ use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{CheckErrors, EarlyReturnError, Error, RuntimeErrorType};
+use crate::vm::errors::{CheckErrorKind, EarlyReturnError, Error, RuntimeErrorType};
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
 use crate::vm::types::{
@@ -55,7 +55,7 @@ fn test_doubly_defined_persisted_vars() {
     for p in tests.iter() {
         assert_eq!(
             vm_execute(p).unwrap_err(),
-            CheckErrors::NameAlreadyUsed("cursor".into()).into()
+            CheckErrorKind::NameAlreadyUsed("cursor".into()).into()
         );
     }
 }
@@ -581,18 +581,18 @@ fn test_secp256k1_errors() {
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::IncorrectArgumentCount(2, 3).into(),
+        CheckErrorKind::TypeValueError(Box::new(BUFF_32.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
+        CheckErrorKind::TypeValueError(Box::new(BUFF_65.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
+        CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        CheckErrorKind::IncorrectArgumentCount(2, 3).into(),
 
-        CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
-        CheckErrors::TypeValueError(Box::new(BUFF_33.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
-        CheckErrors::IncorrectArgumentCount(3, 2).into(),
+        CheckErrorKind::TypeValueError(Box::new(BUFF_32.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
+        CheckErrorKind::TypeValueError(Box::new(BUFF_65.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
+        CheckErrorKind::TypeValueError(Box::new(BUFF_33.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
+        CheckErrorKind::IncorrectArgumentCount(3, 2).into(),
 
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
     ];
 
     for (program, expectation) in secp256k1_evals.iter().zip(expectations.iter()) {
@@ -878,7 +878,7 @@ fn test_sequence_comparisons_clarity1() {
         "(<= \"baa\" \"aaa\")",
     ];
     let error_expectations: &[Error] = &[
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -887,7 +887,7 @@ fn test_sequence_comparisons_clarity1() {
             )))),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -896,7 +896,7 @@ fn test_sequence_comparisons_clarity1() {
             )))),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -905,7 +905,7 @@ fn test_sequence_comparisons_clarity1() {
             )))),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -989,12 +989,12 @@ fn test_sequence_comparisons_mismatched_types() {
     // Tests that comparing objects of different types results in an error in Clarity1.
     let error_tests = ["(> 0 u1)", "(< 0 u1)"];
     let v1_error_expectations: &[Error] = &[
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Int(0)),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::Int(0)),
         )
@@ -1010,7 +1010,7 @@ fn test_sequence_comparisons_mismatched_types() {
         });
 
     let v2_error_expectations: &[Error] = &[
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1021,7 +1021,7 @@ fn test_sequence_comparisons_mismatched_types() {
             Box::new(Value::Int(0)),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1044,7 +1044,7 @@ fn test_sequence_comparisons_mismatched_types() {
     // Tests that comparing objects of different types results in an error in Clarity2.
     let error_tests = ["(> \"baa\" u\"aaa\")", "(> \"baa\" 0x0001)"];
     let error_expectations: &[Error] = &[
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1059,7 +1059,7 @@ fn test_sequence_comparisons_mismatched_types() {
             )))),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1113,8 +1113,8 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::IntType),
             Box::new(Value::Bool(true)),
         )
@@ -1125,17 +1125,17 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeErrorType::Arithmetic("sqrti must be passed a positive integer".to_string()).into(),
-        CheckErrors::IncorrectArgumentCount(1, 0).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
         RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()).into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
+        CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         RuntimeErrorType::Arithmetic(
             "Power argument to (pow ...) must be a u32 integer".to_string(),
         )
@@ -1144,7 +1144,7 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
             "Power argument to (pow ...) must be a u32 integer".to_string(),
         )
         .into(),
-        CheckErrors::TypeError(
+        CheckErrorKind::TypeError(
             Box::new(TypeSignature::from_string("bool", version, epoch)),
             Box::new(TypeSignature::from_string("int", version, epoch)),
         )
@@ -1170,12 +1170,12 @@ fn test_unsigned_arithmetic() {
     let expectations: &[Error] = &[
         RuntimeErrorType::ArithmeticUnderflow.into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::UInt(10)),
         )
         .into(),
-        CheckErrors::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(Value::Int(80)))
+        CheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(Value::Int(80)))
             .into(),
         RuntimeErrorType::ArithmeticUnderflow.into(),
         RuntimeErrorType::ArithmeticOverflow.into(),
@@ -1207,21 +1207,21 @@ fn test_options_errors() {
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(2, 3).into(),
-        CheckErrors::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
-        CheckErrors::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
-        CheckErrors::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::ExpectedResponseValue(Box::new(Value::Bool(true))).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(2, 3).into(),
+        CheckErrorKind::ExpectedOptionalValue(Box::new(Value::Bool(true))).into(),
+        CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
+        CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::IntType)).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1245,16 +1245,16 @@ fn test_stx_ops_errors() {
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(3, 2).into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::IncorrectArgumentCount(4, 3).into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::BadTransferSTXArguments.into(),
-        CheckErrors::IncorrectArgumentCount(2, 1).into(),
-        CheckErrors::BadTransferSTXArguments.into(),
+        CheckErrorKind::IncorrectArgumentCount(3, 2).into(),
+        CheckErrorKind::BadTransferSTXArguments.into(),
+        CheckErrorKind::BadTransferSTXArguments.into(),
+        CheckErrorKind::BadTransferSTXArguments.into(),
+        CheckErrorKind::IncorrectArgumentCount(4, 3).into(),
+        CheckErrorKind::BadTransferSTXArguments.into(),
+        CheckErrorKind::BadTransferSTXArguments.into(),
+        CheckErrorKind::BadTransferSTXArguments.into(),
+        CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
+        CheckErrorKind::BadTransferSTXArguments.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1427,7 +1427,7 @@ fn test_option_destructs() {
         Ok(Value::Int(1)),
         Ok(Value::Int(1)),
         Err(
-            CheckErrors::ExpectedResponseValue(Box::new(Value::some(Value::Int(2)).unwrap()))
+            CheckErrorKind::ExpectedResponseValue(Box::new(Value::some(Value::Int(2)).unwrap()))
                 .into(),
         ),
         Ok(Value::Int(3)),
@@ -1442,14 +1442,14 @@ fn test_option_destructs() {
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),
         Ok(Value::Int(8)),
-        Err(CheckErrors::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
-        Err(CheckErrors::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
+        Err(CheckErrorKind::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
+        Err(CheckErrorKind::BadMatchInput(Box::new(TypeSignature::IntType)).into()),
         Err(EarlyReturnError::UnwrapFailed(Box::new(Value::error(Value::UInt(1)).unwrap())).into()),
         Ok(Value::Int(3)),
         Err(EarlyReturnError::UnwrapFailed(Box::new(Value::none())).into()),
         Ok(Value::Bool(true)),
-        Err(CheckErrors::IncorrectArgumentCount(1, 2).into()),
-        Err(CheckErrors::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))).into()),
+        Err(CheckErrorKind::IncorrectArgumentCount(1, 2).into()),
+        Err(CheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(Value::Int(1))).into()),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1473,10 +1473,10 @@ fn test_hash_errors() {
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1485,7 +1485,7 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1494,7 +1494,7 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1503,7 +1503,7 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1512,8 +1512,8 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
-        CheckErrors::UnionTypeValueError(
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::UnionTypeValueError(
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
@@ -1522,7 +1522,7 @@ fn test_hash_errors() {
             Box::new(Value::Bool(true)),
         )
         .into(),
-        CheckErrors::IncorrectArgumentCount(1, 2).into(),
+        CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1574,12 +1574,12 @@ fn test_bad_lets() {
     ];
 
     let expectations: &[Error] = &[
-        CheckErrors::NameAlreadyUsed("tx-sender".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("*".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("a".to_string()).into(),
-        CheckErrors::NoSuchDataVariable("cursor".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("true".to_string()).into(),
-        CheckErrors::NameAlreadyUsed("false".to_string()).into(),
+        CheckErrorKind::NameAlreadyUsed("tx-sender".to_string()).into(),
+        CheckErrorKind::NameAlreadyUsed("*".to_string()).into(),
+        CheckErrorKind::NameAlreadyUsed("a".to_string()).into(),
+        CheckErrorKind::NoSuchDataVariable("cursor".to_string()).into(),
+        CheckErrorKind::NameAlreadyUsed("true".to_string()).into(),
+        CheckErrorKind::NameAlreadyUsed("false".to_string()).into(),
     ];
 
     tests

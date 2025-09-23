@@ -21,7 +21,7 @@ use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, StaticCheckError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, StaticCheckError,
     SyntaxBindingError,
 };
 use super::AnalysisDatabase;
@@ -82,7 +82,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns successfully iff this function is read-only correct.
     ///
     /// # Errors
-    /// - `CheckErrors::WriteAttemptedInReadOnly`
+    /// - `CheckErrorKind::WriteAttemptedInReadOnly`
     /// - Contract parsing errors
     pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticCheckError> {
         // Iterate over all the top-level statements in a contract.
@@ -106,7 +106,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns successfully iff this function is read-only correct.
     ///
     /// # Errors
-    /// - CheckErrors::WriteAttemptedInReadOnly
+    /// - CheckErrorKind::WriteAttemptedInReadOnly
     /// - Contract parsing errors
     fn check_top_level_expression(
         &mut self,
@@ -136,7 +136,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                     let (function_name, is_read_only) =
                         self.check_define_function(signature, body)?;
                     if !is_read_only {
-                        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
                     } else {
                         self.defined_functions.insert(function_name, is_read_only);
                     }
@@ -172,9 +172,9 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ) -> Result<(ClarityName, bool), StaticCheckError> {
         let function_name = signature
             .first()
-            .ok_or(CheckErrors::DefineFunctionBadSignature)?
+            .ok_or(CheckErrorKind::DefineFunctionBadSignature)?
             .match_atom()
-            .ok_or(CheckErrors::BadFunctionName)?;
+            .ok_or(CheckErrorKind::BadFunctionName)?;
 
         let is_read_only = self.check_read_only(body)?;
 
@@ -207,7 +207,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 ReadOnlyFunction { signature, body } => {
                     let (f_name, is_read_only) = self.check_define_function(signature, body)?;
                     if !is_read_only {
-                        return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                        return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
                     } else {
                         self.defined_functions.insert(f_name, is_read_only);
                     }
@@ -314,7 +314,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 let is_block_arg_read_only = self.check_read_only(&args[0])?;
                 let closure_read_only = self.check_read_only(&args[1])?;
                 if !closure_read_only {
-                    return Err(CheckErrors::AtBlockClosureMustBeReadOnly.into());
+                    return Err(CheckErrorKind::AtBlockClosureMustBeReadOnly.into());
                 }
                 Ok(is_block_arg_read_only)
             }
@@ -331,7 +331,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             Let => {
                 check_arguments_at_least(2, args)?;
 
-                let binding_list = args[0].match_list().ok_or(CheckErrors::BadLetSyntax)?;
+                let binding_list = args[0].match_list().ok_or(CheckErrorKind::BadLetSyntax)?;
 
                 for (i, pair) in binding_list.iter().enumerate() {
                     let pair_expression = pair.match_list().ok_or_else(|| {
@@ -406,7 +406,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
                 let function_name = args[1]
                     .match_atom()
-                    .ok_or(CheckErrors::ContractCallExpectName)?;
+                    .ok_or(CheckErrorKind::ContractCallExpectName)?;
 
                 let is_function_read_only = match &args[0].expr {
                     SymbolicExpressionType::LiteralValue(Value::Principal(
@@ -425,7 +425,11 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                         // As such dynamic dispatch is currently forbidden.
                         false
                     }
-                    _ => return Err(StaticCheckError::new(CheckErrors::ContractCallExpectName)),
+                    _ => {
+                        return Err(StaticCheckError::new(
+                            CheckErrorKind::ContractCallExpectName,
+                        ))
+                    }
                 };
 
                 self.check_each_expression_is_read_only(&args[2..])
@@ -441,20 +445,20 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// Returns `true` iff the function application is read-only.
     ///
     /// # Errors
-    /// - `CheckErrors::NonFunctionApplication` if there is no first expression, or if the first
+    /// - `CheckErrorKind::NonFunctionApplication` if there is no first expression, or if the first
     ///   expression is not a `ClarityName`.
-    /// - `CheckErrors::UnknownFunction` if the first expression does not name a known function.
+    /// - `CheckErrorKind::UnknownFunction` if the first expression does not name a known function.
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
     ) -> Result<bool, StaticCheckError> {
         let (function_name, args) = expressions
             .split_first()
-            .ok_or(CheckErrors::NonFunctionApplication)?;
+            .ok_or(CheckErrorKind::NonFunctionApplication)?;
 
         let function_name = function_name
             .match_atom()
-            .ok_or(CheckErrors::NonFunctionApplication)?;
+            .ok_or(CheckErrorKind::NonFunctionApplication)?;
 
         if let Some(mut result) = self.try_check_native_function_is_read_only(function_name, args) {
             if let Err(ref mut check_err) = result {
@@ -465,7 +469,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             let is_function_read_only = *self
                 .defined_functions
                 .get(function_name)
-                .ok_or(CheckErrors::UnknownFunction(function_name.to_string()))?;
+                .ok_or(CheckErrorKind::UnknownFunction(function_name.to_string()))?;
             self.check_each_expression_is_read_only(args)
                 .map(|args_read_only| args_read_only && is_function_read_only)
         }

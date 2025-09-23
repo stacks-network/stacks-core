@@ -2,7 +2,7 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckErrors, ContractAnalysis, StaticCheckError};
+use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError};
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
@@ -66,14 +66,14 @@ impl std::error::Error for Error {
 impl From<StaticCheckError> for Error {
     fn from(e: StaticCheckError) -> Self {
         match *e.err {
-            CheckErrors::CostOverflow => {
+            CheckErrorKind::CostOverflow => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            CheckErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
-            CheckErrors::MemoryBalanceExceeded(_a, _b) => {
+            CheckErrorKind::CostBalanceExceeded(a, b) => Error::CostError(a, b),
+            CheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            CheckErrors::ExecutionTimeExpired => {
+            CheckErrorKind::ExecutionTimeExpired => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::StaticCheck(e),
@@ -84,13 +84,13 @@ impl From<StaticCheckError> for Error {
 impl From<InterpreterError> for Error {
     fn from(e: InterpreterError) -> Self {
         match &e {
-            InterpreterError::Unchecked(CheckErrors::CostBalanceExceeded(a, b)) => {
+            InterpreterError::Unchecked(CheckErrorKind::CostBalanceExceeded(a, b)) => {
                 Error::CostError(a.clone(), b.clone())
             }
-            InterpreterError::Unchecked(CheckErrors::CostOverflow) => {
+            InterpreterError::Unchecked(CheckErrorKind::CostOverflow) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            InterpreterError::Unchecked(CheckErrors::ExecutionTimeExpired) => {
+            InterpreterError::Unchecked(CheckErrorKind::ExecutionTimeExpired) => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => Error::Interpreter(e),
@@ -264,13 +264,13 @@ pub trait TransactionConnection: ClarityConnection {
                 Ok(_) => {
                     let result = db
                         .commit()
-                        .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into());
+                        .map_err(|e| CheckErrorKind::Expects(format!("{e:?}")).into());
                     (cost_tracker, result)
                 }
                 Err(e) => {
                     let result = db
                         .roll_back()
-                        .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into());
+                        .map_err(|e| CheckErrorKind::Expects(format!("{e:?}")).into());
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {

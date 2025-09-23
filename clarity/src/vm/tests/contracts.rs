@@ -27,7 +27,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrinc
 #[cfg(test)]
 use crate::vm::{
     ast::{errors::ParseErrorKind, ASTRules},
-    errors::{CheckErrors, Error, RuntimeErrorType},
+    errors::{CheckErrorKind, Error, RuntimeErrorType},
     tests::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
         tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
@@ -114,12 +114,12 @@ fn test_get_block_info_eval(
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
-        Err(CheckErrors::TypeValueError(
+        Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(Value::Int(-1)),
         )
         .into()),
-        Err(CheckErrors::TypeValueError(
+        Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(Value::Bool(true)),
         )
@@ -972,7 +972,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _))
+        Error::Unchecked(CheckErrorKind::NoSuchPublicFunction(_, _))
     ));
 
     let err_result = env
@@ -985,7 +985,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        Error::Unchecked(CheckErrorKind::TypeValueError(_, _))
     ));
 }
 
@@ -1180,7 +1180,7 @@ fn test_eval_with_non_existing_contract(
     );
     assert_eq!(
         result.as_ref().unwrap_err(),
-        &Error::Unchecked(CheckErrors::NoSuchContract(
+        &Error::Unchecked(CheckErrorKind::NoSuchContract(
             QualifiedContractIdentifier::local("absent")
                 .unwrap()
                 .to_string()
@@ -1382,7 +1382,7 @@ fn test_contract_hash_type_check(
         .unwrap_err();
     assert_eq!(
         err,
-        Error::Unchecked(CheckErrors::ExpectedContractPrincipalValue(Box::new(
+        Error::Unchecked(CheckErrorKind::ExpectedContractPrincipalValue(Box::new(
             Value::UInt(123)
         )))
     );
@@ -1440,6 +1440,8 @@ fn test_contract_hash_pre_clarity4(
 
     assert_eq!(
         err,
-        Error::Unchecked(CheckErrors::UndefinedFunction("contract-hash?".to_string()))
+        Error::Unchecked(CheckErrorKind::UndefinedFunction(
+            "contract-hash?".to_string()
+        ))
     );
 }

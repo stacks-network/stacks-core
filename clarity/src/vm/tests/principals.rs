@@ -8,7 +8,7 @@ use crate::vm::types::{
 };
 #[cfg(test)]
 use crate::vm::{
-    errors::CheckErrors,
+    errors::CheckErrorKind,
     functions::principals::PrincipalConstructErrorCode,
     types::TypeSignature::PrincipalType,
     types::{ResponseData, TypeSignature, BUFF_1, BUFF_20},
@@ -27,7 +27,7 @@ fn test_simple_is_standard_check_inputs() {
             true
         )
         .unwrap_err(),
-        CheckErrors::TypeValueError(Box::new(PrincipalType), Box::new(Value::UInt(10)),).into()
+        CheckErrorKind::TypeValueError(Box::new(PrincipalType), Box::new(Value::UInt(10)),).into()
     );
 }
 
@@ -944,14 +944,14 @@ fn test_principal_construct_version_byte_future() {
 }
 
 #[test]
-// Test cases where the wrong type should be a `CheckErrors` error, because it should have been
+// Test cases where the wrong type should be a `CheckErrorKind` error, because it should have been
 // caught by the type checker.
 fn test_principal_construct_check_errors() {
     // The version bytes 0x5904934 are invalid. Should have been caught by type checker so use
-    // `CheckErrors`.
+    // `CheckErrorKind`.
     let input = r#"(principal-construct? 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(
+        Err(CheckErrorKind::TypeValueError(
             Box::new(BUFF_1.clone()),
             Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("590493").unwrap()
@@ -968,11 +968,11 @@ fn test_principal_construct_check_errors() {
     );
 
     // u22 is not a byte buffer, so is invalid. Should have been caught by type checker so use
-    // `CheckErrors`.
+    // `CheckErrorKind`.
     let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(
-            CheckErrors::TypeValueError(Box::new(BUFF_1.clone()), Box::new(Value::UInt(22)),)
+            CheckErrorKind::TypeValueError(Box::new(BUFF_1.clone()), Box::new(Value::UInt(22)),)
                 .into()
         ),
         execute_with_parameters(
@@ -984,7 +984,7 @@ fn test_principal_construct_check_errors() {
         )
     );
 
-    // Hash key part is too large, should have length 20. This is a `CheckErrors` error because it
+    // Hash key part is too large, should have length 20. This is a `CheckErrorKind` error because it
     // should have been caught by the type checker.
     let input = r#"(principal-construct? 0x16 0x010203040506070809101112131415161718192021)"#;
     assert_eq!(
@@ -996,7 +996,7 @@ fn test_principal_construct_check_errors() {
             false
         )
         .unwrap_err(),
-        CheckErrors::TypeValueError(
+        CheckErrorKind::TypeValueError(
             Box::new(BUFF_20.clone()),
             Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
@@ -1008,7 +1008,7 @@ fn test_principal_construct_check_errors() {
     // Name is too long, which should have been caught by the type-checker
     let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
-        Err(CheckErrors::TypeValueError(
+        Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::contract_name_string_ascii_type().unwrap()),
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {

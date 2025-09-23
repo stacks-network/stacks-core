@@ -20,7 +20,7 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckErrors, StaticCheckError};
+pub use analysis::{CheckErrorKind, StaticCheckError};
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
@@ -43,7 +43,7 @@ pub enum Error {
     /// UncheckedErrors are errors that *should* be caught by the
     ///   TypeChecker and other check passes. Test executions may
     ///   trigger these errors.
-    Unchecked(CheckErrors),
+    Unchecked(CheckErrorKind),
     Interpreter(InterpreterError),
     Runtime(RuntimeErrorType, Option<StackTrace>),
     EarlyReturn(EarlyReturnError),
@@ -192,7 +192,7 @@ impl From<CostErrors> for Error {
             CostErrors::Expect(s) => Error::from(InterpreterError::Expect(format!(
                 "Interpreter failure during cost calculation: {s}"
             ))),
-            other_err => Error::from(CheckErrors::from(other_err)),
+            other_err => Error::from(CheckErrorKind::from(other_err)),
         }
     }
 }
@@ -203,14 +203,14 @@ impl From<RuntimeErrorType> for Error {
     }
 }
 
-impl From<CheckErrors> for Error {
-    fn from(err: CheckErrors) -> Self {
+impl From<CheckErrorKind> for Error {
+    fn from(err: CheckErrorKind) -> Self {
         Error::Unchecked(err)
     }
 }
 
-impl From<(CheckErrors, &SymbolicExpression)> for Error {
-    fn from(err: (CheckErrors, &SymbolicExpression)) -> Self {
+impl From<(CheckErrorKind, &SymbolicExpression)> for Error {
+    fn from(err: (CheckErrorKind, &SymbolicExpression)) -> Self {
         Error::Unchecked(err.0)
     }
 }
