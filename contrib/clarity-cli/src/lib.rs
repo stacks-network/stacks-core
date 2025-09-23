@@ -14,6 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[macro_use]
+extern crate serde_derive;
+
 use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -27,42 +30,42 @@ use serde::Serialize;
 use serde_json::json;
 use stacks_common::address::c32::c32_address;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::debug;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
-
-use crate::burnchains::{PoxConstants, Txid};
-use crate::chainstate::stacks::boot::{
-    BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET,
-    BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
-    POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, bytes_to_hex};
+use stackslib::burnchains::{PoxConstants, Txid};
+use stackslib::chainstate::stacks::boot::{
+    BOOT_CODE_BNS, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_COSTS,
+    BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_GENESIS,
+    BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET, POX_2_MAINNET_CODE,
+    POX_2_TESTNET_CODE,
 };
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::clarity::vm::analysis::errors::CheckError;
-use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use crate::clarity::vm::ast::build_ast;
-use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
-use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use crate::clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
+use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
+use stackslib::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use stackslib::clarity::vm::analysis::errors::CheckError;
+use stackslib::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use stackslib::clarity::vm::ast::build_ast;
+use stackslib::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
+use stackslib::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
+use stackslib::clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
 };
-use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
-use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use crate::clarity::vm::{
-    analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
-    Value,
+use stackslib::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
+use stackslib::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use stackslib::clarity::vm::{
+    ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
+    eval_all,
 };
-use crate::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
-use crate::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
-use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
-use crate::util_lib::boot::{boot_code_addr, boot_code_id};
-use crate::util_lib::db::{sqlite_open, FromColumn};
+use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
+use stackslib::clarity_vm::database::MemoryBackingStore;
+use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
+use stackslib::core::{BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20, StacksEpochId};
+use stackslib::util_lib::boot::{boot_code_addr, boot_code_id};
+use stackslib::util_lib::db::{FromColumn, sqlite_open};
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [
@@ -603,7 +606,7 @@ impl CLIHeadersDB {
 
         let parent_block_hash = get_cli_chain_tip(&tx);
 
-        let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+        let random_bytes = rand::thread_rng().r#gen::<[u8; 32]>();
         let next_block_hash = friendly_expect_opt(
             StacksBlockId::from_bytes(&random_bytes),
             "Failed to generate random block header.",
@@ -1038,9 +1041,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     "Usage: {} {} [--testnet] (initial-allocations.json) [vm-state.db]",
                     invoked_by, argv[0]
                 );
-                eprintln!("   initial-allocations.json is a JSON array of {{ principal: \"ST...\", amount: 100 }} like objects.");
+                eprintln!(
+                    "   initial-allocations.json is a JSON array of {{ principal: \"ST...\", amount: 100 }} like objects."
+                );
                 eprintln!("   if the provided filename is `-`, the JSON is read from stdin.");
-                eprintln!("   If --testnet is given, then testnet bootcode and block-limits are used instead of mainnet.");
+                eprintln!(
+                    "   If --testnet is given, then testnet bootcode and block-limits are used instead of mainnet."
+                );
                 panic_test!();
             };
 
@@ -1100,7 +1107,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "generate_address" => {
             // random 20 bytes
-            let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
+            let random_bytes = rand::thread_rng().r#gen::<[u8; 20]>();
             // version = 22
             let addr =
                 friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
@@ -1174,7 +1181,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 if argv.len() >= 3 {
                     // use a persisted marf
                     if testnet_given {
-                        eprintln!("WARN: ignoring --testnet in favor of DB state in {:?}. Re-instantiate the DB to change.", &argv[2]);
+                        eprintln!(
+                            "WARN: ignoring --testnet in favor of DB state in {:?}. Re-instantiate the DB to change.",
+                            &argv[2]
+                        );
                     }
 
                     let vm_filename = &argv[2];
@@ -1719,7 +1729,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let assets = matches!(consume_arg(&mut argv, &["--assets"], false), Ok(Some(_)));
 
             if argv.len() < 5 {
-                eprintln!("Usage: {} {} [--costs] [--assets] [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, argv[0]);
+                eprintln!(
+                    "Usage: {} {} [--costs] [--assets] [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]",
+                    invoked_by, argv[0]
+                );
                 panic_test!();
             }
 
@@ -1889,9 +1902,9 @@ mod test {
 
     #[test]
     fn test_initial_alloc() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
-        let json_name = format!("/tmp/test-alloc_{}.json", rand::thread_rng().gen::<i32>());
-        let clar_name = format!("/tmp/test-alloc_{}.clar", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
+        let json_name = format!("/tmp/test-alloc_{}.json", rand::thread_rng().r#gen::<i32>());
+        let clar_name = format!("/tmp/test-alloc_{}.clar", rand::thread_rng().r#gen::<i32>());
 
         fs::write(
             &json_name,
@@ -1936,7 +1949,7 @@ mod test {
 
     #[test]
     fn test_init_mainnet() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
         let invoked = invoke_command("test", &["initialize".to_string(), db_name.clone()]);
 
         let exit = invoked.0;
@@ -1951,7 +1964,7 @@ mod test {
 
     #[test]
     fn test_init_testnet() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
         let invoked = invoke_command(
             "test",
             &[
@@ -1980,7 +1993,7 @@ mod test {
 
     #[test]
     fn test_samples() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
 
         eprintln!("initialize");
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
@@ -2261,7 +2274,7 @@ mod test {
 
     #[test]
     fn test_assets() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
 
         eprintln!("initialize");
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
@@ -2301,8 +2314,7 @@ mod test {
         assert_eq!(exit, 0);
         assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(
-            result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]
-                ["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]
+            result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]
                 == "10300"
         );
         assert!(result["events"].as_array().unwrap().len() == 3);
