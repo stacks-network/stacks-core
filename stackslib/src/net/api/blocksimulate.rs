@@ -109,10 +109,18 @@ impl RPCNakamotoBlockSimulateRequestHandler {
             _ => None,
         });
 
-        let parent_stacks_header =
-            NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id)
-                .unwrap()
-                .unwrap();
+        let parent_stacks_header_opt =
+            match NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id) {
+                Ok(parent_stacks_header_opt) => parent_stacks_header_opt,
+                Err(e) => return Err(e),
+            };
+
+        let Some(parent_stacks_header) = parent_stacks_header_opt else {
+            return Err(ChainError::InvalidStacksBlock(
+                "Invalid Parent Block".into(),
+            ));
+        };
+
         let mut builder = NakamotoBlockBuilder::new(
             &parent_stacks_header,
             &block.header.consensus_hash,
