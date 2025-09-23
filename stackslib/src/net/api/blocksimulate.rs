@@ -162,7 +162,11 @@ impl RPCNakamotoBlockSimulateRequestHandler {
                 _ => Err(format!("Problematic tx {i}")),
             };
             if let Err(reason) = err {
-                panic!("Rejected block tx: {reason}");
+                let txid = tx.txid();
+                return Err(ChainError::InvalidStacksTransaction(
+                    format!("Unable to replay transaction {txid}: {reason}").into(),
+                    false,
+                ));
             }
 
             block_fees += tx.get_tx_fee() as u128;
