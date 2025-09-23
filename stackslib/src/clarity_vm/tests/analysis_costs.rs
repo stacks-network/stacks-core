@@ -340,7 +340,7 @@ fn undefined_top_variable_error(#[case] use_mainnet: bool, #[case] epoch: Stacks
                 &contract_self,
                 ASTRules::PrecheckSize,
             );
-            let Err(ClarityError::Analysis(check_error)) = analysis_result else {
+            let Err(ClarityError::StaticCheck(check_error)) = analysis_result else {
                 panic!("Bad analysis result: {:?}", &analysis_result);
             };
             let CheckErrorKind::UndefinedVariable(var_name) = *check_error.err else {

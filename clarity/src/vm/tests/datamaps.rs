@@ -16,7 +16,7 @@
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
 use crate::vm::{
-    errors::{CheckErrorKind, ShortReturnType, SyntaxBindingError},
+    errors::{CheckErrorKind, EarlyReturnError, SyntaxBindingError},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
 use crate::vm::{execute, ClarityName, Error};
@@ -296,7 +296,7 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(ShortReturnType::ExpectedValue(Box::new(Value::Int(5))).into()),
+        Err(EarlyReturnError::UnwrapFailed(Box::new(Value::Int(5))).into()),
         execute(&contract_src)
     );
 }

@@ -16,7 +16,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::vm::analysis::errors::{CheckError, CheckErrorKind};
+use crate::vm::analysis::errors::{CheckErrorKind, StaticCheckError};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::representations::ClarityName;
 use crate::vm::types::signatures::FunctionSignature;
@@ -57,7 +57,7 @@ impl ContractContext {
         }
     }
 
-    pub fn check_name_used(&self, name: &str) -> Result<(), CheckError> {
+    pub fn check_name_used(&self, name: &str) -> Result<(), StaticCheckError> {
         if self.variable_types.contains_key(name)
             || self.persisted_variable_types.contains_key(name)
             || self.private_function_types.contains_key(name)
@@ -67,7 +67,7 @@ impl ContractContext {
             || self.traits.contains_key(name)
             || self.map_types.contains_key(name)
         {
-            Err(CheckError::new(CheckErrorKind::NameAlreadyUsed(
+            Err(StaticCheckError::new(CheckErrorKind::NameAlreadyUsed(
                 name.to_string(),
             )))
         } else {
@@ -75,7 +75,7 @@ impl ContractContext {
         }
     }
 
-    fn check_function_type(&mut self, f_name: &str) -> Result<(), CheckError> {
+    fn check_function_type(&mut self, f_name: &str) -> Result<(), StaticCheckError> {
         self.check_name_used(f_name)?;
         Ok(())
     }
@@ -92,7 +92,7 @@ impl ContractContext {
         &mut self,
         name: ClarityName,
         func_type: FunctionType,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_function_type(&name)?;
         self.public_function_types.insert(name, func_type);
         Ok(())
@@ -102,7 +102,7 @@ impl ContractContext {
         &mut self,
         name: ClarityName,
         func_type: FunctionType,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_function_type(&name)?;
         self.read_only_function_types.insert(name, func_type);
         Ok(())
@@ -112,7 +112,7 @@ impl ContractContext {
         &mut self,
         name: ClarityName,
         func_type: FunctionType,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_function_type(&name)?;
         self.private_function_types.insert(name, func_type);
         Ok(())
@@ -122,7 +122,7 @@ impl ContractContext {
         &mut self,
         map_name: ClarityName,
         map_type: (TypeSignature, TypeSignature),
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_name_used(&map_name)?;
         self.map_types.insert(map_name, map_type);
         Ok(())
@@ -132,7 +132,7 @@ impl ContractContext {
         &mut self,
         const_name: ClarityName,
         var_type: TypeSignature,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_name_used(&const_name)?;
         self.variable_types.insert(const_name, var_type);
         Ok(())
@@ -142,13 +142,13 @@ impl ContractContext {
         &mut self,
         var_name: ClarityName,
         var_type: TypeSignature,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_name_used(&var_name)?;
         self.persisted_variable_types.insert(var_name, var_type);
         Ok(())
     }
 
-    pub fn add_ft(&mut self, token_name: ClarityName) -> Result<(), CheckError> {
+    pub fn add_ft(&mut self, token_name: ClarityName) -> Result<(), StaticCheckError> {
         self.check_name_used(&token_name)?;
         self.fungible_tokens.insert(token_name);
         Ok(())
@@ -158,7 +158,7 @@ impl ContractContext {
         &mut self,
         token_name: ClarityName,
         token_type: TypeSignature,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.check_name_used(&token_name)?;
         self.non_fungible_tokens.insert(token_name, token_type);
         Ok(())
@@ -168,7 +168,7 @@ impl ContractContext {
         &mut self,
         trait_name: ClarityName,
         trait_signature: BTreeMap<ClarityName, FunctionSignature>,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.traits.insert(trait_name, trait_signature);
         Ok(())
     }

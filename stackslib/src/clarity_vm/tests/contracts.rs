@@ -53,7 +53,7 @@ fn test_get_burn_block_info_eval() {
                 contract,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
                 if let CheckErrorKind::UnknownFunction(func_name) = *check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
@@ -78,7 +78,7 @@ fn test_get_burn_block_info_eval() {
                 contract,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
                 if let CheckErrorKind::UnknownFunction(func_name) = *check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
@@ -179,7 +179,7 @@ fn test_get_block_info_eval_v210() {
                 contract,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
                 if let CheckErrorKind::NoSuchBlockInfoProperty(name) = *check_error.err {
                     assert_eq!(name, "block-reward");
                 } else {
@@ -204,7 +204,7 @@ fn test_get_block_info_eval_v210() {
                 contract,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
                 if let CheckErrorKind::NoSuchBlockInfoProperty(name) = *check_error.err {
                     assert_eq!(name, "block-reward");
                 } else {
@@ -367,7 +367,7 @@ fn trait_invocation_205_with_stored_principal() {
         let error = publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version)
             .unwrap_err();
         match error {
-            ClarityError::Analysis(ref e) => match *e.err {
+            ClarityError::StaticCheck(ref e) => match *e.err {
                 CheckErrorKind::TypeError(..) => (),
                 _ => panic!("Unexpected error: {:?}", error),
             },
@@ -935,7 +935,7 @@ fn test_block_heights() {
                 contract_clarity3,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
                 if let CheckErrorKind::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
@@ -971,7 +971,7 @@ fn test_block_heights() {
                 contract_clarity3,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
                 if let CheckErrorKind::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
@@ -988,7 +988,7 @@ fn test_block_heights() {
                 contract_clarity1,
                 ASTRules::PrecheckSize,
             );
-            if let Err(ClarityError::Analysis(check_error)) = res {
+            if let Err(ClarityError::StaticCheck(check_error)) = res {
                 if let CheckErrorKind::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "block-height");
                 } else {

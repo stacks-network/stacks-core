@@ -19,7 +19,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{cmp, fs, io};
 
-pub use clarity::vm::analysis::errors::{CheckError, CheckErrorKind};
+pub use clarity::vm::analysis::errors::{CheckErrorKind, StaticCheckError};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
@@ -110,7 +110,7 @@ pub enum MemPoolRejection {
     NotEnoughFunds(u128, u128),
     NoSuchContract,
     NoSuchPublicFunction,
-    BadFunctionArgument(CheckError),
+    BadFunctionArgument(StaticCheckError),
     ContractAlreadyExists(QualifiedContractIdentifier),
     PoisonMicroblocksDoNotConflict,
     NoAnchorBlockWithPubkeyHash(Hash160),

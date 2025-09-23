@@ -485,9 +485,15 @@ pub enum CheckErrorKind {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct CheckError {
+/// Represents an error encountered during Clarity's type-checking and semantic analysis phase.
+/// Wraps a `CheckErrorKind` variant, optionally includes the expressions causing the error,
+/// and provides diagnostic information for debugging.
+pub struct StaticCheckError {
+    /// The specific type-checking or semantic error that occurred.
     pub err: Box<CheckErrorKind>,
+    /// Optional vector of expressions related to the error, if available.
     pub expressions: Option<Vec<SymbolicExpression>>,
+    /// Diagnostic details (e.g., line/column numbers, error message, suggestions) around the error.
     pub diagnostic: Diagnostic,
 }
 
@@ -502,10 +508,10 @@ impl CheckErrorKind {
     }
 }
 
-impl CheckError {
-    pub fn new(err: CheckErrorKind) -> CheckError {
+impl StaticCheckError {
+    pub fn new(err: CheckErrorKind) -> StaticCheckError {
         let diagnostic = Diagnostic::err(&err);
-        CheckError {
+        StaticCheckError {
             err: Box::new(err),
             expressions: None,
             diagnostic,
@@ -533,13 +539,13 @@ impl CheckError {
     }
 }
 
-impl From<(SyntaxBindingError, &SymbolicExpression)> for CheckError {
+impl From<(SyntaxBindingError, &SymbolicExpression)> for StaticCheckError {
     fn from(e: (SyntaxBindingError, &SymbolicExpression)) -> Self {
         Self::with_expression(CheckErrorKind::BadSyntaxBinding(e.0), e.1)
     }
 }
 
-impl From<(CheckErrorKind, &SymbolicExpression)> for CheckError {
+impl From<(CheckErrorKind, &SymbolicExpression)> for StaticCheckError {
     fn from(e: (CheckErrorKind, &SymbolicExpression)) -> Self {
         let mut ce = Self::new(e.0);
         ce.set_expression(e.1);
@@ -559,7 +565,7 @@ impl fmt::Display for CheckErrorKind {
     }
 }
 
-impl fmt::Display for CheckError {
+impl fmt::Display for StaticCheckError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.err)?;
 
@@ -571,9 +577,9 @@ impl fmt::Display for CheckError {
     }
 }
 
-impl From<CostErrors> for CheckError {
+impl From<CostErrors> for StaticCheckError {
     fn from(err: CostErrors) -> Self {
-        CheckError::from(CheckErrorKind::from(err))
+        StaticCheckError::from(CheckErrorKind::from(err))
     }
 }
 
@@ -596,7 +602,7 @@ impl From<CostErrors> for CheckErrorKind {
     }
 }
 
-impl error::Error for CheckError {
+impl error::Error for StaticCheckError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
@@ -608,9 +614,9 @@ impl error::Error for CheckErrorKind {
     }
 }
 
-impl From<CheckErrorKind> for CheckError {
+impl From<CheckErrorKind> for StaticCheckError {
     fn from(err: CheckErrorKind) -> Self {
-        CheckError::new(err)
+        StaticCheckError::new(err)
     }
 }
 

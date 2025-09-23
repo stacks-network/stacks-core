@@ -18,8 +18,8 @@ use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrorKind, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType, ShortReturnType,
+    check_arguments_at_least, CheckErrorKind, EarlyReturnError, InterpreterError,
+    InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
@@ -68,7 +68,7 @@ pub fn native_unwrap(input: Value) -> Result<Value> {
 pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(ShortReturnType::ExpectedValue(Box::new(thrown)).into()),
+        None => Err(EarlyReturnError::UnwrapFailed(Box::new(thrown)).into()),
     })
 }
 
@@ -82,7 +82,7 @@ pub fn native_unwrap_err(input: Value) -> Result<Value> {
 pub fn native_unwrap_err_or_ret(input: Value, thrown: Value) -> Result<Value> {
     inner_unwrap_err(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(ShortReturnType::ExpectedValue(Box::new(thrown)).into()),
+        None => Err(EarlyReturnError::UnwrapFailed(Box::new(thrown)).into()),
     })
 }
 
@@ -90,7 +90,7 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
     match input {
         Value::Optional(data) => match data.data {
             Some(data) => Ok(*data),
-            None => Err(ShortReturnType::ExpectedValue(Box::new(Value::none())).into()),
+            None => Err(EarlyReturnError::UnwrapFailed(Box::new(Value::none())).into()),
         },
         Value::Response(data) => {
             if data.committed {
@@ -101,7 +101,7 @@ pub fn native_try_ret(input: Value) -> Result<Value> {
                         "BUG: Failed to construct new response type from old response type".into(),
                     )
                 })?;
-                Err(ShortReturnType::ExpectedValue(Box::new(short_return_val)).into())
+                Err(EarlyReturnError::UnwrapFailed(Box::new(short_return_val)).into())
             }
         }
         _ => Err(CheckErrorKind::ExpectedOptionalOrResponseValue(Box::new(input)).into()),

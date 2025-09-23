@@ -2,7 +2,7 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrorKind, ContractAnalysis};
+use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
 use crate::vm::ast::{ASTRules, ContractAST};
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
@@ -15,7 +15,7 @@ use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpressi
 
 #[derive(Debug)]
 pub enum Error {
-    Analysis(CheckError),
+    StaticCheck(StaticCheckError),
     Parse(ParseError),
     Interpreter(InterpreterError),
     BadTransaction(String),
@@ -39,7 +39,7 @@ impl fmt::Display for Error {
             Error::CostError(ref a, ref b) => {
                 write!(f, "Cost Error: {a} cost exceeded budget of {b} cost")
             }
-            Error::Analysis(ref e) => fmt::Display::fmt(e, f),
+            Error::StaticCheck(ref e) => fmt::Display::fmt(e, f),
             Error::Parse(ref e) => fmt::Display::fmt(e, f),
             Error::AbortedByCallback { reason, .. } => {
                 write!(f, "Post condition aborted transaction: {reason}")
@@ -55,7 +55,7 @@ impl std::error::Error for Error {
         match *self {
             Error::CostError(ref _a, ref _b) => None,
             Error::AbortedByCallback { .. } => None,
-            Error::Analysis(ref e) => Some(e),
+            Error::StaticCheck(ref e) => Some(e),
             Error::Parse(ref e) => Some(e),
             Error::Interpreter(ref e) => Some(e),
             Error::BadTransaction(ref _s) => None,
@@ -63,8 +63,8 @@ impl std::error::Error for Error {
     }
 }
 
-impl From<CheckError> for Error {
-    fn from(e: CheckError) -> Self {
+impl From<StaticCheckError> for Error {
+    fn from(e: StaticCheckError) -> Self {
         match *e.err {
             CheckErrorKind::CostOverflow => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
@@ -76,7 +76,7 @@ impl From<CheckError> for Error {
             CheckErrorKind::ExecutionTimeExpired => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            _ => Error::Analysis(e),
+            _ => Error::StaticCheck(e),
         }
     }
 }
@@ -256,7 +256,7 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         identifier: &QualifiedContractIdentifier,
         contract_analysis: &ContractAnalysis,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.with_analysis_db(|db, cost_tracker| {
             db.begin();
             let result = db.insert_contract(identifier, contract_analysis);

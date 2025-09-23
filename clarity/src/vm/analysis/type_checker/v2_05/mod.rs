@@ -27,7 +27,7 @@ pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::contexts::{TypeMap, TypingContext};
 use super::ContractAnalysis;
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrorKind,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, StaticCheckError,
     SyntaxBindingErrorType,
 };
 use crate::vm::analysis::AnalysisDatabase;
@@ -115,7 +115,7 @@ impl TypeChecker<'_, '_> {
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
         build_type_map: bool,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         let cost_track = contract_analysis.take_contract_cost_tracker();
         let mut command = TypeChecker::new(analysis_db, cost_track, build_type_map);
         // run the analysis, and replace the cost tracker whether or not the
@@ -140,7 +140,7 @@ impl FunctionType {
         &self,
         accounting: &mut T,
         args: &[TypeSignature],
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         match self {
             FunctionType::Variadic(expected_type, return_type) => {
                 check_arguments_at_least(1, args)?;
@@ -256,7 +256,7 @@ impl FunctionType {
         &self,
         db: &mut AnalysisDatabase,
         func_args: &[Value],
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         let (expected_args, returns) = match self {
             FunctionType::Fixed(FixedFunction { args, returns }) => (args, returns),
             _ => return Err(CheckErrorKind::Expects("Unexpected function type".into()).into()),
@@ -308,7 +308,7 @@ impl FunctionType {
 
 fn trait_type_size(
     trait_sig: &BTreeMap<ClarityName, FunctionSignature>,
-) -> Result<u64, CheckError> {
+) -> Result<u64, StaticCheckError> {
     let mut total_size = 0;
     for (_func_name, value) in trait_sig.iter() {
         total_size = total_size.cost_overflow_add(value.total_type_size()?)?;
@@ -316,7 +316,7 @@ fn trait_type_size(
     Ok(total_size)
 }
 
-fn type_reserved_variable(variable_name: &str) -> Result<Option<TypeSignature>, CheckError> {
+fn type_reserved_variable(variable_name: &str) -> Result<Option<TypeSignature>, StaticCheckError> {
     if let Some(variable) =
         NativeVariables::lookup_by_name_at_version(variable_name, &ClarityVersion::Clarity1)
     {
@@ -374,7 +374,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         self.cost_track
     }
 
-    pub fn track_return_type(&mut self, return_type: TypeSignature) -> Result<(), CheckError> {
+    pub fn track_return_type(
+        &mut self,
+        return_type: TypeSignature,
+    ) -> Result<(), StaticCheckError> {
         runtime_cost(
             ClarityCostFunction::AnalysisTypeCheck,
             self,
@@ -409,7 +412,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), StaticCheckError> {
         // charge for the eventual storage cost of the analysis --
         //  it is linear in the size of the AST.
         let mut size: u64 = 0;
@@ -451,7 +454,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         expr: &SymbolicExpression,
         context: &TypingContext,
         expected_type: &TypeSignature,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         if let (
             LiteralValue(Value::Principal(PrincipalData::Contract(ref contract_identifier))),
             TypeSignature::TraitReferenceType(trait_identifier),
@@ -493,7 +496,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         analysis_typecheck_cost(self, expected_type, &actual_type)?;
 
         if !expected_type.admits_type(&StacksEpochId::Epoch2_05, &actual_type)? {
-            let mut err: CheckError =
+            let mut err: StaticCheckError =
                 CheckErrorKind::TypeError(Box::new(expected_type.clone()), Box::new(actual_type))
                     .into();
             err.set_expression(expr);
@@ -508,7 +511,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         runtime_cost(ClarityCostFunction::AnalysisVisit, self, 0)?;
 
         let mut result = self.inner_type_check(expr, context);
@@ -526,10 +529,10 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         let mut types_returned = self.type_check_all(args, context)?;
 
-        let last_return = types_returned.pop().ok_or(CheckError::new(
+        let last_return = types_returned.pop().ok_or(StaticCheckError::new(
             CheckErrorKind::CheckerImplementationFailure,
         ))?;
 
@@ -545,7 +548,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Result<Vec<TypeSignature>, CheckError> {
+    ) -> Result<Vec<TypeSignature>, StaticCheckError> {
         let mut result = Vec::with_capacity(args.len());
         for arg in args.iter() {
             // don't use map here, since type_check has side-effects.
@@ -559,7 +562,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         func_type: &FunctionType,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         let typed_args = self.type_check_all(args, context)?;
         func_type.check_args(self, &typed_args, context.epoch, context.clarity_version)
     }
@@ -575,14 +578,14 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         signature: &[SymbolicExpression],
         body: &SymbolicExpression,
         context: &TypingContext,
-    ) -> Result<(ClarityName, FixedFunction), CheckError> {
+    ) -> Result<(ClarityName, FixedFunction), StaticCheckError> {
         let (function_name, args) = signature
             .split_first()
             .ok_or(CheckErrorKind::RequiresAtLeastArguments(1, 0))?;
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrorKind::BadFunctionName)?;
-        let args = parse_name_type_pairs::<(), CheckError>(
+        let args = parse_name_type_pairs::<(), StaticCheckError>(
             StacksEpochId::Epoch2_05,
             args,
             SyntaxBindingErrorType::Eval,
@@ -665,7 +668,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         map_name: &ClarityName,
         key_type: &SymbolicExpression,
         value_type: &SymbolicExpression,
-    ) -> Result<(ClarityName, (TypeSignature, TypeSignature)), CheckError> {
+    ) -> Result<(ClarityName, (TypeSignature, TypeSignature)), StaticCheckError> {
         self.type_map.set_type(key_type, no_type())?;
         self.type_map.set_type(value_type, no_type())?;
         // should we set the type of the subexpressions of the signature to no-type as well?
@@ -685,7 +688,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         function: &str,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Option<Result<TypeSignature, CheckError>> {
+    ) -> Option<Result<TypeSignature, StaticCheckError>> {
         if let Some(ref native_function) =
             NativeFunctions::lookup_by_name_at_version(function, &ClarityVersion::Clarity1)
         {
@@ -703,7 +706,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expression: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         let (function_name, args) = expression
             .split_first()
             .ok_or(CheckErrorKind::NonFunctionApplication)?;
@@ -734,7 +737,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         name: &str,
         context: &TypingContext,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         runtime_cost(ClarityCostFunction::AnalysisLookupVariableConst, self, 0)?;
 
         if let Some(type_result) = type_reserved_variable(name)? {
@@ -769,7 +772,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expr: &SymbolicExpression,
         context: &TypingContext,
-    ) -> Result<TypeSignature, CheckError> {
+    ) -> Result<TypeSignature, StaticCheckError> {
         let type_sig = match expr.expr {
             AtomValue(ref value) | LiteralValue(ref value) => TypeSignature::type_of(value)?,
             Atom(ref name) => self.lookup_variable(name, context)?,
@@ -793,7 +796,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         var_name: &ClarityName,
         var_type: &SymbolicExpression,
         context: &mut TypingContext,
-    ) -> Result<(ClarityName, TypeSignature), CheckError> {
+    ) -> Result<(ClarityName, TypeSignature), StaticCheckError> {
         let var_type = self.type_check(var_type, context)?;
         Ok((var_name.clone(), var_type))
     }
@@ -804,7 +807,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         var_type: &SymbolicExpression,
         initial: &SymbolicExpression,
         context: &mut TypingContext,
-    ) -> Result<(ClarityName, TypeSignature), CheckError> {
+    ) -> Result<(ClarityName, TypeSignature), StaticCheckError> {
         let expected_type =
             TypeSignature::parse_type_repr::<()>(StacksEpochId::Epoch2_05, var_type, &mut ())
                 .map_err(|_e| CheckErrorKind::DefineVariableBadSignature)?;
@@ -819,7 +822,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         token_name: &ClarityName,
         bound: Option<&SymbolicExpression>,
         context: &mut TypingContext,
-    ) -> Result<ClarityName, CheckError> {
+    ) -> Result<ClarityName, StaticCheckError> {
         if let Some(bound) = bound {
             self.type_check_expects(bound, context, &TypeSignature::UIntType)?;
         }
@@ -832,7 +835,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         asset_name: &ClarityName,
         nft_type: &SymbolicExpression,
         _context: &mut TypingContext,
-    ) -> Result<(ClarityName, TypeSignature), CheckError> {
+    ) -> Result<(ClarityName, TypeSignature), StaticCheckError> {
         let asset_type =
             TypeSignature::parse_type_repr::<()>(StacksEpochId::Epoch2_05, nft_type, &mut ())
                 .map_err(|_| CheckErrorKind::DefineNFTBadSignature)?;
@@ -845,7 +848,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         trait_name: &ClarityName,
         function_types: &[SymbolicExpression],
         _context: &mut TypingContext,
-    ) -> Result<(ClarityName, BTreeMap<ClarityName, FunctionSignature>), CheckError> {
+    ) -> Result<(ClarityName, BTreeMap<ClarityName, FunctionSignature>), StaticCheckError> {
         let trait_signature = TypeSignature::parse_trait_type_repr(
             function_types,
             &mut (),
@@ -861,7 +864,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         &mut self,
         expression: &SymbolicExpression,
         context: &mut TypingContext,
-    ) -> Result<Option<()>, CheckError> {
+    ) -> Result<Option<()>, StaticCheckError> {
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
                 DefineFunctionsParsed::Constant { name, value } => {
