@@ -19,9 +19,9 @@ use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    BufferLength, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_UTF8_VALUE_SIZE,
-    MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, StringSubtype, StringUTF8Length,
-    TraitIdentifier, TupleTypeSignature,
+    BufferLength, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
+    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype,
+    StringSubtype, StringUTF8Length, TraitIdentifier, TupleTypeSignature, WRAPPER_VALUE_SIZE,
 };
 
 #[test]
@@ -30,6 +30,8 @@ fn test_core_constants() {
     assert_eq!(262_144, MAX_UTF8_VALUE_SIZE);
     assert_eq!(1_048_571, MAX_TO_ASCII_RESULT_LEN);
     assert_eq!(524_284, MAX_TO_ASCII_BUFFER_LEN);
+    assert_eq!(32, MAX_TYPE_DEPTH);
+    assert_eq!(1, WRAPPER_VALUE_SIZE);
 }
 
 #[test]

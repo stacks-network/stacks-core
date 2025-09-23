@@ -39,22 +39,23 @@ pub use self::signatures::{
 use crate::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
+/// Maximum size in bytes allowed for types.
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
+/// Bytes serialization upper limit.
 pub const BOUND_VALUE_SERIALIZATION_BYTES: u32 = MAX_VALUE_SIZE * 2;
+/// Hex serialization upper limit.
 pub const BOUND_VALUE_SERIALIZATION_HEX: u32 = BOUND_VALUE_SERIALIZATION_BYTES * 2;
-
 /// Maximum length for UFT8 string.
 pub const MAX_UTF8_VALUE_SIZE: u32 = MAX_VALUE_SIZE / 4;
-
 /// Maximum string length returned from `to-ascii?`.
 /// 5 bytes reserved for embedding in response.
 pub const MAX_TO_ASCII_RESULT_LEN: u32 = MAX_VALUE_SIZE - 5;
 /// Maximum buffer length returned from `to-ascii?`.
 /// 2 bytes reserved for "0x" prefix and 2 characters per byte.
 pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
-
+/// Maximum allowed nesting depth of types.
 pub const MAX_TYPE_DEPTH: u8 = 32;
-// this is the charged size for wrapped values, i.e., response or optionals
+/// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
