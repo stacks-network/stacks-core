@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
+use clarity::vm::clarity::{ClarityError, TransactionConnection};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::errors::CheckErrorKind;
 use clarity::vm::functions::NativeFunctions;

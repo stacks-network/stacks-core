@@ -43,7 +43,7 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use crate::chainstate::stacks::index::Error as marf_error;
-use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::clarity_vm::clarity::ClarityError;
 use crate::net::Error as net_error;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
@@ -99,7 +99,7 @@ pub enum Error {
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
     CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
-    ClarityError(clarity_error),
+    ClarityError(ClarityError),
     DBError(db_error),
     NetError(net_error),
     CodecError(codec_error),
@@ -128,8 +128,8 @@ impl From<marf_error> for Error {
     }
 }
 
-impl From<clarity_error> for Error {
-    fn from(e: clarity_error) -> Error {
+impl From<ClarityError> for Error {
+    fn from(e: ClarityError) -> Error {
         Error::ClarityError(e)
     }
 }
@@ -344,7 +344,7 @@ impl From<db_error> for Error {
 
 impl From<VmExecutionError> for Error {
     fn from(e: VmExecutionError) -> Error {
-        Error::ClarityError(clarity_error::Interpreter(e))
+        Error::ClarityError(ClarityError::Interpreter(e))
     }
 }
 

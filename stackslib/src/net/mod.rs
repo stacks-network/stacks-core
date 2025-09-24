@@ -48,7 +48,7 @@ use crate::chainstate::stacks::{
     Error as chainstate_error, Error as chain_error, StacksBlock, StacksMicroblock,
     StacksPublicKey, StacksTransaction,
 };
-use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::clarity_vm::clarity::ClarityError;
 use crate::core::mempool::*;
 use crate::cost_estimates::metrics::CostMetric;
 use crate::cost_estimates::{CostEstimator, FeeEstimator};
@@ -203,7 +203,7 @@ pub enum Error {
     /// MARF error, percolated up from chainstate
     MARFError(marf_error),
     /// Clarity VM error, percolated up from chainstate
-    ClarityError(clarity_error),
+    ClarityError(ClarityError),
     /// Catch-all for chainstate errors that don't map cleanly into network errors
     ChainstateError(String),
     /// Coordinator hung up
@@ -527,8 +527,8 @@ impl From<burnchain_error> for Error {
     }
 }
 
-impl From<clarity_error> for Error {
-    fn from(e: clarity_error) -> Self {
+impl From<ClarityError> for Error {
+    fn from(e: ClarityError) -> Self {
         Error::ClarityError(e)
     }
 }
