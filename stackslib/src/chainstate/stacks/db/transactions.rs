@@ -23,7 +23,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::errors::{InterpreterError, VmExecutionError};
+use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -47,7 +47,7 @@ impl TryFrom<Value> for HashableClarityValue {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         // check that serialization _will_ be successful when hashed
         let _bytes = value.serialize_to_vec().map_err(|_| {
-            VmExecutionError::Interpreter(InterpreterError::Expect(
+            VmExecutionError::Internal(VmInternalError::Expect(
                 "Failed to serialize asset in NFT during post-condition checks".into(),
             ))
         })?;

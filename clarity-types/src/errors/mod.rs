@@ -33,8 +33,12 @@ use crate::types::{FunctionIdentifier, Value};
 
 pub type StackTrace = Vec<FunctionIdentifier>;
 
+/// Wraps error types that do not implement [`PartialEq`], enabling their
+/// use in enums that implement the trait. Any two `IncomparableError` values
+/// are always considered unequal.
 #[derive(Debug)]
 pub struct IncomparableError<T> {
+    /// The wrapped error value.
     pub err: T,
 }
 
@@ -52,7 +56,16 @@ pub enum VmExecutionError {
     /// violating type or resource constraints (e.g., excessive stack depth).
     /// The `CheckErrorKind` wraps the specific type-checking error encountered at runtime.
     Unchecked(CheckErrorKind),
-    Interpreter(InterpreterError),
+    /// A critical, unrecoverable bug within the VM's internal logic.
+    ///
+    /// The presence of this error indicates a violation of one of the VM's
+    /// invariants or a corrupted state. This is **not** an error in the user's
+    /// Clarity code, but a bug in the VM's Rust implementation.
+    ///
+    /// # Example
+    /// The VM's evaluation loop attempts to `pop` from an empty internal call stack,
+    /// indicating a mismatch in function entry/exit logic.
+    Internal(VmInternalError),
     /// Errors that occur during runtime execution of Clarity code, such as arithmetic errors or
     /// invalid operations, expected as part of contract evaluation.
     /// The `RuntimeErrorType` wraps the specific runtime error, and the `Option<StackTrace>` provides
@@ -65,23 +78,54 @@ pub enum VmExecutionError {
     EarlyReturn(EarlyReturnError),
 }
 
-/// InterpreterErrors are errors that *should never* occur.
-/// Test executions may trigger these errors.
+/// Represents an internal, unrecoverable error within the Clarity VM.
+///
+/// These errors signify a bug in the VM's logic or a violation of its internal
+/// invariants. They are not meant to be caught or handled by Clarity contracts.
 #[derive(Debug, PartialEq)]
-pub enum InterpreterError {
+pub enum VmInternalError {
+    /// Raised when the VM encounters an invalid or malformed `SymbolicExpression`
+    /// e.g., bad variable name or missing argument.
+    /// The `String` provides a message describing the specific issue.
     BadSymbolicRepresentation(String),
-    InterpreterError(String),
+    /// A generic, unexpected internal error, indicating a logic failure within
+    /// the VM.
+    /// The `String` provides a message describing the specific failure.
+    InvariantViolation(String), // TODO: merge with VmInternalError::Expect
+    /// The VM failed to produce the final `AssetMap` when finalizing the
+    /// execution environment for a transaction.
     FailedToConstructAssetTable,
+    /// The VM failed to produce the final `EventBatch` when finalizing the
+    /// execution environment for a transaction.
     FailedToConstructEventBatch,
+    /// An error occurred during an interaction with the database.
+    /// The parameter contains the corresponding SQLite error.
     #[cfg(feature = "rusqlite")]
     SqliteError(IncomparableError<SqliteError>),
+    /// The file path provided for the MARF database is invalid because it
+    /// contains non-UTF-8 characters.
     BadFileName,
+    /// The VM failed to create the necessary directory for the MARF persistent
+    /// storage. Likely due to a file system permissions error or an invalid path
     FailedToCreateDataDirectory,
+    /// A failure occurred within the MARF implementation.
+    /// The `String` provides a message describing the specific failure.
     MarfFailure(String),
+    /// Failed to construct a tuple value from provided data because it did not
+    ///  match the expected type signature.
     FailureConstructingTupleWithType,
+    /// Failed to construct a list value from provided data because it
+    /// did not match the expected type signature.
     FailureConstructingListWithType,
+    /// An STX transfer failed due to insufficient balance.
     InsufficientBalance,
+    /// A generic error occurred during a database operation.
+    /// The `String` represents a descriptive message detailing the specific issue.
     DBError(String),
+    /// An internal expectation or assertion failed. This is used for conditions
+    /// that are believed to be unreachable but are handled gracefully to prevent
+    /// a panic.
+    /// The `String` provides a message describing the failed expectation.
     Expect(String),
 }
 
@@ -177,7 +221,7 @@ impl PartialEq<VmExecutionError> for VmExecutionError {
             (VmExecutionError::Runtime(x, _), VmExecutionError::Runtime(y, _)) => x == y,
             (VmExecutionError::Unchecked(x), VmExecutionError::Unchecked(y)) => x == y,
             (VmExecutionError::EarlyReturn(x), VmExecutionError::EarlyReturn(y)) => x == y,
-            (VmExecutionError::Interpreter(x), VmExecutionError::Interpreter(y)) => x == y,
+            (VmExecutionError::Internal(x), VmExecutionError::Internal(y)) => x == y,
             _ => false,
         }
     }
@@ -222,7 +266,7 @@ impl error::Error for RuntimeError {
 impl From<ParseError> for VmExecutionError {
     fn from(err: ParseError) -> Self {
         match *err.err {
-            ParseErrorKind::InterpreterFailure => VmExecutionError::from(InterpreterError::Expect(
+            ParseErrorKind::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
             _ => VmExecutionError::from(RuntimeError::ASTError(Box::new(err))),
@@ -233,10 +277,10 @@ impl From<ParseError> for VmExecutionError {
 impl From<CostErrors> for VmExecutionError {
     fn from(err: CostErrors) -> Self {
         match err {
-            CostErrors::InterpreterFailure => VmExecutionError::from(InterpreterError::Expect(
+            CostErrors::InterpreterFailure => VmExecutionError::from(VmInternalError::Expect(
                 "Interpreter failure during cost calculation".into(),
             )),
-            CostErrors::Expect(s) => VmExecutionError::from(InterpreterError::Expect(format!(
+            CostErrors::Expect(s) => VmExecutionError::from(VmInternalError::Expect(format!(
                 "Interpreter failure during cost calculation: {s}"
             ))),
             other_err => VmExecutionError::from(CheckErrorKind::from(other_err)),
@@ -268,9 +312,9 @@ impl From<EarlyReturnError> for VmExecutionError {
     }
 }
 
-impl From<InterpreterError> for VmExecutionError {
-    fn from(err: InterpreterError) -> Self {
-        VmExecutionError::Interpreter(err)
+impl From<VmInternalError> for VmExecutionError {
+    fn from(err: VmInternalError) -> Self {
+        VmExecutionError::Internal(err)
     }
 }
 
@@ -303,15 +347,13 @@ mod test {
             ))))
         );
         assert_eq!(
-            VmExecutionError::Interpreter(InterpreterError::InterpreterError("".to_string())),
-            VmExecutionError::Interpreter(InterpreterError::InterpreterError("".to_string()))
+            VmExecutionError::Internal(VmInternalError::InvariantViolation("".to_string())),
+            VmExecutionError::Internal(VmInternalError::InvariantViolation("".to_string()))
         );
         assert!(
             VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Bool(
                 true
-            )))) != VmExecutionError::Interpreter(InterpreterError::InterpreterError(
-                "".to_string()
-            ))
+            )))) != VmExecutionError::Internal(VmInternalError::InvariantViolation("".to_string()))
         );
     }
 }

@@ -24,7 +24,7 @@ use stacks_common::util::hash::Sha512Trunc256Sum;
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
 use crate::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
-use crate::vm::errors::{InterpreterError, InterpreterResult};
+use crate::vm::errors::{InterpreterResult, VmInternalError};
 use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
 use crate::vm::Value;
@@ -49,7 +49,7 @@ fn rollback_edits_push<T>(edits: &mut Vec<(T, RollbackValueCheck)>, key: T, _val
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
     lookup_map: &mut HashMap<T, Vec<String>>,
-) -> Result<Vec<(T, String)>, InterpreterError>
+) -> Result<Vec<(T, String)>, VmInternalError>
 where
     T: Eq + Hash + Clone,
 {
@@ -86,7 +86,7 @@ where
 fn rollback_check_pre_bottom_commit<T>(
     edits: Vec<(T, RollbackValueCheck)>,
     lookup_map: &mut HashMap<T, Vec<String>>,
-) -> Result<Vec<(T, String)>, InterpreterError>
+) -> Result<Vec<(T, String)>, VmInternalError>
 where
     T: Eq + Hash + Clone,
 {
@@ -179,19 +179,19 @@ fn rollback_lookup_map<T>(
     key: &T,
     value: &RollbackValueCheck,
     lookup_map: &mut HashMap<T, Vec<String>>,
-) -> Result<String, InterpreterError>
+) -> Result<String, VmInternalError>
 where
     T: Eq + Hash + Clone,
 {
     let popped_value;
     let remove_edit_deque = {
         let key_edit_history = lookup_map.get_mut(key).ok_or_else(|| {
-            InterpreterError::Expect(
+            VmInternalError::Expect(
                 "ERROR: Clarity VM had edit log entry, but not lookup_map entry".into(),
             )
         })?;
         popped_value = key_edit_history.pop().ok_or_else(|| {
-            InterpreterError::Expect("ERROR: expected value in edit history".into())
+            VmInternalError::Expect("ERROR: expected value in edit history".into())
         })?;
         rollback_value_check(&popped_value, value);
         key_edit_history.is_empty()
@@ -240,9 +240,9 @@ impl<'a> RollbackWrapper<'a> {
     // Rollback the child's edits.
     //   this clears all edits from the child's edit queue,
     //     and removes any of those edits from the lookup map.
-    pub fn rollback(&mut self) -> Result<(), InterpreterError> {
+    pub fn rollback(&mut self) -> Result<(), VmInternalError> {
         let mut last_item = self.stack.pop().ok_or_else(|| {
-            InterpreterError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
+            VmInternalError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
         })?;
 
         last_item.edits.reverse();
@@ -263,9 +263,9 @@ impl<'a> RollbackWrapper<'a> {
         self.stack.len()
     }
 
-    pub fn commit(&mut self) -> Result<(), InterpreterError> {
+    pub fn commit(&mut self) -> Result<(), VmInternalError> {
         let mut last_item = self.stack.pop().ok_or_else(|| {
-            InterpreterError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
+            VmInternalError::Expect("ERROR: Clarity VM attempted to commit past the stack.".into())
         })?;
 
         if let Some(next_up) = self.stack.last_mut() {
@@ -283,7 +283,7 @@ impl<'a> RollbackWrapper<'a> {
                 rollback_check_pre_bottom_commit(last_item.edits, &mut self.lookup_map)?;
             if !all_edits.is_empty() {
                 self.store.put_all_data(all_edits).map_err(|e| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: Failed to commit data to sql store: {e:?}"
                     ))
                 })?;
@@ -295,7 +295,7 @@ impl<'a> RollbackWrapper<'a> {
             )?;
             if !metadata_edits.is_empty() {
                 self.store.put_all_metadata(metadata_edits).map_err(|e| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: Failed to commit data to sql store: {e:?}"
                     ))
                 })?;
@@ -322,9 +322,7 @@ fn inner_put_data<T>(
 impl RollbackWrapper<'_> {
     pub fn put_data(&mut self, key: &str, value: &str) -> InterpreterResult<()> {
         let current = self.stack.last_mut().ok_or_else(|| {
-            InterpreterError::Expect(
-                "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted PUT on non-nested context.".into())
         })?;
 
         inner_put_data(
@@ -387,9 +385,7 @@ impl RollbackWrapper<'_> {
         T: ClarityDeserializable<T>,
     {
         self.stack.last().ok_or_else(|| {
-            InterpreterError::Expect(
-                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
 
         if self.query_pending_data {
@@ -503,11 +499,9 @@ impl RollbackWrapper<'_> {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> Result<(), InterpreterError> {
+    ) -> Result<(), VmInternalError> {
         let current = self.stack.last_mut().ok_or_else(|| {
-            InterpreterError::Expect(
-                "ERROR: Clarity VM attempted PUT on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted PUT on non-nested context.".into())
         })?;
 
         let metadata_key = (contract.clone(), key.to_string());
@@ -529,9 +523,7 @@ impl RollbackWrapper<'_> {
         key: &str,
     ) -> InterpreterResult<Option<String>> {
         self.stack.last().ok_or_else(|| {
-            InterpreterError::Expect(
-                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
 
         // This is THEORETICALLY a spurious clone, but it's hard to turn something like
@@ -560,9 +552,7 @@ impl RollbackWrapper<'_> {
         key: &str,
     ) -> InterpreterResult<Option<String>> {
         self.stack.last().ok_or_else(|| {
-            InterpreterError::Expect(
-                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
 
         // This is THEORETICALLY a spurious clone, but it's hard to turn something like
@@ -584,9 +574,7 @@ impl RollbackWrapper<'_> {
 
     pub fn has_entry(&mut self, key: &str) -> InterpreterResult<bool> {
         self.stack.last().ok_or_else(|| {
-            InterpreterError::Expect(
-                "ERROR: Clarity VM attempted GET on non-nested context.".into(),
-            )
+            VmInternalError::Expect("ERROR: Clarity VM attempted GET on non-nested context.".into())
         })?;
         if self.query_pending_data && self.lookup_map.contains_key(key) {
             Ok(true)

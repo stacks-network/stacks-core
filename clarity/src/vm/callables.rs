@@ -21,7 +21,7 @@ pub use clarity_types::types::FunctionIdentifier;
 use stacks_common::types::StacksEpochId;
 
 use super::costs::{CostErrors, CostOverflowingMath};
-use super::errors::InterpreterError;
+use super::errors::VmInternalError;
 use super::types::signatures::CallableSubtype;
 use super::ClarityVersion;
 use crate::vm::analysis::errors::CheckErrorKind;
@@ -89,17 +89,17 @@ impl NativeHandle {
                 check_argument_count(1, &args)?;
                 function(
                     args.pop()
-                        .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?,
+                        .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?,
                 )
             }
             Self::DoubleArg(function) => {
                 check_argument_count(2, &args)?;
                 let second = args
                     .pop()
-                    .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?;
+                    .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?;
                 let first = args
                     .pop()
-                    .ok_or_else(|| InterpreterError::Expect("Unexpected list length".into()))?;
+                    .ok_or_else(|| VmInternalError::Expect("Unexpected list length".into()))?;
                 function(first, second)
             }
             Self::MoreArg(function) => function(args),

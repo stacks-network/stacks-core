@@ -8,7 +8,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
-    InterpreterError, InterpreterResult as Result,
+    InterpreterResult as Result, VmInternalError,
 };
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
@@ -102,7 +102,7 @@ fn create_principal_destruct_tuple(
                 }),
             ),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
 }
 
@@ -116,10 +116,10 @@ fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) 
             ("error_code".into(), Value::UInt(error_int as u128)),
             ("value".into(), Value::none()),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
     .map_err(|_| {
-        InterpreterError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
+        VmInternalError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
     })
 }
 
@@ -138,14 +138,14 @@ fn create_principal_value_error_response(
             (
                 "value".into(),
                 Value::some(value).map_err(|_| {
-                    InterpreterError::Expect("Unexpected problem creating Value.".into())
+                    VmInternalError::Expect("Unexpected problem creating Value.".into())
                 })?,
             ),
         ])
-        .map_err(|_| InterpreterError::Expect("FAIL: Failed to initialize tuple.".into()))?,
+        .map_err(|_| VmInternalError::Expect("FAIL: Failed to initialize tuple.".into()))?,
     ))
     .map_err(|_| {
-        InterpreterError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
+        VmInternalError::Expect("FAIL: Failed to initialize (err ..) response".into()).into()
     })
 }
 
@@ -310,7 +310,7 @@ pub fn special_principal_construct(
         // it here at runtime.  If it's not valid, then it warrants this function evaluating to
         // (err ..).
         let name_string = String::from_utf8(name_bytes.data).map_err(|_| {
-            InterpreterError::Expect(
+            VmInternalError::Expect(
                 "FAIL: could not convert bytes of type (string-ascii 40) back to a UTF-8 string"
                     .into(),
             )
@@ -337,7 +337,7 @@ pub fn special_principal_construct(
 
     if version_byte_is_valid {
         Ok(Value::okay(principal).map_err(|_| {
-            InterpreterError::Expect("FAIL: failed to build an (ok ..) response".into())
+            VmInternalError::Expect("FAIL: failed to build an (ok ..) response".into())
         })?)
     } else {
         create_principal_value_error_response(PrincipalConstructErrorCode::VERSION_BYTE, principal)

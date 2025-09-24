@@ -21,7 +21,7 @@ use integer_sqrt::IntegerSquareRoot;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, InterpreterError, InterpreterResult, RuntimeError,
+    check_argument_count, CheckErrorKind, InterpreterResult, RuntimeError, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
@@ -586,7 +586,7 @@ pub fn native_mod(a: Value, b: Value) -> InterpreterResult<Value> {
 pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
     if let Value::UInt(u128_val) = pos {
         let shamt = u32::try_from(u128_val & 0x7f).map_err(|_| {
-            InterpreterError::Expect("FATAL: lower 32 bits did not convert to u32".into())
+            VmInternalError::Expect("FATAL: lower 32 bits did not convert to u32".into())
         })?;
 
         match input {
@@ -612,7 +612,7 @@ pub fn native_bitwise_left_shift(input: Value, pos: Value) -> InterpreterResult<
 pub fn native_bitwise_right_shift(input: Value, pos: Value) -> InterpreterResult<Value> {
     if let Value::UInt(u128_val) = pos {
         let shamt = u32::try_from(u128_val & 0x7f).map_err(|_| {
-            InterpreterError::Expect("FATAL: lower 32 bits did not convert to u32".into())
+            VmInternalError::Expect("FATAL: lower 32 bits did not convert to u32".into())
         })?;
 
         match input {

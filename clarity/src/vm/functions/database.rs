@@ -22,8 +22,8 @@ use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, InterpreterError,
-    InterpreterResult as Result, RuntimeError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, InterpreterResult as Result,
+    RuntimeError, VmInternalError,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
@@ -963,7 +963,7 @@ pub fn special_get_burn_block_info(
                                 env.epoch(),
                             )
                             .map_err(|_| {
-                                InterpreterError::Expect(
+                                VmInternalError::Expect(
                                     "FATAL: could not convert address list to Value".into(),
                                 )
                             })?,
@@ -971,12 +971,12 @@ pub fn special_get_burn_block_info(
                         ("payout".into(), Value::UInt(payout)),
                     ])
                     .map_err(|_| {
-                        InterpreterError::Expect(
+                        VmInternalError::Expect(
                             "FATAL: failed to build pox addrs and payout tuple".into(),
                         )
                     })?,
                 ))
-                .map_err(|_| InterpreterError::Expect("FATAL: could not build Some(..)".into()))?),
+                .map_err(|_| VmInternalError::Expect("FATAL: could not build Some(..)".into()))?),
                 None => Ok(Value::none()),
             }
         }

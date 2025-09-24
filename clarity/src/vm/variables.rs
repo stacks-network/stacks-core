@@ -17,7 +17,7 @@
 use clarity_types::types::PrincipalData;
 use stacks_common::types::StacksEpochId;
 
-use super::errors::InterpreterError;
+use super::errors::VmInternalError;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -69,7 +69,7 @@ pub fn lookup_reserved_variable(
                 let sponsor = match env.sponsor.clone() {
                     None => Value::none(),
                     Some(p) => Value::some(Value::Principal(p)).map_err(|_| {
-                        InterpreterError::Expect(
+                        VmInternalError::Expect(
                             "ERROR: principal should be a valid Clarity object".into(),
                         )
                     })?,
