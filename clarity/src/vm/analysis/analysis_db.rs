@@ -20,7 +20,7 @@ use clarity_types::representations::ClarityName;
 use clarity_types::types::{QualifiedContractIdentifier, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckError, CheckErrors};
 use crate::vm::analysis::type_checker::ContractAnalysis;
 use crate::vm::database::{
     ClarityBackingStore, ClarityDeserializable, ClaritySerializable, RollbackWrapper,
@@ -63,13 +63,13 @@ impl<'a> AnalysisDatabase<'a> {
         self.store.nest();
     }
 
-    pub fn commit(&mut self) -> CheckResult<()> {
+    pub fn commit(&mut self) -> Result<(), CheckError> {
         self.store
             .commit()
             .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into())
     }
 
-    pub fn roll_back(&mut self) -> CheckResult<()> {
+    pub fn roll_back(&mut self) -> Result<(), CheckError> {
         self.store
             .rollback()
             .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into())
@@ -99,7 +99,7 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn load_contract_non_canonical(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> CheckResult<Option<ContractAnalysis>> {
+    ) -> Result<Option<ContractAnalysis>, CheckError> {
         self.store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
             // treat NoSuchContract error thrown by get_metadata as an Option::None --
@@ -118,7 +118,7 @@ impl<'a> AnalysisDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         epoch: &StacksEpochId,
-    ) -> CheckResult<Option<ContractAnalysis>> {
+    ) -> Result<Option<ContractAnalysis>, CheckError> {
         Ok(self
             .store
             .get_metadata(contract_identifier, AnalysisDatabase::storage_key())
@@ -141,7 +141,7 @@ impl<'a> AnalysisDatabase<'a> {
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         contract: &ContractAnalysis,
-    ) -> CheckResult<()> {
+    ) -> Result<(), CheckError> {
         let key = AnalysisDatabase::storage_key();
         if self.store.has_metadata_entry(contract_identifier, key) {
             return Err(CheckErrors::ContractAlreadyExists(contract_identifier.to_string()).into());
@@ -156,7 +156,7 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn get_clarity_version(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> CheckResult<ClarityVersion> {
+    ) -> Result<ClarityVersion, CheckError> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
@@ -172,7 +172,7 @@ impl<'a> AnalysisDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
         epoch: &StacksEpochId,
-    ) -> CheckResult<Option<FunctionType>> {
+    ) -> Result<Option<FunctionType>, CheckError> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
@@ -190,7 +190,7 @@ impl<'a> AnalysisDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         function_name: &str,
         epoch: &StacksEpochId,
-    ) -> CheckResult<Option<FunctionType>> {
+    ) -> Result<Option<FunctionType>, CheckError> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
@@ -208,7 +208,7 @@ impl<'a> AnalysisDatabase<'a> {
         contract_identifier: &QualifiedContractIdentifier,
         trait_name: &str,
         epoch: &StacksEpochId,
-    ) -> CheckResult<Option<BTreeMap<ClarityName, FunctionSignature>>> {
+    ) -> Result<Option<BTreeMap<ClarityName, FunctionSignature>>, CheckError> {
         // TODO: this function loads the whole contract to obtain the function type.
         //         but it doesn't need to -- rather this information can just be
         //         stored as its own entry. the analysis cost tracking currently only
@@ -227,7 +227,7 @@ impl<'a> AnalysisDatabase<'a> {
     pub fn get_implemented_traits(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
-    ) -> CheckResult<BTreeSet<TraitIdentifier>> {
+    ) -> Result<BTreeSet<TraitIdentifier>, CheckError> {
         let contract = self
             .load_contract_non_canonical(contract_identifier)?
             .ok_or(CheckErrors::NoSuchContract(contract_identifier.to_string()))?;

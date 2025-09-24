@@ -27,7 +27,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
 use super::EvalHook;
-use crate::vm::ast::{ASTRules, ContractAST};
+use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -640,15 +640,12 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-        ast_rules: ASTRules,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
             sponsor,
             None,
-            |exec_env| {
-                exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
-            },
+            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
         )
     }
 
@@ -658,7 +655,6 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         version: ClarityVersion,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-        ast_rules: ASTRules,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
@@ -667,9 +663,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
                 QualifiedContractIdentifier::transient(),
                 version,
             )),
-            |exec_env| {
-                exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
-            },
+            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
         )
     }
 
@@ -769,27 +763,17 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         )
     }
 
-    pub fn eval_read_only_with_rules(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        program: &str,
-        ast_rules: ast::ASTRules,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(
-            QualifiedContractIdentifier::transient().issuer.into(),
-            None,
-            None,
-            |exec_env| exec_env.eval_read_only_with_rules(contract, program, ast_rules),
-        )
-    }
-
-    #[cfg(any(test, feature = "testing"))]
     pub fn eval_read_only(
         &mut self,
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.eval_read_only_with_rules(contract, program, ast::ASTRules::Typical)
+        self.execute_in_env(
+            QualifiedContractIdentifier::transient().issuer.into(),
+            None,
+            None,
+            |exec_env| exec_env.eval_read_only(contract, program),
+        )
     }
 
     pub fn begin(&mut self) {
@@ -949,21 +933,19 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         )
     }
 
-    pub fn eval_read_only_with_rules(
+    pub fn eval_read_only(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
-        rules: ast::ASTRules,
     ) -> Result<Value> {
         let clarity_version = self.contract_context.clarity_version;
 
-        let parsed = ast::build_ast_with_rules(
+        let parsed = ast::build_ast(
             contract_identifier,
             program,
             self,
             clarity_version,
             self.global_context.epoch_id,
-            rules,
         )?
         .expressions;
 
@@ -1003,26 +985,16 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         result
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    pub fn eval_read_only(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        program: &str,
-    ) -> Result<Value> {
-        self.eval_read_only_with_rules(contract_identifier, program, ast::ASTRules::Typical)
-    }
-
-    pub fn eval_raw_with_rules(&mut self, program: &str, rules: ast::ASTRules) -> Result<Value> {
+    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
         let contract_id = QualifiedContractIdentifier::transient();
         let clarity_version = self.contract_context.clarity_version;
 
-        let parsed = ast::build_ast_with_rules(
+        let parsed = ast::build_ast(
             &contract_id,
             program,
             self,
             clarity_version,
             self.global_context.epoch_id,
-            rules,
         )?
         .expressions;
 
@@ -1034,11 +1006,6 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         }
         let local_context = LocalContext::new();
         eval(&parsed[0], self, &local_context)
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
-        self.eval_raw_with_rules(program, ast::ASTRules::Typical)
     }
 
     /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
@@ -1134,7 +1101,11 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
                         self.epoch(),
                         &expected_type,
                         value.clone(),
-                    ).ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
+                    ).ok_or_else(|| CheckErrors::TypeValueError(
+                            Box::new(expected_type),
+                            Box::new(value.clone()),
+                        )
+                    )?;
 
                     Ok(sanitized_value)
                 })
@@ -1242,17 +1213,15 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
-        ast_rules: ASTRules,
     ) -> Result<()> {
         let clarity_version = self.contract_context.clarity_version;
 
-        let contract_ast = ast::build_ast_with_rules(
+        let contract_ast = ast::build_ast(
             &contract_identifier,
             contract_content,
             self,
             clarity_version,
             self.global_context.epoch_id,
-            ast_rules,
         )?;
         self.initialize_contract_from_ast(
             contract_identifier,
@@ -1762,10 +1731,10 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
                 self.commit()?;
                 Ok(result)
             } else {
-                Err(
-                    CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)?)
-                        .into(),
-                )
+                Err(CheckErrors::PublicFunctionMustReturnResponse(Box::new(
+                    TypeSignature::type_of(&result)?,
+                ))
+                .into())
             }
         } else {
             self.roll_back()?;

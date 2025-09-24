@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
@@ -39,7 +38,7 @@ use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::ClarityInstance;
+use crate::clarity_vm::clarity::{ClarityInstance, ClarityMarfStore, ClarityMarfStoreTransaction};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
 use crate::util_lib::boot::boot_code_id;
@@ -165,6 +164,7 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetStacksBlockInfo => "(get-stacks-block-info? time u1)",
         GetTenureInfo => "(get-tenure-info? time u1)",
         ContractHash => "(contract-hash? .contract-other)",
+        ToAscii => "(to-ascii? 65)",
     }
 }
 
@@ -254,7 +254,7 @@ fn exec_cost(contract: &str, use_mainnet: bool, epoch: StacksEpochId) -> Executi
 
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
         owned_env
-            .initialize_contract(contract_id.clone(), contract, None, ASTRules::PrecheckSize)
+            .initialize_contract(contract_id.clone(), contract, None)
             .unwrap();
 
         let cost_before = owned_env.get_cost_total();
@@ -867,22 +867,10 @@ fn setup_cost_tracked_test(
     let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
 
     owned_env
-        .initialize_versioned_contract(
-            trait_contract_id,
-            version,
-            contract_trait,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_versioned_contract(trait_contract_id, version, contract_trait, None)
         .unwrap();
     owned_env
-        .initialize_versioned_contract(
-            other_contract_id,
-            version,
-            contract_other,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_versioned_contract(other_contract_id, version, contract_other, None)
         .unwrap();
 }
 
@@ -1016,13 +1004,7 @@ fn test_program_cost(
     let other_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-other".into());
 
     owned_env
-        .initialize_versioned_contract(
-            self_contract_id.clone(),
-            version,
-            &contract_self,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_versioned_contract(self_contract_id.clone(), version, &contract_self, None)
         .unwrap();
 
     let start = owned_env.get_cost_total();
@@ -1260,12 +1242,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(
-                        contract_name,
-                        clarity_version,
-                        contract_src,
-                        ASTRules::PrecheckSize,
-                    )
+                    .analyze_smart_contract(contract_name, clarity_version, contract_src)
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,
@@ -1545,12 +1522,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         {
             block_conn.as_transaction(|tx| {
                 let (ast, analysis) = tx
-                    .analyze_smart_contract(
-                        contract_name,
-                        clarity_version,
-                        contract_src,
-                        ASTRules::PrecheckSize,
-                    )
+                    .analyze_smart_contract(contract_name, clarity_version, contract_src)
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,

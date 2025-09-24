@@ -197,15 +197,13 @@ impl RPCRequestHandler for RPCPostTransactionRequestHandler {
                     chainstate.mainnet,
                     stacks_epoch.epoch_id,
                     &tx,
-                    network.ast_rules,
                 )
                 .is_err()
             {
                 // we statically check the tx for known problems, and it had some.  Reject.
                 debug!(
-                    "Transaction {} is problematic in rules {:?}; will not store or relay",
-                    &tx.txid(),
-                    network.ast_rules
+                    "Transaction {} is problematic; will not store or relay",
+                    &tx.txid()
                 );
                 return Ok(false);
             }

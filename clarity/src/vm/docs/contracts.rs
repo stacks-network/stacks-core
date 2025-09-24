@@ -4,7 +4,7 @@ use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{mem_type_check, ContractAnalysis};
-use crate::vm::ast::{build_ast_with_rules, ASTRules};
+use crate::vm::ast::build_ast;
 use crate::vm::contexts::GlobalContext;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
@@ -80,13 +80,12 @@ fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
         DOCS_GENERATION_EPOCH,
     );
     global_context.execute(|g| {
-        let parsed = build_ast_with_rules(
+        let parsed = build_ast(
             &contract_id,
             program,
             &mut (),
             ClarityVersion::latest(),
             StacksEpochId::latest(),
-            ASTRules::PrecheckSize,
         )?
         .expressions;
         vm::eval_all(&parsed, &mut contract_context, g, None)

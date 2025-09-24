@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::types::StacksEpochId;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::Error as ClarityError;
 use clarity::vm::errors::{CheckErrors, Error};
 use clarity::vm::types::SequenceData::Buffer;
@@ -47,14 +46,10 @@ fn test_get_burn_block_info_eval() {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let res = clarity_db.analyze_smart_contract(
-                &contract_identifier,
-                clarity_version,
-                contract,
-                ASTRules::PrecheckSize,
-            );
+            let res =
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UnknownFunction(func_name) = check_error.err {
+                if let CheckErrors::UnknownFunction(func_name) = *check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -72,14 +67,10 @@ fn test_get_burn_block_info_eval() {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let res = clarity_db.analyze_smart_contract(
-                &contract_identifier,
-                clarity_version,
-                contract,
-                ASTRules::PrecheckSize,
-            );
+            let res =
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UnknownFunction(func_name) = check_error.err {
+                if let CheckErrors::UnknownFunction(func_name) = *check_error.err {
                     assert_eq!(func_name, "get-burn-block-info?");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -98,12 +89,7 @@ fn test_get_burn_block_info_eval() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &contract_identifier,
-                    clarity_version,
-                    contract,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_identifier, clarity_version, contract)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -173,14 +159,10 @@ fn test_get_block_info_eval_v210() {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let res = clarity_db.analyze_smart_contract(
-                &contract_identifier,
-                clarity_version,
-                contract,
-                ASTRules::PrecheckSize,
-            );
+            let res =
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::NoSuchBlockInfoProperty(name) = check_error.err {
+                if let CheckErrors::NoSuchBlockInfoProperty(name) = *check_error.err {
                     assert_eq!(name, "block-reward");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -198,14 +180,10 @@ fn test_get_block_info_eval_v210() {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let res = clarity_db.analyze_smart_contract(
-                &contract_identifier,
-                clarity_version,
-                contract,
-                ASTRules::PrecheckSize,
-            );
+            let res =
+                clarity_db.analyze_smart_contract(&contract_identifier, clarity_version, contract);
             if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::NoSuchBlockInfoProperty(name) = check_error.err {
+                if let CheckErrors::NoSuchBlockInfoProperty(name) = *check_error.err {
                     assert_eq!(name, "block-reward");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -219,14 +197,14 @@ fn test_get_block_info_eval_v210() {
     sim.execute_next_block_as_conn(|conn| {
         let contract_identifier = QualifiedContractIdentifier::local("test-contract-3").unwrap();
         let contract =
-            "(define-private (test-func-1 (height uint)) (get-block-info? block-reward height)) 
+            "(define-private (test-func-1 (height uint)) (get-block-info? block-reward height))
              (define-private (test-func-2 (height uint)) (get-block-info? miner-spend-winner height))
              (define-private (test-func-3 (height uint)) (get-block-info? miner-spend-total height))";
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(&contract_identifier, clarity_version, contract, ASTRules::PrecheckSize)
+                .analyze_smart_contract(&contract_identifier, clarity_version, contract)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(&contract_identifier, clarity_version, &ast, contract, None, |_, _| None, None)
@@ -249,7 +227,7 @@ fn test_get_block_info_eval_v210() {
             tx.eval_read_only(&contract_identifier, "(test-func-3 u0)")
                 .unwrap()
         );
-        // only works at the first block and later (not the 0th block) 
+        // only works at the first block and later (not the 0th block)
         assert_eq!(
             Value::some(Value::UInt(3000)).unwrap(),
             tx.eval_read_only(&contract_identifier, "(test-func-1 u1)")
@@ -306,8 +284,7 @@ fn publish_contract(
     version: ClarityVersion,
 ) -> Result<(), clarity::vm::clarity::Error> {
     bc.as_transaction(|tx| {
-        let (ast, analysis) =
-            tx.analyze_smart_contract(contract_id, version, contract, ASTRules::PrecheckSize)?;
+        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, contract)?;
         tx.initialize_smart_contract(
             contract_id,
             version,
@@ -367,7 +344,7 @@ fn trait_invocation_205_with_stored_principal() {
         let error = publish_contract(conn, &invoke_contract_id, invoke_contract, clarity_version)
             .unwrap_err();
         match error {
-            ClarityError::Analysis(ref e) => match e.err {
+            ClarityError::Analysis(ref e) => match *e.err {
                 CheckErrors::TypeError(..) => (),
                 _ => panic!("Unexpected error: {:?}", error),
             },
@@ -461,8 +438,8 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(TypeSignature::TraitReferenceType(_), value))) = error {
-                // pass
+            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(trait_ref_type, value))) = error {
+                assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
                 panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
             };
@@ -485,8 +462,8 @@ fn trait_invocation_cross_epoch() {
                 )
                 .unwrap_err();
 
-            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(TypeSignature::TraitReferenceType(_), value))) = error {
-                // pass
+            if let ClarityError::Interpreter(Error::Unchecked(CheckErrors::TypeValueError(trait_ref_type, value))) = error {
+                assert!(matches!(*trait_ref_type, TypeSignature::TraitReferenceType(_)));
             } else {
                 panic!("Expected an Interpreter(UncheckedError(TypeValue(TraitReferenceType, Principal))) during Epoch-2.2");
             };
@@ -593,12 +570,7 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &math_contract_id,
-                    clarity_version,
-                    math_trait,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&math_contract_id, clarity_version, math_trait)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -618,12 +590,7 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &compute_contract_id,
-                    clarity_version,
-                    compute_trait,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&compute_contract_id, clarity_version, compute_trait)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -643,12 +610,7 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &impl_compute_id,
-                    clarity_version,
-                    impl_compute,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&impl_compute_id, clarity_version, impl_compute)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -668,12 +630,7 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &impl_math_id,
-                    clarity_version,
-                    impl_math,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&impl_math_id, clarity_version, impl_math)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -693,12 +650,7 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &use_compute_20_id,
-                    clarity_version,
-                    use_compute,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&use_compute_20_id, clarity_version, use_compute)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -725,12 +677,7 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::Clarity1;
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &use_compute_21_c1_id,
-                    clarity_version,
-                    use_compute,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&use_compute_21_c1_id, clarity_version, use_compute)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -750,12 +697,7 @@ fn trait_with_trait_invocation_cross_epoch() {
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::Clarity2;
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &use_compute_21_c2_id,
-                    clarity_version,
-                    use_compute,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&use_compute_21_c2_id, clarity_version, use_compute)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
@@ -926,17 +868,15 @@ fn test_block_heights() {
                 &contract_identifier1,
                 ClarityVersion::Clarity1,
                 contract_clarity1,
-                ASTRules::PrecheckSize,
             ).unwrap();
 
             let res = clarity_db.analyze_smart_contract(
                 &contract_identifier2,
                 ClarityVersion::Clarity1,
                 contract_clarity3,
-                ASTRules::PrecheckSize,
             );
             if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = check_error.err {
+                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -962,17 +902,15 @@ fn test_block_heights() {
                 &contract_identifier1,
                 ClarityVersion::Clarity2,
                 contract_clarity1,
-                ASTRules::PrecheckSize,
             ).unwrap();
 
             let res = clarity_db.analyze_smart_contract(
                 &contract_identifier2,
                 ClarityVersion::Clarity2,
                 contract_clarity3,
-                ASTRules::PrecheckSize,
             );
             if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = check_error.err {
+                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "stacks-block-height");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -986,10 +924,9 @@ fn test_block_heights() {
                 &contract_identifier1,
                 ClarityVersion::Clarity3,
                 contract_clarity1,
-                ASTRules::PrecheckSize,
             );
             if let Err(ClarityError::Analysis(check_error)) = res {
-                if let CheckErrors::UndefinedVariable(var_name) = check_error.err {
+                if let CheckErrors::UndefinedVariable(var_name) = *check_error.err {
                     assert_eq!(var_name, "block-height");
                 } else {
                     panic!("Bad analysis error: {:?}", &check_error);
@@ -1002,7 +939,6 @@ fn test_block_heights() {
                 &contract_identifier2,
                 ClarityVersion::Clarity3,
                 contract_clarity3,
-                ASTRules::PrecheckSize,
             ).unwrap();
 
             // Publish the Clarity 3 contract
@@ -1218,7 +1154,6 @@ fn test_block_heights_across_versions() {
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
                     contract_e2c1_2,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -1249,7 +1184,6 @@ fn test_block_heights_across_versions() {
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
                     contract_e2c1_2,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -1281,12 +1215,7 @@ fn test_block_heights_across_versions() {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &contract_id_e3c3,
-                    ClarityVersion::Clarity3,
-                    &contract_e3c3,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_id_e3c3, ClarityVersion::Clarity3, &contract_e3c3)
                 .unwrap();
 
             // Publish the Clarity 3 contract
@@ -1353,7 +1282,6 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
                     contract_e2c1_2,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
 
@@ -1381,7 +1309,6 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
                     contract_e2c1_2,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
 
@@ -1410,12 +1337,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &contract_id_e3c3,
-                    ClarityVersion::Clarity3,
-                    &contract_e3c3,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_id_e3c3, ClarityVersion::Clarity3, &contract_e3c3)
                 .unwrap();
 
             // Publish the Clarity 3 contract
@@ -1501,7 +1423,6 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
                     contract_e2c1_2,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
 
@@ -1529,7 +1450,6 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
                     contract_e2c1_2,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
 
@@ -1558,12 +1478,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &contract_id_e3c3,
-                    ClarityVersion::Clarity3,
-                    &contract_e3c3,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_id_e3c3, ClarityVersion::Clarity3, &contract_e3c3)
                 .unwrap();
 
             // Publish the Clarity 3 contract
@@ -1640,7 +1555,6 @@ fn test_block_heights_at_block() {
                 &contract_identifier,
                 ClarityVersion::Clarity3,
                 contract,
-                ASTRules::PrecheckSize,
             ).unwrap();
 
             // Publish the contract
@@ -1698,12 +1612,7 @@ fn test_get_block_info_time() {
         conn.as_transaction(|clarity_db| {
             // Analyze the contract as Clarity 2
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &contract_identifier2,
-                    ClarityVersion::Clarity2,
-                    contract2,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_identifier2, ClarityVersion::Clarity2, contract2)
                 .unwrap();
 
             // Publish the contract as Clarity 2
@@ -1721,12 +1630,7 @@ fn test_get_block_info_time() {
 
             // Analyze the contract as Clarity 3
             let (ast, analysis) = clarity_db
-                .analyze_smart_contract(
-                    &contract_identifier3,
-                    ClarityVersion::Clarity3,
-                    contract3,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_identifier3, ClarityVersion::Clarity3, contract3)
                 .unwrap();
 
             // Publish the contract as Clarity 3
@@ -1748,7 +1652,6 @@ fn test_get_block_info_time() {
                     &contract_identifier3_3,
                     ClarityVersion::Clarity3,
                     contract3_3,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
 

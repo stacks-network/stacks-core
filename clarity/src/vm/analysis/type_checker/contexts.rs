@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckError, CheckErrors};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
@@ -64,7 +64,7 @@ impl TypeMap {
         &mut self,
         expr: &SymbolicExpression,
         type_sig: TypeSignature,
-    ) -> CheckResult<()> {
+    ) -> Result<(), CheckError> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 if map.insert(expr.id, type_sig).is_some() {
@@ -103,7 +103,7 @@ impl TypingContext<'_> {
         }
     }
 
-    pub fn extend(&self) -> CheckResult<TypingContext<'_>> {
+    pub fn extend(&self) -> Result<TypingContext<'_>, CheckError> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             Err(CheckError::new(CheckErrors::MaxContextDepthReached))
         } else {

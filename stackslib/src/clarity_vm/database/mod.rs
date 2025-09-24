@@ -35,6 +35,7 @@ use crate::clarity_vm::special::handle_contract_call_special_cases;
 use crate::core::{StacksEpoch, StacksEpochId};
 use crate::util_lib::db::{DBConn, Error as DBError, FromColumn, FromRow};
 
+pub mod ephemeral;
 pub mod marf;
 
 pub trait GetTenureStartId {
@@ -1044,9 +1045,6 @@ impl BurnStateDB for SortitionHandleTx<'_> {
 
         Some((addrs, payout))
     }
-    fn get_ast_rules(&self, height: u32) -> clarity::vm::ast::ASTRules {
-        SortitionDB::get_ast_rules(self.tx(), height.into()).expect("BUG: failed to get AST rules")
-    }
 }
 
 impl BurnStateDB for SortitionHandleConn<'_> {
@@ -1176,10 +1174,6 @@ impl BurnStateDB for SortitionHandleConn<'_> {
             .collect();
 
         Some((addrs, payout))
-    }
-    fn get_ast_rules(&self, height: u32) -> clarity::vm::ast::ASTRules {
-        SortitionDB::get_ast_rules(self.conn(), height.into())
-            .expect("BUG: failed to get AST rules")
     }
 }
 

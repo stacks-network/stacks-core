@@ -189,17 +189,6 @@ impl StacksNode {
             keychain.set_nakamoto_sk(mining_key);
         }
 
-        // we can call _open_ here rather than _connect_, since connect is first called in
-        //   make_genesis_block
-        let mut sortdb = SortitionDB::open(
-            &config.get_burn_db_file_path(),
-            true,
-            burnchain.pox_constants.clone(),
-        )
-        .expect("Error while instantiating sortition db");
-
-        NeonNode::setup_ast_size_precheck(&config, &mut sortdb);
-
         let _ = config
             .connect_mempool_db()
             .expect("FATAL: database failure opening mempool");

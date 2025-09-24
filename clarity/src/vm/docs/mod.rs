@@ -125,6 +125,15 @@ to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
 };
 
+const CURRENT_CONTRACT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "current-contract",
+    snippet: "current-contract",
+    output_type: "principal",
+    description: "Returns the principal of the current contract.",
+    example:
+        "(print current-contract) ;; Will print out the Stacks address of the current contract",
+};
+
 const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "stacks-block-height",
     snippet: "stacks-block-height",
@@ -142,6 +151,16 @@ const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
 At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
     example:
         "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
+};
+
+const BLOCK_TIME_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "block-time",
+    snippet: "block-time",
+    output_type: "uint",
+    description: "Returns the Unix timestamp (in seconds) of the current Stacks block. Introduced
+in Clarity 4. Provides access to the timestamp of the current block, which is
+not available with `get-stacks-block-info?`.",
+    example: "(>= block-time u1755820800) ;; returns true if current block timestamp is at or after 2025-07-22.",
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -2528,6 +2547,25 @@ is not a contract or the specified contract does not exist. Returns:
 "#,
 };
 
+const TO_ASCII: SpecialAPI = SpecialAPI {
+    input_type: "int|uint|bool|principal|(buff 524284)|(string-utf8 1048571)",
+    snippet: "to-ascii? ${1:value}",
+    output_type: "(response (string-ascii 1048571) uint)",
+    signature: "(to-ascii? value)",
+    description: "The `to-ascii?` function converts the input value to its ASCII representation.
+If the input is a `string-utf8`, it will fail with `(err u1)` if the string contains non-ASCII
+characters.",
+    example: r#"
+(to-ascii? 123) ;; Returns (ok "123")
+(to-ascii? u456) ;; Returns (ok "u456")
+(to-ascii? false) ;; Returns (ok "false")
+(to-ascii? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4) ;; Returns (ok "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4")
+(to-ascii? 0x00112233) ;; Returns (ok "0x00112233")
+(to-ascii? u"An ASCII smiley face: :)") ;; Returns (ok "An ASCII smiley face: :)")
+(to-ascii? u"A smiley face emoji: \u{1F600}") ;; Returns (err u1)
+"#,
+};
+
 pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
     use crate::vm::functions::NativeFunctions::*;
     let name = function.get_name();
@@ -2641,6 +2679,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, function, name),
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
         ContractHash => make_for_simple_native(&CONTRACT_HASH, function, name),
+        ToAscii => make_for_special(&TO_ASCII, function),
     }
 }
 
@@ -2660,6 +2699,8 @@ pub fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> 
         NativeVariables::Mainnet => MAINNET_KEYWORD.clone(),
         NativeVariables::ChainId => CHAINID_KEYWORD.clone(),
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
+        NativeVariables::CurrentContract => CURRENT_CONTRACT_KEYWORD.clone(),
+        NativeVariables::BlockTime => BLOCK_TIME_KEYWORD.clone(),
     };
     Some(KeywordAPI {
         name: keyword.name,
@@ -2759,7 +2800,6 @@ mod test {
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
     use crate::vm::analysis::type_check;
-    use crate::vm::ast::ASTRules;
     use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
     use crate::vm::database::{
@@ -2955,9 +2995,6 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
-        }
-        fn get_ast_rules(&self, height: u32) -> ASTRules {
-            ASTRules::PrecheckSize
         }
         fn get_pox_payout_addrs(
             &self,
@@ -3232,21 +3269,11 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(
-                    contract_id,
-                    token_contract_content,
-                    None,
-                    ASTRules::PrecheckSize,
-                )
-                .unwrap();
+                env.initialize_contract(contract_id, token_contract_content, None)
+                    .unwrap();
 
-                env.initialize_contract(
-                    trait_def_id,
-                    super::DEFINE_TRAIT_API.example,
-                    None,
-                    ASTRules::PrecheckSize,
-                )
-                .unwrap();
+                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example, None)
+                    .unwrap();
             }
 
             let example = &func_api.example;

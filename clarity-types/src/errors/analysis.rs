@@ -21,8 +21,6 @@ use crate::execution_cost::ExecutionCost;
 use crate::representations::SymbolicExpression;
 use crate::types::{TraitIdentifier, TupleTypeSignature, TypeSignature, Value};
 
-pub type CheckResult<T> = Result<T, CheckError>;
-
 /// What kind of syntax binding was found to be in error?
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum SyntaxBindingErrorType {
@@ -164,50 +162,44 @@ pub enum CheckErrors {
     // match errors
     BadMatchOptionSyntax(Box<CheckErrors>),
     BadMatchResponseSyntax(Box<CheckErrors>),
-    BadMatchInput(TypeSignature),
+    BadMatchInput(Box<TypeSignature>),
 
     // list typing errors
-    UnknownListConstructionFailure,
     ListTypesMustMatch,
     ConstructedListTooLarge,
 
     // simple type expectation mismatch
-    TypeError(TypeSignature, TypeSignature),
-    TypeLiteralError(TypeSignature, TypeSignature),
-    TypeValueError(TypeSignature, Value),
+    TypeError(Box<TypeSignature>, Box<TypeSignature>),
+    TypeValueError(Box<TypeSignature>, Box<Value>),
 
-    NoSuperType(TypeSignature, TypeSignature),
     InvalidTypeDescription,
     UnknownTypeName(String),
 
     // union type mismatch
-    UnionTypeError(Vec<TypeSignature>, TypeSignature),
-    UnionTypeValueError(Vec<TypeSignature>, Value),
+    UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>),
+    UnionTypeValueError(Vec<TypeSignature>, Box<Value>),
 
-    ExpectedLiteral,
-    ExpectedOptionalType(TypeSignature),
-    ExpectedResponseType(TypeSignature),
-    ExpectedOptionalOrResponseType(TypeSignature),
-    ExpectedOptionalValue(Value),
-    ExpectedResponseValue(Value),
-    ExpectedOptionalOrResponseValue(Value),
+    ExpectedOptionalType(Box<TypeSignature>),
+    ExpectedResponseType(Box<TypeSignature>),
+    ExpectedOptionalOrResponseType(Box<TypeSignature>),
+    ExpectedOptionalValue(Box<Value>),
+    ExpectedResponseValue(Box<Value>),
+    ExpectedOptionalOrResponseValue(Box<Value>),
     CouldNotDetermineResponseOkType,
     CouldNotDetermineResponseErrType,
     CouldNotDetermineSerializationType,
     UncheckedIntermediaryResponses,
-    ExpectedContractPrincipalValue(Value),
+    ExpectedContractPrincipalValue(Box<Value>),
 
     CouldNotDetermineMatchTypes,
     CouldNotDetermineType,
 
     // Checker runtime failures
     TypeAlreadyAnnotatedFailure,
-    TypeAnnotationExpectedFailure,
     CheckerImplementationFailure,
 
     // Assets
     BadTokenName,
-    DefineFTBadSignature,
     DefineNFTBadSignature,
     NoSuchNFT(String),
     NoSuchFT(String),
@@ -220,7 +212,7 @@ pub enum CheckErrors {
 
     // tuples
     BadTupleFieldName,
-    ExpectedTuple(TypeSignature),
+    ExpectedTuple(Box<TypeSignature>),
     NoSuchTupleField(String, TupleTypeSignature),
     EmptyTuplesNotAllowed,
     BadTupleConstruction(String),
@@ -236,9 +228,9 @@ pub enum CheckErrors {
     DefineFunctionBadSignature,
     BadFunctionName,
     BadMapTypeDefinition,
-    PublicFunctionMustReturnResponse(TypeSignature),
+    PublicFunctionMustReturnResponse(Box<TypeSignature>),
     DefineVariableBadSignature,
-    ReturnTypesMustMatch(TypeSignature, TypeSignature),
+    ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
 
     CircularReference(Vec<String>),
 
@@ -248,7 +240,7 @@ pub enum CheckErrors {
     PublicFunctionNotReadOnly(String, String),
     ContractAlreadyExists(String),
     ContractCallExpectName,
-    ExpectedCallableType(TypeSignature),
+    ExpectedCallableType(Box<TypeSignature>),
 
     // get-block-info? errors
     NoSuchBlockInfoProperty(String),
@@ -266,7 +258,7 @@ pub enum CheckErrors {
     // expect a function, or applying a function to a list
     NonFunctionApplication,
     ExpectedListApplication,
-    ExpectedSequence(TypeSignature),
+    ExpectedSequence(Box<TypeSignature>),
     MaxLengthOverflow,
 
     // let syntax
@@ -283,10 +275,9 @@ pub enum CheckErrors {
     RequiresAtLeastArguments(usize, usize),
     RequiresAtMostArguments(usize, usize),
     IncorrectArgumentCount(usize, usize),
-    IfArmsMustMatch(TypeSignature, TypeSignature),
-    MatchArmsMustMatch(TypeSignature, TypeSignature),
-    DefaultTypesMustMatch(TypeSignature, TypeSignature),
-    TooManyExpressions,
+    IfArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+    MatchArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+    DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
 
@@ -295,7 +286,6 @@ pub enum CheckErrors {
     TraitReferenceUnknown(String),
     TraitMethodUnknown(String, String),
     ExpectedTraitIdentifier,
-    ImportTraitBadSignature,
     TraitReferenceNotAllowed,
     BadTraitImplementation(String, String),
     DefineTraitBadSignature,
@@ -303,7 +293,7 @@ pub enum CheckErrors {
     UnexpectedTraitOrFieldReference,
     TraitBasedContractCallInReadOnly,
     ContractOfExpectsTrait,
-    IncompatibleTrait(TraitIdentifier, TraitIdentifier),
+    IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>),
 
     // strings
     InvalidCharactersDetected,
@@ -321,7 +311,7 @@ pub enum CheckErrors {
 
 #[derive(Debug, PartialEq)]
 pub struct CheckError {
-    pub err: CheckErrors,
+    pub err: Box<CheckErrors>,
     pub expressions: Option<Vec<SymbolicExpression>>,
     pub diagnostic: Diagnostic,
 }
@@ -341,7 +331,7 @@ impl CheckError {
     pub fn new(err: CheckErrors) -> CheckError {
         let diagnostic = Diagnostic::err(&err);
         CheckError {
-            err,
+            err: Box::new(err),
             expressions: None,
             diagnostic,
         }
@@ -456,7 +446,6 @@ impl From<CheckErrors> for String {
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() != expected {
         Err(CheckErrors::IncorrectArgumentCount(expected, args.len()))
@@ -465,7 +454,6 @@ pub fn check_argument_count<T>(expected: usize, args: &[T]) -> Result<(), CheckE
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() < expected {
         Err(CheckErrors::RequiresAtLeastArguments(expected, args.len()))
@@ -474,7 +462,6 @@ pub fn check_arguments_at_least<T>(expected: usize, args: &[T]) -> Result<(), Ch
     }
 }
 
-#[allow(clippy::result_large_err)]
 pub fn check_arguments_at_most<T>(expected: usize, args: &[T]) -> Result<(), CheckErrors> {
     if args.len() > expected {
         Err(CheckErrors::RequiresAtMostArguments(expected, args.len()))
@@ -501,7 +488,6 @@ fn formatted_expected_types(expected_types: &[TypeSignature]) -> String {
 impl DiagnosableError for CheckErrors {
     fn message(&self) -> String {
         match &self {
-            CheckErrors::ExpectedLiteral => "expected a literal argument".into(),
             CheckErrors::SupertypeTooLarge => "supertype of two types is too large".into(),
             CheckErrors::Expects(s) => format!("unexpected interpreter behavior: {s}"),
             CheckErrors::BadMatchOptionSyntax(source) =>
@@ -512,7 +498,6 @@ impl DiagnosableError for CheckErrors {
                         source.message()),
             CheckErrors::BadMatchInput(t) =>
                 format!("match requires an input of either a response or optional, found input: '{t}'"),
-            CheckErrors::TypeAnnotationExpectedFailure => "analysis expected type to already be annotated for expression".into(),
             CheckErrors::CostOverflow => "contract execution cost overflowed cost counter".into(),
             CheckErrors::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {a:?} > {b:?}"),
             CheckErrors::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
@@ -523,12 +508,9 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::ValueOutOfBounds => "created a type which value size was out of defined bounds".into(),
             CheckErrors::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
             CheckErrors::ExpectedName => "expected a name argument to this function".into(),
-            CheckErrors::NoSuperType(a, b) => format!("unable to create a supertype for the two types: '{a}' and '{b}'"),
-            CheckErrors::UnknownListConstructionFailure => "invalid syntax for list definition".into(),
             CheckErrors::ListTypesMustMatch => "expecting elements of same type in a list".into(),
             CheckErrors::ConstructedListTooLarge => "reached limit of elements in a sequence".into(),
             CheckErrors::TypeError(expected_type, found_type) => format!("expecting expression of type '{expected_type}', found '{found_type}'"),
-            CheckErrors::TypeLiteralError(expected_type, found_type) => format!("expecting a literal of type '{expected_type}', found '{found_type}'"),
             CheckErrors::TypeValueError(expected_type, found_value) => format!("expecting expression of type '{expected_type}', found '{found_value}'"),
             CheckErrors::UnionTypeError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
             CheckErrors::UnionTypeValueError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
@@ -593,21 +575,18 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{type_1}' and '{type_2}')"),
             CheckErrors::MatchArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'match' must match (got '{type_1}' and '{type_2}')"),
             CheckErrors::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{type_1}' and '{type_2}')"),
-            CheckErrors::TooManyExpressions => "reached limit of expressions".into(),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{function_name}"),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{function_name}'"),
             CheckErrors::TraitBasedContractCallInReadOnly => "use of trait based contract calls are not allowed in read-only context".into(),
             CheckErrors::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
             CheckErrors::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
             CheckErrors::BadTokenName => "expecting an token name as an argument".into(),
-            CheckErrors::DefineFTBadSignature => "(define-token ...) expects a token name as an argument".into(),
             CheckErrors::DefineNFTBadSignature => "(define-asset ...) expects an asset name and an asset identifier type signature as arguments".into(),
             CheckErrors::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{asset_name}')"),
             CheckErrors::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{asset_name}')"),
             CheckErrors::NoSuchTrait(contract_name, trait_name) => format!("use of unresolved trait {contract_name}.{trait_name}"),
             CheckErrors::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{trait_name}>"),
             CheckErrors::TraitMethodUnknown(trait_name, func_name) => format!("method '{func_name}' unspecified in trait <{trait_name}>"),
-            CheckErrors::ImportTraitBadSignature => "(use-trait ...) expects a trait name and a trait identifier".into(),
             CheckErrors::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{func_name}' regarding trait's specification <{trait_name}>"),
             CheckErrors::ExpectedTraitIdentifier => "expecting expression of type trait identifier".into(),
             CheckErrors::UnexpectedTraitOrFieldReference => "unexpected use of trait reference or field".into(),

@@ -35,7 +35,7 @@ use stacks::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
 use stacks::net::db::PeerDB;
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::net::{Error as NetError, RPCHandlerArgs};
+use stacks::net::RPCHandlerArgs;
 use stacks::util_lib::strings::UrlString;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, TrieHash, VRFSeed};
 use stacks_common::types::net::PeerAddress;
@@ -166,7 +166,7 @@ fn spawn_peer(
     genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
     config: Config,
-) -> Result<JoinHandle<()>, NetError> {
+) -> JoinHandle<()> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
         // create estimators, metric instances for RPC handler
@@ -253,7 +253,7 @@ fn spawn_peer(
             }
         }
     });
-    Ok(server_thread)
+    server_thread
 }
 
 // Check if the small test genesis chainstate data should be used.
@@ -523,8 +523,7 @@ impl Node {
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
             self.config.clone(),
-        )
-        .unwrap();
+        );
 
         info!("Start HTTP server on: {}", &self.config.node.rpc_bind);
         info!("Start P2P server on: {}", &self.config.node.p2p_bind);

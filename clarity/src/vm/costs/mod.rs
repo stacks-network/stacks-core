@@ -55,8 +55,6 @@ pub mod costs_3;
 #[allow(unused_variables)]
 pub mod costs_4;
 
-type Result<T> = std::result::Result<T, CostErrors>;
-
 pub const CLARITY_MEMORY_LIMIT: u64 = 100 * 1000 * 1000;
 
 // TODO: factor out into a boot lib?
@@ -85,7 +83,7 @@ pub fn runtime_cost<T: TryInto<u64>, C: CostTracker>(
     cost_function: ClarityCostFunction,
     tracker: &mut C,
     input: T,
-) -> Result<()> {
+) -> Result<(), CostErrors> {
     let size: u64 = input.try_into().map_err(|_| CostErrors::CostOverflow)?;
     let cost = tracker.compute_cost(cost_function, &[size])?;
 
@@ -104,7 +102,7 @@ pub fn analysis_typecheck_cost<T: CostTracker>(
     track: &mut T,
     t1: &TypeSignature,
     t2: &TypeSignature,
-) -> Result<()> {
+) -> Result<(), CostErrors> {
     let t1_size = t1.type_size().map_err(|_| CostErrors::CostOverflow)?;
     let t2_size = t2.type_size().map_err(|_| CostErrors::CostOverflow)?;
     let cost = track.compute_cost(
@@ -115,11 +113,11 @@ pub fn analysis_typecheck_cost<T: CostTracker>(
 }
 
 pub trait MemoryConsumer {
-    fn get_memory_use(&self) -> Result<u64>;
+    fn get_memory_use(&self) -> Result<u64, CostErrors>;
 }
 
 impl MemoryConsumer for Value {
-    fn get_memory_use(&self) -> Result<u64> {
+    fn get_memory_use(&self) -> Result<u64, CostErrors> {
         Ok(self
             .size()
             .map_err(|_| CostErrors::InterpreterFailure)?
@@ -132,10 +130,10 @@ pub trait CostTracker {
         &mut self,
         cost_function: ClarityCostFunction,
         input: &[u64],
-    ) -> Result<ExecutionCost>;
-    fn add_cost(&mut self, cost: ExecutionCost) -> Result<()>;
-    fn add_memory(&mut self, memory: u64) -> Result<()>;
-    fn drop_memory(&mut self, memory: u64) -> Result<()>;
+    ) -> Result<ExecutionCost, CostErrors>;
+    fn add_cost(&mut self, cost: ExecutionCost) -> Result<(), CostErrors>;
+    fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors>;
+    fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors>;
     fn reset_memory(&mut self);
     /// Check if the given contract-call should be short-circuited.
     ///  If so: this charges the cost to the CostTracker, and return true
@@ -145,7 +143,7 @@ pub trait CostTracker {
         contract: &QualifiedContractIdentifier,
         function: &ClarityName,
         input: &[u64],
-    ) -> Result<bool>;
+    ) -> Result<bool, CostErrors>;
 }
 
 // Don't track!
@@ -154,16 +152,16 @@ impl CostTracker for () {
         &mut self,
         _cost_function: ClarityCostFunction,
         _input: &[u64],
-    ) -> std::result::Result<ExecutionCost, CostErrors> {
+    ) -> Result<ExecutionCost, CostErrors> {
         Ok(ExecutionCost::ZERO)
     }
-    fn add_cost(&mut self, _cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+    fn add_cost(&mut self, _cost: ExecutionCost) -> Result<(), CostErrors> {
         Ok(())
     }
-    fn add_memory(&mut self, _memory: u64) -> std::result::Result<(), CostErrors> {
+    fn add_memory(&mut self, _memory: u64) -> Result<(), CostErrors> {
         Ok(())
     }
-    fn drop_memory(&mut self, _memory: u64) -> Result<()> {
+    fn drop_memory(&mut self, _memory: u64) -> Result<(), CostErrors> {
         Ok(())
     }
     fn reset_memory(&mut self) {}
@@ -172,7 +170,7 @@ impl CostTracker for () {
         _contract: &QualifiedContractIdentifier,
         _function: &ClarityName,
         _input: &[u64],
-    ) -> Result<bool> {
+    ) -> Result<bool, CostErrors> {
         Ok(false)
     }
 }
@@ -204,7 +202,7 @@ impl DefaultVersion {
         cost_function_ref: &ClarityCostFunctionReference,
         f: &ClarityCostFunction,
         input: &[u64],
-    ) -> Result<ExecutionCost> {
+    ) -> Result<ExecutionCost, CostErrors> {
         let n = input.first().ok_or_else(|| {
             CostErrors::Expect("Default cost function supplied with 0 args".into())
         })?;
@@ -231,10 +229,7 @@ impl DefaultVersion {
 }
 
 impl DefaultVersion {
-    pub fn try_from(
-        mainnet: bool,
-        value: &QualifiedContractIdentifier,
-    ) -> std::result::Result<Self, String> {
+    pub fn try_from(mainnet: bool, value: &QualifiedContractIdentifier) -> Result<Self, String> {
         if !value.is_boot() {
             return Err("Not a boot contract".into());
         }
@@ -414,7 +409,10 @@ impl PartialEq for LimitedCostTracker {
     }
 }
 
-fn load_state_summary(mainnet: bool, clarity_db: &mut ClarityDatabase) -> Result<CostStateSummary> {
+fn load_state_summary(
+    mainnet: bool,
+    clarity_db: &mut ClarityDatabase,
+) -> Result<CostStateSummary, CostErrors> {
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
 
     let clarity_epoch = clarity_db
@@ -455,7 +453,7 @@ fn store_state_summary(
     mainnet: bool,
     clarity_db: &mut ClarityDatabase,
     to_store: &CostStateSummary,
-) -> Result<()> {
+) -> Result<(), CostErrors> {
     let block_height = clarity_db.get_current_block_height();
     let cost_voting_contract = boot_code_id("cost-voting", mainnet);
     let epoch = clarity_db
@@ -496,7 +494,7 @@ fn load_cost_functions(
     mainnet: bool,
     clarity_db: &mut ClarityDatabase,
     apply_updates: bool,
-) -> Result<CostStateSummary> {
+) -> Result<CostStateSummary, CostErrors> {
     let clarity_epoch = clarity_db
         .get_clarity_epoch_version()
         .map_err(|e| CostErrors::CostComputationFailed(e.to_string()))?;
@@ -772,7 +770,7 @@ impl LimitedCostTracker {
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
-    ) -> Result<LimitedCostTracker> {
+    ) -> Result<LimitedCostTracker, CostErrors> {
         let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
@@ -796,7 +794,7 @@ impl LimitedCostTracker {
         limit: ExecutionCost,
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
-    ) -> Result<LimitedCostTracker> {
+    ) -> Result<LimitedCostTracker, CostErrors> {
         let mut cost_tracker = TrackerData {
             cost_function_references: HashMap::new(),
             cost_contracts: HashMap::new(),
@@ -818,7 +816,7 @@ impl LimitedCostTracker {
         clarity_db: &mut ClarityDatabase,
         epoch: StacksEpochId,
         use_mainnet: bool,
-    ) -> Result<LimitedCostTracker> {
+    ) -> Result<LimitedCostTracker, CostErrors> {
         use crate::vm::tests::test_only_mainnet_to_chain_id;
         let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
         assert!(clarity_db.is_stack_empty());
@@ -835,7 +833,7 @@ impl LimitedCostTracker {
         Self::Free
     }
 
-    pub fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String> {
+    pub fn default_cost_contract_for_epoch(epoch_id: StacksEpochId) -> Result<String, CostErrors> {
         let result = match epoch_id {
             StacksEpochId::Epoch10 => {
                 return Err(CostErrors::Expect("Attempted to get default cost functions for Epoch 1.0 where Clarity does not exist".into()));
@@ -862,7 +860,11 @@ impl TrackerData {
     /// `apply_updates` - tells this function to look for any changes in the cost voting contract
     ///   which would need to be applied. if `false`, just load the last computed cost state in this
     ///   fork.
-    fn load_costs(&mut self, clarity_db: &mut ClarityDatabase, apply_updates: bool) -> Result<()> {
+    fn load_costs(
+        &mut self,
+        clarity_db: &mut ClarityDatabase,
+        apply_updates: bool,
+    ) -> Result<(), CostErrors> {
         clarity_db.begin();
         let epoch_id = clarity_db
             .get_clarity_epoch_version()
@@ -1003,7 +1005,7 @@ impl LimitedCostTracker {
 pub fn parse_cost(
     cost_function_name: &str,
     eval_result: InterpreterResult<Option<Value>>,
-) -> Result<ExecutionCost> {
+) -> Result<ExecutionCost, CostErrors> {
     match eval_result {
         Ok(Some(Value::Tuple(data))) => {
             let results = (
@@ -1052,7 +1054,7 @@ pub fn compute_cost(
     cost_function_reference: ClarityCostFunctionReference,
     input_sizes: &[u64],
     eval_in_epoch: StacksEpochId,
-) -> Result<ExecutionCost> {
+) -> Result<ExecutionCost, CostErrors> {
     let mainnet = cost_tracker.mainnet;
     let chain_id = cost_tracker.chain_id;
     let mut null_store = NullBackingStore::new();
@@ -1103,7 +1105,7 @@ pub fn compute_cost(
     parse_cost(&cost_function_reference.to_string(), eval_result)
 }
 
-fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> Result<(), CostErrors> {
     s.total.add(&cost)?;
     if cfg!(feature = "disable-costs") {
         // Disable check for exceeding the cost limit to allow mining large blocks for profiling purposes.
@@ -1119,7 +1121,7 @@ fn add_cost(s: &mut TrackerData, cost: ExecutionCost) -> std::result::Result<(),
     }
 }
 
-fn add_memory(s: &mut TrackerData, memory: u64) -> std::result::Result<(), CostErrors> {
+fn add_memory(s: &mut TrackerData, memory: u64) -> Result<(), CostErrors> {
     s.memory = s.memory.cost_overflow_add(memory)?;
     if s.memory > s.memory_limit {
         Err(CostErrors::MemoryBalanceExceeded(s.memory, s.memory_limit))
@@ -1128,7 +1130,7 @@ fn add_memory(s: &mut TrackerData, memory: u64) -> std::result::Result<(), CostE
     }
 }
 
-fn drop_memory(s: &mut TrackerData, memory: u64) -> Result<()> {
+fn drop_memory(s: &mut TrackerData, memory: u64) -> Result<(), CostErrors> {
     s.memory = s
         .memory
         .checked_sub(memory)
@@ -1141,7 +1143,7 @@ impl CostTracker for LimitedCostTracker {
         &mut self,
         cost_function: ClarityCostFunction,
         input: &[u64],
-    ) -> std::result::Result<ExecutionCost, CostErrors> {
+    ) -> Result<ExecutionCost, CostErrors> {
         match self {
             Self::Free => {
                 // tracker is free, return zero!
@@ -1172,19 +1174,19 @@ impl CostTracker for LimitedCostTracker {
             }
         }
     }
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
             Self::Limited(ref mut data) => add_cost(data, cost),
         }
     }
-    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+    fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
             Self::Limited(ref mut data) => add_memory(data, memory),
         }
     }
-    fn drop_memory(&mut self, memory: u64) -> Result<()> {
+    fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         match self {
             Self::Free => Ok(()),
             Self::Limited(ref mut data) => drop_memory(data, memory),
@@ -1203,7 +1205,7 @@ impl CostTracker for LimitedCostTracker {
         contract: &QualifiedContractIdentifier,
         function: &ClarityName,
         input: &[u64],
-    ) -> Result<bool> {
+    ) -> Result<bool, CostErrors> {
         match self {
             Self::Free => {
                 // if we're already free, no need to worry about short circuiting contract-calls
@@ -1228,16 +1230,16 @@ impl CostTracker for &mut LimitedCostTracker {
         &mut self,
         cost_function: ClarityCostFunction,
         input: &[u64],
-    ) -> std::result::Result<ExecutionCost, CostErrors> {
+    ) -> Result<ExecutionCost, CostErrors> {
         LimitedCostTracker::compute_cost(self, cost_function, input)
     }
-    fn add_cost(&mut self, cost: ExecutionCost) -> std::result::Result<(), CostErrors> {
+    fn add_cost(&mut self, cost: ExecutionCost) -> Result<(), CostErrors> {
         LimitedCostTracker::add_cost(self, cost)
     }
-    fn add_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+    fn add_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         LimitedCostTracker::add_memory(self, memory)
     }
-    fn drop_memory(&mut self, memory: u64) -> std::result::Result<(), CostErrors> {
+    fn drop_memory(&mut self, memory: u64) -> Result<(), CostErrors> {
         LimitedCostTracker::drop_memory(self, memory)
     }
     fn reset_memory(&mut self) {
@@ -1248,7 +1250,7 @@ impl CostTracker for &mut LimitedCostTracker {
         contract: &QualifiedContractIdentifier,
         function: &ClarityName,
         input: &[u64],
-    ) -> Result<bool> {
+    ) -> Result<bool, CostErrors> {
         LimitedCostTracker::short_circuit_contract_call(self, contract, function, input)
     }
 }

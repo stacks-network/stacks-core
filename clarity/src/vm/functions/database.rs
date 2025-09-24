@@ -210,9 +210,11 @@ pub fn special_contract_call(
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result)?;
         if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
-            return Err(
-                CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
-            );
+            return Err(CheckErrors::ReturnTypesMustMatch(
+                Box::new(returns_type_signature),
+                Box::new(actual_returns),
+            )
+            .into());
         }
     }
 
@@ -449,7 +451,9 @@ pub fn special_at_block(
                 StacksBlockId::from(data.as_slice())
             }
         }
-        x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into()),
+        x => {
+            return Err(CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(x)).into())
+        }
     };
 
     env.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
@@ -755,7 +759,10 @@ pub fn special_get_block_info(
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(x),
+        )),
     }?;
 
     let height_value = match u32::try_from(height_value) {
@@ -903,7 +910,11 @@ pub fn special_get_burn_block_info(
     let height_value = match height_eval {
         Value::UInt(result) => result,
         x => {
-            return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x).into());
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::UIntType),
+                Box::new(x),
+            )
+            .into());
         }
     };
 
@@ -1000,7 +1011,10 @@ pub fn special_get_stacks_block_info(
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(x),
+        )),
     }?;
 
     let Ok(height_value) = u32::try_from(height_value) else {
@@ -1078,7 +1092,10 @@ pub fn special_get_tenure_info(
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(x),
+        )),
     }?;
 
     let Ok(height_value) = u32::try_from(height_value) else {
@@ -1169,7 +1186,9 @@ pub fn special_contract_hash(
         Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
         _ => {
             // If the value is not a principal, we return a check error.
-            return Err(CheckErrors::ExpectedContractPrincipalValue(contract_value).into());
+            return Err(
+                CheckErrors::ExpectedContractPrincipalValue(Box::new(contract_value)).into(),
+            );
         }
     };
 

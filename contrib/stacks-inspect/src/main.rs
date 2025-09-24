@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,14 +13,21 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#![allow(dead_code)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
-
 #[macro_use]
 extern crate stacks_common;
 
+use clarity::consts::CHAIN_ID_MAINNET;
+use clarity::types::StacksEpochId;
+use clarity::types::chainstate::StacksPrivateKey;
+use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
+use stackslib::chainstate::stacks::{
+    CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
+    StacksTransactionSigner, TransactionAnchorMode, TransactionAuth, TransactionPayload,
+    TransactionVersion,
+};
+use stackslib::core::{
+    BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP, StacksEpoch, StacksEpochExtension as _,
+};
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_arch = "arm")))]
 use tikv_jemallocator::Jemalloc;
 
@@ -31,64 +37,61 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::BufReader;
+use std::io::prelude::*;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{env, fs, io, process, thread};
 
-use blockstack_lib::burnchains::bitcoin::{spv, BitcoinNetworkType};
-use blockstack_lib::burnchains::db::{BurnchainBlockData, BurnchainDB};
-use blockstack_lib::burnchains::{Address, Burnchain, PoxConstants};
-use blockstack_lib::chainstate::burn::db::sortdb::{
-    get_block_commit_by_txid, SortitionDB, SortitionHandle,
-};
-use blockstack_lib::chainstate::burn::operations::BlockstackOperationType;
-use blockstack_lib::chainstate::burn::{BlockSnapshot, ConsensusHash};
-use blockstack_lib::chainstate::coordinator::{get_reward_cycle_info, OnChainRewardSetProvider};
-use blockstack_lib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
-use blockstack_lib::chainstate::nakamoto::shadow::{
-    process_shadow_block, shadow_chainstate_repair,
-};
-use blockstack_lib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use blockstack_lib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
-use blockstack_lib::chainstate::stacks::db::{
-    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState,
-};
-use blockstack_lib::chainstate::stacks::index::marf::{MARFOpenOpts, MarfConnection, MARF};
-use blockstack_lib::chainstate::stacks::index::ClarityMarfTrieId;
-use blockstack_lib::chainstate::stacks::miner::*;
-use blockstack_lib::chainstate::stacks::{StacksBlockHeader, *};
-use blockstack_lib::clarity::vm::costs::ExecutionCost;
-use blockstack_lib::clarity::vm::types::StacksAddressExtensions;
-use blockstack_lib::clarity::vm::ClarityVersion;
-use blockstack_lib::core::{MemPoolDB, *};
-use blockstack_lib::cost_estimates::metrics::UnitMetric;
-use blockstack_lib::cost_estimates::UnitEstimator;
-use blockstack_lib::net::api::getinfo::RPCPeerInfoData;
-use blockstack_lib::net::db::LocalPeer;
-use blockstack_lib::net::httpcore::{send_http_request, StacksHttpRequest};
-use blockstack_lib::net::p2p::PeerNetwork;
-use blockstack_lib::net::relay::Relayer;
-use blockstack_lib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
-use blockstack_lib::util_lib::db::sqlite_open;
-use blockstack_lib::util_lib::strings::UrlString;
-use blockstack_lib::{clarity_cli, cli};
 use libstackerdb::StackerDBChunkData;
-use rusqlite::{params, Connection, Error as SqliteError, OpenFlags};
-use serde_json::{json, Value};
-use stacks_common::codec::{read_next, StacksMessageCodec};
+use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
+use serde_json::{Value, json};
+use stacks_common::codec::{StacksMessageCodec, read_next};
+use stacks_common::types::MempoolCollectionBehavior;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::types::MempoolCollectionBehavior;
-use stacks_common::util::hash::{hex_bytes, to_hex, Hash160};
+use stacks_common::util::hash::{Hash160, hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::vrf::VRFProof;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
+use stackslib::burnchains::bitcoin::{BitcoinNetworkType, spv};
+use stackslib::burnchains::db::{BurnchainBlockData, BurnchainDB};
+use stackslib::burnchains::{Address, Burnchain, PoxConstants};
+use stackslib::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionHandle, get_block_commit_by_txid,
+};
+use stackslib::chainstate::burn::operations::BlockstackOperationType;
+use stackslib::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use stackslib::chainstate::coordinator::{OnChainRewardSetProvider, get_reward_cycle_info};
+use stackslib::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use stackslib::chainstate::nakamoto::shadow::{process_shadow_block, shadow_chainstate_repair};
+use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stackslib::chainstate::stacks::StacksBlockHeader;
+use stackslib::chainstate::stacks::db::blocks::{DummyEventDispatcher, StagingBlock};
+use stackslib::chainstate::stacks::db::{
+    ChainStateBootData, StacksBlockHeaderTypes, StacksChainState,
+};
+use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
+use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnection};
+use stackslib::clarity::vm::ClarityVersion;
+use stackslib::clarity::vm::costs::ExecutionCost;
+use stackslib::clarity::vm::types::StacksAddressExtensions;
+use stackslib::core::MemPoolDB;
+use stackslib::cost_estimates::UnitEstimator;
+use stackslib::cost_estimates::metrics::UnitMetric;
+use stackslib::net::api::getinfo::RPCPeerInfoData;
+use stackslib::net::db::LocalPeer;
+use stackslib::net::httpcore::{StacksHttpRequest, send_http_request};
+use stackslib::net::p2p::PeerNetwork;
+use stackslib::net::relay::Relayer;
+use stackslib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
+use stackslib::util_lib::db::sqlite_open;
+use stackslib::util_lib::strings::UrlString;
+use stackslib::{clarity_cli, cli};
 
 struct P2PSession {
     pub local_peer: LocalPeer,
@@ -113,7 +116,7 @@ impl P2PSession {
         );
 
         msg.sign(self.seq, &self.local_peer.private_key)
-            .map_err(|e| format!("Failed to sign message {:?}: {:?}", &msg, &e))?;
+            .map_err(|e| format!("Failed to sign message {msg:?}: {e:?}"))?;
         self.seq = self.seq.wrapping_add(1);
 
         Ok(msg)
@@ -123,14 +126,14 @@ impl P2PSession {
     /// Returns error text on failure.
     fn send_peer_message(&mut self, msg: StacksMessage) -> Result<(), String> {
         msg.consensus_serialize(&mut self.tcp_socket)
-            .map_err(|e| format!("Failed to send message {:?}: {:?}", &msg, &e))
+            .map_err(|e| format!("Failed to send message {msg:?}: {e:?}"))
     }
 
     /// Receive a p2p message.
     /// Returns error text on failure.
     fn recv_peer_message(&mut self) -> Result<StacksMessage, String> {
         let msg: StacksMessage = read_next(&mut self.tcp_socket)
-            .map_err(|e| format!("Failed to receive message: {:?}", &e))?;
+            .map_err(|e| format!("Failed to receive message: {e:?}"))?;
         Ok(msg)
     }
 
@@ -152,9 +155,9 @@ impl P2PSession {
                 .with_header("Connection".to_string(), "close".to_string()),
             Duration::from_secs(60),
         )
-        .map_err(|e| format!("Failed to query /v2/info: {:?}", &e))?
+        .map_err(|e| format!("Failed to query /v2/info: {e:?}"))?
         .decode_peer_info()
-        .map_err(|e| format!("Failed to decode response from /v2/info: {:?}", &e))?;
+        .map_err(|e| format!("Failed to decode response from /v2/info: {e:?}"))?;
 
         // convert `pox_consensus` and `stable_pox_consensus` into their respective burn block
         // hashes
@@ -168,9 +171,9 @@ impl P2PSession {
             .with_header("Connection".to_string(), "close".to_string()),
             Duration::from_secs(60),
         )
-        .map_err(|e| format!("Failed to query /v3/sortitions: {:?}", &e))?
+        .map_err(|e| format!("Failed to query /v3/sortitions: {e:?}"))?
         .decode_sortition_info()
-        .map_err(|e| format!("Failed to decode response from /v3/sortitions: {:?}", &e))?
+        .map_err(|e| format!("Failed to decode response from /v3/sortitions: {e:?}"))?
         .pop()
         .ok_or_else(|| format!("No sortition returned for {}", &peer_info.pox_consensus))?;
 
@@ -184,14 +187,9 @@ impl P2PSession {
             .with_header("Connection".to_string(), "close".to_string()),
             Duration::from_secs(60),
         )
-        .map_err(|e| format!("Failed to query stable /v3/sortitions: {:?}", &e))?
+        .map_err(|e| format!("Failed to query stable /v3/sortitions: {e:?}"))?
         .decode_sortition_info()
-        .map_err(|e| {
-            format!(
-                "Failed to decode response from stable /v3/sortitions: {:?}",
-                &e
-            )
-        })?
+        .map_err(|e| format!("Failed to decode response from stable /v3/sortitions: {e:?}",))?
         .pop()
         .ok_or_else(|| {
             format!(
@@ -210,12 +208,12 @@ impl P2PSession {
             peer_addr.port(),
             Some(StacksPrivateKey::random()),
             u64::MAX,
-            UrlString::try_from(format!("http://127.0.0.1:{}", data_port).as_str()).unwrap(),
+            UrlString::from(format!("http://127.0.0.1:{data_port}",).as_str()),
             vec![],
         );
 
-        let tcp_socket = TcpStream::connect(&peer_addr)
-            .map_err(|e| format!("Failed to open {:?}: {:?}", &peer_addr, &e))?;
+        let tcp_socket = TcpStream::connect(peer_addr)
+            .map_err(|e| format!("Failed to open {peer_addr:?}: {e:?}"))?;
 
         let mut session = Self {
             local_peer,
@@ -238,8 +236,7 @@ impl P2PSession {
             | StacksMessageType::StackerDBHandshakeAccept(..) => {}
             x => {
                 return Err(format!(
-                    "Peer returned unexpected message (expected HandshakeAccept variant): {:?}",
-                    &x
+                    "Peer returned unexpected message (expected HandshakeAccept variant): {x:?}",
                 ));
             }
         }
@@ -272,12 +269,12 @@ fn open_nakamoto_chainstate_dbs(
             "nakamoto-neon",
         ),
         _ => {
-            panic!("Unrecognized network name '{}'", network);
+            panic!("Unrecognized network name '{network}'");
         }
     };
 
-    let chain_state_path = format!("{}/{}/chainstate/", chainstate_dir, dirname);
-    let sort_db_path = format!("{}/{}/burnchain/sortition/", chainstate_dir, dirname);
+    let chain_state_path = format!("{chainstate_dir}/{dirname}/chainstate/");
+    let sort_db_path = format!("{chainstate_dir}/{dirname}/burnchain/sortition/");
 
     let sort_db = SortitionDB::open(&sort_db_path, true, pox_constants)
         .unwrap_or_else(|_| panic!("Failed to open {sort_db_path}"));
@@ -290,10 +287,7 @@ fn open_nakamoto_chainstate_dbs(
 
 fn check_shadow_network(network: &str) {
     if network != "mainnet" && network != "krypton" && network != "naka3" {
-        eprintln!(
-            "Unknown network '{}': only support 'mainnet', 'krypton', or 'naka3'",
-            &network
-        );
+        eprintln!("Unknown network '{network}': only support 'mainnet', 'krypton', or 'naka3'");
         process::exit(1);
     }
 }
@@ -312,7 +306,7 @@ fn main() {
     if argv[1] == "--version" {
         println!(
             "{}",
-            &blockstack_lib::version_string(
+            &stackslib::version_string(
                 option_env!("CARGO_PKG_NAME").unwrap_or(&argv[0]),
                 option_env!("STACKS_NODE_VERSION")
             )
@@ -329,7 +323,7 @@ fn main() {
         let local_seed = hex_bytes(&argv[2]).expect("Failed to parse hex input local-peer-seed");
         let node_privkey = Secp256k1PrivateKey::from_seed(&local_seed);
         let pubkey = Secp256k1PublicKey::from_private(&node_privkey).to_hex();
-        println!("{}", pubkey);
+        println!("{pubkey}");
         process::exit(0);
     }
 
@@ -345,11 +339,11 @@ fn main() {
         let mut testnet = false;
         let mut regtest = false;
         let mut idx = 0;
-        for i in 0..argv.len() {
-            if argv[i] == "-t" {
+        for (i, item) in argv.iter().enumerate() {
+            if item == "-t" {
                 testnet = true;
                 idx = i;
-            } else if argv[i] == "-r" {
+            } else if item == "-r" {
                 regtest = true;
                 idx = i;
             }
@@ -384,7 +378,7 @@ fn main() {
             .expect("FATAL: could not read block header database")
         {
             Some(header) => {
-                println!("{:#?}", header);
+                println!("{header:#?}");
                 process::exit(0);
             }
             None => {
@@ -413,7 +407,7 @@ fn main() {
 
         let tx = StacksTransaction::consensus_deserialize(&mut debug_cursor)
             .map_err(|e| {
-                eprintln!("Failed to decode transaction: {:?}", &e);
+                eprintln!("Failed to decode transaction: {e:?}");
                 eprintln!("Bytes consumed:");
                 for buf in debug_cursor.log().iter() {
                     eprintln!("  {}", to_hex(buf));
@@ -423,9 +417,10 @@ fn main() {
             .unwrap();
 
         println!("Verified: {:#?}", tx.verify());
-        println!("Address: {}", tx.auth.origin().address_mainnet());
+        let address = tx.auth.origin().get_address(tx.is_mainnet());
+        println!("Address: {address}");
 
-        println!("{:#?}", &tx);
+        println!("{tx:#?}");
         process::exit(0);
     }
 
@@ -446,7 +441,7 @@ fn main() {
             })
             .unwrap();
 
-        println!("{:#?}", &block);
+        println!("{block:#?}");
         process::exit(0);
     }
 
@@ -465,7 +460,7 @@ fn main() {
             })
             .unwrap();
 
-        println!("{:#?}", &block);
+        println!("{block:#?}");
         process::exit(0);
     }
 
@@ -486,7 +481,7 @@ fn main() {
         };
         match read_next::<StacksMessage, _>(&mut &buf[..]) {
             Ok(msg) => {
-                println!("{:#?}", &msg);
+                println!("{msg:#?}");
                 process::exit(0);
             }
             Err(_) => {
@@ -575,7 +570,7 @@ fn main() {
             "microblocks": mblock_report
         });
 
-        println!("{}", &report.to_string());
+        println!("{report}");
 
         process::exit(0);
     }
@@ -617,7 +612,7 @@ Given a <working-dir>, obtain a 2100 header hash block inventory (with an empty 
 
         let block_inv = chain_state.get_blocks_inventory(&header_hashes).unwrap();
         println!("Fetched block inv in {}", start.elapsed().as_secs_f32());
-        println!("{:?}", &block_inv);
+        println!("{block_inv:?}");
 
         println!("Done!");
         process::exit(0);
@@ -655,7 +650,7 @@ check if the associated microblocks can be downloaded
             0,
             None,
             0,
-            UrlString::try_from("abc").unwrap(),
+            UrlString::from("abc"),
             vec![],
         );
 
@@ -687,7 +682,7 @@ check if the associated microblocks can be downloaded
                 ) {
                     Ok(Some(hdr)) => hdr,
                     _ => {
-                        debug!("No such block: {:?}", &index_block_hash);
+                        debug!("No such block: {index_block_hash:?}");
                         continue;
                     }
                 };
@@ -702,7 +697,9 @@ check if the associated microblocks can be downloaded
                     }
                     Err(_) => {
                         // we don't know about this parent block yet
-                        debug!("{:?}: Do not have parent of anchored block {}/{} yet, so cannot ask for the microblocks it produced", &local_peer, &consensus_hash, &block_hash);
+                        debug!(
+                            "{local_peer:?}: Do not have parent of anchored block {consensus_hash}/{block_hash} yet, so cannot ask for the microblocks it produced"
+                        );
                         continue;
                     }
                 }
@@ -727,9 +724,8 @@ check if the associated microblocks can be downloaded
         }
 
         println!(
-            "Checked can_download in {} (headers load took {}ms)",
+            "Checked can_download in {} (headers load took {total_load_headers}ms)",
             start.elapsed().as_secs_f32(),
-            total_load_headers
         );
 
         println!("Done!");
@@ -738,7 +734,10 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "evaluate-pox-anchor" {
         if argv.len() < 4 {
-            eprintln!("Usage: {} evaluate-pox-anchor <path to mainnet/burnchain/sortition> <height> (last-height)", argv[0]);
+            eprintln!(
+                "Usage: {} evaluate-pox-anchor <path to mainnet/burnchain/sortition> <height> (last-height)",
+                argv[0]
+            );
             process::exit(1);
         }
         let start_height: u64 = argv[3].parse().expect("Failed to parse <height> argument");
@@ -815,7 +814,7 @@ check if the associated microblocks can be downloaded
         let mut debug_cursor = LogReader::from_reader(&mut cursor);
         let mblocks: Vec<StacksMicroblock> = Vec::consensus_deserialize(&mut debug_cursor)
             .map_err(|e| {
-                eprintln!("Failed to decode microblocks: {:?}", &e);
+                eprintln!("Failed to decode microblocks: {e:?}");
                 eprintln!("Bytes consumed:");
                 for buf in debug_cursor.log().iter() {
                     eprintln!("  {}", to_hex(buf));
@@ -824,7 +823,7 @@ check if the associated microblocks can be downloaded
             })
             .unwrap();
 
-        println!("{:#?}", &mblocks);
+        println!("{mblocks:#?}");
         process::exit(0);
     }
 
@@ -834,14 +833,16 @@ check if the associated microblocks can be downloaded
                 "Usage: {} header-indexed-get STATE_DIR BLOCK_ID_HASH KEY",
                 argv[0]
             );
-            eprintln!("       STATE_DIR is either the chain state directory OR a marf index and data db file");
+            eprintln!(
+                "       STATE_DIR is either the chain state directory OR a marf index and data db file"
+            );
             process::exit(1);
         }
         let (marf_path, db_path, arg_next) = if argv.len() == 5 {
             let headers_dir = &argv[2];
             (
-                format!("{}/vm/index.sqlite", &headers_dir),
-                format!("{}/vm/headers.sqlite", &headers_dir),
+                format!("{headers_dir}/vm/index.sqlite"),
+                format!("{headers_dir}/vm/headers.sqlite"),
                 3,
             )
         } else {
@@ -851,12 +852,12 @@ check if the associated microblocks can be downloaded
         let marf_key = &argv[arg_next + 1];
 
         if fs::metadata(&marf_path).is_err() {
-            eprintln!("No such file or directory: {}", &marf_path);
+            eprintln!("No such file or directory: {marf_path}");
             process::exit(1);
         }
 
         if fs::metadata(&db_path).is_err() {
-            eprintln!("No such file or directory: {}", &db_path);
+            eprintln!("No such file or directory: {db_path}");
             process::exit(1);
         }
 
@@ -880,7 +881,7 @@ check if the associated microblocks can be downloaded
 
             let row =
                 res.unwrap_or_else(|_| panic!("Failed to query DB for MARF value hash {value}"));
-            println!("{}", row);
+            println!("{row}");
         } else {
             println!("(undefined)");
         }
@@ -897,10 +898,10 @@ check if the associated microblocks can be downloaded
             .unwrap_or_else(|_| panic!("Error reading file: {}", argv[2]));
         let clarity_version = ClarityVersion::default_for_epoch(clarity_cli::DEFAULT_CLI_EPOCH);
         match clarity_cli::vm_execute(&program, clarity_version) {
-            Ok(Some(result)) => println!("{}", result),
-            Ok(None) => println!(""),
+            Ok(Some(result)) => println!("{result}"),
+            Ok(None) => println!(),
             Err(error) => {
-                panic!("Program Execution Error: \n{}", error);
+                panic!("Program Execution Error: \n{error}");
             }
         }
         return;
@@ -918,7 +919,7 @@ check if the associated microblocks can be downloaded
         let mut marf = MARF::from_path(path, marf_opts).unwrap();
         let res = marf.get(&itip, key).expect("MARF error.");
         match res {
-            Some(x) => println!("{}", x),
+            Some(x) => println!("{x}"),
             None => println!("None"),
         };
         return;
@@ -933,7 +934,7 @@ check if the associated microblocks can be downloaded
         let mut cur_burn = burntip.clone();
         let mut cur_tip = tip.clone();
         loop {
-            println!("{}, {}", cur_burn, cur_tip);
+            println!("{cur_burn}, {cur_tip}");
             let (next_burn, next_tip) = match
                 conn.query_row("SELECT parent_burn_header_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? and burn_header_hash = ?",
                                params![cur_tip, cur_burn], |row| Ok((row.get_unwrap(0), row.get_unwrap(1)))) {
@@ -942,7 +943,7 @@ check if the associated microblocks can be downloaded
                         match e {
                             SqliteError::QueryReturnedNoRows => {},
                             e => {
-                                eprintln!("SQL Error: {}", e);
+                                eprintln!("SQL Error: {e}");
                             },
                         }
                         break
@@ -957,7 +958,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "docgen" {
         println!(
             "{}",
-            blockstack_lib::clarity::vm::docs::make_json_api_reference()
+            stackslib::clarity::vm::docs::make_json_api_reference()
         );
         return;
     }
@@ -965,7 +966,7 @@ check if the associated microblocks can be downloaded
     if argv[1] == "docgen_boot" {
         println!(
             "{}",
-            blockstack_lib::chainstate::stacks::boot::docs::make_json_boot_contracts_reference()
+            stackslib::chainstate::stacks::boot::docs::make_json_boot_contracts_reference()
         );
         return;
     }
@@ -983,10 +984,7 @@ check if the associated microblocks can be downloaded
         let db_path = &argv[2];
         let byte_prefix = &argv[3];
         let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        let query = format!(
-            "SELECT value FROM data_table WHERE key LIKE \"{}%\"",
-            byte_prefix
-        );
+        let query = format!("SELECT value FROM data_table WHERE key LIKE \"{byte_prefix}%\"");
         let mut stmt = conn.prepare(&query).unwrap();
         let mut rows = stmt.query(NO_PARAMS).unwrap();
         while let Ok(Some(row)) = rows.next() {
@@ -995,7 +993,7 @@ check if the associated microblocks can be downloaded
                 Ok(x) => x,
                 Err(_e) => continue,
             };
-            println!("{} => {}", val_string, clarity_value);
+            println!("{val_string} => {clarity_value}");
         }
 
         process::exit(0);
@@ -1011,7 +1009,7 @@ check if the associated microblocks can be downloaded
         let mut i = 1;
         for line in io::BufReader::new(check_file).lines() {
             if i % 100000 == 0 {
-                println!("{}...", i);
+                println!("{i}...");
             }
             i += 1;
             let line = line.unwrap().trim().to_string();
@@ -1087,10 +1085,10 @@ check if the associated microblocks can be downloaded
         let resp = session.recv_peer_message().unwrap();
 
         let StacksMessageType::NakamotoInv(inv) = &resp.payload else {
-            panic!("Got spurious message: {:?}", &resp);
+            panic!("Got spurious message: {resp:?}");
         };
 
-        println!("{:?}", inv);
+        println!("{inv:?}");
     }
 
     if argv[1] == "get-nakamoto-tip" {
@@ -1135,23 +1133,20 @@ check if the associated microblocks can be downloaded
 
         let chain_tip_header = chain_tip
             .map(|tip| {
-                let header = NakamotoChainState::get_block_header_nakamoto(chain_state.db(), &tip)
+                NakamotoChainState::get_block_header_nakamoto(chain_state.db(), &tip)
                     .unwrap()
-                    .unwrap();
-                header
+                    .unwrap()
             })
             .unwrap_or_else(|| {
-                let header =
-                    NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
-                        .unwrap()
-                        .unwrap();
-                header
+                NakamotoChainState::get_canonical_block_header(chain_state.db(), &sort_db)
+                    .unwrap()
+                    .unwrap()
             });
 
         let account =
             NakamotoBlockBuilder::get_account(&mut chain_state, &sort_db, &addr, &chain_tip_header)
                 .unwrap();
-        println!("{:#?}", &account);
+        println!("{account:#?}");
         process::exit(0);
     }
 
@@ -1170,8 +1165,8 @@ check if the associated microblocks can be downloaded
             .iter()
             .map(|tx_str| {
                 let tx_bytes = hex_bytes(tx_str).unwrap();
-                let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-                tx
+
+                StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
             })
             .collect();
 
@@ -1293,7 +1288,10 @@ check if the associated microblocks can be downloaded
 
     if argv[1] == "replay-chainstate" {
         if argv.len() < 7 {
-            eprintln!("Usage: {} OLD_CHAINSTATE_PATH OLD_SORTITION_DB_PATH OLD_BURNCHAIN_DB_PATH NEW_CHAINSTATE_PATH NEW_BURNCHAIN_DB_PATH", &argv[0]);
+            eprintln!(
+                "Usage: {} OLD_CHAINSTATE_PATH OLD_SORTITION_DB_PATH OLD_BURNCHAIN_DB_PATH NEW_CHAINSTATE_PATH NEW_BURNCHAIN_DB_PATH",
+                &argv[0]
+            );
             process::exit(1);
         }
 
@@ -1416,9 +1414,8 @@ check if the associated microblocks can be downloaded
         }
 
         eprintln!(
-            "\nWill replay {} stacks epochs out of {}\n",
+            "\nWill replay {} stacks epochs out of {num_staging_blocks}\n",
             &stacks_blocks_available.len(),
-            num_staging_blocks
         );
 
         let mut known_stacks_blocks = HashSet::new();
@@ -1429,7 +1426,7 @@ check if the associated microblocks can be downloaded
         let (p2p_new_sortition_db, _) = burnchain
             .connect_db(
                 true,
-                &first_burnchain_block_hash,
+                first_burnchain_block_hash,
                 BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP.into(),
                 epochs,
             )
@@ -1514,7 +1511,7 @@ check if the associated microblocks can be downloaded
                     while next_arrival < stacks_blocks_arrival_order.len()
                         && known_stacks_blocks.contains(&stacks_block_id)
                     {
-                        if stacks_blocks_available.get(&stacks_block_id).is_some() {
+                        if stacks_blocks_available.contains_key(&stacks_block_id) {
                             // load up the block
                             let stacks_block_opt = StacksChainState::load_block(
                                 &old_chainstate.blocks_path,
@@ -1578,8 +1575,7 @@ check if the associated microblocks can be downloaded
         }
 
         eprintln!(
-            "Final arrival index is {} out of {}",
-            next_arrival,
+            "Final arrival index is {next_arrival} out of {}",
             stacks_blocks_arrival_order.len()
         );
         return;
@@ -1726,10 +1722,7 @@ simulating a miner.
         header_tip.anchored_header.height()
     );
 
-    info!(
-        "Submitting up to {} transactions to the mempool",
-        mine_max_txns
-    );
+    info!("Submitting up to {mine_max_txns} transactions to the mempool");
     let mut found_block_height = false;
     let mut parsed_tx_count = 0;
     let mut submit_tx_count = 0;
@@ -1745,11 +1738,10 @@ simulating a miner.
                 let block_height = payload["block_height"].as_u64().unwrap();
                 if !found_block_height && block_height >= mine_tip_height {
                     found_block_height = true;
-                    info!("Found target block height {}", block_height);
+                    info!("Found target block height {block_height}");
                 }
                 info!(
-                    "Found new_block height {} parsed_tx_count {} submit_tx_count {}",
-                    block_height, parsed_tx_count, submit_tx_count
+                    "Found new_block height {block_height} parsed_tx_count {parsed_tx_count} submit_tx_count {submit_tx_count}"
                 );
             }
             "new_mempool_tx" => {
@@ -1761,7 +1753,7 @@ simulating a miner.
                     let raw_tx = StacksTransaction::consensus_deserialize(&mut cursor).unwrap();
                     if found_block_height {
                         if submit_tx_count >= mine_max_txns {
-                            info!("Reached mine_max_txns {}", submit_tx_count);
+                            info!("Reached mine_max_txns {submit_tx_count}");
                             break 'outer;
                         }
                         let result = mempool_db.submit(
@@ -1784,11 +1776,8 @@ simulating a miner.
             _ => {}
         };
     }
-    info!("Parsed {} transactions", parsed_tx_count);
-    info!(
-        "Submitted {} transactions into the mempool",
-        submit_tx_count
-    );
+    info!("Parsed {parsed_tx_count} transactions");
+    info!("Submitted {submit_tx_count} transactions into the mempool");
 
     info!("Mining a block");
 
@@ -1861,11 +1850,8 @@ simulating a miner.
             total_fees += tx.get_tx_fee();
         }
         println!(
-            "Block {}: {} uSTX, {} bytes, cost {:?}",
+            "Block {}: {total_fees} uSTX, {size} bytes, cost {execution_cost:?}",
             block.block_hash(),
-            total_fees,
-            size,
-            &execution_cost
         );
     }
 
@@ -1914,7 +1900,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     let mut wins_epoch3 = BTreeMap::new();
 
     for height in start_height..end_height {
-        debug!("Get ancestor snapshots for {}", height);
+        debug!("Get ancestor snapshots for {height}");
         let (tip_sort_id, parent_ancestor_sn, ancestor_sn) = {
             let mut sort_tx = sortdb.tx_begin_at_tip();
             let tip_sort_id = sort_tx.tip();
@@ -1950,20 +1936,19 @@ fn analyze_sortition_mev(argv: Vec<String>) {
 
         let mut ops = burn_block.ops.clone();
         for op in ops.iter_mut() {
-            if let BlockstackOperationType::LeaderBlockCommit(op) = op {
-                if let Some(extra_burn) = advantages.get(&op.apparent_sender.to_string()) {
-                    debug!(
-                        "Miner {} gets {} extra burn fee",
-                        &op.apparent_sender.to_string(),
-                        extra_burn
-                    );
-                    op.burn_fee += *extra_burn;
-                }
+            if let BlockstackOperationType::LeaderBlockCommit(op) = op
+                && let Some(extra_burn) = advantages.get(&op.apparent_sender.to_string())
+            {
+                debug!(
+                    "Miner {} gets {extra_burn} extra burn fee",
+                    &op.apparent_sender.to_string()
+                );
+                op.burn_fee += *extra_burn;
             }
         }
         burn_block.ops = ops;
 
-        debug!("Re-evaluate sortition at height {}", height);
+        debug!("Re-evaluate sortition at height {height}");
         let (next_sn, state_transition) = sortdb
             .evaluate_sortition(
                 true,
@@ -2036,7 +2021,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     println!("------------");
     println!("height,burn_header_hash,winner");
     for ((height, bhh), winner) in wins_epoch2.iter() {
-        println!("{},{},{}", height, bhh, winner);
+        println!("{height},{bhh},{winner}");
         if let Some(cnt) = all_wins_epoch2.get_mut(winner) {
             *cnt += 1;
         } else {
@@ -2049,7 +2034,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     println!("------------");
     println!("height,burn_header_hash,winner");
     for ((height, bhh), winner) in wins_epoch3.iter() {
-        println!("{},{},{}", height, bhh, winner);
+        println!("{height},{bhh},{winner}");
         if let Some(cnt) = all_wins_epoch3.get_mut(winner) {
             *cnt += 1;
         } else {
@@ -2066,7 +2051,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
             continue;
         };
         if epoch3_winner != winner {
-            println!("{},{},{},{}", height, bhh, winner, epoch3_winner);
+            println!("{height},{bhh},{winner},{epoch3_winner}");
         }
     }
 
@@ -2075,7 +2060,7 @@ fn analyze_sortition_mev(argv: Vec<String>) {
     println!("---------------");
     println!("miner,count");
     for (winner, count) in all_wins_epoch2.iter() {
-        println!("{},{}", winner, count);
+        println!("{winner},{count}");
     }
 
     println!("---------------");

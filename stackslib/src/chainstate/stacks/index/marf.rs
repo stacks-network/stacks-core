@@ -698,7 +698,7 @@ impl<T: MarfTrieId> MARF<T> {
         }
     }
 
-    fn node_copy_update(node: &mut TrieNodeType, child_block_id: u32) -> Result<TrieHash, Error> {
+    fn node_copy_update(node: &mut TrieNodeType, child_block_id: u32) -> TrieHash {
         let hash = match node {
             TrieNodeType::Leaf(leaf) => get_leaf_hash(leaf),
             _ => {
@@ -707,7 +707,7 @@ impl<T: MarfTrieId> MARF<T> {
             }
         };
 
-        Ok(hash)
+        hash
     }
 
     /// Given a node, and the chr of one of its children, go find the last instance of that child in
@@ -733,8 +733,7 @@ impl<T: MarfTrieId> MARF<T> {
 
         // update child_node with new ptrs and hashes
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
-        let child_hash = MARF::<T>::node_copy_update(&mut child_node, child_block_identifier)
-            .map_err(|e| Error::BlockHashMapCorruptionError(Some(Box::new(e))))?;
+        let child_hash = MARF::<T>::node_copy_update(&mut child_node, child_block_identifier);
 
         // store it in this trie
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
@@ -765,7 +764,7 @@ impl<T: MarfTrieId> MARF<T> {
         });
 
         let (mut prev_root, _) = Trie::read_root(storage)?;
-        let new_root_hash = MARF::<T>::node_copy_update(&mut prev_root, prev_block_identifier)?;
+        let new_root_hash = MARF::<T>::node_copy_update(&mut prev_root, prev_block_identifier);
 
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
 
@@ -1651,5 +1650,10 @@ impl<T: MarfTrieId> MARF<T> {
     /// Convert to the inner sqlite connection
     pub fn into_sqlite_conn(self) -> Connection {
         self.storage.into_sqlite_conn()
+    }
+
+    /// Get the underlying storage DB path
+    pub fn get_db_path(&self) -> &str {
+        &self.storage.db_path
     }
 }
