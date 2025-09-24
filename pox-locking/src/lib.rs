@@ -26,7 +26,7 @@
 //! invoked. If so, it updates the PoX lock.
 use clarity::boot_util::boot_code_id;
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
+use clarity::vm::errors::{RuntimeErrorType, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use stacks_common::types::StacksEpochId;
@@ -48,11 +48,11 @@ pub enum LockingError {
     PoxExtendNotLocked,
     PoxIncreaseOnV1,
     PoxInvalidIncrease,
-    Clarity(ClarityError),
+    Clarity(VmExecutionError),
 }
 
-impl From<ClarityError> for LockingError {
-    fn from(e: ClarityError) -> LockingError {
+impl From<VmExecutionError> for LockingError {
+    fn from(e: VmExecutionError) -> LockingError {
         LockingError::Clarity(e)
     }
 }
@@ -71,7 +71,7 @@ pub fn handle_contract_call_special_cases(
     function_name: &str,
     args: &[Value],
     result: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), VmExecutionError> {
     if *contract_id == boot_code_id(POX_1_NAME, global_context.mainnet) {
         if !pox_1::is_read_only(function_name)
             && global_context.database.get_v1_unlock_height()
@@ -86,7 +86,7 @@ pub fn handle_contract_call_special_cases(
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
-            return Err(ClarityError::Runtime(
+            return Err(VmExecutionError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
             ));
@@ -101,7 +101,7 @@ pub fn handle_contract_call_special_cases(
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
-            return Err(ClarityError::Runtime(
+            return Err(VmExecutionError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
             ));
@@ -124,7 +124,7 @@ pub fn handle_contract_call_special_cases(
                   "function_name" => function_name,
                   "contract_id" => %contract_id
             );
-            return Err(ClarityError::Runtime(
+            return Err(VmExecutionError::Runtime(
                 RuntimeErrorType::DefunctPoxContract,
                 None,
             ));

@@ -20,7 +20,7 @@ use clarity::vm::ast::{self, ASTRules};
 use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::HeadersDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::test_util::*;
 use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
@@ -1255,7 +1255,7 @@ fn test_deep_tuples() {
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
                 eprintln!("Runtime error: {:?}", r_e);
             }
             other => {
@@ -1324,7 +1324,7 @@ fn test_deep_tuples_ast_precheck() {
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
                 eprintln!("Runtime error: {:?}", r_e);
             }
             other => {
@@ -1399,7 +1399,7 @@ fn test_deep_type_nesting() {
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
                 eprintln!("Runtime error: {:?}", r_e);
             }
             other => {

@@ -15,8 +15,8 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 pub use clarity_types::errors::{
-    EarlyReturnError, Error, IncomparableError, InterpreterError, InterpreterResult,
-    RuntimeErrorType,
+    EarlyReturnError, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
+    VmExecutionError,
 };
 
 pub use crate::vm::analysis::errors::{

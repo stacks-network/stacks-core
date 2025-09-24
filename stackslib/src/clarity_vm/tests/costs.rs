@@ -23,7 +23,7 @@ use clarity::vm::costs::{
     DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
     COSTS_4_NAME,
 };
-use clarity::vm::errors::Error;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
 use clarity::vm::representations::SymbolicExpression;
@@ -175,7 +175,7 @@ fn execute_transaction(
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
     args: &[SymbolicExpression],
-) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 

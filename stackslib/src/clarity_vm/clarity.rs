@@ -28,7 +28,7 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
     RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use clarity::vm::errors::{Error as InterpreterError, InterpreterResult};
+use clarity::vm::errors::{InterpreterResult, VmExecutionError};
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
@@ -2067,7 +2067,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
-        E: From<InterpreterError>,
+        E: From<VmExecutionError>,
     {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
@@ -2219,7 +2219,7 @@ impl ClarityTransactionConnection<'_, '_> {
                 rollback_wrapper.depth()
             );
         }
-        rollback_wrapper.commit().map_err(InterpreterError::from)?;
+        rollback_wrapper.commit().map_err(VmExecutionError::from)?;
         // now we can reset the memory usage for the edit-log
         self.cost_track
             .as_mut()
