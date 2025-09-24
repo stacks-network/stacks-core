@@ -239,30 +239,51 @@ impl RPCNakamotoBlockReplayRequestHandler {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RPCReplayedBlockTransaction {
+    /// transaction id
     pub txid: Txid,
+    /// index of transaction in the block
     pub tx_index: u32,
+    /// body (headers + payload) of transaction
     pub data: Option<StacksTransaction>,
+    /// hex representation of the transaction body
     pub hex: String,
+    /// result of transaction execution (clarity value)
     pub result: Value,
+    /// amount of burned stx
     pub stx_burned: u128,
+    /// execution cost infos
     pub execution_cost: ExecutionCost,
+    /// generated events
     pub events: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RPCReplayedBlock {
+    /// block id (index_block_hash)
     pub block_id: StacksBlockId,
+    /// block hash
     pub block_hash: BlockHeaderHash,
+    /// height of the block
     pub block_height: u64,
+    /// index_block_hash of the parent
     pub parent_block_id: StacksBlockId,
+    /// consensus hash of the tenure containing the block
     pub consensus_hash: ConsensusHash,
+    /// total fees for the transactions in the block
     pub fees: u128,
+    /// merkle tree root hash of the included transactions
     pub tx_merkle_root: Sha512Trunc256Sum,
+    /// state index of the MARF
     pub state_index_root: TrieHash,
+    /// block timestamp
     pub timestamp: u64,
+    /// signature of the miner
     pub miner_signature: MessageSignature,
+    /// list of signers signatures
     pub signer_signature: Vec<MessageSignature>,
+    /// the list of block transactions
     pub transactions: Vec<RPCReplayedBlockTransaction>,
+    /// check if the computed merkle tree root hash matches the one from the original block
     pub valid_merkle_root: bool,
 }
 
