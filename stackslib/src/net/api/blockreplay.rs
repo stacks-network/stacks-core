@@ -183,33 +183,20 @@ impl RPCNakamotoBlockReplayRequestHandler {
 
         tenure_tx.rollback_block();
 
-        let block_hash = block.header.block_hash();
-        let block_height = block.header.chain_length;
-
         let tx_merkle_root = block.header.tx_merkle_root.clone();
 
-        let mut replayed_block = RPCReplayedBlock {
-            block_id: block_id.clone(),
-            block_hash,
-            block_height,
-            parent_block_id,
-            consensus_hash: tenure_id,
-            fees: block_fees,
-            tx_merkle_root: block.header.tx_merkle_root,
-            state_index_root: block.header.state_index_root,
-            timestamp: block.header.timestamp,
-            miner_signature: block.header.miner_signature,
-            signer_signature: block.header.signer_signature,
-            transactions: vec![],
-            valid_merkle_root: tx_merkle_root == replayed_block.header.tx_merkle_root,
-        };
+        let mut rpc_replayed_block =
+            RPCReplayedBlock::from_block(block, block_fees, tenure_id, parent_block_id);
 
         for receipt in &txs_receipts {
             let transaction = RPCReplayedBlockTransaction::from_receipt(receipt);
-            replayed_block.transactions.push(transaction);
+            rpc_replayed_block.transactions.push(transaction);
         }
 
-        Ok(replayed_block)
+        rpc_replayed_block.valid_merkle_root =
+            tx_merkle_root == replayed_block.header.tx_merkle_root;
+
+        Ok(rpc_replayed_block)
     }
 }
 
@@ -294,6 +281,34 @@ pub struct RPCReplayedBlock {
     pub transactions: Vec<RPCReplayedBlockTransaction>,
     /// check if the computed merkle tree root hash matches the one from the original block
     pub valid_merkle_root: bool,
+}
+
+impl RPCReplayedBlock {
+    pub fn from_block(
+        block: NakamotoBlock,
+        block_fees: u128,
+        tenure_id: ConsensusHash,
+        parent_block_id: StacksBlockId,
+    ) -> Self {
+        let block_id = block.block_id();
+        let block_hash = block.header.block_hash();
+
+        Self {
+            block_id,
+            block_hash,
+            block_height: block.header.chain_length,
+            parent_block_id,
+            consensus_hash: tenure_id,
+            fees: block_fees,
+            tx_merkle_root: block.header.tx_merkle_root,
+            state_index_root: block.header.state_index_root,
+            timestamp: block.header.timestamp,
+            miner_signature: block.header.miner_signature,
+            signer_signature: block.header.signer_signature,
+            transactions: vec![],
+            valid_merkle_root: false,
+        }
+    }
 }
 
 /// Decode the HTTP request
