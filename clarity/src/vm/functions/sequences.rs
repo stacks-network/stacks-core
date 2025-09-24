@@ -22,7 +22,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrorKind, InterpreterResult as Result,
-    RuntimeErrorType,
+    RuntimeError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::ListTypeData;
@@ -249,7 +249,7 @@ pub fn special_concat_v200(
         (Value::Sequence(ref mut seq), Value::Sequence(other_seq)) => {
             seq.concat(env.epoch(), other_seq)
         }
-        _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
+        _ => Err(RuntimeError::BadTypeConstruction.into()),
     }?;
 
     Ok(wrapped_seq)
@@ -277,7 +277,7 @@ pub fn special_concat_v205(
         }
         _ => {
             runtime_cost(ClarityCostFunction::Concat, env, 1)?;
-            Err(RuntimeErrorType::BadTypeConstruction.into())
+            Err(RuntimeError::BadTypeConstruction.into())
         }
     }?;
 
@@ -411,7 +411,7 @@ pub fn special_slice(
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
                 Value::some(seq_value)
             }
-            _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
+            _ => Err(RuntimeError::BadTypeConstruction.into()),
         }
     })();
 

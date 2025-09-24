@@ -21,7 +21,7 @@ use super::errors::InterpreterError;
 use crate::vm::contexts::{Environment, LocalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{InterpreterResult as Result, RuntimeErrorType};
+use crate::vm::errors::{InterpreterResult as Result, RuntimeError};
 use crate::vm::types::Value;
 use crate::vm::ClarityVersion;
 
@@ -58,17 +58,11 @@ pub fn lookup_reserved_variable(
     {
         match variable {
             NativeVariables::TxSender => {
-                let sender = env
-                    .sender
-                    .clone()
-                    .ok_or(RuntimeErrorType::NoSenderInContext)?;
+                let sender = env.sender.clone().ok_or(RuntimeError::NoSenderInContext)?;
                 Ok(Some(Value::Principal(sender)))
             }
             NativeVariables::ContractCaller => {
-                let caller = env
-                    .caller
-                    .clone()
-                    .ok_or(RuntimeErrorType::NoCallerInContext)?;
+                let caller = env.caller.clone().ok_or(RuntimeError::NoCallerInContext)?;
                 Ok(Some(Value::Principal(caller)))
             }
             NativeVariables::TxSponsor => {

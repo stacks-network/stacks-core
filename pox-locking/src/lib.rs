@@ -26,7 +26,7 @@
 //! invoked. If so, it updates the PoX lock.
 use clarity::boot_util::boot_code_id;
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::errors::{RuntimeErrorType, VmExecutionError};
+use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use stacks_common::types::StacksEpochId;
@@ -87,7 +87,7 @@ pub fn handle_contract_call_special_cases(
                   "contract_id" => %contract_id
             );
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
@@ -102,7 +102,7 @@ pub fn handle_contract_call_special_cases(
                   "contract_id" => %contract_id
             );
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
@@ -125,7 +125,7 @@ pub fn handle_contract_call_special_cases(
                   "contract_id" => %contract_id
             );
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }

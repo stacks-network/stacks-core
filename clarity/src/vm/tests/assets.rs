@@ -26,7 +26,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use crate::vm::{
     ast::ASTRules,
     contexts::AssetMapEntry,
-    errors::{CheckErrorKind, RuntimeErrorType},
+    errors::{CheckErrorKind, RuntimeError},
     tests::{
         execute, is_committed, is_err_code, symbols_from_values, tl_env_factory as env_factory,
         TopLevelMemoryEnvironmentGenerator,
@@ -307,7 +307,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     //         &symbols_from_values(vec![Value::UInt(2), p2.clone(), p1.clone()])
     //     )
     //     .unwrap_err(),
-    //     RuntimeErrorType::ArithmeticOverflow.into()
+    //     RuntimeError::ArithmeticOverflow.into()
     // );
 
     // test 6: check balance
@@ -921,7 +921,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     .unwrap_err();
     println!("{err}");
     assert!(match err {
-        VmExecutionError::Runtime(RuntimeErrorType::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
+        VmExecutionError::Runtime(RuntimeError::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
         _ => false,
     });
 }

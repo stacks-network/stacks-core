@@ -19,7 +19,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_arguments_at_least, CheckErrorKind, EarlyReturnError, InterpreterError,
-    InterpreterResult as Result, RuntimeErrorType,
+    InterpreterResult as Result, RuntimeError,
 };
 use crate::vm::types::{CallableData, OptionalData, ResponseData, TypeSignature, Value};
 use crate::vm::Value::CallableContract;
@@ -61,7 +61,7 @@ fn inner_unwrap_err(to_unwrap: Value) -> Result<Option<Value>> {
 pub fn native_unwrap(input: Value) -> Result<Value> {
     inner_unwrap(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(RuntimeErrorType::UnwrapFailure.into()),
+        None => Err(RuntimeError::UnwrapFailure.into()),
     })
 }
 
@@ -75,7 +75,7 @@ pub fn native_unwrap_or_ret(input: Value, thrown: Value) -> Result<Value> {
 pub fn native_unwrap_err(input: Value) -> Result<Value> {
     inner_unwrap_err(input).and_then(|opt_value| match opt_value {
         Some(v) => Ok(v),
-        None => Err(RuntimeErrorType::UnwrapFailure.into()),
+        None => Err(RuntimeError::UnwrapFailure.into()),
     })
 }
 

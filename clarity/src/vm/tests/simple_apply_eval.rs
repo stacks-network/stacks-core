@@ -31,7 +31,7 @@ use crate::vm::callables::DefinedFunction;
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::errors::{CheckErrorKind, EarlyReturnError, RuntimeErrorType, VmExecutionError};
+use crate::vm::errors::{CheckErrorKind, EarlyReturnError, RuntimeError, VmExecutionError};
 use crate::vm::tests::{execute, test_clarity_versions};
 use crate::vm::types::signatures::*;
 use crate::vm::types::{
@@ -1119,31 +1119,27 @@ fn test_simple_arithmetic_errors(#[case] version: ClarityVersion, #[case] epoch:
             Box::new(Value::Bool(true)),
         )
         .into(),
-        RuntimeErrorType::DivisionByZero.into(),
-        RuntimeErrorType::DivisionByZero.into(),
-        RuntimeErrorType::ArithmeticOverflow.into(),
-        RuntimeErrorType::ArithmeticOverflow.into(),
-        RuntimeErrorType::ArithmeticOverflow.into(),
-        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeError::DivisionByZero.into(),
+        RuntimeError::DivisionByZero.into(),
+        RuntimeError::ArithmeticOverflow.into(),
+        RuntimeError::ArithmeticOverflow.into(),
+        RuntimeError::ArithmeticOverflow.into(),
+        RuntimeError::ArithmeticUnderflow.into(),
         CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
         CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
         CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
         CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeErrorType::Arithmetic("sqrti must be passed a positive integer".to_string()).into(),
+        RuntimeError::Arithmetic("sqrti must be passed a positive integer".to_string()).into(),
         CheckErrorKind::IncorrectArgumentCount(1, 0).into(),
         CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
-        RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()).into(),
+        RuntimeError::Arithmetic("log2 must be passed a positive integer".to_string()).into(),
         CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
-        RuntimeErrorType::Arithmetic(
-            "Power argument to (pow ...) must be a u32 integer".to_string(),
-        )
-        .into(),
-        RuntimeErrorType::Arithmetic(
-            "Power argument to (pow ...) must be a u32 integer".to_string(),
-        )
-        .into(),
+        RuntimeError::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
+            .into(),
+        RuntimeError::Arithmetic("Power argument to (pow ...) must be a u32 integer".to_string())
+            .into(),
         CheckErrorKind::TypeError(
             Box::new(TypeSignature::from_string("bool", version, epoch)),
             Box::new(TypeSignature::from_string("int", version, epoch)),
@@ -1168,8 +1164,8 @@ fn test_unsigned_arithmetic() {
     ];
 
     let expectations: &[VmExecutionError] = &[
-        RuntimeErrorType::ArithmeticUnderflow.into(),
-        RuntimeErrorType::ArithmeticUnderflow.into(),
+        RuntimeError::ArithmeticUnderflow.into(),
+        RuntimeError::ArithmeticUnderflow.into(),
         CheckErrorKind::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
             Box::new(Value::UInt(10)),
@@ -1177,8 +1173,8 @@ fn test_unsigned_arithmetic() {
         .into(),
         CheckErrorKind::TypeValueError(Box::new(TypeSignature::UIntType), Box::new(Value::Int(80)))
             .into(),
-        RuntimeErrorType::ArithmeticUnderflow.into(),
-        RuntimeErrorType::ArithmeticOverflow.into(),
+        RuntimeError::ArithmeticUnderflow.into(),
+        RuntimeError::ArithmeticOverflow.into(),
     ];
 
     for (program, expectation) in tests.iter().zip(expectations.iter()) {
@@ -1435,9 +1431,9 @@ fn test_option_destructs() {
         Ok(Value::Int(3)),
         Ok(Value::Int(3)),
         Ok(Value::Int(3)),
-        Err(RuntimeErrorType::UnwrapFailure.into()),
-        Err(RuntimeErrorType::UnwrapFailure.into()),
-        Err(RuntimeErrorType::UnwrapFailure.into()),
+        Err(RuntimeError::UnwrapFailure.into()),
+        Err(RuntimeError::UnwrapFailure.into()),
+        Err(RuntimeError::UnwrapFailure.into()),
         Ok(Value::Int(2)),
         Ok(Value::Int(9)),
         Ok(Value::Int(2)),

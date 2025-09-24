@@ -57,7 +57,7 @@ pub enum VmExecutionError {
     /// invalid operations, expected as part of contract evaluation.
     /// The `RuntimeErrorType` wraps the specific runtime error, and the `Option<StackTrace>` provides
     /// an optional stack trace for debugging, if available.
-    Runtime(RuntimeErrorType, Option<StackTrace>),
+    Runtime(RuntimeError, Option<StackTrace>),
     /// Errors triggered during Clarity contract evaluation that cause early termination with
     /// insufficient results (e.g., unwrapping an empty `Option`).
     /// The `EarlyReturnError` wraps the specific early return condition, detailing the premature
@@ -85,37 +85,68 @@ pub enum InterpreterError {
     Expect(String),
 }
 
-/// RuntimeErrors are errors that smart contracts are expected
-///   to be able to trigger during execution (e.g., arithmetic errors)
+/// Runtime errors that Clarity smart contracts are expected to trigger during execution in the virtual
+/// machine, such as arithmetic errors, invalid operations, or blockchain-specific issues. These errors
+/// are distinct from static analysis errors and occur during dynamic evaluation of contract code.
 #[derive(Debug, PartialEq)]
-pub enum RuntimeErrorType {
+pub enum RuntimeError {
+    /// A generic arithmetic error encountered during contract execution.
+    /// The `String` represents a descriptive message detailing the specific arithmetic issue.
     Arithmetic(String),
+    /// An arithmetic operation exceeded the maximum value for the data type (e.g., `u128`).
     ArithmeticOverflow,
+    /// An arithmetic operation resulted in a value below zero for an unsigned type.
     ArithmeticUnderflow,
+    /// Attempt to increase token supply beyond the maximum limit.
+    /// The first u128 represents the attempted new supply (current supply plus increase),
+    /// and the second represents the maximum allowed supply.
     SupplyOverflow(u128, u128),
+    /// Attempt to decrease token supply below zero.
+    /// The first `u128` represents the current token supply, and the second represents the attempted decrease amount.
     SupplyUnderflow(u128, u128),
+    /// Attempt to divide or compute modulo by zero.
     DivisionByZero,
-    // error in parsing types
-    ParseError(String),
-    // error in parsing the AST
+    /// Failure to parse types dynamically during contract execution.
+    /// The `String` represents the specific parsing issue, such as invalid data formats.
+    TypeParseFailure(String),
+    /// Failure to parse the abstract syntax tree (AST) during dynamic evaluation.
+    /// The `Box<ParseError>` wraps the specific parsing error encountered, detailing code interpretation issues.
     ASTError(Box<ParseError>),
+    /// The call stack exceeded the virtual machine's maximum depth.
     MaxStackDepthReached,
+    /// The execution context depth exceeded the virtual machine's limit.
     MaxContextDepthReached,
+    /// Attempt to construct an invalid or unsupported type at runtime (e.g., malformed data structure).
     BadTypeConstruction,
+    /// Reference to an invalid or out-of-bounds block height.
+    /// The `String` represents the string representation of the queried block height that was invalid.
     BadBlockHeight(String),
+    /// Attempt to interact with a non-existent token (e.g., in NFT or fungible token operations).
     NoSuchToken,
+    /// Feature or function not yet implemented in the virtual machine.
     NotImplemented,
+    /// No caller principal available in the current execution context.
     NoCallerInContext,
+    /// No sender principal available in the current execution context.
     NoSenderInContext,
+    /// Invalid name-value pair in contract data (e.g., map keys).
+    /// The `&'static str` represents the name of the invalid pair, and the `String` represents the offending value.
     BadNameValue(&'static str, String),
+    /// Reference to a non-existent block header hash.
+    /// The `BlockHeaderHash` represents the unknown block header hash.
     UnknownBlockHeaderHash(BlockHeaderHash),
+    /// Invalid block hash provided (e.g., incorrect format or length).
+    /// The `Vec<u8>` represents the invalid block hash data.
     BadBlockHash(Vec<u8>),
+    /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
     UnwrapFailure,
+    /// Attempt to set metadata (e.g., for NFTs or tokens) that was already initialized.
     MetadataAlreadySet,
-    // pox-locking errors
+    /// Interaction with a deprecated or inactive Proof of Transfer (PoX) contract.
     DefunctPoxContract,
+    /// Attempt to lock STX for stacking when already locked in an active PoX cycle.
     PoxAlreadyLocked,
-
+    /// Block time unavailable during execution.
     BlockTimeNotAvailable,
 }
 
@@ -170,7 +201,7 @@ impl fmt::Display for VmExecutionError {
     }
 }
 
-impl fmt::Display for RuntimeErrorType {
+impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
@@ -182,7 +213,7 @@ impl error::Error for VmExecutionError {
     }
 }
 
-impl error::Error for RuntimeErrorType {
+impl error::Error for RuntimeError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
@@ -194,7 +225,7 @@ impl From<ParseError> for VmExecutionError {
             ParseErrorKind::InterpreterFailure => VmExecutionError::from(InterpreterError::Expect(
                 "Unexpected interpreter failure during parsing".into(),
             )),
-            _ => VmExecutionError::from(RuntimeErrorType::ASTError(Box::new(err))),
+            _ => VmExecutionError::from(RuntimeError::ASTError(Box::new(err))),
         }
     }
 }
@@ -213,8 +244,8 @@ impl From<CostErrors> for VmExecutionError {
     }
 }
 
-impl From<RuntimeErrorType> for VmExecutionError {
-    fn from(err: RuntimeErrorType) -> Self {
+impl From<RuntimeError> for VmExecutionError {
+    fn from(err: RuntimeError) -> Self {
         VmExecutionError::Runtime(err, None)
     }
 }

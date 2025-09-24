@@ -21,7 +21,7 @@ use clarity::vm::database::sqlite::{
     sqlite_insert_metadata,
 };
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
-use clarity::vm::errors::{InterpreterError, InterpreterResult, RuntimeErrorType};
+use clarity::vm::errors::{InterpreterError, InterpreterResult, RuntimeError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite;
 use rusqlite::Connection;
@@ -397,7 +397,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
             .map_err(|e| match e {
                 Error::NotFoundError => {
                     test_debug!("No such block {:?} (NotFoundError)", &bhh);
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 Error::NonMatchingForks(_bh1, _bh2) => {
                     test_debug!(
@@ -406,7 +406,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                         BlockHeaderHash(_bh1),
                         BlockHeaderHash(_bh2)
                     );
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
