@@ -419,6 +419,10 @@ impl AssetMap {
             principal_map.insert(asset, amount);
         }
 
+        for (principal, stacking_amount) in other.stacking_map.drain() {
+            self.stacking_map.insert(principal, stacking_amount);
+        }
+
         Ok(())
     }
 
@@ -505,6 +509,10 @@ impl AssetMap {
     ) -> Option<&HashMap<AssetIdentifier, Vec<Value>>> {
         let assets = self.asset_map.get(principal)?;
         Some(assets)
+    }
+
+    pub fn get_stacking(&self, principal: &PrincipalData) -> Option<u128> {
+        self.stacking_map.get(principal).copied()
     }
 }
 

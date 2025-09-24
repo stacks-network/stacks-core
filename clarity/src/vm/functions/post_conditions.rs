@@ -441,6 +441,23 @@ fn check_allowances(
         }
     }
 
+    // Check stacking
+    if let Some(stx_stacked) = assets.get_stacking(owner) {
+        // If there are no allowances for stacking, any stacking is a violation
+        if stacking_allowances.is_empty() {
+            return Ok(Some(-1));
+        }
+
+        // Check against the stacking allowances
+        for (index, allowance) in &stacking_allowances {
+            if stx_stacked > *allowance {
+                return Ok(Some(i128::try_from(*index).map_err(|_| {
+                    InterpreterError::Expect("failed to convert index to i128".into())
+                })?));
+            }
+        }
+    }
+
     Ok(None)
 }
 
