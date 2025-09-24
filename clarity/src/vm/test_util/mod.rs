@@ -10,7 +10,6 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
-use crate::vm::ast::ASTRules;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::database::{BurnStateDB, HeadersDB};
 use crate::vm::representations::SymbolicExpression;
@@ -19,22 +18,18 @@ use crate::vm::{execute as vm_execute, execute_on_network as vm_execute_on_netwo
 
 pub struct UnitTestBurnStateDB {
     pub epoch_id: StacksEpochId,
-    pub ast_rules: ASTRules,
 }
 pub struct UnitTestHeaderDB {}
 
 pub const TEST_HEADER_DB: UnitTestHeaderDB = UnitTestHeaderDB {};
 pub const TEST_BURN_STATE_DB: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch20,
-    ast_rules: ASTRules::Typical,
 };
 pub const TEST_BURN_STATE_DB_205: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch2_05,
-    ast_rules: ASTRules::PrecheckSize,
 };
 pub const TEST_BURN_STATE_DB_21: UnitTestBurnStateDB = UnitTestBurnStateDB {
     epoch_id: StacksEpochId::Epoch21,
-    ast_rules: ASTRules::PrecheckSize,
 };
 
 pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnStateDB {
@@ -42,11 +37,8 @@ pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnState
         StacksEpochId::Epoch10 => {
             panic!("Epoch 1.0 not testable");
         }
-        StacksEpochId::Epoch20 => UnitTestBurnStateDB {
-            epoch_id,
-            ast_rules: ASTRules::Typical,
-        },
-        StacksEpochId::Epoch2_05
+        StacksEpochId::Epoch20
+        | StacksEpochId::Epoch2_05
         | StacksEpochId::Epoch21
         | StacksEpochId::Epoch22
         | StacksEpochId::Epoch23
@@ -55,10 +47,7 @@ pub fn generate_test_burn_state_db(epoch_id: StacksEpochId) -> UnitTestBurnState
         | StacksEpochId::Epoch30
         | StacksEpochId::Epoch31
         | StacksEpochId::Epoch32
-        | StacksEpochId::Epoch33 => UnitTestBurnStateDB {
-            epoch_id,
-            ast_rules: ASTRules::PrecheckSize,
-        },
+        | StacksEpochId::Epoch33 => UnitTestBurnStateDB { epoch_id },
     }
 }
 
@@ -313,9 +302,6 @@ impl BurnStateDB for UnitTestBurnStateDB {
             &bhh_from_height(consensus_hash.as_bytes()[0] as u32),
             &PoxId::stubbed(),
         ))
-    }
-    fn get_ast_rules(&self, _height: u32) -> ASTRules {
-        self.ast_rules
     }
     fn get_pox_payout_addrs(
         &self,

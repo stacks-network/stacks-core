@@ -141,7 +141,7 @@ impl<const MAX_SIZE: u16> Iterator for BitVecIter<'_, MAX_SIZE> {
         self.index = self.index.saturating_add(1);
         if self.index < self.bitvec.len {
             // check if byte needs to be incremented
-            if self.index % 8 == 0 {
+            if self.index.is_multiple_of(8) {
                 let vec_index = usize::from(self.index / 8);
                 self.byte = self.bitvec.data.get(vec_index);
             }
@@ -190,7 +190,7 @@ impl<const MAX_SIZE: u16> BitVec<MAX_SIZE> {
 
     /// Return the number of bytes needed to store `len` bits.
     fn data_len(len: u16) -> u16 {
-        len / 8 + if len % 8 == 0 { 0 } else { 1 }
+        len / 8 + if len.is_multiple_of(8) { 0 } else { 1 }
     }
 
     /// Get a u8 with the (index % 8)th bit set to 1.

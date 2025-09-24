@@ -56,7 +56,7 @@ For an example of this process, see PRs
   test, module, function, etc.), each should be documented according
   to our [coding guidelines](#Coding-Guidelines).
 
-> [*] The Changelog focuses on product changes. A "major change" refers to updates that have a direct impact on the end user, such as introducing new features, modifying existing functionality, or optimizing runtime performance. 
+> [*] The Changelog focuses on product changes. A "major change" refers to updates that have a direct impact on the end user, such as introducing new features, modifying existing functionality, or optimizing runtime performance.
 On the other hand, changes that do not need to be reflected in the Changelog include code refactoring, writing tests, or automating processes, as these do not directly affect the user experience.
 
 ## Git Commit Messages
@@ -374,10 +374,10 @@ A test should be marked `#[ignore]` if:
 - **Integration tests need to be properly tagged** using [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) crate. Tagging requires two fundamental steps:
   1. Define allowed tags in the package `Cargo.toml` file (if needed).
   2. Apply relevant tags to the tests, picking from the allowed set.
-  
+
   Then it will be possible to run tests with filtering based on the tags using `cargo test` and `cargo nextest` runner.
   > For more information and examples on how tagging works, refer to the [pinny-rs](https://github.com/BitcoinL2-Labs/pinny-rs/) readme.
-  
+
   Below the tag set currently defined with related purpose:
 
   | Tag             | Description                                  |
@@ -406,15 +406,25 @@ cargo fmt-stacks
 
 ## Clippy Warnings
 
-PRs will be checked against `clippy` and will _fail_ if any clippy warnings are generated.
-Unfortunately, not all existing clippy warnings have been addressed throughout stacks-core, so arguments must be passed via the command line. 
-Therefore, we handle `clippy` configurations using a Cargo alias: `cargo clippy-stacks`
+All PRs are checked with `clippy`, and the CI will **fail** if any warnings are raised.
+Because not all existing clippy warnings in `stacks-core` have been addressed, we use Cargo aliases to standardize how clippy is run across different parts of the codebase.
 
-You can check what warnings need to be addressed locally via: 
+Two commands are available:
+
+- `cargo clippy-stacks`
+  Runs clippy across the core packages of the repository (e.g. `stx-genesis`, `clarity`, `stacks-signer`, etc.).
+
+- `cargo clippy-stackslib`
+  Runs clippy specifically on the `stackslib` package, with a different configuration.
+
+To check warnings locally, run:
 
 ```bash
 cargo clippy-stacks
+cargo clippy-stackslib
 ```
+
+Make sure both commands pass before opening a pull request.
 
 ## Comments
 
@@ -491,7 +501,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// - Returns CheckErrors::WriteAttemptedInReadOnly if there is a read-only
     ///   violation, i.e. if some function marked read-only attempts to modify
     ///   the chainstate.
-    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()>
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), CheckError>
 ```
 
 This comment is considered positive because it explains the contract of the function in pseudo-code. Someone who understands the constructs mentioned could, e.g., write a test for this method from this description.

@@ -1028,28 +1028,28 @@ impl<
     ///
     /// This mutates `rc_info` to be the affirmed anchor block status.
     ///
-    /// Returns Ok(Some(...)) if we have a _missing_ PoX anchor block that _must be_ downloaded
+    /// Returns Some(...) if we have a _missing_ PoX anchor block that _must be_ downloaded
     /// before burnchain processing can continue.
-    /// Returns Ok(None) if not
+    /// Returns None if not
     fn check_missing_anchor_block(
         &self,
         _header: &BurnchainBlockHeader,
         rc_info: &mut RewardCycleInfo,
-    ) -> Result<Option<BlockHeaderHash>, Error> {
+    ) -> Option<BlockHeaderHash> {
         // anchor blocks are always assumed to be present in the chain history,
         // so report its absence if we don't have it.
         if let PoxAnchorBlockStatus::SelectedAndUnknown(missing_anchor_block, _) =
             &rc_info.anchor_status
         {
             info!("Currently missing PoX anchor block {missing_anchor_block}, which is assumed to be present");
-            return Ok(Some(missing_anchor_block.clone()));
+            return Some(missing_anchor_block.clone());
         }
 
         test_debug!(
             "Reward cycle info at height {}: {rc_info:?}",
             &_header.block_height
         );
-        Ok(None)
+        None
     }
 
     /// Outermost call to process a burnchain block.
@@ -1231,7 +1231,7 @@ impl<
 
             if let Some(rc_info) = reward_cycle_info.as_mut() {
                 if let Some(missing_anchor_block) =
-                    self.check_missing_anchor_block(&header, rc_info)?
+                    self.check_missing_anchor_block(&header, rc_info)
                 {
                     info!("Burnchain block processing stops due to missing affirmed anchor stacks block hash {missing_anchor_block}");
                     return Ok(Some(missing_anchor_block));
@@ -1808,7 +1808,7 @@ pub fn check_chainstate_db_versions(
         let db_version = SortitionDB::get_db_version_from_path(sortdb_path)?
             .expect("FATAL: could not load sortition DB version");
 
-        if !SortitionDB::is_db_version_supported_in_epoch(cur_epoch, &db_version) {
+        if !SortitionDB::is_db_version_supported_in_epoch(cur_epoch, db_version) {
             error!("Sortition DB at {sortdb_path} does not support epoch {cur_epoch}");
             return Ok(false);
         }

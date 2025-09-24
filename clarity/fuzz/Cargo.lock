@@ -137,7 +137,7 @@ dependencies = [
 name = "clarity"
 version = "0.0.1"
 dependencies = [
- "clarity-serialization",
+ "clarity-types",
  "integer-sqrt",
  "lazy_static",
  "regex",
@@ -162,7 +162,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "clarity-serialization"
+name = "clarity-types"
 version = "0.0.1"
 dependencies = [
  "lazy_static",
@@ -649,6 +649,7 @@ dependencies = [
  "base64",
  "digest 0.9.0",
  "hmac-drbg",
+ "lazy_static",
  "libsecp256k1-core",
  "libsecp256k1-gen-ecmult",
  "libsecp256k1-gen-genmult",

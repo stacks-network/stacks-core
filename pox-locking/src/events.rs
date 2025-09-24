@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::errors::Error as ClarityError;
@@ -654,25 +653,23 @@ fn inner_synthesize_pox_event_info(
             None,
             pox_contract.contract_context,
             |env| {
-                let base_event_info = env
-                    .eval_read_only_with_rules(contract_id, &code_snippet, ASTRules::PrecheckSize)
-                    .map_err(|e| {
-                        error!(
-                            "Failed to run event-info code snippet for '{}': {:?}",
-                            function_name, &e
+                let base_event_info =
+                    env.eval_read_only(contract_id, &code_snippet)
+                        .map_err(|e| {
+                            error!(
+                            "Failed to run event-info code snippet for '{function_name}': {e:?}"
                         );
-                        e
-                    })?;
+                            e
+                        })?;
 
-                let data_event_info = env
-                    .eval_read_only_with_rules(contract_id, &data_snippet, ASTRules::PrecheckSize)
-                    .map_err(|e| {
-                        error!(
-                            "Failed to run data-info code snippet for '{}': {:?}",
-                            function_name, &e
-                        );
-                        e
-                    })?;
+                let data_event_info =
+                    env.eval_read_only(contract_id, &data_snippet)
+                        .map_err(|e| {
+                            error!(
+                                "Failed to run data-info code snippet for '{function_name}': {e:?}"
+                            );
+                            e
+                        })?;
 
                 // merge them
                 let base_event_tuple = base_event_info
@@ -683,7 +680,7 @@ fn inner_synthesize_pox_event_info(
                     .expect("FATAL: unexpected clarity value");
                 let event_tuple =
                     TupleData::shallow_merge(base_event_tuple, data_tuple).map_err(|e| {
-                        error!("Failed to merge data-info and event-info: {:?}", &e);
+                        error!("Failed to merge data-info and event-info: {e:?}");
                         e
                     })?;
 

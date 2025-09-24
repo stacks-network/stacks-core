@@ -4,13 +4,15 @@ members = [
     "stackslib",
     "stacks-common",
     "pox-locking",
-    "clarity-serialization",
+    "clarity-types",
     "clarity",
     "stx-genesis",
     "libstackerdb",
     "libsigner",
     "stacks-signer",
     "stacks-node",
+    "contrib/stacks-inspect",
+    "contrib/stacks-cli"
 ]
 
 exclude = ["contrib/tools/config-docs-generator"]

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
@@ -114,6 +113,7 @@ pub struct MinerTenureInfo<'a> {
     pub cause: Option<TenureChangeCause>,
     pub active_reward_set: boot::RewardSet,
     pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
+    pub ephemeral: bool,
 }
 
 /// Structure returned from `NakamotoBlockBuilder::build_nakamoto_block` with
@@ -228,14 +228,27 @@ impl NakamotoBlockBuilder {
     /// This function should be called before `tenure_begin`.
     /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
     /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
-    /// expire.
+    /// expire.  This is used for normal blocks.
     pub fn load_tenure_info<'a>(
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false)
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, false)
+    }
+
+    /// This function should be called before `tenure_begin`.
+    /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
+    /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
+    /// expire.  This is used for ephemeral blocks
+    pub fn load_ephemeral_tenure_info<'a>(
+        &self,
+        chainstate: &'a mut StacksChainState,
+        burn_dbconn: &'a SortitionHandleConn,
+        cause: Option<TenureChangeCause>,
+    ) -> Result<MinerTenureInfo<'a>, Error> {
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, true)
     }
 
     /// This function should be called before `tenure_begin`.
@@ -248,8 +261,9 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
         shadow_block: bool,
+        ephemeral: bool,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause);
+        debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause, "ephemeral" => ephemeral);
 
         let Some(tenure_election_sn) =
             SortitionDB::get_block_snapshot_consensus(burn_dbconn, &self.header.consensus_hash)?
@@ -384,6 +398,7 @@ impl NakamotoBlockBuilder {
             coinbase_height,
             active_reward_set,
             tenure_block_commit_opt,
+            ephemeral,
         })
     }
 
@@ -407,24 +422,47 @@ impl NakamotoBlockBuilder {
             clarity_tx,
             matured_miner_rewards_opt,
             ..
-        } = NakamotoChainState::setup_block(
-            &mut info.chainstate_tx,
-            info.clarity_instance,
-            burn_dbconn,
-            burn_dbconn.context.first_block_height,
-            &burn_dbconn.context.pox_constants,
-            &info.parent_consensus_hash,
-            &info.parent_header_hash,
-            info.parent_burn_block_height,
-            &info.burn_tip,
-            info.burn_tip_height,
-            info.cause == Some(TenureChangeCause::BlockFound),
-            info.coinbase_height,
-            info.cause == Some(TenureChangeCause::Extended),
-            &self.header.pox_treatment,
-            block_commit,
-            &info.active_reward_set,
-        )?;
+        } = if info.ephemeral {
+            NakamotoChainState::setup_ephemeral_block(
+                &mut info.chainstate_tx,
+                info.clarity_instance,
+                burn_dbconn,
+                burn_dbconn.context.first_block_height,
+                &burn_dbconn.context.pox_constants,
+                &info.parent_consensus_hash,
+                &info.parent_header_hash,
+                info.parent_burn_block_height,
+                &info.burn_tip,
+                info.burn_tip_height,
+                info.cause == Some(TenureChangeCause::BlockFound),
+                info.coinbase_height,
+                info.cause == Some(TenureChangeCause::Extended),
+                &self.header.pox_treatment,
+                block_commit,
+                &info.active_reward_set,
+                Some(self.header.timestamp),
+            )
+        } else {
+            NakamotoChainState::setup_block(
+                &mut info.chainstate_tx,
+                info.clarity_instance,
+                burn_dbconn,
+                burn_dbconn.context.first_block_height,
+                &burn_dbconn.context.pox_constants,
+                &info.parent_consensus_hash,
+                &info.parent_header_hash,
+                info.parent_burn_block_height,
+                &info.burn_tip,
+                info.burn_tip_height,
+                info.cause == Some(TenureChangeCause::BlockFound),
+                info.coinbase_height,
+                info.cause == Some(TenureChangeCause::Extended),
+                &self.header.pox_treatment,
+                block_commit,
+                &info.active_reward_set,
+                Some(self.header.timestamp),
+            )
+        }?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
         Ok(clarity_tx)
     }
@@ -470,10 +508,11 @@ impl NakamotoBlockBuilder {
         };
 
         test_debug!(
-            "\n\nMined Nakamoto block {}, {} transactions, state root is {}\n",
+            "\n\nMined Nakamoto block {}, {} transactions, state root is {}\nBlock: {:?}",
             block.header.block_hash(),
             block.txs.len(),
-            state_root_hash
+            state_root_hash,
+            &block
         );
 
         debug!(
@@ -607,7 +646,6 @@ impl NakamotoBlockBuilder {
             &initial_txs,
             settings,
             event_observer,
-            ASTRules::PrecheckSize,
             replay_transactions,
         ) {
             Ok(x) => x,
@@ -678,7 +716,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        ast_rules: ASTRules,
         max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -730,7 +767,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
                 tx,
-                ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
@@ -744,7 +780,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 clarity_tx,
                 tx,
                 quiet,
-                ast_rules,
                 max_execution_time,
             ) {
                 Ok(x) => x,

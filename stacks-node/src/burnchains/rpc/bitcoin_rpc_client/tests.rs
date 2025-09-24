@@ -1014,6 +1014,7 @@ pub fn test_convert_btc_to_sat() {
     to_sat("NAN.1").expect_err("BTC NAN.1 fails: integer part is not a number");
     to_sat("1.NAN").expect_err("BTC 1.NAN fails: decimal part is not a number");
     to_sat("1.23.45").expect_err("BTC 1.23.45 fails: dots > 1");
+    to_sat("1e-8").expect_err("BTC 1e-8 fails: not expected format");
 }
 
 #[test]

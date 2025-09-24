@@ -7,6 +7,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
+use crate::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
 use crate::clarity_vm::database::marf::MarfedKV;
 
 pub fn with_marfed_environment<F>(f: F, top_level: bool)
@@ -57,10 +58,9 @@ fn test_at_unknown_block() {
                 QualifiedContractIdentifier::local("contract").unwrap(),
                 contract,
                 None,
-                clarity::vm::ast::ASTRules::PrecheckSize,
             )
             .unwrap_err();
-        eprintln!("{}", err);
+        eprintln!("{err}");
         match err {
             Error::Runtime(x, _) => assert_eq!(
                 x,

@@ -1157,7 +1157,7 @@ impl BlockMinerThread {
         &self,
         nonce: u64,
         payload: TenureChangePayload,
-    ) -> Result<StacksTransaction, NakamotoNodeError> {
+    ) -> StacksTransaction {
         let is_mainnet = self.config.is_mainnet();
         let chain_id = self.config.burnchain.chain_id;
         let tenure_change_tx_payload = TransactionPayload::TenureChange(payload);
@@ -1178,7 +1178,7 @@ impl BlockMinerThread {
         let mut tx_signer = StacksTransactionSigner::new(&tx);
         self.keychain.sign_as_origin(&mut tx_signer);
 
-        Ok(tx_signer.get_tx().unwrap())
+        tx_signer.get_tx().unwrap()
     }
 
     /// Create a coinbase transaction.
@@ -1742,8 +1742,7 @@ impl BlockMinerThread {
 
         let (tenure_change_tx, coinbase_tx) = match &self.reason {
             MinerReason::BlockFound { .. } => {
-                let tenure_change_tx =
-                    self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                let tenure_change_tx = self.generate_tenure_change_tx(current_miner_nonce, payload);
                 let coinbase_tx =
                     self.generate_coinbase_tx(current_miner_nonce + 1, target_epoch_id, vrf_proof);
                 (Some(tenure_change_tx), Some(coinbase_tx))
@@ -1768,8 +1767,7 @@ impl BlockMinerThread {
                     parent_block_id,
                     num_blocks_so_far,
                 );
-                let tenure_change_tx =
-                    self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                let tenure_change_tx = self.generate_tenure_change_tx(current_miner_nonce, payload);
                 (Some(tenure_change_tx), None)
             }
         };

@@ -18,8 +18,8 @@ use stacks_common::types::StacksEpochId;
 
 use super::{SimpleNativeFunction, TypedNativeFunction};
 use crate::vm::analysis::type_checker::v2_05::{
-    check_argument_count, check_arguments_at_least, CheckErrors, CheckResult, TypeChecker,
-    TypeResult, TypingContext,
+    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, TypeChecker,
+    TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
@@ -34,7 +34,7 @@ use crate::vm::ClarityVersion;
 fn get_simple_native_or_user_define(
     function_name: &str,
     checker: &mut TypeChecker,
-) -> CheckResult<FunctionType> {
+) -> Result<FunctionType, CheckError> {
     runtime_cost(ClarityCostFunction::AnalysisLookupFunction, checker, 0)?;
     if let Some(ref native_function) =
         NativeFunctions::lookup_by_name_at_version(function_name, &ClarityVersion::Clarity1)
@@ -57,7 +57,7 @@ pub fn check_special_map(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
     let function_name = args[0]
@@ -98,7 +98,7 @@ pub fn check_special_map(
                 // However that could lead to confusions when combining certain types:
                 // ex: (map concat (list "hello " "hi ") "world") would fail, because
                 // strings are handled as sequences.
-                return Err(CheckErrors::ExpectedSequence(argument_type).into());
+                return Err(CheckErrors::ExpectedSequence(Box::new(argument_type)).into());
             }
         };
         func_args.push(entry_type);
@@ -114,7 +114,7 @@ pub fn check_special_filter(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let function_name = args[0]
@@ -130,7 +130,9 @@ pub fn check_special_filter(
     {
         let input_type = match argument_type {
             TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
-            _ => Err(CheckErrors::ExpectedSequence(argument_type.clone())),
+            _ => Err(CheckErrors::ExpectedSequence(Box::new(
+                argument_type.clone(),
+            ))),
         }?;
 
         let filter_type = function_type.check_args(
@@ -141,7 +143,11 @@ pub fn check_special_filter(
         )?;
 
         if TypeSignature::BoolType != filter_type {
-            return Err(CheckErrors::TypeError(TypeSignature::BoolType, filter_type).into());
+            return Err(CheckErrors::TypeError(
+                Box::new(TypeSignature::BoolType),
+                Box::new(filter_type),
+            )
+            .into());
         }
     }
 
@@ -152,7 +158,7 @@ pub fn check_special_fold(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(3, args)?;
 
     let function_name = args[0]
@@ -167,7 +173,7 @@ pub fn check_special_fold(
 
     let input_type = match argument_type {
         TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()?),
-        _ => Err(CheckErrors::ExpectedSequence(argument_type)),
+        _ => Err(CheckErrors::ExpectedSequence(Box::new(argument_type))),
     }?;
 
     let initial_value_type = checker.type_check(&args[2], context)?;
@@ -199,7 +205,7 @@ pub fn check_special_concat(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let lhs_type = checker.type_check(&args[0], context)?;
@@ -247,11 +253,15 @@ pub fn check_special_concat(
                     TypeSignature::SequenceType(StringType(UTF8(size.try_into()?)))
                 }
                 (_, _) => {
-                    return Err(CheckErrors::TypeError(lhs_type.clone(), rhs_type.clone()).into())
+                    return Err(CheckErrors::TypeError(
+                        Box::new(lhs_type.clone()),
+                        Box::new(rhs_type.clone()),
+                    )
+                    .into())
                 }
             }
         }
-        _ => return Err(CheckErrors::ExpectedSequence(lhs_type.clone()).into()),
+        _ => return Err(CheckErrors::ExpectedSequence(Box::new(lhs_type.clone())).into()),
     };
     Ok(res)
 }
@@ -260,7 +270,7 @@ pub fn check_special_append(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
@@ -292,14 +302,18 @@ pub fn check_special_as_max_len(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let expected_len = match args[1].expr {
         SymbolicExpressionType::LiteralValue(Value::UInt(expected_len)) => expected_len,
         _ => {
             let expected_len_type = checker.type_check(&args[1], context)?;
-            return Err(CheckErrors::TypeError(TypeSignature::UIntType, expected_len_type).into());
+            return Err(CheckErrors::TypeError(
+                Box::new(TypeSignature::UIntType),
+                Box::new(expected_len_type),
+            )
+            .into());
         }
     };
     runtime_cost(
@@ -337,7 +351,7 @@ pub fn check_special_as_max_len(
                 StringUTF8Length::try_from(expected_len)?,
             )))),
         )),
-        _ => Err(CheckErrors::ExpectedSequence(sequence).into()),
+        _ => Err(CheckErrors::ExpectedSequence(Box::new(sequence)).into()),
     }
 }
 
@@ -345,7 +359,7 @@ pub fn check_special_len(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let collection_type = checker.type_check(&args[0], context)?;
@@ -353,7 +367,7 @@ pub fn check_special_len(
 
     match collection_type {
         TypeSignature::SequenceType(_) => Ok(()),
-        _ => Err(CheckErrors::ExpectedSequence(collection_type)),
+        _ => Err(CheckErrors::ExpectedSequence(Box::new(collection_type))),
     }?;
 
     Ok(TypeSignature::UIntType)
@@ -363,7 +377,7 @@ pub fn check_special_element_at(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let _index_type = checker.type_check_expects(&args[1], context, &TypeSignature::UIntType)?;
@@ -391,7 +405,7 @@ pub fn check_special_element_at(
                     .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             )))),
         )),
-        _ => Err(CheckErrors::ExpectedSequence(collection_type).into()),
+        _ => Err(CheckErrors::ExpectedSequence(Box::new(collection_type)).into()),
     }
 }
 
@@ -399,7 +413,7 @@ pub fn check_special_index_of(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AnalysisIterableFunc, checker, 0)?;
@@ -407,7 +421,7 @@ pub fn check_special_index_of(
 
     let expected_input_type = match list_type {
         TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
-        _ => Err(CheckErrors::ExpectedSequence(list_type)),
+        _ => Err(CheckErrors::ExpectedSequence(Box::new(list_type))),
     }?;
 
     checker.type_check_expects(&args[1], context, &expected_input_type)?;

@@ -18,7 +18,6 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::ast::ASTRules;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
 };
@@ -154,7 +153,6 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                 sort_handle,
                 &boot_code_id(SIGNERS_NAME, chainstate.mainnet),
                 &format!("(map-get? cycle-set-height u{})", cycle),
-                ASTRules::PrecheckSize,
             )
             .map_err(ChainstateError::ClarityError)?
             .expect_optional()

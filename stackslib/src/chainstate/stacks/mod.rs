@@ -385,12 +385,21 @@ impl Txid {
         Txid::from_stacks_tx(txdata)
     }
 
-    /// Create a Txid from the tx hash bytes used in bitcoin.
+    /// Create a [`Txid`] from the tx hash bytes used in bitcoin.
     /// This just reverses the inner bytes of the input.
     pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
         let mut txid_bytes = tx_hash.0;
         txid_bytes.reverse();
         Self(txid_bytes)
+    }
+
+    /// Create a [`Sha256dHash`] from a [`Txid`]
+    /// This assumes the inner bytes are stored in "big-endian" (following the hex bitcoin string),
+    /// so just reverse them to properly create a tx hash.
+    pub fn to_bitcoin_tx_hash(txid: &Txid) -> Sha256dHash {
+        let mut txid_bytes = txid.0;
+        txid_bytes.reverse();
+        Sha256dHash(txid_bytes)
     }
 }
 

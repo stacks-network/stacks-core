@@ -36,7 +36,6 @@ use stacks_common::types::chainstate::BlockHeaderHash;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
-use super::burnchains::bitcoin_regtest_controller::ParsedUTXO;
 use super::neon_node::{BlockMinerThread, TipCandidate};
 use super::Config;
 use crate::helium::RunLoop;
@@ -696,34 +695,6 @@ fn should_succeed_handling_malformed_and_valid_txs() {
         },
     );
     run_loop.start(num_rounds).unwrap();
-}
-
-#[test]
-fn test_btc_to_sat() {
-    let inputs = [
-        "0.10000000",
-        "0.00000010",
-        "0.00000001",
-        "1.00000001",
-        "0.1",
-        "0.00000000",
-        "0.00001192",
-    ];
-    let expected_outputs: [u64; 7] = [10000000, 10, 1, 100000001, 10000000, 0, 1192];
-
-    for (input, expected_output) in inputs.iter().zip(expected_outputs.iter()) {
-        let output = ParsedUTXO::serialized_btc_to_sat(input).unwrap();
-        assert_eq!(*expected_output, output);
-    }
-}
-
-#[test]
-fn test_btc_to_sat_errors() {
-    assert!(ParsedUTXO::serialized_btc_to_sat("0.000000001").is_none());
-    assert!(ParsedUTXO::serialized_btc_to_sat("1").is_none());
-    assert!(ParsedUTXO::serialized_btc_to_sat("1e-8").is_none());
-    assert!(ParsedUTXO::serialized_btc_to_sat("7.4e-7").is_none());
-    assert!(ParsedUTXO::serialized_btc_to_sat("5.96e-6").is_none());
 }
 
 #[test]

@@ -415,6 +415,8 @@ impl NakamotoChainState {
             new_tenure,
             coinbase_height,
             tenure_extend,
+            None,
+            false,
         )
     }
 }
@@ -432,7 +434,7 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true)
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true, false)
     }
 
     /// Begin/resume mining a shadow tenure's transactions.
@@ -506,8 +508,6 @@ impl NakamotoBlockBuilder {
         tenure_id_consensus_hash: &ConsensusHash,
         txs: Vec<StacksTransaction>,
     ) -> Result<(NakamotoBlock, u64, ExecutionCost), Error> {
-        use clarity::vm::ast::ASTRules;
-
         debug!(
             "Build shadow Nakamoto block from {} transactions",
             txs.len()
@@ -538,7 +538,6 @@ impl NakamotoBlockBuilder {
                 &tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             ) {
                 TransactionResult::Success(..) => {

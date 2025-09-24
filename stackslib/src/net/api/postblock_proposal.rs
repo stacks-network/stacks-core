@@ -23,7 +23,6 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::time::Instant;
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
 use serde::Deserialize;
@@ -597,7 +596,6 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             );
             let err = match tx_result {
@@ -778,7 +776,6 @@ impl NakamotoBlockProposal {
                     &replay_tx,
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    ASTRules::PrecheckSize,
                     None,
                 );
                 match tx_result {
@@ -843,7 +840,6 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             );
         }
@@ -858,7 +854,6 @@ impl NakamotoBlockProposal {
                     &tx,
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    ASTRules::PrecheckSize,
                     None,
                 );
                 match tx_result {
