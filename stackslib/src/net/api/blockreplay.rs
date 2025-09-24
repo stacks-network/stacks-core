@@ -357,9 +357,8 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
             })?
             .as_str();
 
-        let block_id = StacksBlockId::from_hex(block_id_str).map_err(|_| {
-            Error::DecodeError("Invalid path: unparseable consensus hash".to_string())
-        })?;
+        let block_id = StacksBlockId::from_hex(block_id_str)
+            .map_err(|_| Error::DecodeError("Invalid path: unparseable block id".to_string()))?;
         self.block_id = Some(block_id);
 
         Ok(HttpRequestContents::new().query_string(query))
