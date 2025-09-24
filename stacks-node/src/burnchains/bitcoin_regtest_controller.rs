@@ -93,7 +93,7 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
-    rpc_client: BitcoinRpcClient,
+    rpc_client: Option<BitcoinRpcClient>,
 }
 
 #[derive(Clone)]
@@ -371,8 +371,7 @@ impl BitcoinRegtestController {
             should_keep_running: should_keep_running.clone(),
         };
 
-        let rpc_client = BitcoinRpcClient::from_stx_config(&config)
-            .expect("unable to instantiate the RPC client!");
+        let rpc_client = Self::try_create_rpc_client(&config);
 
         Self {
             use_coordinator: coordinator_channel,
@@ -421,8 +420,7 @@ impl BitcoinRegtestController {
             should_keep_running: None,
         };
 
-        let rpc_client = BitcoinRpcClient::from_stx_config(&config)
-            .expect("unable to instantiate the RPC client!");
+        let rpc_client = Self::try_create_rpc_client(&config);
 
         Self {
             use_coordinator: None,
@@ -475,6 +473,36 @@ impl BitcoinRegtestController {
             Some(ref burnchain) => burnchain.clone(),
             None => self.default_burnchain(),
         }
+    }
+
+    /// Attempt to create a new [`BitcoinRpcClient`] from the given [`Config`].
+    ///
+    /// If the provided config indicates that the node is a **miner**,
+    /// tries to instantiate it or **panics** otherwise.
+    /// If the node is **not** a miner, returns None (e.g. follower node).
+    fn try_create_rpc_client(config: &Config) -> Option<BitcoinRpcClient> {
+        if config.node.miner {
+            Some(
+                BitcoinRpcClient::from_stx_config(&config)
+                    .expect("unable to instantiate the RPC client!"),
+            )
+        } else {
+            None
+        }
+    }
+
+    /// Attempt to get a reference to the underlying [`BitcoinRpcClient`].
+    ///
+    /// This function will panic if the RPC client has not been configured
+    /// (i.e. [`Self::try_create_rpc_client`] returned `None` during initialization),
+    /// but an attempt is made to use it anyway.
+    ///
+    /// In practice, this means the node is expected to act as a miner,
+    /// yet no [`BitcoinRpcClient`] was created or properly configured.
+    fn try_get_rpc_client(&self) -> &BitcoinRpcClient {
+        self.rpc_client
+            .as_ref()
+            .expect("BUG: BitcoinRpcClient is required, but it has not been configured properly!")
     }
 
     /// Helium (devnet) blocks receiver.  Returns the new burnchain tip.
@@ -686,7 +714,7 @@ impl BitcoinRegtestController {
 
     /// Retrieve all loaded wallets.
     pub fn list_wallets(&self) -> BitcoinRegtestControllerResult<Vec<String>> {
-        Ok(self.rpc_client.list_wallets()?)
+        Ok(self.try_get_rpc_client().list_wallets()?)
     }
 
     /// Checks if the config-supplied wallet exists.
@@ -695,7 +723,8 @@ impl BitcoinRegtestController {
         let wallets = self.list_wallets()?;
         let wallet = self.get_wallet_name();
         if !wallets.contains(wallet) {
-            self.rpc_client.create_wallet(wallet, Some(true))?
+            self.try_get_rpc_client()
+                .create_wallet(wallet, Some(true))?
         }
         Ok(())
     }
@@ -1861,7 +1890,7 @@ impl BitcoinRegtestController {
 
         const UNCAPPED_FEE: f64 = 0.0;
         const MAX_BURN_AMOUNT: u64 = 1_000_000;
-        self.rpc_client
+        self.try_get_rpc_client()
             .send_raw_transaction(tx, Some(UNCAPPED_FEE), Some(MAX_BURN_AMOUNT))
             .map(|txid| {
                 debug!("Transaction {txid} sent successfully");
@@ -1933,7 +1962,9 @@ impl BitcoinRegtestController {
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
 
-        let result = self.rpc_client.generate_to_address(num_blocks, &address);
+        let result = self
+            .try_get_rpc_client()
+            .generate_to_address(num_blocks, &address);
         /*
             Temporary: not using `BitcoinRpcClientResultExt::ok_or_log_panic` (test code related),
             because we need this logic available outside `#[cfg(test)]` due to Helium network.
@@ -1966,7 +1997,7 @@ impl BitcoinRegtestController {
             .expect("FATAL: invalid public key bytes");
         let address = self.get_miner_address(StacksEpochId::Epoch21, &public_key);
 
-        self.rpc_client
+        self.try_get_rpc_client()
             .generate_block(&address, &[])
             .ok_or_log_panic("generating block")
     }
@@ -1975,7 +2006,7 @@ impl BitcoinRegtestController {
     #[cfg(test)]
     pub fn invalidate_block(&self, block: &BurnchainHeaderHash) {
         info!("Invalidating block {block}");
-        self.rpc_client
+        self.try_get_rpc_client()
             .invalidate_block(block)
             .ok_or_log_panic("invalidate block")
     }
@@ -1983,7 +2014,7 @@ impl BitcoinRegtestController {
     /// Retrieve the hash (as a [`BurnchainHeaderHash`]) of the block at the given height.
     #[cfg(test)]
     pub fn get_block_hash(&self, height: u64) -> BurnchainHeaderHash {
-        self.rpc_client
+        self.try_get_rpc_client()
             .get_block_hash(height)
             .unwrap_or_log_panic("retrieve block")
     }
@@ -2041,7 +2072,7 @@ impl BitcoinRegtestController {
     /// Retrieves a raw [`Transaction`] by its [`Txid`]
     #[cfg(test)]
     pub fn get_raw_transaction(&self, txid: &Txid) -> Transaction {
-        self.rpc_client
+        self.try_get_rpc_client()
             .get_raw_transaction(txid)
             .unwrap_or_log_panic("retrieve raw tx")
     }
@@ -2069,7 +2100,7 @@ impl BitcoinRegtestController {
                 "Generate to address '{address}' for public key '{}'",
                 &pks[0].to_hex()
             );
-            self.rpc_client
+            self.try_get_rpc_client()
                 .generate_to_address(num_blocks, &address)
                 .ok_or_log_panic("generating block");
             return;
@@ -2087,7 +2118,7 @@ impl BitcoinRegtestController {
                     &pk.to_hex(),
                 );
             }
-            self.rpc_client
+            self.try_get_rpc_client()
                 .generate_to_address(1, &address)
                 .ok_or_log_panic("generating block");
         }
@@ -2105,7 +2136,7 @@ impl BitcoinRegtestController {
     /// * `false` if the transaction is unconfirmed or could not be found.
     pub fn is_transaction_confirmed(&self, txid: &Txid) -> bool {
         match self
-            .rpc_client
+            .try_get_rpc_client()
             .get_transaction(self.get_wallet_name(), txid)
         {
             Ok(info) => info.confirmations > 0,
@@ -2158,7 +2189,7 @@ impl BitcoinRegtestController {
             );
 
             let descriptor = format!("addr({address})");
-            let info = self.rpc_client.get_descriptor_info(&descriptor)?;
+            let info = self.try_get_rpc_client().get_descriptor_info(&descriptor)?;
 
             let descr_req = ImportDescriptorsRequest {
                 descriptor: format!("addr({address})#{}", info.checksum),
@@ -2166,7 +2197,7 @@ impl BitcoinRegtestController {
                 internal: Some(true),
             };
 
-            self.rpc_client
+            self.try_get_rpc_client()
                 .import_descriptors(self.get_wallet_name(), &[&descr_req])?;
         }
         Ok(())
@@ -2227,11 +2258,11 @@ impl BitcoinRegtestController {
         utxos_to_exclude: &Option<UTXOSet>,
         block_height: u64,
     ) -> BitcoinRpcClientResult<UTXOSet> {
-        let bhh = self.rpc_client.get_block_hash(block_height)?;
+        let bhh = self.try_get_rpc_client().get_block_hash(block_height)?;
 
         const MIN_CONFIRMATIONS: u64 = 0;
         const MAX_CONFIRMATIONS: u64 = 9_999_999;
-        let unspents = self.rpc_client.list_unspent(
+        let unspents = self.try_get_rpc_client().list_unspent(
             &self.get_wallet_name(),
             Some(MIN_CONFIRMATIONS),
             Some(MAX_CONFIRMATIONS),
@@ -2446,6 +2477,7 @@ mod tests {
 
         pub fn create_config() -> Config {
             let mut config = Config::default();
+            config.node.miner = true;
             config.burnchain.magic_bytes = "T3".as_bytes().into();
             config.burnchain.username = Some(String::from("user"));
             config.burnchain.password = Some(String::from("12345"));
@@ -2964,6 +2996,10 @@ mod tests {
     #[test]
     #[ignore]
     fn test_create_wallet_from_custom_name() {
+        if env::var("BITCOIND_TEST") != Ok("1".into()) {
+            return;
+        }
+
         let mut config = utils::create_config();
         config.burnchain.wallet_name = String::from("mywallet");
 
