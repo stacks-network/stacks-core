@@ -359,6 +359,7 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
 
         let block_id = StacksBlockId::from_hex(block_id_str)
             .map_err(|_| Error::DecodeError("Invalid path: unparseable block id".to_string()))?;
+
         self.block_id = Some(block_id);
 
         Ok(HttpRequestContents::new().query_string(query))
@@ -378,10 +379,9 @@ impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
         _contents: HttpRequestContents,
         node: &mut StacksNodeState,
     ) -> Result<(HttpResponsePreamble, HttpResponseContents), NetError> {
-        let block_id = self
-            .block_id
-            .take()
-            .ok_or(NetError::SendError("Missing `block_id`".into()))?;
+        let Some(block_id) = &self.block_id else {
+            return Err(NetError::SendError("Missing `block_id`".into()));
+        };
 
         let replayed_block_res =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
