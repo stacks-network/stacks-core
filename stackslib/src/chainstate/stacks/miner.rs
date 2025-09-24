@@ -25,7 +25,7 @@ use std::time::Instant;
 use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -675,7 +675,7 @@ impl TransactionResult {
                 }
                 ClarityRuntimeTxError::AnalysisError(e) => {
                     let clarity_err = Error::ClarityError(clarity_error::Interpreter(
-                        InterpreterError::Unchecked(e),
+                        VmExecutionError::Unchecked(e),
                     ));
                     if epoch_id < StacksEpochId::Epoch21 {
                         // this would invalidate the block, so it's problematic

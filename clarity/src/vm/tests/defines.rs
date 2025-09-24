@@ -21,7 +21,7 @@ use rstest_reuse::{self, *};
 #[cfg(test)]
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::errors::{CheckErrorKind, Error};
+use crate::vm::errors::{CheckErrorKind, VmExecutionError};
 use crate::vm::tests::test_clarity_versions;
 #[cfg(test)]
 use crate::vm::{
@@ -32,8 +32,8 @@ use crate::vm::{
     {execute, ClarityVersion},
 };
 
-fn assert_eq_err(e1: CheckErrorKind, e2: Error) {
-    let e1: Error = e1.into();
+fn assert_eq_err(e1: CheckErrorKind, e2: VmExecutionError) {
+    let e1: VmExecutionError = e1.into();
     assert_eq!(e1, e2)
 }
 
@@ -67,7 +67,7 @@ fn test_accept_options(#[case] version: ClarityVersion, #[case] epoch: StacksEpo
         format!("{defun} (f (some 1))"),
         format!("{defun} (f (some true))"),
     ];
-    let expectations: &[Result<_, Error>] = &[
+    let expectations: &[Result<_, VmExecutionError>] = &[
         Ok(Some(Value::Int(0))),
         Ok(Some(Value::Int(10))),
         Err(CheckErrorKind::TypeValueError(
@@ -187,7 +187,10 @@ fn test_stack_depth() {
     assert_eq!(Ok(Some(Value::Int(64))), execute(&test0));
     assert!(matches!(
         execute(&test1),
-        Err(Error::Runtime(RuntimeErrorType::MaxStackDepthReached, _))
+        Err(VmExecutionError::Runtime(
+            RuntimeErrorType::MaxStackDepthReached,
+            _
+        ))
     ))
 }
 
@@ -474,18 +477,18 @@ fn test_define_trait_arg_count() {
 
     // These errors are hit in the trait resolver, before reaching the type-checker
     match execute(test0).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
+        VmExecutionError::Runtime(RuntimeErrorType::ASTError(parse_err), _)
             if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
         e => panic!("{e:?}"),
     };
     match execute(test1).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
+        VmExecutionError::Runtime(RuntimeErrorType::ASTError(parse_err), _)
             if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
         e => panic!("{e}"),
     };
     execute(test2).unwrap();
     match execute(test3).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
+        VmExecutionError::Runtime(RuntimeErrorType::ASTError(parse_err), _)
             if *parse_err.err == ParseErrorKind::DefineTraitBadSignature => {}
         e => panic!("{e}"),
     };
@@ -500,18 +503,18 @@ fn test_use_trait_arg_count() {
 
     // These errors are hit in the trait resolver, before reaching the type-checker
     match execute(test0).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
+        VmExecutionError::Runtime(RuntimeErrorType::ASTError(parse_err), _)
             if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
         e => panic!("{e:?}"),
     };
     match execute(test1).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
+        VmExecutionError::Runtime(RuntimeErrorType::ASTError(parse_err), _)
             if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
         e => panic!("{e}"),
     };
     execute(test2).unwrap();
     match execute(test3).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
+        VmExecutionError::Runtime(RuntimeErrorType::ASTError(parse_err), _)
             if *parse_err.err == ParseErrorKind::ImportTraitBadSignature => {}
         e => panic!("{e}"),
     };
@@ -525,13 +528,13 @@ fn test_impl_trait_arg_count() {
 
     // These errors are hit in the trait resolver, before reaching the type-checker
     match execute(test0).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
+        VmExecutionError::Runtime(RuntimeErrorType::ASTError(parse_err), _)
             if *parse_err.err == ParseErrorKind::ImplTraitBadSignature => {}
         e => panic!("{e:?}"),
     };
     execute(test1).unwrap();
     match execute(test2).unwrap_err() {
-        Error::Runtime(RuntimeErrorType::ASTError(parse_err), _)
+        VmExecutionError::Runtime(RuntimeErrorType::ASTError(parse_err), _)
             if *parse_err.err == ParseErrorKind::ImplTraitBadSignature => {}
         e => panic!("{e}"),
     };

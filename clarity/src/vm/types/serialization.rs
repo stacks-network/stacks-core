@@ -22,7 +22,7 @@ pub use clarity_types::types::serialization::{
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::vm::database::{ClarityDeserializable, ClaritySerializable};
-use crate::vm::errors::{Error as ClarityError, InterpreterError};
+use crate::vm::errors::{InterpreterError, VmExecutionError};
 
 impl ClaritySerializable for u32 {
     fn serialize(&self) -> String {
@@ -31,7 +31,7 @@ impl ClaritySerializable for u32 {
 }
 
 impl ClarityDeserializable<u32> for u32 {
-    fn deserialize(input: &str) -> Result<Self, ClarityError> {
+    fn deserialize(input: &str) -> Result<Self, VmExecutionError> {
         let bytes = hex_bytes(input).map_err(|_| {
             InterpreterError::Expect("u32 deserialization: failed decoding bytes.".into())
         })?;

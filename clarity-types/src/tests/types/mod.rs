@@ -18,7 +18,7 @@ mod signatures;
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
-use crate::Error;
+use crate::VmExecutionError;
 use crate::errors::{CheckErrorKind, InterpreterError, RuntimeErrorType};
 use crate::types::{
     ASCIIData, BuffData, CharType, ListTypeData, MAX_VALUE_SIZE, PrincipalData,
@@ -255,7 +255,7 @@ fn test_qualified_contract_identifier_local_returns_runtime_error() {
     let err = QualifiedContractIdentifier::local("1nvalid-name")
         .expect_err("Unexpected qualified contract identifier");
     assert_eq!(
-        Error::from(RuntimeErrorType::BadNameValue(
+        VmExecutionError::from(RuntimeErrorType::BadNameValue(
             "ContractName",
             "1nvalid-name".into()
         )),
@@ -279,7 +279,7 @@ fn test_principal_data_parse_standard_principal_returns_runtime_error(
 ) {
     let err =
         PrincipalData::parse_standard_principal(input).expect_err("Unexpected principal data");
-    assert_eq!(Error::from(expected_err), err);
+    assert_eq!(VmExecutionError::from(expected_err), err);
 }
 
 #[rstest]
@@ -295,7 +295,7 @@ fn test_qualified_contract_identifier_parse_returns_interpreter_error(
 ) {
     let err = QualifiedContractIdentifier::parse(input)
         .expect_err("Unexpected qualified contract identifier");
-    assert_eq!(Error::from(expected_err), err);
+    assert_eq!(VmExecutionError::from(expected_err), err);
 }
 
 #[rstest]
@@ -312,7 +312,7 @@ fn test_trait_identifier_parse_returns_runtime_error(
     #[case] input: &str,
     #[case] expected_err: RuntimeErrorType,
 ) {
-    let expected_err = Error::from(expected_err);
+    let expected_err = VmExecutionError::from(expected_err);
 
     let err = TraitIdentifier::parse(input).expect_err("Unexpected trait identifier");
     assert_eq!(expected_err, err);
@@ -333,7 +333,7 @@ fn test_trait_identifier_parse_fully_qualified_returns_runtime_error(
 ) {
     let err =
         TraitIdentifier::parse_fully_qualified(input).expect_err("Unexpected trait identifier");
-    assert_eq!(Error::from(expected_err), err);
+    assert_eq!(VmExecutionError::from(expected_err), err);
 }
 
 /// The returned InterpreterError is consensus-critical.
@@ -343,7 +343,7 @@ fn test_standard_principal_data_new_returns_interpreter_error_consensus_critical
     let err = result.expect_err("Unexpected principal data");
 
     assert_eq!(
-        Error::from(InterpreterError::Expect("Unexpected principal data".into())),
+        VmExecutionError::from(InterpreterError::Expect("Unexpected principal data".into())),
         err.into(),
     );
 }
@@ -354,7 +354,7 @@ fn test_sequence_data_element_at_returns_interpreter_error_consensus_critical() 
     let buff = SequenceData::String(CharType::ASCII(ASCIIData { data: vec![1] }));
     let err = buff.element_at(0).unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        VmExecutionError::from(InterpreterError::Expect(
             "BUG: failed to initialize single-byte ASCII buffer".into()
         )),
         err
@@ -366,7 +366,7 @@ fn test_sequence_data_element_at_returns_interpreter_error_consensus_critical() 
 fn test_ascii_data_to_value_returns_interpreter_error_consensus_critical() {
     let err = ASCIIData::to_value(&1).unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        VmExecutionError::from(InterpreterError::Expect(
             "ERROR: Invalid ASCII string successfully constructed".into()
         )),
         err
@@ -378,7 +378,7 @@ fn test_ascii_data_to_value_returns_interpreter_error_consensus_critical() {
 fn test_utf8_data_to_value_returns_interpreter_error_consensus_critical() {
     let err = UTF8Data::to_value(&vec![0xED, 0xA0, 0x80]).unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        VmExecutionError::from(InterpreterError::Expect(
             "ERROR: Invalid UTF8 string successfully constructed".into()
         )),
         err
@@ -397,7 +397,7 @@ fn test_tuple_data_from_data_typed_returns_interpreter_error_consensus_critical(
     )
     .unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::FailureConstructingTupleWithType),
+        VmExecutionError::from(InterpreterError::FailureConstructingTupleWithType),
         err
     );
 }
@@ -410,7 +410,7 @@ fn test_value_expect_ascii_returns_interpreter_error(
     #[case] expected_err: InterpreterError,
 ) {
     let err = value.expect_ascii().unwrap_err();
-    assert_eq!(Error::from(expected_err), err);
+    assert_eq!(VmExecutionError::from(expected_err), err);
 }
 
 /// The returned InterpreterError is consensus-critical.
@@ -418,7 +418,7 @@ fn test_value_expect_ascii_returns_interpreter_error(
 fn test_value_expect_u128_returns_interpreter_error_consensus_critical() {
     let err = Value::none().expect_u128().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected u128".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected u128".to_string())),
         err
     );
 }
@@ -427,7 +427,7 @@ fn test_value_expect_u128_returns_interpreter_error_consensus_critical() {
 fn test_value_expect_i128_returns_interpreter_error() {
     let err = Value::none().expect_i128().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected i128".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected i128".to_string())),
         err
     );
 }
@@ -440,14 +440,14 @@ fn test_value_expect_buff_returns_interpreter_error(
     #[case] expected_err: InterpreterError,
 ) {
     let err = value.expect_buff(1).unwrap_err();
-    assert_eq!(Error::from(expected_err), err);
+    assert_eq!(VmExecutionError::from(expected_err), err);
 }
 
 #[test]
 fn test_value_expect_tuple_returns_interpreter_error() {
     let err = Value::none().expect_tuple().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected tuple".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected tuple".to_string())),
         err
     );
 }
@@ -456,7 +456,7 @@ fn test_value_expect_tuple_returns_interpreter_error() {
 fn test_value_expect_list_returns_interpreter_error() {
     let err = Value::none().expect_list().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected list".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected list".to_string())),
         err
     );
 }
@@ -465,7 +465,7 @@ fn test_value_expect_list_returns_interpreter_error() {
 fn test_value_expect_buff_padded_returns_interpreter_error() {
     let err = Value::none().expect_buff_padded(10, 0).unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected buff".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected buff".to_string())),
         err
     );
 }
@@ -474,7 +474,7 @@ fn test_value_expect_buff_padded_returns_interpreter_error() {
 fn test_value_expect_bool_returns_interpreter_error() {
     let err = Value::none().expect_bool().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected bool".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected bool".to_string())),
         err
     );
 }
@@ -484,7 +484,7 @@ fn test_value_expect_bool_returns_interpreter_error() {
 fn test_value_expect_optional_returns_interpreter_error_consensus_critical() {
     let err = Value::okay_true().expect_optional().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected optional".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected optional".to_string())),
         err
     );
 }
@@ -494,7 +494,7 @@ fn test_value_expect_optional_returns_interpreter_error_consensus_critical() {
 fn test_value_expect_principal_returns_interpreter_error_consensus_critical() {
     let err = Value::none().expect_principal().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected principal".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected principal".to_string())),
         err
     );
 }
@@ -504,7 +504,7 @@ fn test_value_expect_principal_returns_interpreter_error_consensus_critical() {
 fn test_value_expect_callable_returns_interpreter_error_consensus_critical() {
     let err = Value::none().expect_callable().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected callable".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected callable".to_string())),
         err
     );
 }
@@ -513,7 +513,7 @@ fn test_value_expect_callable_returns_interpreter_error_consensus_critical() {
 fn test_value_expect_result_returns_interpreter_error() {
     let err = Value::none().expect_result().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect("Expected response".to_string())),
+        VmExecutionError::from(InterpreterError::Expect("Expected response".to_string())),
         err
     );
 }
@@ -526,7 +526,7 @@ fn test_value_expect_result_ok_returns_interpreter_error(
     #[case] expected_err: InterpreterError,
 ) {
     let err = value.expect_result_ok().unwrap_err();
-    assert_eq!(Error::from(expected_err), err);
+    assert_eq!(VmExecutionError::from(expected_err), err);
 }
 
 #[rstest]
@@ -537,7 +537,7 @@ fn test_value_expect_result_err_returns_interpreter_error(
     #[case] expected_err: InterpreterError,
 ) {
     let err = value.expect_result_err().unwrap_err();
-    assert_eq!(Error::from(expected_err), err);
+    assert_eq!(VmExecutionError::from(expected_err), err);
 }
 
 /// The returned InterpreterError is consensus-critical.
@@ -549,7 +549,7 @@ fn test_buff_data_len_returns_interpreter_error_consensus_critical() {
     .len()
     .unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        VmExecutionError::from(InterpreterError::Expect(
             "Data length should be valid".into()
         )),
         err
@@ -564,7 +564,7 @@ fn test_ascii_data_len_returns_interpreter_error() {
     .len()
     .unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        VmExecutionError::from(InterpreterError::Expect(
             "Data length should be valid".into()
         )),
         err
@@ -579,7 +579,7 @@ fn test_utf8_data_len_returns_interpreter_error() {
     .len()
     .unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        VmExecutionError::from(InterpreterError::Expect(
             "Data length should be valid".into()
         )),
         err

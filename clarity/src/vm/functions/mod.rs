@@ -20,8 +20,8 @@ use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, EarlyReturnError, Error,
-    InterpreterResult as Result, SyntaxBindingError, SyntaxBindingErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, EarlyReturnError,
+    InterpreterResult as Result, SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -749,7 +749,7 @@ fn special_let(
     let mut memory_use = 0;
 
     finally_drop_memory!( env, memory_use; {
-        handle_binding_list::<_, Error>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
+        handle_binding_list::<_, VmExecutionError>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
             if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
                 env.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {

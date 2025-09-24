@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 
 pub use clarity_types::errors::StackTrace;
 use clarity_types::representations::ClarityName;
+use clarity_types::VmExecutionError;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -605,7 +606,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
         f: F,
     ) -> std::result::Result<(A, AssetMap, Vec<StacksTransactionEvent>), E>
     where
-        E: From<crate::vm::errors::Error>,
+        E: From<VmExecutionError>,
         F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
     {
         assert!(self.context.is_top_level());
@@ -730,29 +731,24 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
 
     #[cfg(any(test, feature = "testing"))]
     pub fn stx_faucet(&mut self, recipient: &PrincipalData, amount: u128) {
-        self.execute_in_env::<_, _, crate::vm::errors::Error>(
-            recipient.clone(),
-            None,
-            None,
-            |env| {
-                let mut snapshot = env
-                    .global_context
-                    .database
-                    .get_stx_balance_snapshot(recipient)
-                    .unwrap();
+        self.execute_in_env::<_, _, VmExecutionError>(recipient.clone(), None, None, |env| {
+            let mut snapshot = env
+                .global_context
+                .database
+                .get_stx_balance_snapshot(recipient)
+                .unwrap();
 
-                snapshot.credit(amount).unwrap();
-                snapshot.save().unwrap();
+            snapshot.credit(amount).unwrap();
+            snapshot.save().unwrap();
 
-                env.global_context
-                    .database
-                    .increment_ustx_liquid_supply(amount)
-                    .unwrap();
+            env.global_context
+                .database
+                .increment_ustx_liquid_supply(amount)
+                .unwrap();
 
-                let res: std::result::Result<(), crate::vm::errors::Error> = Ok(());
-                res
-            },
-        )
+            let res: std::result::Result<(), VmExecutionError> = Ok(());
+            res
+        })
         .unwrap();
     }
 
@@ -1368,7 +1364,7 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
     pub fn run_as_transaction<F, O, E>(&mut self, f: F) -> std::result::Result<O, E>
     where
         F: FnOnce(&mut Self) -> std::result::Result<O, E>,
-        E: From<crate::vm::errors::Error>,
+        E: From<VmExecutionError>,
     {
         self.global_context.begin();
         let result = f(self);
@@ -1649,7 +1645,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
         f: F,
     ) -> std::result::Result<A, E>
     where
-        E: From<crate::vm::errors::Error>,
+        E: From<VmExecutionError>,
         F: FnOnce(&mut Environment) -> std::result::Result<A, E>,
     {
         self.begin();

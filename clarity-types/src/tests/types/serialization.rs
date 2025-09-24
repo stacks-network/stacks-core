@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::io::Write;
 
-use crate::Error;
+use crate::VmExecutionError;
 use crate::errors::{CheckErrorKind, InterpreterError};
 use crate::types::serialization::SerializationError;
 use crate::types::{
@@ -424,7 +424,7 @@ fn test_serialize_to_vec_returns_interpreter_error_consensus_critical() {
     })));
     let err = value.serialize_to_vec().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        VmExecutionError::from(InterpreterError::Expect(
             "IOError filling byte buffer.".into()
         )),
         err.into()
@@ -439,7 +439,7 @@ fn test_serialize_to_hex_returns_interpreter_error_consensus_critical() {
     })));
     let err = value.serialize_to_hex().unwrap_err();
     assert_eq!(
-        Error::from(InterpreterError::Expect(
+        VmExecutionError::from(InterpreterError::Expect(
             "IOError filling byte buffer.".into()
         )),
         err.into()

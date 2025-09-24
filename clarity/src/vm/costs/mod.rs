@@ -19,6 +19,7 @@ use std::{cmp, fmt};
 
 pub use clarity_types::errors::CostErrors;
 pub use clarity_types::execution_cost::{CostOverflowingMath, ExecutionCost};
+use clarity_types::VmExecutionError;
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
@@ -215,7 +216,7 @@ impl DefaultVersion {
         };
         r.map_err(|e| {
             let e = match e {
-                crate::vm::errors::Error::Runtime(RuntimeErrorType::NotImplemented, _) => {
+                VmExecutionError::Runtime(RuntimeErrorType::NotImplemented, _) => {
                     CheckErrorKind::UndefinedFunction(cost_function_ref.function_name.clone())
                         .into()
                 }
