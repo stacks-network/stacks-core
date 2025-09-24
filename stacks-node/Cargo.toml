@@ -45,9 +45,11 @@ warp = "0.3.5"
 tokio = "1.15"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 clarity = { path = "../clarity", features = ["default", "testing"]}
+clarity-cli = { path = "../contrib/clarity-cli", default-features = false }
 stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
 stacks = { package = "stackslib", path = "../stackslib", features = ["default", "testing"] }
 stacks-signer = { path = "../stacks-signer", features = ["testing"] }
+stacks-inspect = { path = "../contrib/stacks-inspect", default-features = false }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 mutants = "0.0.3"

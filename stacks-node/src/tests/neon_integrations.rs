@@ -10,6 +10,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
+use clarity_cli::vm_execute as execute;
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
@@ -36,8 +37,6 @@ use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
     StacksTransaction, TransactionContractCall, TransactionPayload,
 };
-use stacks::clarity_cli::vm_execute as execute;
-use stacks::cli;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MemPoolWalkTxTypes};
@@ -80,6 +79,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
+use stacks_inspect;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -9600,7 +9600,7 @@ fn mock_miner_replay() {
     let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
 
     info!("Replaying mock mined blocks...");
-    cli::command_replay_mock_mining(&args, Some(&conf));
+    stacks_inspect::command_replay_mock_mining(&args, Some(&conf));
 
     // ---------- Test finished, clean up ----------
 

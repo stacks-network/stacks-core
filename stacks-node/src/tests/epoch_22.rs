@@ -3,10 +3,10 @@ use std::{env, thread};
 
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value};
+use clarity_cli::vm_execute as execute;
 use stacks::burnchains::{Burnchain, PoxConstants};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
-use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::{EventKeyType, EventObserverConfig, InitialBalance};
 use stacks::core::test_util::{make_contract_call, make_stacks_transfer_serialized};
 use stacks::core::{self, EpochList, STACKS_EPOCH_MAX};

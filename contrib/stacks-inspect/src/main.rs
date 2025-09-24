@@ -20,6 +20,10 @@ use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::DEFAULT_CLI_EPOCH;
+use stacks_inspect::{
+    command_contract_hash, command_replay_block, command_replay_block_nakamoto,
+    command_replay_mock_mining, command_try_mine, drain_common_opts,
+};
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
@@ -44,6 +48,7 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{env, fs, io, process, thread};
 
+use clarity_cli;
 use libstackerdb::StackerDBChunkData;
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
 use serde_json::{Value, json};
@@ -301,7 +306,7 @@ fn main() {
         process::exit(1);
     }
 
-    let common_opts = stackslib::cli::drain_common_opts(&mut argv, 1);
+    let common_opts = drain_common_opts(&mut argv, 1);
 
     if argv[1] == "--version" {
         println!(
@@ -789,7 +794,7 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "try-mine" {
-        stackslib::cli::command_try_mine(&argv[1..], common_opts.config.as_ref());
+        command_try_mine(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
@@ -1582,17 +1587,17 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "replay-block" {
-        stackslib::cli::command_replay_block(&argv[1..], common_opts.config.as_ref());
+        command_replay_block(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
     if argv[1] == "replay-naka-block" {
-        stackslib::cli::command_replay_block_nakamoto(&argv[1..], common_opts.config.as_ref());
+        command_replay_block_nakamoto(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
     if argv[1] == "replay-mock-mining" {
-        stackslib::cli::command_replay_mock_mining(&argv[1..], common_opts.config.as_ref());
+        command_replay_mock_mining(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
@@ -1601,7 +1606,7 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "contract-hash" {
-        stackslib::cli::command_contract_hash(&argv[1..], common_opts.config.as_ref());
+        command_contract_hash(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 

@@ -9,6 +9,7 @@ clarity = { path = "../../clarity", default-features = false }
 clarity-cli = { path = "../clarity-cli", default-features = false }
 libstackerdb = { path = "../../libstackerdb", default-features = false }
 stacks-common = { path = "../../stacks-common", default-features = false }
+regex = { version = "1", default-features = false }
 rusqlite = { workspace = true }
 serde_json = { workspace = true }
 slog = { workspace = true }
