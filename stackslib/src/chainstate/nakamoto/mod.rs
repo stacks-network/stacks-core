@@ -2734,6 +2734,19 @@ impl NakamotoChainState {
         Ok(result)
     }
 
+    /// Load the total_tenure_size for a Nakamoto header
+    pub fn get_block_header_nakamoto_total_tenure_size(
+        chainstate_conn: &Connection,
+        index_block_hash: &StacksBlockId,
+    ) -> Result<Option<u64>, ChainstateError> {
+        let sql =
+            "SELECT total_tenure_size FROM nakamoto_block_headers WHERE index_block_hash = ?1";
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            "FATAL: multiple rows for the same block hash".to_string()
+        })?;
+        Ok(result)
+    }
+
     /// Load an epoch2 header
     pub fn get_block_header_epoch2(
         chainstate_conn: &Connection,
@@ -3427,17 +3440,19 @@ impl NakamotoChainState {
             marf_values.push(nakamoto_keys::make_tenure_id_value(&block_found_tenure_id));
         } else {
             // if we are here we need to accumulate the parent total tenure size
-            if let Some(parent_header_info) =
-                NakamotoChainState::get_block_header(&headers_tx, &new_tip.parent_block_id)?
+            if let Some(current_total_tenure_size) =
+                NakamotoChainState::get_block_header_nakamoto_total_tenure_size(
+                    &headers_tx,
+                    &new_tip.parent_block_id,
+                )?
             {
-                total_tenure_size =
-                    match total_tenure_size.checked_add(parent_header_info.total_tenure_size) {
-                        Some(total_tenure_size) => total_tenure_size,
-                        // in the extremely improbable case of overflow, just throw the tenure too big error
-                        None => {
-                            return Err(ChainstateError::TenureTooBigError);
-                        }
-                    };
+                total_tenure_size = match total_tenure_size.checked_add(current_total_tenure_size) {
+                    Some(total_tenure_size) => total_tenure_size,
+                    // in the extremely improbable case of overflow, just throw the tenure too big error
+                    None => {
+                        return Err(ChainstateError::TenureTooBigError);
+                    }
+                };
             }
         }
 
