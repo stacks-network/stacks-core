@@ -61,14 +61,6 @@ madhouse = { git = "https://github.com/stacks-network/madhouse-rs.git", tag = "0
 proptest = "1.6.*"
 stdext = "0.3.1"
 
-[[bin]]
-name = "stacks-node"
-path = "src/main.rs"
-
-[[bin]]
-name = "stacks-events"
-path = "src/stacks_events.rs"
-
 [features]
 monitoring_prom = ["stacks/monitoring_prom", "async-h1", "async-std", "http-types"]
 slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
