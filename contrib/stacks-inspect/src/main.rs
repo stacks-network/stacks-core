@@ -48,7 +48,6 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant};
 use std::{env, fs, io, process, thread};
 
-use clarity_cli;
 use libstackerdb::StackerDBChunkData;
 use rusqlite::{Connection, Error as SqliteError, OpenFlags, params};
 use serde_json::{Value, json};
