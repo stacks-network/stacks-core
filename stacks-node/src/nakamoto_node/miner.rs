@@ -1661,6 +1661,9 @@ impl BlockMinerThread {
                 }
             }
         };
+
+        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
+
         // Check if we can and should include a time-based tenure extend.
         if self.last_block_mined.is_some() {
             if self.config.miner.replay_transactions
@@ -1685,27 +1688,47 @@ impl BlockMinerThread {
                     });
                 }
 
-                let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
-                if get_epoch_time_secs() <= tenure_extend_timestamp
-                    && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
+                let mut tenure_extended = false;
+
+                if let Some(total_tenure_size) =
+                    NakamotoChainState::get_block_header_nakamoto_total_tenure_size(
+                        chainstate.db(),
+                        &parent_block_id,
+                    )
+                    .unwrap()
                 {
-                    return Ok(NakamotoTenureInfo {
-                        coinbase_tx: None,
-                        tenure_change_tx: None,
-                    });
+                    if total_tenure_size > self.config.miner.max_tenure_bytes / 2 {
+                        info!("Miner: Size-based tenure extend";
+                            "current_timestamp" => get_epoch_time_secs(),
+                            "total_tenure_size" => total_tenure_size,
+                        );
+                        self.tenure_extend_reset();
+                        tenure_extended = true;
+                    }
                 }
 
-                info!("Miner: Time-based tenure extend";
-                    "current_timestamp" => get_epoch_time_secs(),
-                    "tenure_extend_timestamp" => tenure_extend_timestamp,
-                    "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
-                    "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
-                );
-                self.tenure_extend_reset();
+                if !tenure_extended {
+                    let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
+                    if get_epoch_time_secs() <= tenure_extend_timestamp
+                        && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
+                    {
+                        return Ok(NakamotoTenureInfo {
+                            coinbase_tx: None,
+                            tenure_change_tx: None,
+                        });
+                    }
+
+                    info!("Miner: Time-based tenure extend";
+                        "current_timestamp" => get_epoch_time_secs(),
+                        "tenure_extend_timestamp" => tenure_extend_timestamp,
+                        "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
+                        "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
+                    );
+                    self.tenure_extend_reset();
+                }
             }
         }
 
-        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let mut payload = TenureChangePayload {
             tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
             prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash.clone(),
