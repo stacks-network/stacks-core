@@ -31,8 +31,7 @@ fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
     let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
 
-    let mut request =
-        StacksHttpRequest::new_block_replay(addr.into(), &StacksBlockId([0x01; 32]));
+    let mut request = StacksHttpRequest::new_block_replay(addr.into(), &StacksBlockId([0x01; 32]));
 
     // add the authorization header
     request.add_header("authorization".into(), "password".into());

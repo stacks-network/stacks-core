@@ -27,7 +27,7 @@ use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::net::http::{
@@ -204,32 +204,8 @@ impl RPCNakamotoBlockReplayRequestHandler {
             valid_merkle_root: tx_merkle_root == replayed_block.header.tx_merkle_root,
         };
 
-        for receipt in txs_receipts {
-            let events = receipt
-                .events
-                .iter()
-                .enumerate()
-                .map(|(event_index, event)| {
-                    event
-                        .json_serialize(event_index, &receipt.transaction.txid(), true)
-                        .unwrap()
-                })
-                .collect();
-            let transaction_data = match &receipt.transaction {
-                TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
-                TransactionOrigin::Burn(_) => None,
-            };
-            let txid = receipt.transaction.txid();
-            let transaction = RPCReplayedBlockTransaction {
-                txid,
-                tx_index: receipt.tx_index,
-                data: transaction_data,
-                hex: receipt.transaction.serialize_to_dbstring(),
-                result: receipt.result,
-                stx_burned: receipt.stx_burned,
-                execution_cost: receipt.execution_cost,
-                events,
-            };
+        for receipt in &txs_receipts {
+            let transaction = RPCReplayedBlockTransaction::from_receipt(receipt);
             replayed_block.transactions.push(transaction);
         }
 
@@ -255,6 +231,39 @@ pub struct RPCReplayedBlockTransaction {
     pub execution_cost: ExecutionCost,
     /// generated events
     pub events: Vec<serde_json::Value>,
+}
+
+impl RPCReplayedBlockTransaction {
+    pub fn from_receipt(receipt: &StacksTransactionReceipt) -> Self {
+        let events = receipt
+            .events
+            .iter()
+            .enumerate()
+            .map(|(event_index, event)| {
+                event
+                    .json_serialize(event_index, &receipt.transaction.txid(), true)
+                    .unwrap()
+            })
+            .collect();
+
+        let transaction_data = match &receipt.transaction {
+            TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
+            TransactionOrigin::Burn(_) => None,
+        };
+
+        let txid = receipt.transaction.txid();
+
+        Self {
+            txid,
+            tx_index: receipt.tx_index,
+            data: transaction_data,
+            hex: receipt.transaction.serialize_to_dbstring(),
+            result: receipt.result.clone(),
+            stx_burned: receipt.stx_burned,
+            execution_cost: receipt.execution_cost.clone(),
+            events,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
