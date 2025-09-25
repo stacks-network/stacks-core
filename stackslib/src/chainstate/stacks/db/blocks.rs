@@ -19,11 +19,12 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{cmp, fs, io};
 
-pub use clarity::vm::analysis::errors::{CheckError, CheckErrors};
+pub use clarity::vm::analysis::errors::{CheckErrorKind, StaticCheckError};
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{
     BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
     StacksAddressExtensions as ClarityStacksAddressExtensions, StandardPrincipalData, TupleData,
@@ -110,7 +111,7 @@ pub enum MemPoolRejection {
     NotEnoughFunds(u128, u128),
     NoSuchContract,
     NoSuchPublicFunction,
-    BadFunctionArgument(CheckError),
+    BadFunctionArgument(StaticCheckError),
     ContractAlreadyExists(QualifiedContractIdentifier),
     PoisonMicroblocksDoNotConflict,
     NoAnchorBlockWithPubkeyHash(Hash160),
@@ -307,8 +308,8 @@ impl From<db_error> for MemPoolRejection {
     }
 }
 
-impl From<clarity::vm::errors::Error> for MemPoolRejection {
-    fn from(e: clarity::vm::errors::Error) -> MemPoolRejection {
+impl From<VmExecutionError> for MemPoolRejection {
+    fn from(e: VmExecutionError) -> MemPoolRejection {
         MemPoolRejection::Other(e.to_string())
     }
 }
@@ -3929,7 +3930,7 @@ impl StacksChainState {
     ) -> Result<(bool, Vec<StacksTransactionReceipt>), Error> {
         // is this stacks block the first of a new epoch?
         let (stacks_parent_epoch, sortition_epoch) = clarity_tx
-            .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(|db| {
+            .with_clarity_db_readonly::<_, Result<_, VmExecutionError>>(|db| {
                 Ok((
                     db.get_clarity_epoch_version()?,
                     db.get_stacks_epoch(chain_tip_burn_header_height),
@@ -6628,17 +6629,16 @@ impl StacksChainState {
         }
 
         let (block_height, v1_unlock_height, v2_unlock_height, v3_unlock_height) =
-            clarity_connection
-                .with_clarity_db_readonly::<_, Result<_, clarity::vm::errors::Error>>(
-                    |ref mut db| {
-                        Ok((
-                            db.get_current_burnchain_block_height()? as u64,
-                            db.get_v1_unlock_height(),
-                            db.get_v2_unlock_height()?,
-                            db.get_v3_unlock_height()?,
-                        ))
-                    },
-                )?;
+            clarity_connection.with_clarity_db_readonly::<_, Result<_, VmExecutionError>>(
+                |ref mut db| {
+                    Ok((
+                        db.get_current_burnchain_block_height()? as u64,
+                        db.get_v1_unlock_height(),
+                        db.get_v2_unlock_height()?,
+                        db.get_v3_unlock_height()?,
+                    ))
+                },
+            )?;
 
         // 6: the paying account must have enough funds
         if !payer.stx_balance.can_transfer_at_burn_block(

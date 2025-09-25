@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::mem;
 
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::{ast_check_size, ASTRules};
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
@@ -1845,8 +1845,8 @@ impl Relayer {
                 match ast_res {
                     Ok(_) => {}
                     Err(parse_error) => match *parse_error.err {
-                        ParseErrors::ExpressionStackDepthTooDeep
-                        | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                        ParseErrorKind::ExpressionStackDepthTooDeep
+                        | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
                             // don't include this block
                             info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
                             return Err(Error::ClarityError(parse_error.into()));
@@ -3307,8 +3307,7 @@ impl PeerNetwork {
         recipient: &NeighborKey,
         available: &BlocksAvailableMap,
         msg_builder: S,
-    ) -> Result<(), net_error>
-    where
+    ) where
         S: FnMut(BlocksAvailableData) -> StacksMessageType,
     {
         let mut wanted: Vec<(ConsensusHash, BurnchainHeaderHash)> = vec![];
@@ -3317,7 +3316,6 @@ impl PeerNetwork {
         }
 
         self.advertize_to_peer(recipient, &wanted, msg_builder);
-        Ok(())
     }
 
     /// Announce blocks that we have to a subset of inbound and outbound peers.
@@ -3367,7 +3365,7 @@ impl PeerNetwork {
             );
             self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| {
                 StacksMessageType::BlocksAvailable(payload)
-            })?;
+            });
         }
         Ok((num_inbound, num_outbound))
     }
@@ -3412,7 +3410,7 @@ impl PeerNetwork {
             );
             self.advertize_to_inbound_peer(&recipient, &availability_data, |payload| {
                 StacksMessageType::MicroblocksAvailable(payload)
-            })?;
+            });
         }
         Ok((num_inbound, num_outbound))
     }

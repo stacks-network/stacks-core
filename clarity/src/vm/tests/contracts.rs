@@ -26,8 +26,8 @@ use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value};
 #[cfg(test)]
 use crate::vm::{
-    ast::{errors::ParseErrors, ASTRules},
-    errors::{CheckErrors, Error, RuntimeErrorType},
+    ast::{errors::ParseErrorKind, ASTRules},
+    errors::{CheckErrorKind, RuntimeError, VmExecutionError},
     tests::{
         env_factory, execute, is_committed, is_err_code_i128 as is_err_code, symbols_from_values,
         tl_env_factory, MemoryEnvironmentGenerator, TopLevelMemoryEnvironmentGenerator,
@@ -114,12 +114,12 @@ fn test_get_block_info_eval(
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),
-        Err(CheckErrors::TypeValueError(
+        Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(Value::Int(-1)),
         )
         .into()),
-        Err(CheckErrors::TypeValueError(
+        Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::UIntType),
             Box::new(Value::Bool(true)),
         )
@@ -972,7 +972,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        Error::Unchecked(CheckErrors::NoSuchPublicFunction(_, _))
+        VmExecutionError::Unchecked(CheckErrorKind::NoSuchPublicFunction(_, _))
     ));
 
     let err_result = env
@@ -985,7 +985,7 @@ fn test_factorial_contract(epoch: StacksEpochId, mut env_factory: MemoryEnvironm
         .unwrap_err();
     assert!(matches!(
         err_result,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
     ));
 }
 
@@ -1008,11 +1008,9 @@ fn test_at_unknown_block(
         .unwrap_err();
     eprintln!("{err}");
     match err {
-        Error::Runtime(x, _) => assert_eq!(
+        VmExecutionError::Runtime(x, _) => assert_eq!(
             x,
-            RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
-                vec![2_u8; 32].as_slice()
-            ))
+            RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(vec![2_u8; 32].as_slice()))
         ),
         _ => panic!("Unexpected error"),
     }
@@ -1051,8 +1049,8 @@ fn test_ast_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeErrorType::ASTError(Box::new(
-            ParseErrors::VaryExpressionStackDepthTooDeep.into(),
+        RuntimeError::ASTError(Box::new(
+            ParseErrorKind::VaryExpressionStackDepthTooDeep.into(),
         ))
         .into()
     );
@@ -1074,7 +1072,7 @@ fn test_arg_stack_depth() {
                       ";
     assert_eq!(
         vm_execute(program).unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 
@@ -1111,7 +1109,7 @@ fn test_cc_stack_depth(
     assert_eq!(
         env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
             .unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 
@@ -1152,7 +1150,7 @@ fn test_cc_trait_stack_depth(
     assert_eq!(
         env.initialize_contract(contract_identifier, contract_two, ASTRules::PrecheckSize)
             .unwrap_err(),
-        RuntimeErrorType::MaxStackDepthReached.into()
+        RuntimeError::MaxStackDepthReached.into()
     );
 }
 
@@ -1180,7 +1178,7 @@ fn test_eval_with_non_existing_contract(
     );
     assert_eq!(
         result.as_ref().unwrap_err(),
-        &Error::Unchecked(CheckErrors::NoSuchContract(
+        &VmExecutionError::Unchecked(CheckErrorKind::NoSuchContract(
             QualifiedContractIdentifier::local("absent")
                 .unwrap()
                 .to_string()
@@ -1382,7 +1380,7 @@ fn test_contract_hash_type_check(
         .unwrap_err();
     assert_eq!(
         err,
-        Error::Unchecked(CheckErrors::ExpectedContractPrincipalValue(Box::new(
+        VmExecutionError::Unchecked(CheckErrorKind::ExpectedContractPrincipalValue(Box::new(
             Value::UInt(123)
         )))
     );
@@ -1440,6 +1438,8 @@ fn test_contract_hash_pre_clarity4(
 
     assert_eq!(
         err,
-        Error::Unchecked(CheckErrors::UndefinedFunction("contract-hash?".to_string()))
+        VmExecutionError::Unchecked(CheckErrorKind::UndefinedFunction(
+            "contract-hash?".to_string()
+        ))
     );
 }

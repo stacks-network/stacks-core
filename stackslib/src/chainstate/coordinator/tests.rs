@@ -23,7 +23,7 @@ use std::sync::Arc;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use lazy_static::lazy_static;
@@ -4834,7 +4834,7 @@ fn get_total_stacked_info(
     parent_tip: &StacksBlockId,
     reward_cycle: u64,
     is_pox_2: bool,
-) -> Result<u128, InterpreterError> {
+) -> Result<u128, VmExecutionError> {
     chainstate
         .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
             conn.with_readonly_clarity_env(

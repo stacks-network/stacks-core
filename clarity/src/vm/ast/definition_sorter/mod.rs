@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use clarity_types::representations::ClarityName;
 
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::types::ContractAST;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker};
@@ -87,7 +87,7 @@ impl DefinitionSorter {
         )?;
 
         let mut walker = GraphWalker::new();
-        let sorted_indexes = walker.get_sorted_dependencies(&self.graph)?;
+        let sorted_indexes = walker.get_sorted_dependencies(&self.graph);
 
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
             let functions_names = deps
@@ -99,7 +99,7 @@ impl DefinitionSorter {
                 .map(|i| i.0.to_string())
                 .collect::<Vec<_>>();
 
-            let error = ParseError::new(ParseErrors::CircularReference(functions_names));
+            let error = ParseError::new(ParseErrorKind::CircularReference(functions_names));
             return Err(error);
         }
 
@@ -421,7 +421,7 @@ impl Graph {
         let list = self
             .adjacency_list
             .get_mut(src_expr_index)
-            .ok_or(ParseErrors::InterpreterFailure)?;
+            .ok_or(ParseErrorKind::InterpreterFailure)?;
         list.push(dst_expr_index);
         Ok(())
     }
@@ -443,7 +443,7 @@ impl Graph {
         for node in self.adjacency_list.iter() {
             total = total
                 .checked_add(node.len() as u64)
-                .ok_or(ParseErrors::CostOverflow)?;
+                .ok_or(ParseErrorKind::CostOverflow)?;
         }
         Ok(total)
     }
@@ -461,13 +461,12 @@ impl GraphWalker {
     }
 
     /// Depth-first search producing a post-order sort
-    fn get_sorted_dependencies(&mut self, graph: &Graph) -> ParseResult<Vec<usize>> {
+    fn get_sorted_dependencies(&mut self, graph: &Graph) -> Vec<usize> {
         let mut sorted_indexes = Vec::<usize>::new();
         for expr_index in 0..graph.nodes_count() {
             self.sort_dependencies_recursion(expr_index, graph, &mut sorted_indexes);
         }
-
-        Ok(sorted_indexes)
+        sorted_indexes
     }
 
     fn sort_dependencies_recursion(

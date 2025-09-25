@@ -37,7 +37,7 @@ pub use self::signatures::{
     ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
     TypeSignature,
 };
-use crate::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
+use crate::errors::{CheckErrorKind, InterpreterResult as Result, RuntimeError, VmInternalError};
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 // use crate::vm::ClarityVersion;
 
@@ -81,9 +81,9 @@ impl StandardPrincipalData {
 }
 
 impl StandardPrincipalData {
-    pub fn new(version: u8, bytes: [u8; 20]) -> std::result::Result<Self, InterpreterError> {
+    pub fn new(version: u8, bytes: [u8; 20]) -> std::result::Result<Self, VmInternalError> {
         if version >= 32 {
-            return Err(InterpreterError::Expect("Unexpected principal data".into()));
+            return Err(VmInternalError::Expect("Unexpected principal data".into()));
         }
         Ok(Self(version, bytes))
     }
@@ -187,7 +187,7 @@ impl QualifiedContractIdentifier {
     pub fn parse(literal: &str) -> Result<QualifiedContractIdentifier> {
         let split: Vec<_> = literal.splitn(2, '.').collect();
         if split.len() != 2 {
-            return Err(RuntimeErrorType::ParseError(
+            return Err(RuntimeError::TypeParseFailure(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
                     .to_string(),
             )
@@ -275,7 +275,7 @@ impl TraitIdentifier {
 
     pub fn parse_fully_qualified(literal: &str) -> Result<TraitIdentifier> {
         let (issuer, contract_name, name) = Self::parse(literal)?;
-        let issuer = issuer.ok_or(RuntimeErrorType::BadTypeConstruction)?;
+        let issuer = issuer.ok_or(RuntimeError::BadTypeConstruction)?;
         Ok(TraitIdentifier::new(issuer, contract_name, name))
     }
 
@@ -289,7 +289,7 @@ impl TraitIdentifier {
     ) -> Result<(Option<StandardPrincipalData>, ContractName, ClarityName)> {
         let split: Vec<_> = literal.splitn(3, '.').collect();
         if split.len() != 3 {
-            return Err(RuntimeErrorType::ParseError(
+            return Err(RuntimeError::TypeParseFailure(
                 "Invalid principal literal: expected a `.` in a qualified contract name"
                     .to_string(),
             )
@@ -372,7 +372,7 @@ impl SequenceData {
             SequenceData::List(mut data) => data.data.remove(index),
             SequenceData::String(CharType::ASCII(data)) => {
                 Value::string_ascii_from_bytes(vec![data.data[index]]).map_err(|_| {
-                    InterpreterError::Expect(
+                    VmInternalError::Expect(
                         "BUG: failed to initialize single-byte ASCII buffer".into(),
                     )
                 })?
@@ -396,14 +396,14 @@ impl SequenceData {
             if let Value::Sequence(data) = &element {
                 let elem_length = data.len();
                 if elem_length != 1 {
-                    return Err(RuntimeErrorType::BadTypeConstruction.into());
+                    return Err(RuntimeError::BadTypeConstruction.into());
                 }
             } else {
-                return Err(RuntimeErrorType::BadTypeConstruction.into());
+                return Err(RuntimeError::BadTypeConstruction.into());
             }
         }
         if index >= seq_length {
-            return Err(CheckErrors::ValueOutOfBounds.into());
+            return Err(CheckErrorKind::ValueOutOfBounds.into());
         }
 
         let new_seq_data = match (self, element) {
@@ -414,7 +414,7 @@ impl SequenceData {
             (SequenceData::List(mut data), elem) => {
                 let entry_type = data.type_signature.get_list_item_type();
                 if !entry_type.admits(epoch, &elem)? {
-                    return Err(CheckErrors::ListTypesMustMatch.into());
+                    return Err(CheckErrorKind::ListTypesMustMatch.into());
                 }
                 data.data[index] = elem;
                 SequenceData::List(data)
@@ -433,7 +433,7 @@ impl SequenceData {
                 data.data[index] = elem.data.swap_remove(0);
                 SequenceData::String(CharType::UTF8(data))
             }
-            _ => return Err(CheckErrors::ListTypesMustMatch.into()),
+            _ => return Err(CheckErrorKind::ListTypesMustMatch.into()),
         };
 
         Value::some(Value::Sequence(new_seq_data))
@@ -454,7 +454,7 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(CheckErrors::TypeValueError(
+                    Err(CheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::min_buffer()?),
                         Box::new(to_find),
                     )
@@ -483,7 +483,7 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(CheckErrors::TypeValueError(
+                    Err(CheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::min_string_ascii()?),
                         Box::new(to_find),
                     )
@@ -504,7 +504,7 @@ impl SequenceData {
                         Ok(None)
                     }
                 } else {
-                    Err(CheckErrors::TypeValueError(
+                    Err(CheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::min_string_utf8()?),
                         Box::new(to_find),
                     )
@@ -560,10 +560,10 @@ impl SequenceData {
     pub fn concat(&mut self, epoch: &StacksEpochId, other_seq: SequenceData) -> Result<()> {
         match (self, other_seq) {
             (SequenceData::List(inner_data), SequenceData::List(other_inner_data)) => {
-                inner_data.append(epoch, other_inner_data)
+                inner_data.append(epoch, other_inner_data)?;
             }
             (SequenceData::Buffer(inner_data), SequenceData::Buffer(ref mut other_inner_data)) => {
-                inner_data.append(other_inner_data)
+                inner_data.append(other_inner_data);
             }
             (
                 SequenceData::String(CharType::ASCII(inner_data)),
@@ -573,8 +573,8 @@ impl SequenceData {
                 SequenceData::String(CharType::UTF8(inner_data)),
                 SequenceData::String(CharType::UTF8(ref mut other_inner_data)),
             ) => inner_data.append(other_inner_data),
-            _ => Err(RuntimeErrorType::BadTypeConstruction.into()),
-        }?;
+            _ => return Err(RuntimeError::BadTypeConstruction.into()),
+        };
         Ok(())
     }
 
@@ -691,7 +691,7 @@ impl fmt::Display for UTF8Data {
 }
 
 pub trait SequencedValue<T> {
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors>;
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind>;
 
     fn items(&self) -> &Vec<T>;
 
@@ -716,7 +716,7 @@ impl SequencedValue<Value> for ListData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
         Ok(TypeSignature::SequenceType(SequenceSubtype::ListType(
             self.type_signature.clone(),
         )))
@@ -736,9 +736,9 @@ impl SequencedValue<u8> for BuffData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
         let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
-            CheckErrors::Expects("ERROR: Too large of a buffer successfully constructed.".into())
+            CheckErrorKind::Expects("ERROR: Too large of a buffer successfully constructed.".into())
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::BufferType(
             buff_length,
@@ -759,9 +759,9 @@ impl SequencedValue<u8> for ASCIIData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
         let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
-            CheckErrors::Expects("ERROR: Too large of a buffer successfully constructed.".into())
+            CheckErrorKind::Expects("ERROR: Too large of a buffer successfully constructed.".into())
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(buff_length),
@@ -770,7 +770,7 @@ impl SequencedValue<u8> for ASCIIData {
 
     fn to_value(v: &u8) -> Result<Value> {
         Value::string_ascii_from_bytes(vec![*v]).map_err(|_| {
-            InterpreterError::Expect("ERROR: Invalid ASCII string successfully constructed".into())
+            VmInternalError::Expect("ERROR: Invalid ASCII string successfully constructed".into())
                 .into()
         })
     }
@@ -785,9 +785,9 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
         let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
-            CheckErrors::Expects("ERROR: Too large of a buffer successfully constructed.".into())
+            CheckErrorKind::Expects("ERROR: Too large of a buffer successfully constructed.".into())
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(str_len),
@@ -796,26 +796,26 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
 
     fn to_value(v: &Vec<u8>) -> Result<Value> {
         Value::string_utf8_from_bytes(v.clone()).map_err(|_| {
-            InterpreterError::Expect("ERROR: Invalid UTF8 string successfully constructed".into())
+            VmInternalError::Expect("ERROR: Invalid UTF8 string successfully constructed".into())
                 .into()
         })
     }
 }
 
 impl OptionalData {
-    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
+    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
         let type_result = match self.data {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(v)?),
             None => TypeSignature::new_option(TypeSignature::NoType),
         };
         type_result.map_err(|_| {
-            CheckErrors::Expects("Should not have constructed too large of a type.".into())
+            CheckErrorKind::Expects("Should not have constructed too large of a type.".into())
         })
     }
 }
 
 impl ResponseData {
-    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrors> {
+    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
         let type_result = match self.committed {
             true => TypeSignature::new_response(
                 TypeSignature::type_of(&self.data)?,
@@ -827,7 +827,7 @@ impl ResponseData {
             ),
         };
         type_result.map_err(|_| {
-            CheckErrors::Expects("Should not have constructed too large of a type.".into())
+            CheckErrorKind::Expects("Should not have constructed too large of a type.".into())
         })
     }
 }
@@ -849,9 +849,9 @@ pub const NONE: Value = Value::Optional(OptionalData { data: None });
 impl Value {
     pub fn some(data: Value) -> Result<Value> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge.into())
+            Err(CheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(CheckErrors::TypeSignatureTooDeep.into())
+            Err(CheckErrorKind::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Optional(OptionalData {
                 data: Some(Box::new(data)),
@@ -886,9 +886,9 @@ impl Value {
 
     pub fn okay(data: Value) -> Result<Value> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge.into())
+            Err(CheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(CheckErrors::TypeSignatureTooDeep.into())
+            Err(CheckErrorKind::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Response(ResponseData {
                 committed: true,
@@ -899,9 +899,9 @@ impl Value {
 
     pub fn error(data: Value) -> Result<Value> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge.into())
+            Err(CheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
-            Err(CheckErrors::TypeSignatureTooDeep.into())
+            Err(CheckErrorKind::TypeSignatureTooDeep.into())
         } else {
             Ok(Value::Response(ResponseData {
                 committed: false,
@@ -930,7 +930,7 @@ impl Value {
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         //   so we do not need to perform that check here.
         if (expected_type.get_max_len() as usize) < list_data.len() {
-            return Err(InterpreterError::FailureConstructingListWithType.into());
+            return Err(VmInternalError::FailureConstructingListWithType.into());
         }
 
         {
@@ -938,7 +938,7 @@ impl Value {
 
             for item in &list_data {
                 if !expected_item_type.admits(epoch, item)? {
-                    return Err(InterpreterError::FailureConstructingListWithType.into());
+                    return Err(VmInternalError::FailureConstructingListWithType.into());
                 }
             }
         }
@@ -977,7 +977,7 @@ impl Value {
                     .map(|(value, _did_sanitize)| value)
             })
             .collect();
-        let list_data = list_data_opt.ok_or_else(|| CheckErrors::ListTypesMustMatch)?;
+        let list_data = list_data_opt.ok_or_else(|| CheckErrorKind::ListTypesMustMatch)?;
         Ok(Value::Sequence(SequenceData::List(ListData {
             data: list_data,
             type_signature: type_sig,
@@ -985,7 +985,7 @@ impl Value {
     }
 
     /// # Errors
-    /// - CheckErrors::ValueTooLarge if `buff_data` is too large.
+    /// - CheckErrorKind::ValueTooLarge if `buff_data` is too large.
     pub fn buff_from(buff_data: Vec<u8>) -> Result<Value> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;
@@ -1005,7 +1005,7 @@ impl Value {
 
         for b in bytes.iter() {
             if !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace() {
-                return Err(CheckErrors::InvalidCharactersDetected.into());
+                return Err(CheckErrorKind::InvalidCharactersDetected.into());
             }
         }
         // construct the string
@@ -1016,7 +1016,7 @@ impl Value {
 
     pub fn string_utf8_from_string_utf8_literal(tokenized_str: String) -> Result<Value> {
         let wrapped_codepoints_matcher = Regex::new("^\\\\u\\{(?P<value>[[:xdigit:]]+)\\}")
-            .map_err(|_| InterpreterError::Expect("Bad regex".into()))?;
+            .map_err(|_| VmInternalError::Expect("Bad regex".into()))?;
         let mut window = tokenized_str.as_str();
         let mut cursor = 0;
         let mut data: Vec<Vec<u8>> = vec![];
@@ -1024,12 +1024,12 @@ impl Value {
             if let Some(captures) = wrapped_codepoints_matcher.captures(window) {
                 let matched = captures
                     .name("value")
-                    .ok_or_else(|| InterpreterError::Expect("Expected capture".into()))?;
+                    .ok_or_else(|| VmInternalError::Expect("Expected capture".into()))?;
                 let scalar_value = window[matched.start()..matched.end()].to_string();
                 let unicode_char = {
                     let u = u32::from_str_radix(&scalar_value, 16)
-                        .map_err(|_| CheckErrors::InvalidUTF8Encoding)?;
-                    let c = char::from_u32(u).ok_or_else(|| CheckErrors::InvalidUTF8Encoding)?;
+                        .map_err(|_| CheckErrorKind::InvalidUTF8Encoding)?;
+                    let c = char::from_u32(u).ok_or_else(|| CheckErrorKind::InvalidUTF8Encoding)?;
                     let mut encoded_char: Vec<u8> = vec![0; c.len_utf8()];
                     c.encode_utf8(&mut encoded_char[..]);
                     encoded_char
@@ -1056,7 +1056,7 @@ impl Value {
     pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value> {
         let validated_utf8_str = match str::from_utf8(&bytes) {
             Ok(string) => string,
-            _ => return Err(CheckErrors::InvalidCharactersDetected.into()),
+            _ => return Err(CheckErrorKind::InvalidCharactersDetected.into()),
         };
         let data = validated_utf8_str
             .chars()
@@ -1077,10 +1077,10 @@ impl Value {
     pub fn expect_ascii(self) -> Result<String> {
         if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
             Ok(String::from_utf8(data)
-                .map_err(|_| InterpreterError::Expect("Non UTF-8 data in string".into()))?)
+                .map_err(|_| VmInternalError::Expect("Non UTF-8 data in string".into()))?)
         } else {
             error!("Value '{self:?}' is not an ASCII string");
-            Err(InterpreterError::Expect("Expected ASCII string".into()).into())
+            Err(VmInternalError::Expect("Expected ASCII string".into()).into())
         }
     }
 
@@ -1089,7 +1089,7 @@ impl Value {
             Ok(inner)
         } else {
             error!("Value '{self:?}' is not a u128");
-            Err(InterpreterError::Expect("Expected u128".into()).into())
+            Err(VmInternalError::Expect("Expected u128".into()).into())
         }
     }
 
@@ -1098,7 +1098,7 @@ impl Value {
             Ok(inner)
         } else {
             error!("Value '{self:?}' is not an i128");
-            Err(InterpreterError::Expect("Expected i128".into()).into())
+            Err(VmInternalError::Expect("Expected i128".into()).into())
         }
     }
 
@@ -1111,11 +1111,11 @@ impl Value {
                     "Value buffer has len {}, expected {sz}",
                     buffdata.data.len()
                 );
-                Err(InterpreterError::Expect("Unexpected buff length".into()).into())
+                Err(VmInternalError::Expect("Unexpected buff length".into()).into())
             }
         } else {
             error!("Value '{self:?}' is not a buff");
-            Err(InterpreterError::Expect("Expected buff".into()).into())
+            Err(VmInternalError::Expect("Expected buff".into()).into())
         }
     }
 
@@ -1124,7 +1124,7 @@ impl Value {
             Ok(listdata.data)
         } else {
             error!("Value '{self:?}' is not a list");
-            Err(InterpreterError::Expect("Expected list".into()).into())
+            Err(VmInternalError::Expect("Expected list".into()).into())
         }
     }
 
@@ -1143,7 +1143,7 @@ impl Value {
             Ok(b)
         } else {
             error!("Value '{self:?}' is not a bool");
-            Err(InterpreterError::Expect("Expected bool".into()).into())
+            Err(VmInternalError::Expect("Expected bool".into()).into())
         }
     }
 
@@ -1152,7 +1152,7 @@ impl Value {
             Ok(data)
         } else {
             error!("Value '{self:?}' is not a tuple");
-            Err(InterpreterError::Expect("Expected tuple".into()).into())
+            Err(VmInternalError::Expect("Expected tuple".into()).into())
         }
     }
 
@@ -1164,7 +1164,7 @@ impl Value {
             }
         } else {
             error!("Value '{self:?}' is not an optional");
-            Err(InterpreterError::Expect("Expected optional".into()).into())
+            Err(VmInternalError::Expect("Expected optional".into()).into())
         }
     }
 
@@ -1173,7 +1173,7 @@ impl Value {
             Ok(p)
         } else {
             error!("Value '{self:?}' is not a principal");
-            Err(InterpreterError::Expect("Expected principal".into()).into())
+            Err(VmInternalError::Expect("Expected principal".into()).into())
         }
     }
 
@@ -1182,7 +1182,7 @@ impl Value {
             Ok(t)
         } else {
             error!("Value '{self:?}' is not a callable contract");
-            Err(InterpreterError::Expect("Expected callable".into()).into())
+            Err(VmInternalError::Expect("Expected callable".into()).into())
         }
     }
 
@@ -1195,7 +1195,7 @@ impl Value {
             }
         } else {
             error!("Value '{self:?}' is not a response");
-            Err(InterpreterError::Expect("Expected response".into()).into())
+            Err(VmInternalError::Expect("Expected response".into()).into())
         }
     }
 
@@ -1205,11 +1205,11 @@ impl Value {
                 Ok(*res_data.data)
             } else {
                 error!("Value is not a (ok ..)");
-                Err(InterpreterError::Expect("Expected ok response".into()).into())
+                Err(VmInternalError::Expect("Expected ok response".into()).into())
             }
         } else {
             error!("Value '{self:?}' is not a response");
-            Err(InterpreterError::Expect("Expected response".into()).into())
+            Err(VmInternalError::Expect("Expected response".into()).into())
         }
     }
 
@@ -1219,11 +1219,11 @@ impl Value {
                 Ok(*res_data.data)
             } else {
                 error!("Value is not a (err ..)");
-                Err(InterpreterError::Expect("Expected err response".into()).into())
+                Err(VmInternalError::Expect("Expected err response".into()).into())
             }
         } else {
             error!("Value '{self:?}' is not a response");
-            Err(InterpreterError::Expect("Expected response".into()).into())
+            Err(VmInternalError::Expect("Expected response".into()).into())
         }
     }
 }
@@ -1233,16 +1233,15 @@ impl BuffData {
         self.data
             .len()
             .try_into()
-            .map_err(|_| InterpreterError::Expect("Data length should be valid".into()).into())
+            .map_err(|_| VmInternalError::Expect("Data length should be valid".into()).into())
     }
 
     pub fn as_slice(&self) -> &[u8] {
         self.data.as_slice()
     }
 
-    fn append(&mut self, other_seq: &mut BuffData) -> Result<()> {
+    fn append(&mut self, other_seq: &mut BuffData) {
         self.data.append(&mut other_seq.data);
-        Ok(())
     }
 
     pub fn empty() -> Self {
@@ -1255,7 +1254,7 @@ impl ListData {
         self.data
             .len()
             .try_into()
-            .map_err(|_| InterpreterError::Expect("Data length should be valid".into()).into())
+            .map_err(|_| VmInternalError::Expect("Data length should be valid".into()).into())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1269,7 +1268,7 @@ impl ListData {
         let max_len = self.type_signature.get_max_len() + other_seq.type_signature.get_max_len();
         for item in other_seq.data.into_iter() {
             let (item, _) = Value::sanitize_value(epoch, &entry_type, item)
-                .ok_or_else(|| CheckErrors::ListTypesMustMatch)?;
+                .ok_or_else(|| CheckErrorKind::ListTypesMustMatch)?;
             self.data.push(item);
         }
 
@@ -1279,30 +1278,28 @@ impl ListData {
 }
 
 impl ASCIIData {
-    fn append(&mut self, other_seq: &mut ASCIIData) -> Result<()> {
+    fn append(&mut self, other_seq: &mut ASCIIData) {
         self.data.append(&mut other_seq.data);
-        Ok(())
     }
 
     pub fn len(&self) -> Result<BufferLength> {
         self.data
             .len()
             .try_into()
-            .map_err(|_| InterpreterError::Expect("Data length should be valid".into()).into())
+            .map_err(|_| VmInternalError::Expect("Data length should be valid".into()).into())
     }
 }
 
 impl UTF8Data {
-    fn append(&mut self, other_seq: &mut UTF8Data) -> Result<()> {
+    fn append(&mut self, other_seq: &mut UTF8Data) {
         self.data.append(&mut other_seq.data);
-        Ok(())
     }
 
     pub fn len(&self) -> Result<BufferLength> {
         self.data
             .len()
             .try_into()
-            .map_err(|_| InterpreterError::Expect("Data length should be valid".into()).into())
+            .map_err(|_| VmInternalError::Expect("Data length should be valid".into()).into())
     }
 }
 
@@ -1404,10 +1401,11 @@ impl PrincipalData {
     }
 
     pub fn parse_standard_principal(literal: &str) -> Result<StandardPrincipalData> {
-        let (version, data) = c32::c32_address_decode(literal)
-            .map_err(|x| RuntimeErrorType::ParseError(format!("Invalid principal literal: {x}")))?;
+        let (version, data) = c32::c32_address_decode(literal).map_err(|x| {
+            RuntimeError::TypeParseFailure(format!("Invalid principal literal: {x}"))
+        })?;
         if data.len() != 20 {
-            return Err(RuntimeErrorType::ParseError(
+            return Err(RuntimeError::TypeParseFailure(
                 "Invalid principal literal: Expected 20 data bytes.".to_string(),
             )
             .into());
@@ -1528,12 +1526,11 @@ impl TupleData {
     fn new(
         type_signature: TupleTypeSignature,
         data_map: BTreeMap<ClarityName, Value>,
-    ) -> Result<TupleData> {
-        let t = TupleData {
+    ) -> TupleData {
+        TupleData {
             type_signature,
             data_map,
-        };
-        Ok(t)
+        }
     }
 
     /// Return the number of fields in this tuple value
@@ -1556,12 +1553,14 @@ impl TupleData {
             let entry = type_map.entry(name.clone());
             match entry {
                 Entry::Vacant(e) => e.insert(type_info),
-                Entry::Occupied(_) => return Err(CheckErrors::NameAlreadyUsed(name.into()).into()),
+                Entry::Occupied(_) => {
+                    return Err(CheckErrorKind::NameAlreadyUsed(name.into()).into());
+                }
             };
             data_map.insert(name, value);
         }
 
-        Self::new(TupleTypeSignature::try_from(type_map)?, data_map)
+        Ok(Self::new(TupleTypeSignature::try_from(type_map)?, data_map))
     }
 
     // TODO: add tests from mutation testing results #4834
@@ -1575,24 +1574,24 @@ impl TupleData {
         for (name, value) in data.into_iter() {
             let expected_type = expected
                 .field_type(&name)
-                .ok_or(InterpreterError::FailureConstructingTupleWithType)?;
+                .ok_or(VmInternalError::FailureConstructingTupleWithType)?;
             if !expected_type.admits(epoch, &value)? {
-                return Err(InterpreterError::FailureConstructingTupleWithType.into());
+                return Err(VmInternalError::FailureConstructingTupleWithType.into());
             }
             data_map.insert(name, value);
         }
-        Self::new(expected.clone(), data_map)
+        Ok(Self::new(expected.clone(), data_map))
     }
 
     pub fn get(&self, name: &str) -> Result<&Value> {
         self.data_map.get(name).ok_or_else(|| {
-            CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
+            CheckErrorKind::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
         })
     }
 
     pub fn get_owned(mut self, name: &str) -> Result<Value> {
         self.data_map.remove(name).ok_or_else(|| {
-            CheckErrors::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
+            CheckErrorKind::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
         })
     }
 
