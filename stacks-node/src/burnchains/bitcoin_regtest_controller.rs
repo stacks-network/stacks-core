@@ -374,7 +374,7 @@ impl BitcoinRegtestController {
             should_keep_running: should_keep_running.clone(),
         };
 
-        let rpc_client = Self::try_create_rpc_client(&config);
+        let rpc_client = Self::create_rpc_client_unchecked(&config);
 
         Self {
             use_coordinator: coordinator_channel,
@@ -423,7 +423,7 @@ impl BitcoinRegtestController {
             should_keep_running: None,
         };
 
-        let rpc_client = Self::try_create_rpc_client(&config);
+        let rpc_client = Self::create_rpc_client_unchecked(&config);
 
         Self {
             use_coordinator: None,
@@ -483,7 +483,7 @@ impl BitcoinRegtestController {
     /// If the provided config indicates that the node is a **miner**,
     /// tries to instantiate it or **panics** otherwise.
     /// If the node is **not** a miner, returns None (e.g. follower node).
-    fn try_create_rpc_client(config: &Config) -> Option<BitcoinRpcClient> {
+    fn create_rpc_client_unchecked(config: &Config) -> Option<BitcoinRpcClient> {
         if config.node.miner {
             Some(
                 BitcoinRpcClient::from_stx_config(&config)
@@ -497,7 +497,7 @@ impl BitcoinRegtestController {
     /// Attempt to get a reference to the underlying [`BitcoinRpcClient`].
     ///
     /// This function will panic if the RPC client has not been configured
-    /// (i.e. [`Self::try_create_rpc_client`] returned `None` during initialization),
+    /// (i.e. [`Self::create_rpc_client_unchecked`] returned `None` during initialization),
     /// but an attempt is made to use it anyway.
     ///
     /// In practice, this means the node is expected to act as a miner,
