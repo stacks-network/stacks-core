@@ -3218,7 +3218,6 @@ dependencies = [
  "base64 0.12.3",
  "chrono",
  "clarity 0.0.1",
- "clarity-cli",
  "hashbrown 0.15.2",
  "http-types",
  "lazy_static",

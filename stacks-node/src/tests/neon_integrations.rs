@@ -9,8 +9,10 @@ use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
-use clarity_cli::vm_execute as execute;
+use clarity::vm::{
+    execute_with_parameters as execute, ClarityName, ClarityVersion, ContractName, Value,
+    MAX_CALL_STACK_DEPTH,
+};
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
@@ -2368,6 +2370,8 @@ fn stx_delegate_btc_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity2,
+                StacksEpochId::Epoch32,
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -5356,6 +5360,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::Epoch32,
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -5468,6 +5474,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_2_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::Epoch32,
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -5492,6 +5500,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_2_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::Epoch32,
+                false,
             )
             .unwrap()
             .unwrap(),
