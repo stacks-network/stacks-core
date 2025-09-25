@@ -13,6 +13,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+//! This module contains unit tests for the `as-contract?` and
+//! `restrict-assets?` expressions. The `with-stacking` allowances are tested
+//! in integration tests, since they require changes made outside of the VM.
+
 use clarity_types::errors::InterpreterResult;
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity_types::Value;
@@ -198,42 +202,6 @@ fn test_as_contract_multiple_allowances_one_low() {
     let expected = Value::error(Value::Int(1)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
-
-// #[test]
-// fn test_as_contract_with_stacking_delegate_ok() {
-//     let snippet = r#"
-// (as-contract? ((with-stacking u2000))
-//   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
-//     u1000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-//   ))
-// )"#;
-//     let expected = Value::okay_true();
-//     assert_eq!(expected, execute(snippet).unwrap().unwrap());
-// }
-
-// #[test]
-// fn test_as_contract_with_stacking_stack_ok() {
-//     let snippet = r#"
-// (as-contract? ((with-stacking u100))
-//   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 stack-stx
-//     u1100000000000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-//   ))
-// )"#;
-//     let expected = Value::okay_true();
-//     assert_eq!(expected, execute(snippet).unwrap().unwrap());
-// }
-
-// #[test]
-// fn test_as_contract_with_stacking_exceeds() {
-//     let snippet = r#"
-// (as-contract? ((with-stacking u10))
-//   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
-//     u1000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-//   ))
-// )"#;
-//     let expected = Value::error(Value::Int(0)).unwrap();
-//     assert_eq!(expected, execute(snippet).unwrap().unwrap());
-// }
 
 #[test]
 fn test_as_contract_with_ft_ok() {
@@ -878,42 +846,6 @@ fn test_restrict_assets_multiple_allowances_one_low() {
     let expected = Value::error(Value::Int(1)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
-
-// #[test]
-// fn test_restrict_assets_with_stacking_delegate_ok() {
-//     let snippet = r#"
-// (restrict-assets? tx-sender ((with-stacking u2000))
-//   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
-//     u1000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-//   ))
-// )"#;
-//     let expected = Value::okay_true();
-//     assert_eq!(expected, execute(snippet).unwrap().unwrap());
-// }
-
-// #[test]
-// fn test_restrict_assets_with_stacking_stack_ok() {
-//     let snippet = r#"
-// (restrict-assets? tx-sender ((with-stacking u100))
-//   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 stack-stx
-//     u1100000000000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-//   ))
-// )"#;
-//     let expected = Value::okay_true();
-//     assert_eq!(expected, execute(snippet).unwrap().unwrap());
-// }
-
-// #[test]
-// fn test_restrict_assets_with_stacking_exceeds() {
-//     let snippet = r#"
-// (restrict-assets? tx-sender ((with-stacking u10))
-//   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
-//     u1000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-//   ))
-// )"#;
-//     let expected = Value::error(Value::Int(0)).unwrap();
-//     assert_eq!(expected, execute(snippet).unwrap().unwrap());
-// }
 
 #[test]
 fn test_restrict_assets_with_ft_ok() {

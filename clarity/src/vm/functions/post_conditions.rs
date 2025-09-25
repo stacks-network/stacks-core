@@ -263,6 +263,8 @@ pub fn special_as_contract(
         // evaluate the body expressions
         let mut last_result = None;
         for expr in body_exprs {
+            // TODO: handle runtime errors inside the body expressions correctly
+            // (ensure that the context is always popped and asset maps are checked against allowances)
             let result = eval(expr, &mut nested_env, context)?;
             last_result.replace(result);
         }
@@ -272,10 +274,17 @@ pub fn special_as_contract(
         // If the allowances are violated:
         // - Rollback the context
         // - Emit an event
-        if let Some(violation_index) = check_allowances(&contract_principal, &allowances, asset_maps)? {
-            nested_env.global_context.roll_back()?;
-            // TODO: Emit an event about the allowance violation
-            return Value::error(Value::Int(violation_index));
+        match check_allowances(&contract_principal, &allowances, asset_maps) {
+            Ok(None) => {}
+            Ok(Some(violation_index)) => {
+                nested_env.global_context.roll_back()?;
+                // TODO: Emit an event about the allowance violation
+                return Value::error(Value::Int(violation_index));
+            }
+            Err(e) => {
+                nested_env.global_context.roll_back()?;
+                return Err(e);
+            }
         }
 
         nested_env.global_context.commit()?;
