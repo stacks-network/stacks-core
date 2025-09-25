@@ -165,18 +165,12 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
                )
             )",
             CheckErrors::ReturnTypesMustMatch(
-                TypeSignature::new_response(
-                    TypeSignature::NoType.into(),
-                    TypeSignature::UIntType.into(),
-                )
-                .unwrap()
-                .into(),
-                TypeSignature::new_response(
-                    TypeSignature::NoType.into(),
-                    TypeSignature::IntType.into(),
-                )
-                .unwrap()
-                .into(),
+                TypeSignature::new_response(TypeSignature::NoType, TypeSignature::UIntType)
+                    .unwrap()
+                    .into(),
+                TypeSignature::new_response(TypeSignature::NoType, TypeSignature::IntType)
+                    .unwrap()
+                    .into(),
             ),
         ),
     ];
@@ -336,18 +330,12 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
                )
             )",
             CheckErrors::ReturnTypesMustMatch(
-                TypeSignature::new_response(
-                    TypeSignature::NoType.into(),
-                    TypeSignature::UIntType.into(),
-                )
-                .unwrap()
-                .into(),
-                TypeSignature::new_response(
-                    TypeSignature::NoType.into(),
-                    TypeSignature::IntType.into(),
-                )
-                .unwrap()
-                .into(),
+                TypeSignature::new_response(TypeSignature::NoType, TypeSignature::UIntType)
+                    .unwrap()
+                    .into(),
+                TypeSignature::new_response(TypeSignature::NoType, TypeSignature::IntType)
+                    .unwrap()
+                    .into(),
             ),
         ),
     ];
