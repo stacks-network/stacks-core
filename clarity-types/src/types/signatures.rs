@@ -163,7 +163,7 @@ impl From<BufferLength> for u32 {
 impl TryFrom<u32> for BufferLength {
     type Error = CheckErrors;
     fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
-        Self::try_from(data as usize)
+        Self::try_from(data as i128)
     }
 }
 
@@ -244,7 +244,7 @@ impl From<StringUTF8Length> for u32 {
 impl TryFrom<u32> for StringUTF8Length {
     type Error = CheckErrors;
     fn try_from(data: u32) -> Result<StringUTF8Length, CheckErrors> {
-        Self::try_from(data as usize)
+        Self::try_from(data as i128)
     }
 }
 
