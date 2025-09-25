@@ -159,6 +159,8 @@ components:
       $ref: ./components/schemas/get-stacker-set.schema.yaml
     TenureBlocks:
       $ref: ./components/schemas/tenure-blocks.schema.yaml
+    BlockReplay:
+      $ref: ./components/schemas/block-replay.schema.yaml
 
 paths:
   /v2/transactions:
@@ -2195,5 +2197,38 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v3/blocks/replay/{block_id}:
+    get:
+      summary: Replay mining of a block and returns its content
+      tags:
+        - Blocks
+      security: []
+      operationId: blockReplay
+      description: |
+        Replay the mining of a block (no data is written in the MARF) and returns its content.
+      parameters:
+        - name: block_id
+          in: path
+          description: The block ID hash
+          required: true
+          schema:
+            type: string
+            pattern: "^[0-9a-f]{64}$"
+      responses:
+        "200":
+          description: Content of the replayed block
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockReplay"
+              example:
+                $ref: "./components/examples/block-replay.example.json"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "500":
           $ref: "#/components/responses/InternalServerError"

@@ -59,6 +59,7 @@ use crate::net::{
     UrlString,
 };
 
+mod blockreplay;
 mod callreadonly;
 mod fastcallreadonly;
 mod get_tenures_fork_info;
