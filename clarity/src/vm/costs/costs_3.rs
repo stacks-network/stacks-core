@@ -16,7 +16,7 @@
 /// This file implements the cost functions from costs-3.clar in Rust.
 use super::cost_functions::{linear, logn, nlogn, CostValues};
 use super::ExecutionCost;
-use crate::vm::errors::{InterpreterResult, RuntimeErrorType};
+use crate::vm::errors::{InterpreterResult, RuntimeError};
 
 pub struct Costs3;
 
@@ -765,10 +765,10 @@ impl CostValues for Costs3 {
     }
 
     fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 }

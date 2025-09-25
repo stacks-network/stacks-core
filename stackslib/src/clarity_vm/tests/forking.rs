@@ -17,7 +17,7 @@
 use clarity::vm::analysis::errors::CheckErrorKind;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::errors::{InterpreterResult as Result, RuntimeErrorType, VmExecutionError};
+use clarity::vm::errors::{InterpreterResult as Result, RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
@@ -192,7 +192,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             match resp {
                 VmExecutionError::Runtime(x, _) => assert_eq!(
                     x,
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(
                         vec![2; 32].as_slice()
                     ))
                 ),

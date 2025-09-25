@@ -19,7 +19,7 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::ClarityDatabase;
-use clarity::vm::errors::{RuntimeErrorType, VmExecutionError};
+use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::Value;
@@ -182,14 +182,14 @@ pub fn handle_contract_call(
         }
         Err(LockingError::DefunctPoxContract) => {
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into both pox-1 and pox-2
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::PoxAlreadyLocked,
+                RuntimeError::PoxAlreadyLocked,
                 None,
             ));
         }

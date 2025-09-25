@@ -46,7 +46,7 @@ use crate::chainstate::stacks::miner::{
 use crate::chainstate::stacks::{
     Error as ChainError, StacksTransaction, TenureChangeCause, TransactionPayload,
 };
-use crate::clarity_vm::clarity::Error as ClarityError;
+use crate::clarity_vm::clarity::ClarityError;
 use crate::core::mempool::ProposalCallbackReceiver;
 use crate::net::http::{
     http_reason, parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents,

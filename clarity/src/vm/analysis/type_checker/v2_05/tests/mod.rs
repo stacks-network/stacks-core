@@ -19,7 +19,7 @@ use stacks_common::types::StacksEpochId;
 use crate::vm::analysis::errors::{CheckErrorKind, StaticCheckError, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check;
 use crate::vm::ast::build_ast;
-use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, UIntType};
@@ -126,8 +126,8 @@ fn test_define_trait() {
 
     let bad = ["(define-trait trait-1)", "(define-trait)"];
     let bad_expected = [
-        ParseErrors::DefineTraitBadSignature,
-        ParseErrors::DefineTraitBadSignature,
+        ParseErrorKind::DefineTraitBadSignature,
+        ParseErrorKind::DefineTraitBadSignature,
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
@@ -153,10 +153,10 @@ fn test_use_trait() {
         "(use-trait)",
     ];
     let bad_expected = [
-        ParseErrors::ImportTraitBadSignature,
-        ParseErrors::ImportTraitBadSignature,
-        ParseErrors::ImportTraitBadSignature,
-        ParseErrors::ImportTraitBadSignature,
+        ParseErrorKind::ImportTraitBadSignature,
+        ParseErrorKind::ImportTraitBadSignature,
+        ParseErrorKind::ImportTraitBadSignature,
+        ParseErrorKind::ImportTraitBadSignature,
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
@@ -177,8 +177,8 @@ fn test_use_trait() {
 fn test_impl_trait() {
     let bad = ["(impl-trait trait-1)", "(impl-trait)"];
     let bad_expected = [
-        ParseErrors::ImplTraitBadSignature,
-        ParseErrors::ImplTraitBadSignature,
+        ParseErrorKind::ImplTraitBadSignature,
+        ParseErrorKind::ImplTraitBadSignature,
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
@@ -484,7 +484,7 @@ fn test_at_block() {
 fn test_trait_reference_unknown() {
     let bad = [(
         "(+ 1 <kvstore>)",
-        ParseErrors::TraitReferenceUnknown("kvstore".to_string()),
+        ParseErrorKind::TraitReferenceUnknown("kvstore".to_string()),
     )];
 
     let contract_identifier = QualifiedContractIdentifier::transient();

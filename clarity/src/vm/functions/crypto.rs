@@ -24,7 +24,7 @@ use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp25
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, InterpreterError, InterpreterResult as Result,
+    check_argument_count, CheckErrorKind, InterpreterResult as Result, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};
@@ -67,7 +67,7 @@ fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> Result<StacksAddress> {
         1,
         &vec![pub_key],
     )
-    .ok_or_else(|| InterpreterError::Expect("Failed to create address from pubkey".into()).into())
+    .ok_or_else(|| VmInternalError::Expect("Failed to create address from pubkey".into()).into())
 }
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
@@ -84,7 +84,7 @@ fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> Result
         1,
         &vec![pub_key],
     )
-    .ok_or_else(|| InterpreterError::Expect("Failed to create address from pubkey".into()).into())
+    .ok_or_else(|| VmInternalError::Expect("Failed to create address from pubkey".into()).into())
 }
 
 pub fn special_principal_of(
@@ -127,7 +127,7 @@ pub fn special_principal_of(
         };
         let principal = addr.into();
         Ok(Value::okay(Value::Principal(principal))
-            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?)
+            .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?)
     } else {
         Ok(Value::err_uint(1))
     }
@@ -190,9 +190,9 @@ pub fn special_secp256k1_recover(
     {
         Ok(pubkey) => Ok(Value::okay(
             Value::buff_from(pubkey.to_vec())
-                .map_err(|_| InterpreterError::Expect("Failed to construct buff".into()))?,
+                .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?,
         )
-        .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?),
+        .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?),
         _ => Ok(Value::err_uint(1)),
     }
 }

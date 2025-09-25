@@ -32,7 +32,7 @@ use crate::chainstate::stacks::boot::{
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
 use crate::clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityMarfStore, ClarityMarfStoreTransaction, Error as ClarityError,
+    ClarityBlockConnection, ClarityError, ClarityMarfStore, ClarityMarfStoreTransaction,
     WritableMarfStore,
 };
 use crate::clarity_vm::database::marf::MarfedKV;

@@ -20,8 +20,8 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{runtime_cost, CostTracker};
 use crate::vm::database::STXBalance;
 use crate::vm::errors::{
-    check_argument_count, CheckErrorKind, InterpreterError, InterpreterResult as Result,
-    RuntimeErrorType, VmExecutionError,
+    check_argument_count, CheckErrorKind, InterpreterResult as Result, RuntimeError,
+    VmExecutionError, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
@@ -245,19 +245,19 @@ pub fn special_stx_account(
         (
             "unlocked"
                 .try_into()
-                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
+                .map_err(|_| VmInternalError::Expect("Bad special tuple name".into()))?,
             Value::UInt(stx_balance.amount_unlocked()),
         ),
         (
             "locked"
                 .try_into()
-                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
+                .map_err(|_| VmInternalError::Expect("Bad special tuple name".into()))?,
             Value::UInt(stx_balance.amount_locked()),
         ),
         (
             "unlock-height"
                 .try_into()
-                .map_err(|_| InterpreterError::Expect("Bad special tuple name".into()))?,
+                .map_err(|_| VmInternalError::Expect("Bad special tuple name".into()))?,
             Value::UInt(u128::from(stx_balance.effective_unlock_height(
                 v1_unlock_ht,
                 v2_unlock_ht,
@@ -354,7 +354,7 @@ pub fn special_mint_token(
 
         let final_to_bal = to_bal
             .checked_add(amount)
-            .ok_or_else(|| InterpreterError::Expect("STX overflow".into()))?;
+            .ok_or_else(|| VmInternalError::Expect("STX overflow".into()))?;
 
         env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
         env.add_memory(TypeSignature::UIntType.size()? as u64)?;
@@ -418,7 +418,7 @@ pub fn special_mint_asset_v200(
             &asset,
             expected_asset_type,
         ) {
-            Err(VmExecutionError::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
+            Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => Ok(()),
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
             Err(e) => Err(e),
         }?;
@@ -474,7 +474,7 @@ pub fn special_mint_asset_v205(
 
     let asset_size = asset
         .serialized_size()
-        .map_err(|e| InterpreterError::Expect(e.to_string()))? as u64;
+        .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
@@ -492,7 +492,7 @@ pub fn special_mint_asset_v205(
             &asset,
             expected_asset_type,
         ) {
-            Err(VmExecutionError::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
+            Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => Ok(()),
             Ok(_owner) => return clarity_ecode!(MintAssetErrorCodes::ALREADY_EXIST),
             Err(e) => Err(e),
         }?;
@@ -571,7 +571,7 @@ pub fn special_transfer_asset_v200(
             expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
-            Err(VmExecutionError::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
                 return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
             }
             Err(e) => Err(e),
@@ -642,7 +642,7 @@ pub fn special_transfer_asset_v205(
 
     let asset_size = asset
         .serialized_size()
-        .map_err(|e| InterpreterError::Expect(e.to_string()))? as u64;
+        .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
@@ -665,7 +665,7 @@ pub fn special_transfer_asset_v205(
             expected_asset_type,
         ) {
             Ok(owner) => Ok(owner),
-            Err(VmExecutionError::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
                 return clarity_ecode!(TransferAssetErrorCodes::DOES_NOT_EXIST)
             }
             Err(e) => Err(e),
@@ -769,7 +769,7 @@ pub fn special_transfer_token(
 
         let final_to_bal = to_bal
             .checked_add(amount)
-            .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+            .ok_or(RuntimeError::ArithmeticOverflow)?;
 
         env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
         env.add_memory(TypeSignature::PrincipalType.size()? as u64)?;
@@ -887,9 +887,9 @@ pub fn special_get_owner_v200(
         expected_asset_type,
     ) {
         Ok(owner) => Ok(Value::some(Value::Principal(owner)).map_err(|_| {
-            InterpreterError::Expect("Principal should always fit in optional.".into())
+            VmInternalError::Expect("Principal should always fit in optional.".into())
         })?),
-        Err(VmExecutionError::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
+        Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => Ok(Value::none()),
         Err(e) => Err(e),
     }
 }
@@ -916,7 +916,7 @@ pub fn special_get_owner_v205(
 
     let asset_size = asset
         .serialized_size()
-        .map_err(|e| InterpreterError::Expect(e.to_string()))? as u64;
+        .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
@@ -934,9 +934,9 @@ pub fn special_get_owner_v205(
         expected_asset_type,
     ) {
         Ok(owner) => Ok(Value::some(Value::Principal(owner)).map_err(|_| {
-            InterpreterError::Expect("Principal should always fit in optional.".into())
+            VmInternalError::Expect("Principal should always fit in optional.".into())
         })?),
-        Err(VmExecutionError::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(Value::none()),
+        Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => Ok(Value::none()),
         Err(e) => Err(e),
     }
 }
@@ -1068,7 +1068,7 @@ pub fn special_burn_asset_v200(
             &asset,
             expected_asset_type,
         ) {
-            Err(VmExecutionError::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
                 return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
             }
             Ok(owner) => Ok(owner),
@@ -1139,7 +1139,7 @@ pub fn special_burn_asset_v205(
 
     let asset_size = asset
         .serialized_size()
-        .map_err(|e| InterpreterError::Expect(e.to_string()))? as u64;
+        .map_err(|e| VmInternalError::Expect(e.to_string()))? as u64;
     runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
     if !expected_asset_type.admits(env.epoch(), &asset)? {
@@ -1157,7 +1157,7 @@ pub fn special_burn_asset_v205(
             &asset,
             expected_asset_type,
         ) {
-            Err(VmExecutionError::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+            Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
                 return clarity_ecode!(BurnAssetErrorCodes::DOES_NOT_EXIST)
             }
             Ok(owner) => Ok(owner),

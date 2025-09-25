@@ -21,7 +21,7 @@ use std::sync::LazyLock;
 use clarity::types::Address;
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
+use clarity::vm::clarity::{ClarityError, TransactionConnection};
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
 use clarity::vm::errors::VmExecutionError;

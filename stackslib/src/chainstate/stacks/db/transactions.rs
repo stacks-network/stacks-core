@@ -17,13 +17,13 @@
 use std::collections::{HashMap, HashSet};
 
 use clarity::vm::analysis::types::ContractAnalysis;
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::errors::{InterpreterError, VmExecutionError};
+use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -34,9 +34,7 @@ use clarity::vm::types::{
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
-use crate::clarity_vm::clarity::{
-    ClarityConnection, ClarityTransactionConnection, Error as clarity_error,
-};
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
 use crate::util_lib::strings::VecDisplay;
 
 /// This is a safe-to-hash Clarity value
@@ -49,7 +47,7 @@ impl TryFrom<Value> for HashableClarityValue {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         // check that serialization _will_ be successful when hashed
         let _bytes = value.serialize_to_vec().map_err(|_| {
-            VmExecutionError::Interpreter(InterpreterError::Expect(
+            VmExecutionError::Internal(VmInternalError::Expect(
                 "Failed to serialize asset in NFT during post-condition checks".into(),
             ))
         })?;
@@ -193,10 +191,10 @@ impl StacksTransactionReceipt {
     pub fn from_analysis_failure(
         tx: StacksTransaction,
         analysis_cost: ExecutionCost,
-        error: clarity::vm::clarity::Error,
+        error: ClarityError,
     ) -> StacksTransactionReceipt {
         let error_string = match error {
-            clarity_error::StaticCheck(ref check_error) => {
+            ClarityError::StaticCheck(ref check_error) => {
                 if let Some(span) = check_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
@@ -206,7 +204,7 @@ impl StacksTransactionReceipt {
                     check_error.diagnostic.message.to_string()
                 }
             }
-            clarity_error::Parse(ref parse_error) => {
+            ClarityError::Parse(ref parse_error) => {
                 if let Some(span) = parse_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
@@ -354,7 +352,7 @@ impl From<TransactionNonceMismatch> for MemPoolRejection {
 
 pub enum ClarityRuntimeTxError {
     Acceptable {
-        error: clarity_error,
+        error: ClarityError,
         err_type: &'static str,
     },
     AbortedByCallback {
@@ -370,34 +368,34 @@ pub enum ClarityRuntimeTxError {
     },
     CostError(ExecutionCost, ExecutionCost),
     AnalysisError(CheckErrorKind),
-    Rejectable(clarity_error),
+    Rejectable(ClarityError),
 }
 
-pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
+pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxError {
     match error {
         // runtime errors are okay
-        clarity_error::Interpreter(VmExecutionError::Runtime(_, _)) => {
+        ClarityError::Interpreter(VmExecutionError::Runtime(_, _)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "runtime error",
             }
         }
-        clarity_error::Interpreter(VmExecutionError::EarlyReturn(_)) => {
+        ClarityError::Interpreter(VmExecutionError::EarlyReturn(_)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
             }
         }
-        clarity_error::Interpreter(VmExecutionError::Unchecked(check_error)) => {
+        ClarityError::Interpreter(VmExecutionError::Unchecked(check_error)) => {
             if check_error.rejectable() {
-                ClarityRuntimeTxError::Rejectable(clarity_error::Interpreter(
+                ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
                     VmExecutionError::Unchecked(check_error),
                 ))
             } else {
                 ClarityRuntimeTxError::AnalysisError(check_error)
             }
         }
-        clarity_error::AbortedByCallback {
+        ClarityError::AbortedByCallback {
             output,
             assets_modified,
             tx_events,
@@ -408,7 +406,7 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
             tx_events,
             reason,
         },
-        clarity_error::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
+        ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
@@ -1212,7 +1210,7 @@ impl StacksChainState {
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
                                            "error" => %check_error);
-                                return Err(Error::ClarityError(clarity_error::Interpreter(
+                                return Err(Error::ClarityError(ClarityError::Interpreter(
                                     VmExecutionError::Unchecked(check_error),
                                 )));
                             }
@@ -1282,7 +1280,7 @@ impl StacksChainState {
                     Ok(x) => x,
                     Err(e) => {
                         match e {
-                            clarity_error::CostError(ref cost_after, ref budget) => {
+                            ClarityError::CostError(ref cost_after, ref budget) => {
                                 warn!("Block compute budget exceeded on {}: cost before={}, after={}, budget={}", tx.txid(), &cost_before, cost_after, budget);
                                 return Err(Error::CostOverflowError(
                                     cost_before,
@@ -1295,10 +1293,10 @@ impl StacksChainState {
                                     // a [Vary]ExpressionDepthTooDeep error in this situation
                                     // invalidates the block, since this should have prevented the
                                     // block from getting relayed in the first place
-                                    if let clarity_error::Parse(ref parse_error) = &other_error {
+                                    if let ClarityError::Parse(ref parse_error) = &other_error {
                                         match *parse_error.err {
-                                            ParseErrors::ExpressionStackDepthTooDeep
-                                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                                            ParseErrorKind::ExpressionStackDepthTooDeep
+                                            | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
                                                 info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                                 return Err(Error::ClarityError(other_error));
                                             }
@@ -1306,13 +1304,13 @@ impl StacksChainState {
                                         }
                                     }
                                 }
-                                if let clarity_error::Parse(err) = &other_error {
+                                if let ClarityError::Parse(err) = &other_error {
                                     if err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
-                                if let clarity_error::StaticCheck(err) = &other_error {
+                                if let ClarityError::StaticCheck(err) = &other_error {
                                     if err.err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
@@ -1454,7 +1452,7 @@ impl StacksChainState {
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "error" => %check_error);
-                                return Err(Error::ClarityError(clarity_error::Interpreter(
+                                return Err(Error::ClarityError(ClarityError::Interpreter(
                                     VmExecutionError::Unchecked(check_error),
                                 )));
                             }
@@ -8507,7 +8505,7 @@ pub mod test {
                 None,
             )
             .unwrap_err();
-            let Error::ClarityError(clarity_error::BadTransaction(msg)) = &err else {
+            let Error::ClarityError(ClarityError::BadTransaction(msg)) = &err else {
                 panic!("Unexpected error type");
             };
             assert!(msg.find("never seen in this fork").is_some());
@@ -9814,7 +9812,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9871,7 +9869,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9926,7 +9924,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9982,7 +9980,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -10506,7 +10504,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -10980,7 +10978,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -11095,7 +11093,7 @@ pub mod test {
             ASTRules::PrecheckSize,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(VmExecutionError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {

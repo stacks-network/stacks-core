@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::mem;
 
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::{ast_check_size, ASTRules};
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
@@ -1845,8 +1845,8 @@ impl Relayer {
                 match ast_res {
                     Ok(_) => {}
                     Err(parse_error) => match *parse_error.err {
-                        ParseErrors::ExpressionStackDepthTooDeep
-                        | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                        ParseErrorKind::ExpressionStackDepthTooDeep
+                        | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
                             // don't include this block
                             info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
                             return Err(Error::ClarityError(parse_error.into()));

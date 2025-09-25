@@ -19,7 +19,7 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::{RuntimeErrorType, VmExecutionError};
+use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
@@ -333,14 +333,14 @@ fn handle_stack_lockup_pox_v2(
         }
         Err(LockingError::DefunctPoxContract) => {
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into both pox-1 and pox-2
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::PoxAlreadyLocked,
+                RuntimeError::PoxAlreadyLocked,
                 None,
             ));
         }
@@ -401,7 +401,7 @@ fn handle_stack_lockup_extension_pox_v2(
         }
         Err(LockingError::DefunctPoxContract) => {
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
@@ -464,7 +464,7 @@ fn handle_stack_lockup_increase_pox_v2(
         }
         Err(LockingError::DefunctPoxContract) => {
             return Err(VmExecutionError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }

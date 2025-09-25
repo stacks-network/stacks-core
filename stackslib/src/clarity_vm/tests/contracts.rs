@@ -16,7 +16,7 @@
 
 use clarity::types::StacksEpochId;
 use clarity::vm::ast::ASTRules;
-use clarity::vm::clarity::Error as ClarityError;
+use clarity::vm::clarity::ClarityError;
 use clarity::vm::errors::{CheckErrorKind, VmExecutionError};
 use clarity::vm::types::SequenceData::Buffer;
 use clarity::vm::types::{
@@ -304,7 +304,7 @@ fn publish_contract(
     contract_id: &QualifiedContractIdentifier,
     contract: &str,
     version: ClarityVersion,
-) -> Result<(), clarity::vm::clarity::Error> {
+) -> Result<(), ClarityError> {
     bc.as_transaction(|tx| {
         let (ast, analysis) =
             tx.analyze_smart_contract(contract_id, version, contract, ASTRules::PrecheckSize)?;

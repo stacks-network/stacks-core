@@ -24,7 +24,7 @@ use crate::vm::analysis::errors::{CheckErrorKind, StaticCheckError, SyntaxBindin
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
-use crate::vm::ast::errors::ParseErrors;
+use crate::vm::ast::errors::ParseErrorKind;
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::signatures::TypeSignature::OptionalType;
 use crate::vm::types::signatures::{ListTypeData, StringUTF8Length};
@@ -375,8 +375,8 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
 
     let bad = ["(define-trait trait-1)", "(define-trait)"];
     let bad_expected = [
-        ParseErrors::DefineTraitBadSignature,
-        ParseErrors::DefineTraitBadSignature,
+        ParseErrorKind::DefineTraitBadSignature,
+        ParseErrorKind::DefineTraitBadSignature,
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
@@ -395,10 +395,10 @@ fn test_use_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId)
         "(use-trait)",
     ];
     let bad_expected = [
-        ParseErrors::ImportTraitBadSignature,
-        ParseErrors::ImportTraitBadSignature,
-        ParseErrors::ImportTraitBadSignature,
-        ParseErrors::ImportTraitBadSignature,
+        ParseErrorKind::ImportTraitBadSignature,
+        ParseErrorKind::ImportTraitBadSignature,
+        ParseErrorKind::ImportTraitBadSignature,
+        ParseErrorKind::ImportTraitBadSignature,
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
@@ -412,8 +412,8 @@ fn test_use_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId)
 fn test_impl_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad = ["(impl-trait trait-1)", "(impl-trait)"];
     let bad_expected = [
-        ParseErrors::ImplTraitBadSignature,
-        ParseErrors::ImplTraitBadSignature,
+        ParseErrorKind::ImplTraitBadSignature,
+        ParseErrorKind::ImplTraitBadSignature,
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
@@ -782,7 +782,7 @@ fn test_at_block() {
 fn test_trait_reference_unknown(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let bad = [(
         "(+ 1 <kvstore>)",
-        ParseErrors::TraitReferenceUnknown("kvstore".to_string()),
+        ParseErrorKind::TraitReferenceUnknown("kvstore".to_string()),
     )];
 
     let contract_identifier = QualifiedContractIdentifier::transient();

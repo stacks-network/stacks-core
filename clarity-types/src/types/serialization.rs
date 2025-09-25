@@ -23,7 +23,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
-use crate::errors::{CheckErrorKind, IncomparableError, InterpreterError};
+use crate::errors::{CheckErrorKind, IncomparableError, VmInternalError};
 use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
     BOUND_VALUE_SERIALIZATION_BYTES, BufferLength, CallableData, CharType, MAX_TYPE_DEPTH,
@@ -1215,15 +1215,15 @@ impl Write for WriteCounter {
 }
 
 impl Value {
-    pub fn serialize_to_vec(&self) -> Result<Vec<u8>, InterpreterError> {
+    pub fn serialize_to_vec(&self) -> Result<Vec<u8>, VmInternalError> {
         let mut byte_serialization = Vec::new();
         self.serialize_write(&mut byte_serialization)
-            .map_err(|_| InterpreterError::Expect("IOError filling byte buffer.".into()))?;
+            .map_err(|_| VmInternalError::Expect("IOError filling byte buffer.".into()))?;
         Ok(byte_serialization)
     }
 
     /// This does *not* perform any data sanitization
-    pub fn serialize_to_hex(&self) -> Result<String, InterpreterError> {
+    pub fn serialize_to_hex(&self) -> Result<String, VmInternalError> {
         let byte_serialization = self.serialize_to_vec()?;
         Ok(to_hex(byte_serialization.as_slice()))
     }

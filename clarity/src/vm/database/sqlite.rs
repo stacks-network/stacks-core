@@ -27,7 +27,7 @@ use super::{
 };
 use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind};
 use crate::vm::errors::{
-    IncomparableError, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
+    IncomparableError, InterpreterResult as Result, RuntimeError, VmInternalError,
 };
 use crate::vm::types::QualifiedContractIdentifier;
 
@@ -43,7 +43,7 @@ fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
         Ok(_) => Ok(()),
         Err(e) => {
             error!("Failed to insert/replace ({key},{value}): {e:?}");
-            Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
+            Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
     }
 }
@@ -62,7 +62,7 @@ fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
         Ok(x) => Ok(x),
         Err(e) => {
             error!("Failed to query '{key}': {e:?}");
-            Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
+            Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into())
         }
     };
 
@@ -88,7 +88,7 @@ pub fn sqlite_get_contract_hash(
         hash: contract_hash,
     } = contract_commitment?;
     let bhh = store.get_block_at_height(block_height)
-            .ok_or_else(|| InterpreterError::Expect("Should always be able to map from height to block hash when looking up contract information.".into()))?;
+            .ok_or_else(|| VmInternalError::Expect("Should always be able to map from height to block hash when looking up contract information.".into()))?;
     Ok((bhh, contract_hash))
 }
 
@@ -125,7 +125,7 @@ pub fn sqlite_get_metadata_manual(
 ) -> Result<Option<String>> {
     let bhh = store.get_block_at_height(at_height).ok_or_else(|| {
         warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
-        RuntimeErrorType::BadBlockHeight(at_height.to_string())
+        RuntimeError::BadBlockHeight(at_height.to_string())
     })?;
     SqliteConnection::get_metadata(store.get_side_store(), &bhh, &contract.to_string(), key)
 }
@@ -154,7 +154,7 @@ impl SqliteConnection {
             params,
         ) {
             error!("Failed to insert ({bhh},{key},{value}): {e:?}");
-            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+            return Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
     }
@@ -170,7 +170,7 @@ impl SqliteConnection {
             params,
         ) {
             error!("Failed to update {from} to {to}: {e:?}");
-            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+            return Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
     }
@@ -181,7 +181,7 @@ impl SqliteConnection {
             params![from],
         ) {
             error!("Failed to drop metadata from {from}: {e:?}");
-            return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
+            return Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into());
         }
         Ok(())
     }
@@ -206,7 +206,7 @@ impl SqliteConnection {
             Ok(x) => Ok(x),
             Err(e) => {
                 error!("Failed to query ({bhh},{key}): {e:?}");
-                Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into())
+                Err(VmInternalError::DBError(SQL_FAIL_MESSAGE.into()).into())
             }
         }
     }
@@ -219,14 +219,14 @@ impl SqliteConnection {
 impl SqliteConnection {
     pub fn initialize_conn(conn: &Connection) -> Result<()> {
         conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
-            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+            .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS data_table
                       (key TEXT PRIMARY KEY, value TEXT)",
             NO_PARAMS,
         )
-        .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+        .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
         conn.execute(
             "CREATE TABLE IF NOT EXISTS metadata_table
@@ -234,13 +234,13 @@ impl SqliteConnection {
                        UNIQUE (key, blockhash))",
             NO_PARAMS,
         )
-        .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+        .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
         conn.execute(
             "CREATE INDEX IF NOT EXISTS md_blockhashes ON metadata_table(blockhash)",
             NO_PARAMS,
         )
-        .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+        .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
         Self::check_schema(conn)?;
 
@@ -257,22 +257,22 @@ impl SqliteConnection {
         let sql = "SELECT sql FROM sqlite_master WHERE name=?";
         let _: String = conn
             .query_row(sql, params!["data_table"], |row| row.get(0))
-            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+            .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
         let _: String = conn
             .query_row(sql, params!["metadata_table"], |row| row.get(0))
-            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+            .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
         let _: String = conn
             .query_row(sql, params!["md_blockhashes"], |row| row.get(0))
-            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+            .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
         Ok(())
     }
 
     fn inner_open(filename: &str) -> Result<Connection> {
         let conn = Connection::open(filename)
-            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+            .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
         conn.busy_handler(Some(tx_busy_handler))
-            .map_err(|x| InterpreterError::SqliteError(IncomparableError { err: x }))?;
+            .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
         Ok(conn)
     }
@@ -311,7 +311,7 @@ impl MemoryBackingStore {
 
 impl ClarityBackingStore for MemoryBackingStore {
     fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
-        Err(RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
+        Err(RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
     fn get_data(&mut self, key: &str) -> Result<Option<String>> {
