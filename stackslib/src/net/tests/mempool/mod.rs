@@ -48,8 +48,8 @@ fn test_mempool_sync_2_peers() {
         .map(|a| (a.to_account_principal(), 1000000000))
         .collect();
 
-    peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances;
+    peer_1_config.chain_config.initial_balances = initial_balances.clone();
+    peer_2_config.chain_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -59,8 +59,9 @@ fn test_mempool_sync_2_peers() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 
@@ -154,8 +155,9 @@ fn test_mempool_sync_2_peers() {
     }
 
     let num_burn_blocks = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 
@@ -314,8 +316,8 @@ fn test_mempool_sync_2_peers_paginated() {
         .map(|a| (a.to_account_principal(), 1000000000))
         .collect();
 
-    peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances;
+    peer_1_config.chain_config.initial_balances = initial_balances.clone();
+    peer_2_config.chain_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -325,8 +327,9 @@ fn test_mempool_sync_2_peers_paginated() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 
@@ -408,8 +411,9 @@ fn test_mempool_sync_2_peers_paginated() {
     peer_1.mempool = Some(peer_1_mempool);
 
     let num_burn_blocks = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 
@@ -503,8 +507,8 @@ fn test_mempool_sync_2_peers_blacklisted() {
         .map(|a| (a.to_account_principal(), 1000000000))
         .collect();
 
-    peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances;
+    peer_1_config.chain_config.initial_balances = initial_balances.clone();
+    peer_2_config.chain_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -514,8 +518,9 @@ fn test_mempool_sync_2_peers_blacklisted() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 
@@ -615,8 +620,9 @@ fn test_mempool_sync_2_peers_blacklisted() {
     peer_2.mempool = Some(peer_2_mempool);
 
     let num_burn_blocks = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 
@@ -712,8 +718,8 @@ fn test_mempool_sync_2_peers_problematic() {
         .map(|a| (a.to_account_principal(), 1000000000))
         .collect();
 
-    peer_1_config.initial_balances = initial_balances.clone();
-    peer_2_config.initial_balances = initial_balances;
+    peer_1_config.chain_config.initial_balances = initial_balances.clone();
+    peer_2_config.chain_config.initial_balances = initial_balances;
 
     let mut peer_1 = TestPeer::new(peer_1_config);
     let mut peer_2 = TestPeer::new(peer_2_config);
@@ -723,8 +729,9 @@ fn test_mempool_sync_2_peers_problematic() {
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 
@@ -753,7 +760,7 @@ fn test_mempool_sync_2_peers_problematic() {
         let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
         let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
         let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-        let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
+        let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");
 
         let tx = make_contract_tx(
             pk,
@@ -801,8 +808,9 @@ fn test_mempool_sync_2_peers_problematic() {
     peer_2.mempool = Some(peer_2_mempool);
 
     let num_burn_blocks = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 
@@ -909,7 +917,7 @@ pub fn test_mempool_storage_nakamoto() {
 
     let mut total_blocks = 0;
     let mut all_txs = vec![];
-    let stx_miner_key = peer.miner.nakamoto_miner_key();
+    let stx_miner_key = peer.chain.miner.nakamoto_miner_key();
     let stx_miner_addr = StacksAddress::from_public_keys(
         C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
         &AddressHashMode::SerializeP2PKH,
@@ -919,8 +927,12 @@ pub fn test_mempool_storage_nakamoto() {
     .unwrap();
 
     // duplicate handles to the chainstates so we can submit txs
-    let mut mempool =
-        MemPoolDB::open_test(false, peer.config.network_id, &peer.chainstate_path).unwrap();
+    let mut mempool = MemPoolDB::open_test(
+        false,
+        peer.config.chain_config.network_id,
+        &peer.chain.chainstate_path,
+    )
+    .unwrap();
     let (mut chainstate, _) = peer.chainstate().reopen().unwrap();
     let sortdb = peer.sortdb().reopen().unwrap();
 
@@ -935,9 +947,10 @@ pub fn test_mempool_storage_nakamoto() {
         tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
         let tenure_change_tx = peer
+            .chain
             .miner
             .make_nakamoto_tenure_change(tenure_change.clone());
-        let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
         debug!("Next burnchain block: {}", &consensus_hash);
 
@@ -1017,8 +1030,8 @@ pub fn test_mempool_storage_nakamoto() {
     }
 
     let tip = {
-        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         NakamotoChainState::get_canonical_block_header(chainstate.db(), sort_db)
             .unwrap()
             .unwrap()
@@ -1092,15 +1105,17 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
     );
     let mut peer_2 = other_peers.pop().unwrap();
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer_1.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer_1.config.chain_config.burnchain.pox_constants,
+    );
 
     let tip = {
-        let sort_db = peer_1.sortdb.as_mut().unwrap();
+        let sort_db = peer_1.chain.sortdb.as_mut().unwrap();
         SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap()
     };
     let total_rcs = peer_1
         .config
+        .chain_config
         .burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -1196,8 +1211,9 @@ fn test_mempool_sync_2_peers_nakamoto_paginated() {
     peer_1.mempool = Some(peer_1_mempool);
 
     let num_burn_blocks = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer_1.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height + 1
     };
 

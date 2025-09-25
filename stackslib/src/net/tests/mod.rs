@@ -108,7 +108,7 @@ impl NakamotoBootPlan {
         let (test_signers, test_stackers) = TestStacker::common_signing_set();
         Self {
             test_name: test_name.to_string(),
-            pox_constants: TestPeerConfig::default().burnchain.pox_constants,
+            pox_constants: TestChainstateConfig::default().burnchain.pox_constants,
             private_key: StacksPrivateKey::from_seed(&[2]),
             initial_balances: vec![],
             test_stackers,
@@ -117,7 +117,7 @@ impl NakamotoBootPlan {
             num_peers: 0,
             add_default_balance: true,
             malleablized_blocks: true,
-            network_id: TestPeerConfig::default().network_id,
+            network_id: TestChainstateConfig::default().network_id,
             txindex: false,
         }
     }
@@ -256,8 +256,8 @@ impl NakamotoBootPlan {
         for (i, peer) in other_peers.iter_mut().enumerate() {
             peer.next_burnchain_block(burn_ops.to_vec());
 
-            let sortdb = peer.sortdb.take().unwrap();
-            let mut node = peer.stacks_node.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
+            let mut node = peer.chain.stacks_node.take().unwrap();
 
             let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
             let mut sort_handle = sortdb.index_handle(&sort_tip);
@@ -266,10 +266,9 @@ impl NakamotoBootPlan {
 
             for block in blocks {
                 debug!(
-                    "Apply block {} (sighash {}) to peer {} ({})",
+                    "Apply block {} (sighash {}) to peer {i} ({})",
                     &block.block_id(),
                     &block.header.signer_signature_hash(),
-                    i,
                     &peer.to_neighbor().addr
                 );
                 let block_id = block.block_id();
@@ -284,29 +283,25 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted.is_accepted() {
-                    test_debug!("Accepted Nakamoto block {block_id} to other peer {}", i);
-                    peer.coord.handle_new_nakamoto_stacks_block().unwrap();
-                } else {
-                    panic!(
-                        "Did NOT accept Nakamoto block {block_id} to other peer {}",
-                        i
-                    );
-                }
+                assert!(
+                    accepted.is_accepted(),
+                    "Did NOT accept Nakamoto block {block_id} to other peer {i}"
+                );
+                test_debug!("Accepted Nakamoto block {block_id} to other peer {i}");
+                peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
 
                 possible_chain_tips.insert(block.block_id());
 
                 // process it
-                peer.coord.handle_new_stacks_block().unwrap();
-                peer.coord.handle_new_nakamoto_stacks_block().unwrap();
+                peer.chain.coord.handle_new_stacks_block().unwrap();
+                peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
             }
 
             for block in malleablized_blocks {
                 debug!(
-                    "Apply malleablized block {} (sighash {}) to peer {} ({})",
+                    "Apply malleablized block {} (sighash {}) to peer {i} ({})",
                     &block.block_id(),
                     &block.header.signer_signature_hash(),
-                    i,
                     &peer.to_neighbor().addr
                 );
                 let block_id = block.block_id();
@@ -321,28 +316,22 @@ impl NakamotoBootPlan {
                     NakamotoBlockObtainMethod::Pushed,
                 )
                 .unwrap();
-                if accepted.is_accepted() {
-                    test_debug!(
-                        "Accepted malleablized Nakamoto block {block_id} to other peer {}",
-                        i
-                    );
-                    peer.coord.handle_new_nakamoto_stacks_block().unwrap();
-                } else {
-                    panic!(
-                        "Did NOT accept malleablized Nakamoto block {block_id} to other peer {}",
-                        i
-                    );
-                }
+                assert!(
+                    accepted.is_accepted(),
+                    "Did NOT accept malleablized Nakamoto block {block_id} to other peer {i}"
+                );
+                test_debug!("Accepted malleablized Nakamoto block {block_id} to other peer {i}");
+                peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
 
                 possible_chain_tips.insert(block.block_id());
 
                 // process it
-                peer.coord.handle_new_stacks_block().unwrap();
-                peer.coord.handle_new_nakamoto_stacks_block().unwrap();
+                peer.chain.coord.handle_new_stacks_block().unwrap();
+                peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
             }
 
-            peer.sortdb = Some(sortdb);
-            peer.stacks_node = Some(node);
+            peer.chain.sortdb = Some(sortdb);
+            peer.chain.stacks_node = Some(node);
             peer.refresh_burnchain_view();
 
             assert!(possible_chain_tips.contains(&peer.network.stacks_tip.block_id()));
@@ -573,9 +562,9 @@ impl NakamotoBootPlan {
         observer: Option<&TestEventObserver>,
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
-        peer_config.network_id = self.network_id;
+        peer_config.chain_config.network_id = self.network_id;
         peer_config.private_key = self.private_key.clone();
-        peer_config.txindex = self.txindex;
+        peer_config.chain_config.txindex = self.txindex;
 
         let addr = StacksAddress::from_public_keys(
             C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
@@ -592,19 +581,21 @@ impl NakamotoBootPlan {
         peer_config
             .stacker_dbs
             .push(boot_code_id(MINERS_NAME, false));
-        peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(
+        peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_3_0_only(
             (self.pox_constants.pox_4_activation_height
                 + self.pox_constants.reward_cycle_length
                 + 1)
             .into(),
         ));
-        peer_config.initial_balances = vec![];
+        peer_config.chain_config.initial_balances = vec![];
         if self.add_default_balance {
             peer_config
+                .chain_config
                 .initial_balances
                 .push((addr.to_account_principal(), 1_000_000_000_000_000_000));
         }
         peer_config
+            .chain_config
             .initial_balances
             .append(&mut self.initial_balances.clone());
         peer_config.connection_opts.auth_token = Some("password".to_string());
@@ -625,28 +616,36 @@ impl NakamotoBootPlan {
             )
         });
 
-        peer_config.initial_balances.extend(stacker_balances);
-        peer_config.initial_balances.extend(signer_balances);
-        peer_config.test_signers = Some(self.test_signers.clone());
-        peer_config.test_stackers = Some(self.test_stackers.clone());
-        peer_config.burnchain.pox_constants = self.pox_constants.clone();
+        peer_config
+            .chain_config
+            .initial_balances
+            .extend(stacker_balances);
+        peer_config
+            .chain_config
+            .initial_balances
+            .extend(signer_balances);
+        peer_config.chain_config.test_signers = Some(self.test_signers.clone());
+        peer_config.chain_config.test_stackers = Some(self.test_stackers.clone());
+        peer_config.chain_config.burnchain.pox_constants = self.pox_constants.clone();
         let mut peer = TestPeer::new_with_observer(peer_config.clone(), observer);
 
-        peer.mine_malleablized_blocks = self.malleablized_blocks;
+        peer.chain.mine_malleablized_blocks = self.malleablized_blocks;
 
         let mut other_peers = vec![];
         for i in 0..self.num_peers {
             let mut other_config = peer_config.clone();
-            other_config.test_name = format!("{}.follower", &peer.config.test_name);
+            other_config.chain_config.test_name =
+                format!("{}.follower", &peer.config.chain_config.test_name);
             other_config.server_port = 0;
             other_config.http_port = 0;
-            other_config.test_stackers = peer.config.test_stackers.clone();
+            other_config.chain_config.test_stackers =
+                peer.config.chain_config.test_stackers.clone();
             other_config.private_key = StacksPrivateKey::from_seed(&(i as u128).to_be_bytes());
 
             other_config.add_neighbor(&peer.to_neighbor());
 
             let mut other_peer = TestPeer::new_with_observer(other_config, None);
-            other_peer.mine_malleablized_blocks = self.malleablized_blocks;
+            other_peer.chain.mine_malleablized_blocks = self.malleablized_blocks;
 
             other_peers.push(other_peer);
         }
@@ -665,12 +664,16 @@ impl NakamotoBootPlan {
 
         let mut sortition_height = peer.get_burn_block_height();
         debug!("\n\n======================");
-        debug!("PoxConstants = {:#?}", &peer.config.burnchain.pox_constants);
-        debug!("tip = {}", sortition_height);
+        debug!(
+            "PoxConstants = {:#?}",
+            &peer.config.chain_config.burnchain.pox_constants
+        );
+        debug!("tip = {sortition_height}");
         debug!("========================\n\n");
 
         let epoch_25_height = peer
             .config
+            .chain_config
             .epochs
             .as_ref()
             .unwrap()
@@ -681,6 +684,7 @@ impl NakamotoBootPlan {
 
         let epoch_30_height = peer
             .config
+            .chain_config
             .epochs
             .as_ref()
             .unwrap()
@@ -724,6 +728,7 @@ impl NakamotoBootPlan {
 
         let reward_cycle = peer
             .config
+            .chain_config
             .burnchain
             .block_height_to_reward_cycle(sortition_height)
             .unwrap();
@@ -731,6 +736,7 @@ impl NakamotoBootPlan {
         // Make all the test Stackers stack
         let stack_txs: Vec<_> = peer
             .config
+            .chain_config
             .test_stackers
             .clone()
             .unwrap_or_default()
@@ -746,7 +752,7 @@ impl NakamotoBootPlan {
                     &test_stacker.signer_private_key,
                     reward_cycle.into(),
                     &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
-                    peer.config.network_id,
+                    peer.config.chain_config.network_id,
                     12,
                     max_amount,
                     1,
@@ -764,7 +770,7 @@ impl NakamotoBootPlan {
                     Some(signature),
                     max_amount,
                     1,
-                    peer.config.network_id,
+                    peer.config.chain_config.network_id,
                 )
             })
             .collect();
@@ -801,7 +807,12 @@ impl NakamotoBootPlan {
         debug!("\n\n======================");
         debug!("Advance to the Prepare Phase");
         debug!("========================\n\n");
-        while !peer.config.burnchain.is_in_prepare_phase(sortition_height) {
+        while !peer
+            .config
+            .chain_config
+            .burnchain
+            .is_in_prepare_phase(sortition_height)
+        {
             let mut old_tip = peer.network.stacks_tip.clone();
             stacks_block = peer.tenure_with_txs(&[], &mut peer_nonce);
 
@@ -919,6 +930,7 @@ impl NakamotoBootPlan {
                         blocks_since_last_tenure,
                     );
                     let tenure_change_tx = peer
+                        .chain
                         .miner
                         .make_nakamoto_tenure_change(tenure_change_extend.clone());
 
@@ -981,7 +993,7 @@ impl NakamotoBootPlan {
                         .collect();
 
                     let malleablized_blocks =
-                        std::mem::replace(&mut peer.malleablized_blocks, vec![]);
+                        std::mem::replace(&mut peer.chain.malleablized_blocks, vec![]);
                     for mblk in malleablized_blocks.iter() {
                         malleablized_block_ids.insert(mblk.block_id());
                     }
@@ -1013,10 +1025,11 @@ impl NakamotoBootPlan {
                     last_tenure_change = Some(tenure_change.clone());
 
                     let tenure_change_tx = peer
+                        .chain
                         .miner
                         .make_nakamoto_tenure_change(tenure_change.clone());
 
-                    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+                    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
                     debug!("\n\nNew tenure: {}\n\n", &consensus_hash);
 
@@ -1080,7 +1093,7 @@ impl NakamotoBootPlan {
                         .collect();
 
                     let malleablized_blocks =
-                        std::mem::replace(&mut peer.malleablized_blocks, vec![]);
+                        std::mem::replace(&mut peer.chain.malleablized_blocks, vec![]);
                     for mblk in malleablized_blocks.iter() {
                         malleablized_block_ids.insert(mblk.block_id());
                     }
@@ -1104,8 +1117,8 @@ impl NakamotoBootPlan {
 
         // check that our tenure-extends have been getting applied
         let (highest_tenure, sort_tip) = {
-            let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-            let sort_db = peer.sortdb.as_mut().unwrap();
+            let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+            let sort_db = peer.chain.sortdb.as_mut().unwrap();
             let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
             let tenure = NakamotoChainState::get_ongoing_tenure(
                 &mut chainstate.index_conn(),
@@ -1142,8 +1155,18 @@ impl NakamotoBootPlan {
         // transaction in `all_blocks` ran to completion
         if let Some(observer) = observer {
             let mut observed_blocks = observer.get_blocks();
-            let mut block_idx = (peer.config.burnchain.pox_constants.pox_4_activation_height
-                + peer.config.burnchain.pox_constants.reward_cycle_length
+            let mut block_idx = (peer
+                .config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .pox_4_activation_height
+                + peer
+                    .config
+                    .chain_config
+                    .burnchain
+                    .pox_constants
+                    .reward_cycle_length
                 - 25) as usize;
 
             // filter out observed blocks that are malleablized
@@ -1199,8 +1222,8 @@ impl NakamotoBootPlan {
         // verify that all other peers kept pace with this peer
         for other_peer in other_peers.iter_mut() {
             let (other_highest_tenure, other_sort_tip) = {
-                let chainstate = &mut other_peer.stacks_node.as_mut().unwrap().chainstate;
-                let sort_db = other_peer.sortdb.as_mut().unwrap();
+                let chainstate = &mut other_peer.chain.stacks_node.as_mut().unwrap().chainstate;
+                let sort_db = other_peer.chain.sortdb.as_mut().unwrap();
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
                 let tenure = NakamotoChainState::get_ongoing_tenure(
                     &mut chainstate.index_conn(),
@@ -2048,8 +2071,8 @@ fn test_update_highest_stacks_height_of_neighbors(
         old_height.map(|h| (SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080), h));
     peer.network.highest_stacks_neighbor = prev_highest_neighbor;
 
-    let peer_sortdb = peer.sortdb.take().unwrap();
-    let mut peer_stacks_node = peer.stacks_node.take().unwrap();
+    let peer_sortdb = peer.chain.sortdb.take().unwrap();
+    let mut peer_stacks_node = peer.chain.stacks_node.take().unwrap();
     let mut peer_mempool = peer.mempool.take().unwrap();
     let rpc_args = RPCHandlerArgsType::make_default();
     let mut node_state = StacksNodeState::new(

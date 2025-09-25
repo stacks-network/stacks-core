@@ -33,6 +33,7 @@ use stacks_common::util::vrf::*;
 use self::nakamoto::test_signers::TestSigners;
 use super::*;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
@@ -51,7 +52,7 @@ use crate::chainstate::stacks::db::{StacksChainState, *};
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
 use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, BOOT_BLOCK_HASH};
-use crate::net::test::{TestEventObserver, TestPeerConfig};
+use crate::net::test::TestEventObserver;
 use crate::util_lib::boot::{boot_code_test_addr, boot_code_tx_auth};
 use crate::util_lib::strings::*;
 
@@ -77,8 +78,35 @@ pub struct TestChainstateConfig {
 
 impl Default for TestChainstateConfig {
     fn default() -> Self {
-        let chain_config = TestPeerConfig::default();
-        Self::from(chain_config)
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
+        );
+
+        burnchain.pox_constants = PoxConstants::test_20_no_sunset();
+        let mut spending_account = TestMinerFactory::new().next_miner(
+            burnchain.clone(),
+            1,
+            1,
+            AddressHashMode::SerializeP2PKH,
+        );
+        spending_account.test_with_tx_fees = false; // manually set transaction fees
+
+        Self {
+            network_id: 0x80000000,
+            current_block: (burnchain.consensus_hash_lifetime + 1) as u64,
+            burnchain,
+            test_name: "".into(),
+            initial_balances: vec![],
+            initial_lockups: vec![],
+            spending_account,
+            setup_code: "".into(),
+            epochs: None,
+            aggregate_public_key: None,
+            test_stackers: None,
+            test_signers: None,
+            txindex: false,
+        }
     }
 }
 impl TestChainstateConfig {
@@ -94,7 +122,6 @@ pub struct TestChainstate<'a> {
     pub sortdb: Option<SortitionDB>,
     pub miner: TestMiner,
     pub stacks_node: Option<TestStacksNode>,
-    pub chainstate_path: String,
     pub indexer: Option<BitcoinIndexer>,
     pub coord: ChainsCoordinator<
         'a,
@@ -109,27 +136,10 @@ pub struct TestChainstate<'a> {
     /// list of malleablized blocks produced when mining.
     pub malleablized_blocks: Vec<NakamotoBlock>,
     pub mine_malleablized_blocks: bool,
+    pub test_path: String,
+    pub chainstate_path: String,
 }
 
-impl From<TestPeerConfig> for TestChainstateConfig {
-    fn from(chain_config: TestPeerConfig) -> Self {
-        Self {
-            network_id: chain_config.network_id,
-            current_block: chain_config.current_block,
-            burnchain: chain_config.burnchain,
-            test_name: chain_config.test_name,
-            initial_balances: chain_config.initial_balances,
-            initial_lockups: chain_config.initial_lockups,
-            spending_account: chain_config.spending_account,
-            setup_code: chain_config.setup_code,
-            epochs: chain_config.epochs,
-            test_stackers: chain_config.test_stackers,
-            test_signers: chain_config.test_signers,
-            aggregate_public_key: chain_config.aggregate_public_key,
-            txindex: chain_config.txindex,
-        }
-    }
-}
 impl<'a> TestChainstate<'a> {
     pub fn new(config: TestChainstateConfig) -> TestChainstate<'a> {
         Self::new_with_observer(config, None)
@@ -158,7 +168,7 @@ impl<'a> TestChainstate<'a> {
         mut config: TestChainstateConfig,
         observer: Option<&'a TestEventObserver>,
     ) -> TestChainstate<'a> {
-        let test_path = Self::test_path(&config);
+        let test_path = Self::make_test_path(&config);
         let chainstate_path = get_chainstate_path_str(&test_path);
         let mut miner_factory = TestMinerFactory::new();
         miner_factory.chain_id = config.network_id;
@@ -335,6 +345,7 @@ impl<'a> TestChainstate<'a> {
             sortdb: Some(sortdb),
             miner,
             stacks_node: Some(stacks_node),
+            test_path,
             chainstate_path,
             coord,
             indexer: Some(indexer),
@@ -666,7 +677,7 @@ impl<'a> TestChainstate<'a> {
         let last_key = stacks_node.get_last_key(&self.miner);
 
         let network_id = self.config.network_id;
-        let chainstate_path = self.chainstate_path.clone();
+        let chainstate_path = get_chainstate_path_str(&self.config.test_name);
         let burn_block_height = burn_block.block_height;
 
         let proof = self

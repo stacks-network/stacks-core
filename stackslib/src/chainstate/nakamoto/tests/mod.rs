@@ -1991,7 +1991,7 @@ fn test_make_miners_stackerdb_config() {
         None,
     );
 
-    let naka_miner_hash160 = peer.miner.nakamoto_miner_hash160();
+    let naka_miner_hash160 = peer.chain.miner.nakamoto_miner_hash160();
     let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let miner_hash160s: Vec<_> = miner_keys
         .iter()
@@ -2009,8 +2009,8 @@ fn test_make_miners_stackerdb_config() {
     debug!("miners = {:#?}", &miner_hash160s);
 
     // extract chainstate, sortdb, and stackerdbs -- we don't need the peer anymore
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let mut last_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     let stackerdbs = peer.network.stackerdbs;
     let miners_contract_id = boot_code_id(MINERS_NAME, false);
