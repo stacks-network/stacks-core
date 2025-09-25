@@ -1701,6 +1701,7 @@ impl BlockMinerThread {
                         info!("Miner: Size-based tenure extend";
                             "current_timestamp" => get_epoch_time_secs(),
                             "total_tenure_size" => total_tenure_size,
+                            "max_tenure_bytes" => self.config.miner.max_tenure_bytes,
                         );
                         self.tenure_extend_reset();
                         tenure_extended = true;
