@@ -484,10 +484,10 @@ impl BitcoinRegtestController {
     /// tries to instantiate it or **panics** otherwise.
     /// If the node is **not** a miner, returns None (e.g. follower node).
     fn create_rpc_client_unchecked(config: &Config) -> Option<BitcoinRpcClient> {
-        config.node.miner.then_some(
+        config.node.miner.then(|| {
             BitcoinRpcClient::from_stx_config(&config)
-                .expect("unable to instantiate the RPC client for miner node!"),
-        )
+                .expect("unable to instantiate the RPC client for miner node!")
+        })
     }
 
     /// Attempt to get a reference to the underlying [`BitcoinRpcClient`].
