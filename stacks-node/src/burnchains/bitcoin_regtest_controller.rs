@@ -93,6 +93,9 @@ pub struct BitcoinRegtestController {
     burnchain_config: Option<Burnchain>,
     ongoing_block_commit: Option<OngoingBlockCommit>,
     should_keep_running: Option<Arc<AtomicBool>>,
+    /// Optional Bitcoin RPC client used to interact with a `bitcoind` node.
+    /// - For **miner** node this field must be always `Some`.
+    /// - For **other** node (e.g. follower node), this field is `None`.
     rpc_client: Option<BitcoinRpcClient>,
 }
 
@@ -2451,6 +2454,7 @@ mod tests {
     use std::env::{self, temp_dir};
     use std::fs::File;
     use std::io::Write;
+    use std::panic::{self, AssertUnwindSafe};
 
     use stacks::burnchains::BurnchainSigner;
     use stacks::config::DEFAULT_SATS_PER_VB;
@@ -2461,7 +2465,9 @@ mod tests {
 
     use super::*;
     use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-    use crate::burnchains::bitcoin_regtest_controller::tests::utils::to_address_legacy;
+    use crate::burnchains::bitcoin_regtest_controller::tests::utils::{
+        create_follower_config, create_miner_config, to_address_legacy,
+    };
     use crate::Keychain;
 
     mod utils {
@@ -2475,7 +2481,7 @@ mod tests {
         use crate::burnchains::bitcoin::core_controller::BURNCHAIN_CONFIG_PEER_PORT_DISABLED;
         use crate::util::get_epoch_time_nanos;
 
-        pub fn create_config() -> Config {
+        pub fn create_miner_config() -> Config {
             let mut config = Config::default();
             config.node.miner = true;
             config.burnchain.magic_bytes = "T3".as_bytes().into();
@@ -2715,6 +2721,18 @@ mod tests {
                 burn_header_hash: BurnchainHeaderHash([0u8; 32]),
             }
         }
+
+        pub fn create_follower_config() -> Config {
+            let mut config = Config::default();
+            config.node.miner = false;
+            config.burnchain.magic_bytes = "T3".as_bytes().into();
+            config.burnchain.username = None;
+            config.burnchain.password = None;
+            config.burnchain.peer_host = String::from("127.0.0.1");
+            config.burnchain.peer_port = 8333;
+            config.node.working_dir = format!("/tmp/follower");
+            config
+        }
     }
 
     #[test]
@@ -2770,7 +2788,7 @@ mod tests {
         ];
 
         // test serialize_tx()
-        let config = utils::create_config();
+        let config = utils::create_miner_config();
 
         let mut btc_controller = BitcoinRegtestController::new(config, None);
         let mut utxo_set = UTXOSet {
@@ -2889,7 +2907,7 @@ mod tests {
 
     #[test]
     fn test_to_epoch_aware_pubkey() {
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         let pubkey = utils::create_miner1_pubkey();
 
         config.miner.segwit = false;
@@ -2927,7 +2945,7 @@ mod tests {
 
     #[test]
     fn test_get_miner_address() {
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         let pub_key = utils::create_miner1_pubkey();
 
         config.miner.segwit = false;
@@ -2966,13 +2984,93 @@ mod tests {
     }
 
     #[test]
+    fn test_instantiate_with_burnchain_on_follower_node_ok() {
+        let config = create_follower_config();
+
+        let btc_controller = BitcoinRegtestController::with_burnchain(config, None, None, None);
+
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            _ = btc_controller.try_get_rpc_client();
+        }));
+        assert!(
+            result.is_err(),
+            "Invoking any Bitcoin RPC related method should panic."
+        );
+    }
+
+    #[test]
+    fn test_instantiate_with_burnchain_on_miner_node_ok() {
+        let config = create_miner_config();
+
+        let btc_controller = BitcoinRegtestController::with_burnchain(config, None, None, None);
+
+        let _ = btc_controller.try_get_rpc_client();
+        assert!(true, "Invoking any Bitcoin RPC related method should work.");
+    }
+
+    #[test]
+    fn test_instantiate_with_burnchain_on_miner_node_failure() {
+        let mut config = create_miner_config();
+        config.burnchain.username = None;
+        config.burnchain.password = None;
+
+        let result = panic::catch_unwind(|| {
+            _ = BitcoinRegtestController::with_burnchain(config, None, None, None);
+        });
+        assert!(
+            result.is_err(),
+            "Bitcoin RPC credentials are mandatory for miner node."
+        );
+    }
+
+    #[test]
+    fn test_instantiate_new_dummy_on_follower_node_ok() {
+        let config = create_follower_config();
+
+        let btc_controller = BitcoinRegtestController::new_dummy(config);
+
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            _ = btc_controller.try_get_rpc_client();
+        }));
+        assert!(
+            result.is_err(),
+            "Invoking any Bitcoin RPC related method should panic."
+        );
+    }
+
+    #[test]
+    fn test_instantiate_new_dummy_on_miner_node_ok() {
+        let config = create_miner_config();
+
+        let btc_controller = BitcoinRegtestController::new_dummy(config);
+
+        let _ = btc_controller.try_get_rpc_client();
+        assert!(true, "Invoking any Bitcoin RPC related method should work.");
+    }
+
+    #[test]
+    fn test_instantiate_new_dummy_on_miner_node_failure() {
+        let mut config = create_miner_config();
+        config.burnchain.username = None;
+        config.burnchain.password = None;
+
+        let result = panic::catch_unwind(|| {
+            _ = BitcoinRegtestController::new_dummy(config);
+        });
+        assert!(
+            result.is_err(),
+            "Bitcoin RPC credentials are mandatory for miner node."
+        );
+    }
+
+    #[test]
     #[ignore]
     fn test_create_wallet_from_default_empty_name() {
         if env::var("BITCOIND_TEST") != Ok("1".into()) {
             return;
         }
 
-        let config = utils::create_config();
+        let config = utils::create_miner_config();
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
@@ -3000,7 +3098,7 @@ mod tests {
             return;
         }
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.wallet_name = String::from("mywallet");
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3028,7 +3126,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3056,7 +3154,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3093,7 +3191,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
         config.burnchain.max_unspent_utxos = Some(10);
 
@@ -3121,7 +3219,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3162,7 +3260,7 @@ mod tests {
         let miner1_pubkey = utils::create_miner1_pubkey();
         let miner2_pubkey = utils::create_miner2_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner1_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3200,7 +3298,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3248,7 +3346,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3279,7 +3377,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3307,7 +3405,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3343,7 +3441,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3373,7 +3471,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let config = utils::create_config();
+        let config = utils::create_miner_config();
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
@@ -3402,7 +3500,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let config = utils::create_config();
+        let config = utils::create_miner_config();
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
         btcd_controller
@@ -3436,7 +3534,7 @@ mod tests {
 
         let miner_pubkey = utils::create_miner1_pubkey();
 
-        let mut config = utils::create_config();
+        let mut config = utils::create_miner_config();
         config.miner.segwit = true;
 
         let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3472,7 +3570,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3531,7 +3629,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3580,7 +3678,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3631,7 +3729,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3714,7 +3812,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3787,7 +3885,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3832,7 +3930,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3882,7 +3980,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3932,7 +4030,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -3968,7 +4066,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -4008,7 +4106,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -4053,7 +4151,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -4100,7 +4198,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -4133,7 +4231,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
@@ -4174,7 +4272,7 @@ mod tests {
             let miner_pubkey = keychain.get_pub_key();
             let mut op_signer = keychain.generate_op_signer();
 
-            let mut config = utils::create_config();
+            let mut config = utils::create_miner_config();
             config.burnchain.local_mining_public_key = Some(miner_pubkey.to_hex());
 
             let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
