@@ -20,7 +20,6 @@ use std::path::PathBuf;
 use std::{cmp, fs, io};
 
 pub use clarity::vm::analysis::errors::{CheckErrorKind, StaticCheckError};
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::BurnStateDB;
@@ -3896,7 +3895,6 @@ impl StacksChainState {
     pub fn process_microblocks_transactions(
         clarity_tx: &mut ClarityTx,
         microblocks: &[StacksMicroblock],
-        ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), (Error, BlockHeaderHash)> {
         let mut fees = 0u128;
         let mut burns = 0u128;
@@ -3905,7 +3903,7 @@ impl StacksChainState {
             debug!("Process microblock {}", &microblock.block_hash());
             for (tx_index, tx) in microblock.txs.iter().enumerate() {
                 let (tx_fee, mut tx_receipt) =
-                    StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules, None)
+                    StacksChainState::process_transaction(clarity_tx, tx, false, None)
                         .map_err(|e| (e, microblock.block_hash()))?;
 
                 tx_receipt.microblock_header = Some(microblock.header.clone());
@@ -4466,14 +4464,13 @@ impl StacksChainState {
         clarity_tx: &mut ClarityTx,
         block_txs: &[StacksTransaction],
         mut tx_index: u32,
-        ast_rules: ASTRules,
     ) -> Result<(u128, u128, Vec<StacksTransactionReceipt>), Error> {
         let mut fees = 0u128;
         let mut burns = 0u128;
         let mut receipts = vec![];
         for tx in block_txs.iter() {
             let (tx_fee, mut tx_receipt) =
-                StacksChainState::process_transaction(clarity_tx, tx, false, ast_rules, None)?;
+                StacksChainState::process_transaction(clarity_tx, tx, false, None)?;
             fees = fees.checked_add(u128::from(tx_fee)).expect("Fee overflow");
             tx_receipt.tx_index = tx_index;
             burns = burns
@@ -4971,12 +4968,6 @@ impl StacksChainState {
             .get_sortition_id_from_consensus_hash(parent_consensus_hash)
             .expect("Failed to get parent SortitionID from ConsensusHash");
 
-        let parent_burn_height =
-            SortitionDB::get_block_snapshot_consensus(conn, parent_consensus_hash)?
-                .expect("Failed to get snapshot for parent's sortition")
-                .block_height;
-        let microblock_ast_rules = SortitionDB::get_ast_rules(conn, parent_burn_height)?;
-
         // find matured miner rewards, so we can grant them within the Clarity DB tx.
         let (latest_matured_miners, matured_miner_parent) = {
             let latest_miners = StacksChainState::get_scheduled_block_rewards(
@@ -5073,7 +5064,6 @@ impl StacksChainState {
             match StacksChainState::process_microblocks_transactions(
                 &mut clarity_tx,
                 parent_microblocks,
-                microblock_ast_rules,
             ) {
                 Ok((fees, burns, events)) => (fees, burns, events),
                 Err((e, mblock_header_hash)) => {
@@ -5335,9 +5325,6 @@ impl StacksChainState {
             block.txs.len()
         );
 
-        let ast_rules =
-            SortitionDB::get_ast_rules(burn_dbconn.tx(), chain_tip_burn_header_height.into())?;
-
         let mainnet = chainstate_tx.get_config().mainnet;
         let next_block_height = block.header.total_work.work;
 
@@ -5540,11 +5527,10 @@ impl StacksChainState {
                     &block.txs,
                     u32::try_from(microblock_txs_receipts.len())
                         .expect("more than 2^32 tx receipts"),
-                    ast_rules,
                 ) {
                     Err(e) => {
-                        let msg = format!("Invalid Stacks block {}: {:?}", block.block_hash(), &e);
-                        warn!("{}", &msg);
+                        let msg = format!("Invalid Stacks block {}: {e:?}", block.block_hash());
+                        warn!("{msg}");
 
                         clarity_tx.rollback_block();
                         return Err(Error::InvalidStacksBlock(msg));
@@ -6816,7 +6802,6 @@ impl StacksChainState {
 pub mod test {
     use std::fs;
 
-    use clarity::vm::ast::ASTRules;
     use clarity::vm::types::StacksAddressExtensions;
     use rand::{thread_rng, Rng};
     use stacks_common::types::chainstate::{BlockHeaderHash, StacksWorkScore};
@@ -10180,7 +10165,6 @@ pub mod test {
                             &microblock_privkey,
                             &anchored_block.0.block_hash(),
                             microblocks.last().map(|mblock| &mblock.header),
-                            ASTRules::PrecheckSize,
                         )
                         .unwrap();
                         microblocks.push(microblock);

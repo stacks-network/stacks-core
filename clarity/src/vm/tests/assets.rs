@@ -24,7 +24,6 @@ use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
 use crate::vm::{
-    ast::ASTRules,
     contexts::AssetMapEntry,
     errors::{CheckErrorKind, RuntimeError},
     tests::{
@@ -184,20 +183,10 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
         QualifiedContractIdentifier::new(p1_std_principal_data, "second".into());
 
     owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), contract, None)
         .unwrap();
     owned_env
-        .initialize_contract(
-            second_contract_id.clone(),
-            contract_second,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(second_contract_id.clone(), contract_second, None)
         .unwrap();
 
     owned_env.stx_faucet(&(p1_principal), u128::MAX - 1500);
@@ -551,12 +540,7 @@ fn test_simple_token_system(
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
 
     owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), tokens_contract, None)
         .unwrap();
 
     let (result, asset_map, _events) = execute_transaction(
@@ -847,12 +831,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     let token_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".into());
     let err = owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            bad_0,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), bad_0, None)
         .unwrap_err();
     assert!(matches!(
         err,
@@ -860,12 +839,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     ));
 
     let err = owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            bad_1,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), bad_1, None)
         .unwrap_err();
     assert!(matches!(
         err,
@@ -873,12 +847,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     ));
 
     owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), contract, None)
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(
@@ -949,28 +918,13 @@ fn test_overlapping_nfts(
         QualifiedContractIdentifier::new(p1_std_principal_data, "names-2".into());
 
     owned_env
-        .initialize_contract(
-            tokens_contract_id,
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(tokens_contract_id, tokens_contract, None)
         .unwrap();
     owned_env
-        .initialize_contract(
-            names_contract_id,
-            names_contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(names_contract_id, names_contract, None)
         .unwrap();
     owned_env
-        .initialize_contract(
-            names_2_contract_id,
-            names_contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(names_2_contract_id, names_contract, None)
         .unwrap();
 }
 
@@ -1023,22 +977,12 @@ fn test_simple_naming_system(
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
     owned_env
-        .initialize_contract(
-            tokens_contract_id,
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(tokens_contract_id, tokens_contract, None)
         .unwrap();
 
     let names_contract_id = QualifiedContractIdentifier::new(p1_std_principal_data, "names".into());
     owned_env
-        .initialize_contract(
-            names_contract_id.clone(),
-            names_contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(names_contract_id.clone(), names_contract, None)
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(

@@ -634,14 +634,13 @@ fn make_genesis_block_with_recipients(
 
     let iconn = sort_db.index_handle_at_tip();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
-    let ast_rules = miner_epoch_info.ast_rules;
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules, None)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, None)
         .unwrap();
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -899,20 +898,17 @@ fn make_stacks_block_with_input(
     )
     .unwrap();
     let mut miner_epoch_info = builder.pre_epoch_begin(state, &iconn, true).unwrap();
-    let ast_rules = miner_epoch_info.ast_rules;
     let mut epoch_tx = builder
         .epoch_begin(&iconn, &mut miner_epoch_info)
         .unwrap()
         .0;
 
     builder
-        .try_mine_tx(&mut epoch_tx, &coinbase_op, ast_rules, None)
+        .try_mine_tx(&mut epoch_tx, &coinbase_op, None)
         .unwrap();
 
     for tx in txs {
-        builder
-            .try_mine_tx(&mut epoch_tx, tx, ast_rules, None)
-            .unwrap();
+        builder.try_mine_tx(&mut epoch_tx, tx, None).unwrap();
     }
 
     let block = builder.mine_anchored_block(&mut epoch_tx);
@@ -6460,7 +6456,7 @@ fn test_check_chainstate_db_versions() {
         SortitionDB::get_db_version_from_path(&sortdb_path)
             .unwrap()
             .unwrap(),
-        "1"
+        1
     );
 
     // should work just fine in epoch 2

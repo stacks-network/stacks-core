@@ -3,7 +3,6 @@ use std::ops::Deref;
 use clarity::util::get_epoch_time_secs;
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
 use clarity::vm::analysis::mem_type_check;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::*;
@@ -507,10 +506,6 @@ impl BurnStateDB for TestSimBurnStateDB {
             None
         }
     }
-
-    fn get_ast_rules(&self, _block_height: u32) -> ASTRules {
-        ASTRules::PrecheckSize
-    }
 }
 
 #[cfg(test)]
@@ -521,10 +516,9 @@ impl HeadersDB for TestSimHeadersDB {
     ) -> Option<BurnchainHeaderHash> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap())
+        } else if self.get_burn_block_height_for_block(id_bhh).is_none() {
+            None
         } else {
-            if self.get_burn_block_height_for_block(id_bhh).is_none() {
-                return None;
-            }
             Some(BurnchainHeaderHash(id_bhh.0))
         }
     }
@@ -666,7 +660,6 @@ fn pox_2_contract_caller_units() {
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap()
     });
@@ -680,8 +673,7 @@ fn pox_2_contract_caller_units() {
                                                            (start-burn-ht uint)
                                                            (lock-period uint))
                                    (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
-                                None,
-                                ASTRules::PrecheckSize)
+                                None)
             .unwrap();
 
         let burn_height = env.eval_raw("burn-block-height").unwrap().0;
@@ -897,7 +889,6 @@ fn pox_2_lock_extend_units() {
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
@@ -1771,8 +1762,7 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (ast, analysis) =
-            tx.analyze_smart_contract(contract_id, version, content, ASTRules::PrecheckSize)?;
+        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, content)?;
         tx.initialize_smart_contract(contract_id, version, &ast, content, None, |_, _| None, None)?;
         tx.save_analysis(contract_id, &analysis)?;
         return Ok(());
@@ -1815,7 +1805,6 @@ fn recency_tests() {
             ClarityVersion::Clarity2,
             &BOOT_CODE_POX_TESTNET,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap()
     });
@@ -1893,7 +1882,6 @@ fn delegation_tests() {
             ClarityVersion::Clarity2,
             &BOOT_CODE_POX_TESTNET,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap()
     });
@@ -2471,7 +2459,6 @@ fn test_vote_withdrawal() {
             ClarityVersion::Clarity1,
             &BOOT_CODE_COST_VOTING,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -2663,7 +2650,6 @@ fn test_vote_fail() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -2879,7 +2865,6 @@ fn test_vote_confirm() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -3001,7 +2986,6 @@ fn test_vote_too_many_confirms() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 

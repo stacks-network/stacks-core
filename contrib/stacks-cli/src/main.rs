@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -13,43 +12,39 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#![allow(dead_code)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(non_upper_case_globals)]
 
-extern crate blockstack_lib;
 extern crate clarity;
 extern crate stacks_common;
+extern crate stackslib;
 
+use std::io::Read;
 #[cfg(test)]
 use std::io::prelude::*;
-use std::io::Read;
 use std::{env, fs, io};
 
-use blockstack_lib::burnchains::bitcoin::address::{
-    ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use blockstack_lib::burnchains::Address;
-use blockstack_lib::chainstate::stacks::{
-    StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
-    StacksTransaction, StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode,
-    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
-    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
-    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
-};
-use blockstack_lib::clarity_cli::vm_execute;
-use blockstack_lib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
-use blockstack_lib::net::Error as NetError;
-use blockstack_lib::util_lib::strings::StacksString;
 use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
-use stacks_common::address::{b58, AddressHashMode};
+use stacks_common::address::{AddressHashMode, b58};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
+use stackslib::burnchains::Address;
+use stackslib::burnchains::bitcoin::address::{
+    ADDRESS_VERSION_MAINNET_SINGLESIG, ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
+use stackslib::chainstate::stacks::{
+    C32_ADDRESS_VERSION_MAINNET_SINGLESIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG, StacksBlock,
+    StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey, StacksTransaction,
+    StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
+};
+use stackslib::clarity_cli::vm_execute;
+use stackslib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stackslib::net::Error as NetError;
+use stackslib::util_lib::strings::StacksString;
 
 const USAGE: &str = "blockstack-cli (options) [method] [args...]
 
@@ -209,11 +204,11 @@ impl std::error::Error for CliError {
 impl std::fmt::Display for CliError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CliError::ClarityRuntimeError(e) => write!(f, "Clarity error: {:?}", e),
-            CliError::ClarityGeneralError(e) => write!(f, "Clarity error: {}", e),
-            CliError::Message(e) => write!(f, "{}", e),
-            CliError::Usage => write!(f, "{}", USAGE),
-            CliError::InvalidChainId(e) => write!(f, "Invalid chain ID: {}", e),
+            CliError::ClarityRuntimeError(e) => write!(f, "Clarity error: {e:?}"),
+            CliError::ClarityGeneralError(e) => write!(f, "Clarity error: {e}"),
+            CliError::Message(e) => write!(f, "{e}"),
+            CliError::Usage => write!(f, "{USAGE}"),
+            CliError::InvalidChainId(e) => write!(f, "Invalid chain ID: {e}"),
         }
     }
 }
@@ -238,37 +233,37 @@ impl From<VmExecutionError> for CliError {
 
 impl From<NetError> for CliError {
     fn from(value: NetError) -> Self {
-        CliError::Message(format!("Stacks NetError: {}", value))
+        CliError::Message(format!("Stacks NetError: {value}"))
     }
 }
 
 impl From<CodecError> for CliError {
     fn from(value: CodecError) -> Self {
-        CliError::Message(format!("Stacks CodecError: {}", value))
+        CliError::Message(format!("Stacks CodecError: {value}"))
     }
 }
 
 impl From<std::num::ParseIntError> for CliError {
     fn from(value: std::num::ParseIntError) -> Self {
-        CliError::Message(format!("Failed to parse integer: {}", value))
+        CliError::Message(format!("Failed to parse integer: {value}"))
     }
 }
 
 impl From<io::Error> for CliError {
     fn from(value: io::Error) -> Self {
-        CliError::Message(format!("IO error reading CLI input: {}", value))
+        CliError::Message(format!("IO error reading CLI input: {value}"))
     }
 }
 
 impl From<stacks_common::util::HexError> for CliError {
     fn from(value: stacks_common::util::HexError) -> Self {
-        CliError::Message(format!("Bad hex string supplied: {}", value))
+        CliError::Message(format!("Bad hex string supplied: {value}"))
     }
 }
 
 impl From<clarity::vm::types::serialization::SerializationError> for CliError {
     fn from(value: clarity::vm::types::serialization::SerializationError) -> Self {
-        CliError::Message(format!("Failed to deserialize: {}", value))
+        CliError::Message(format!("Failed to deserialize: {value}"))
     }
 }
 
@@ -305,12 +300,12 @@ fn make_standard_single_sig_tx(
     version: TransactionVersion,
     chain_id: u32,
     payload: TransactionPayload,
-    publicKey: &StacksPublicKey,
+    public_key: &StacksPublicKey,
     nonce: u64,
     tx_fee: u64,
 ) -> StacksTransaction {
     let mut spending_condition =
-        TransactionSpendingCondition::new_singlesig_p2pkh(publicKey.clone())
+        TransactionSpendingCondition::new_singlesig_p2pkh(public_key.clone())
             .expect("Failed to create p2pkh spending condition from public key.");
     spending_condition.set_nonce(nonce);
     spending_condition.set_tx_fee(tx_fee);
@@ -345,7 +340,7 @@ fn sign_transaction_single_sig_standard(
 /// # Returns
 ///
 /// The number of times `flag` appears in `args`.
-fn count_flag(args: &Vec<String>, flag: &str) -> usize {
+fn count_flag(args: &[String], flag: &str) -> usize {
     args.iter().filter(|&arg| arg == flag).count()
 }
 
@@ -437,8 +432,7 @@ fn parse_anchor_mode(
 
     if count_micro > 1 || count_block > 1 {
         return Err(CliError::Message(format!(
-            "Duplicated anchor mode detected.\n\nUSAGE:\n{}",
-            usage,
+            "Duplicated anchor mode detected.\n\nUSAGE:\n{usage}"
         )));
     }
 
@@ -447,8 +441,7 @@ fn parse_anchor_mode(
 
     match (has_microblock, has_block) {
         (true, true) => Err(CliError::Message(format!(
-            "Both anchor modes detected.\n\nUSAGE:\n{}",
-            usage
+            "Both anchor modes detected.\n\nUSAGE:\n{usage}"
         ))),
         (true, false) => Ok(TransactionAnchorMode::OffChainOnly),
         (false, true) => Ok(TransactionAnchorMode::OnChainOnly),
@@ -498,8 +491,7 @@ fn parse_postcondition_mode(
         1 => { /* continue below */ }
         _ => {
             return Err(CliError::Message(format!(
-                "Duplicated `{}`.\n\nUSAGE:\n{}",
-                FLAG_POSTCONDITION, usage
+                "Duplicated `{FLAG_POSTCONDITION}`.\n\nUSAGE:\n{usage}"
             )));
         }
     }
@@ -529,12 +521,11 @@ fn handle_contract_publish(
     let mut args = args_slice.to_vec();
 
     if !args.is_empty() && args[0] == "-h" {
-        return Err(CliError::Message(format!("USAGE:\n{}", PUBLISH_USAGE)));
+        return Err(CliError::Message(format!("USAGE:\n{PUBLISH_USAGE}")));
     }
     if args.len() < 5 {
         return Err(CliError::Message(format!(
-            "Incorrect argument count supplied \n\nUSAGE:\n{}",
-            PUBLISH_USAGE
+            "Incorrect argument count supplied \n\nUSAGE:\n{PUBLISH_USAGE}",
         )));
     }
     let anchor_mode = parse_anchor_mode(&mut args, PUBLISH_USAGE)?;
@@ -590,12 +581,11 @@ fn handle_contract_call(
 ) -> Result<String, CliError> {
     let mut args = args_slice.to_vec();
     if !args.is_empty() && args[0] == "-h" {
-        return Err(CliError::Message(format!("USAGE:\n {}", CALL_USAGE)));
+        return Err(CliError::Message(format!("USAGE:\n {CALL_USAGE}")));
     }
     if args.len() < 6 {
         return Err(CliError::Message(format!(
-            "Incorrect argument count supplied \n\nUSAGE:\n {}",
-            CALL_USAGE
+            "Incorrect argument count supplied \n\nUSAGE:\n {CALL_USAGE}",
         )));
     }
     let anchor_mode = parse_anchor_mode(&mut args, CALL_USAGE)?;
@@ -608,7 +598,7 @@ fn handle_contract_call(
 
     let val_args = &args[6..];
 
-    if val_args.len() % 2 != 0 {
+    if !val_args.len().is_multiple_of(2) {
         return Err(
             "contract-call arguments must be supplied as a list of `-e ...` or `-x 0000...` or `--hex-file <file_path>` pairs"
                 .into(),
@@ -685,14 +675,12 @@ fn handle_token_transfer(
     let mut args = args_slice.to_vec();
     if !args.is_empty() && args[0] == "-h" {
         return Err(CliError::Message(format!(
-            "USAGE:\n {}",
-            TOKEN_TRANSFER_USAGE
+            "USAGE:\n {TOKEN_TRANSFER_USAGE}"
         )));
     }
     if args.len() < 5 {
         return Err(CliError::Message(format!(
-            "Incorrect argument count supplied \n\nUSAGE:\n {}",
-            TOKEN_TRANSFER_USAGE
+            "Incorrect argument count supplied \n\nUSAGE:\n {TOKEN_TRANSFER_USAGE}"
         )));
     }
 
@@ -742,7 +730,7 @@ fn handle_token_transfer(
 #[allow(clippy::indexing_slicing)]
 fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if !args.is_empty() && args[0] == "-h" {
-        return Err(CliError::Message(format!("USAGE:\n {}", GENERATE_USAGE)));
+        return Err(CliError::Message(format!("USAGE:\n {GENERATE_USAGE}")));
     }
 
     let sk = StacksPrivateKey::random();
@@ -763,18 +751,17 @@ fn generate_secret_key(args: &[String], version: TransactionVersion) -> Result<S
         "{{
   \"secretKey\": \"{}\",
   \"publicKey\": \"{}\",
-  \"stacksAddress\": \"{}\"
+  \"stacksAddress\": \"{address}\"
 }}",
         sk.to_hex(),
         pk.to_hex(),
-        address
     ))
 }
 
 #[allow(clippy::indexing_slicing)]
 fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
-        return Err(CliError::Message(format!("USAGE:\n {}", ADDRESSES_USAGE)));
+        return Err(CliError::Message(format!("USAGE:\n {ADDRESSES_USAGE}")));
     }
 
     let sk = StacksPrivateKey::from_hex(&args[0]).expect("Failed to load private key");
@@ -804,10 +791,9 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
     let b58_address_string = b58::check_encode_slice(&b58_addr_slice);
     Ok(format!(
         "{{
-    \"STX\": \"{}\",
-    \"BTC\": \"{}\"
-}}",
-        &stx_address, &b58_address_string
+    \"STX\": \"{stx_address}\",
+    \"BTC\": \"{b58_address_string}\"
+}}"
     ))
 }
 
@@ -815,8 +801,7 @@ fn get_addresses(args: &[String], version: TransactionVersion) -> Result<String,
 fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
-            "Usage: {}\n",
-            DECODE_TRANSACTION_USAGE
+            "Usage: {DECODE_TRANSACTION_USAGE}\n"
         )));
     }
 
@@ -853,10 +838,7 @@ fn decode_transaction(args: &[String], _version: TransactionVersion) -> Result<S
 #[allow(clippy::indexing_slicing)]
 fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
-        return Err(CliError::Message(format!(
-            "Usage: {}\n",
-            DECODE_HEADER_USAGE
-        )));
+        return Err(CliError::Message(format!("Usage: {DECODE_HEADER_USAGE}\n")));
     }
     let header_data = if args[0] == "-" {
         // read from stdin
@@ -893,10 +875,7 @@ fn decode_header(args: &[String], _version: TransactionVersion) -> Result<String
 #[allow(clippy::indexing_slicing)]
 fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
-        return Err(CliError::Message(format!(
-            "Usage: {}\n",
-            DECODE_BLOCK_USAGE
-        )));
+        return Err(CliError::Message(format!("Usage: {DECODE_BLOCK_USAGE}\n")));
     }
     let block_data = if args[0] == "-" {
         // read from stdin
@@ -932,8 +911,7 @@ fn decode_block(args: &[String], _version: TransactionVersion) -> Result<String,
 fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
-            "Usage: {}\n",
-            DECODE_MICROBLOCK_USAGE
+            "Usage: {DECODE_MICROBLOCK_USAGE}\n"
         )));
     }
     let mblock_data = if args[0] == "-" {
@@ -972,8 +950,7 @@ fn decode_microblock(args: &[String], _version: TransactionVersion) -> Result<St
 fn decode_microblocks(args: &[String], _version: TransactionVersion) -> Result<String, CliError> {
     if (!args.is_empty() && args[0] == "-h") || args.len() != 1 {
         return Err(CliError::Message(format!(
-            "Usage: {}\n",
-            DECODE_MICROBLOCKS_USAGE
+            "Usage: {DECODE_MICROBLOCKS_USAGE}\n"
         )));
     }
     let mblock_data = if args[0] == "-" {
@@ -1015,10 +992,10 @@ fn main() {
 
     match main_handler(argv) {
         Ok(s) => {
-            println!("{}", s);
+            println!("{s}");
         }
         Err(e) => {
-            eprintln!("{}", e);
+            eprintln!("{e}");
             std::process::exit(1);
         }
     }
@@ -1071,8 +1048,8 @@ fn main_handler(mut argv: Vec<String>) -> Result<String, CliError> {
 mod test {
     use std::panic;
 
-    use blockstack_lib::chainstate::stacks::TransactionPostCondition;
     use stacks_common::util::cargo_workspace;
+    use stackslib::chainstate::stacks::TransactionPostCondition;
     use tempfile::NamedTempFile;
 
     use super::*;
@@ -1080,7 +1057,7 @@ mod test {
     mod utils {
         use super::*;
         pub fn tx_deserialize(hex_str: &str) -> StacksTransaction {
-            let tx_str = hex_bytes(&hex_str).expect("Failed to get hex byte from tx str!");
+            let tx_str = hex_bytes(hex_str).expect("Failed to get hex byte from tx str!");
             let mut cursor = io::Cursor::new(&tx_str);
             StacksTransaction::consensus_deserialize(&mut cursor).expect("Failed deserialize tx!")
         }
@@ -1223,10 +1200,7 @@ mod test {
         let result = main_handler(to_string_vec(&publish_args));
         assert!(result.is_err());
 
-        let exp_err_msg = format!(
-            "{}\n\nUSAGE:\n{}",
-            "Both anchor modes detected.", PUBLISH_USAGE
-        );
+        let exp_err_msg = format!("Both anchor modes detected.\n\nUSAGE:\n{PUBLISH_USAGE}",);
         assert_eq!(exp_err_msg, result.unwrap_err().to_string());
 
         // Scenario FAIL using duplicated anchor mode
@@ -1244,10 +1218,7 @@ mod test {
         let result = main_handler(to_string_vec(&publish_args));
         assert!(result.is_err());
 
-        let exp_err_msg = format!(
-            "{}\n\nUSAGE:\n{}",
-            "Duplicated anchor mode detected.", PUBLISH_USAGE
-        );
+        let exp_err_msg = format!("Duplicated anchor mode detected.\n\nUSAGE:\n{PUBLISH_USAGE}");
         assert_eq!(exp_err_msg, result.unwrap_err().to_string());
     }
 
@@ -1306,10 +1277,8 @@ mod test {
         let result = main_handler(to_string_vec(&publish_args));
         assert!(result.is_err());
 
-        let exp_err_msg = format!(
-            "{}\n\nUSAGE:\n{}",
-            "Invalid value for `--postcondition-mode`.", PUBLISH_USAGE
-        );
+        let exp_err_msg =
+            format!("Invalid value for `--postcondition-mode`.\n\nUSAGE:\n{PUBLISH_USAGE}");
         assert_eq!(exp_err_msg, result.unwrap_err().to_string());
 
         // Scenario FAIL with missing post-condition value
@@ -1326,10 +1295,8 @@ mod test {
         let result = main_handler(to_string_vec(&publish_args));
         assert!(result.is_err());
 
-        let exp_err_msg = format!(
-            "{}\n\nUSAGE:\n{}",
-            "Missing value for `--postcondition-mode`.", PUBLISH_USAGE
-        );
+        let exp_err_msg =
+            format!("Missing value for `--postcondition-mode`.\n\nUSAGE:\n{PUBLISH_USAGE}");
         assert_eq!(exp_err_msg, result.unwrap_err().to_string());
 
         // Scenario FAIL with duplicated post-condition
@@ -1348,10 +1315,7 @@ mod test {
         let result = main_handler(to_string_vec(&publish_args));
         assert!(result.is_err());
 
-        let exp_err_msg = format!(
-            "{}\n\nUSAGE:\n{}",
-            "Duplicated `--postcondition-mode`.", PUBLISH_USAGE
-        );
+        let exp_err_msg = format!("Duplicated `--postcondition-mode`.\n\nUSAGE:\n{PUBLISH_USAGE}");
         assert_eq!(exp_err_msg, result.unwrap_err().to_string());
     }
 
@@ -1574,7 +1538,7 @@ mod test {
             "{}",
             sign_transaction_single_sig_standard("01zz", &sk).unwrap_err()
         );
-        println!("{}", s);
+        println!("{s}");
         assert!(s.contains("Bad hex string"));
 
         let cc_args = [
@@ -1638,7 +1602,7 @@ mod test {
         let result = main_handler(to_string_vec(&cc_args));
         assert!(result.is_err(), "Result should be err!");
 
-        let expected_msg = format!("Cannot read file: {}. Reason: ", file_path);
+        let expected_msg = format!("Cannot read file: {file_path}. Reason: ");
         assert!(result.unwrap_err().to_string().starts_with(&expected_msg));
     }
 
@@ -1646,7 +1610,7 @@ mod test {
     fn test_contract_call_with_serialized_arg_from_file_fails_due_to_bad_hex() {
         let mut file = NamedTempFile::new().expect("Cannot create tempfile!");
         // Bad hex string but (good except for the \n)
-        write!(file, "0000000000000000000000000000000001\n").expect("Cannot Write to temp file");
+        writeln!(file, "0000000000000000000000000000000001").expect("Cannot Write to temp file");
         let file_path = file.path().to_str().unwrap();
 
         let cc_args = [
@@ -1658,7 +1622,7 @@ mod test {
             "foo-contract",
             "transfer-fookens",
             "--hex-file",
-            &file_path,
+            file_path,
         ];
 
         let result = main_handler(to_string_vec(&cc_args));
@@ -1684,7 +1648,7 @@ mod test {
             "foo-contract",
             "transfer-fookens",
             "--hex-file",
-            &file_path,
+            file_path,
         ];
 
         let result = main_handler(to_string_vec(&cc_args));
@@ -1721,11 +1685,11 @@ mod test {
     fn simple_decode_tx() {
         let tx_args = [
             "decode-tx",
-            "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f"
+            "8080000000040021a3c334fc0ee50359353799e8b2605ac6be1fe4000000000000000100000000000000000100c90ae0235365f3a73c595f8c6ab3c529807feb3cb269247329c9a24218d50d3f34c7eef5d28ba26831affa652a73ec32f098fec4bf1decd1ceb3fde4b8ce216b030200000000021a21a3c334fc0ee50359353799e8b2605ac6be1fe40573746f7265096765742d76616c7565000000010d00000003666f6f",
         ];
 
         let result = main_handler(to_string_vec(&tx_args)).unwrap();
-        eprintln!("result:\n{}", result);
+        eprintln!("result:\n{result}");
     }
 
     #[test]
@@ -1736,7 +1700,7 @@ mod test {
         ];
 
         let result = main_handler(to_string_vec(&block_args)).unwrap();
-        eprintln!("result:\n{}", result);
+        eprintln!("result:\n{result}");
     }
 
     #[test]
@@ -1747,7 +1711,7 @@ mod test {
         ];
 
         let result = main_handler(to_string_vec(&header_args)).unwrap();
-        eprintln!("result:\n{}", result);
+        eprintln!("result:\n{result}");
     }
 
     #[test]
