@@ -1,5 +1,4 @@
-// Copyright (C) 2013-2020 Blockstack PBC, a public benefit corporation
-// Copyright (C) 2020 Stacks Open Internet Foundation
+// Copyright (C) 2025 Stacks Open Internet Foundation
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -14,41 +13,42 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-//! Subcommands used by `stacks-inspect` binary
-
 use std::path::PathBuf;
 use std::time::Instant;
 use std::{fs, process};
 
 use clarity::types::chainstate::SortitionId;
-use clarity::util::hash::{to_hex, Sha512Trunc256Sum};
-use db::blocks::DummyEventDispatcher;
-use db::ChainstateTx;
+use clarity::util::hash::{Sha512Trunc256Sum, to_hex};
 use regex::Regex;
 use rusqlite::{Connection, OpenFlags};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
-
-use crate::burnchains::Burnchain;
-use crate::chainstate::burn::db::sortdb::{
-    get_ancestor_sort_id, SortitionDB, SortitionHandleContext,
+use stacks_common::{debug, info, warn};
+use stackslib::burnchains::Burnchain;
+use stackslib::chainstate::burn::ConsensusHash;
+use stackslib::chainstate::burn::db::sortdb::{
+    SortitionDB, SortitionHandleContext, get_ancestor_sort_id,
 };
-use crate::chainstate::burn::ConsensusHash;
-use crate::chainstate::coordinator::OnChainRewardSetProvider;
-use crate::chainstate::nakamoto::miner::{BlockMetadata, NakamotoBlockBuilder, NakamotoTenureInfo};
-use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
-use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
-use crate::chainstate::stacks::miner::*;
-use crate::chainstate::stacks::{Error as ChainstateError, *};
-use crate::clarity_vm::clarity::ClarityInstance;
-use crate::clarity_vm::database::GetTenureStartId;
-use crate::config::{Config, ConfigFile, DEFAULT_MAINNET_CONFIG};
-use crate::core::*;
-use crate::cost_estimates::metrics::UnitMetric;
-use crate::cost_estimates::UnitEstimator;
-use crate::util_lib::db::IndexDBTx;
+use stackslib::chainstate::coordinator::OnChainRewardSetProvider;
+use stackslib::chainstate::nakamoto::miner::{
+    BlockMetadata, NakamotoBlockBuilder, NakamotoTenureInfo,
+};
+use stackslib::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
+use stackslib::chainstate::stacks::db::blocks::DummyEventDispatcher;
+use stackslib::chainstate::stacks::db::{
+    ChainstateTx, StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo,
+};
+use stackslib::chainstate::stacks::miner::*;
+use stackslib::chainstate::stacks::{Error as ChainstateError, *};
+use stackslib::clarity_vm::clarity::ClarityInstance;
+use stackslib::clarity_vm::database::GetTenureStartId;
+use stackslib::config::{Config, ConfigFile, DEFAULT_MAINNET_CONFIG};
+use stackslib::core::*;
+use stackslib::cost_estimates::UnitEstimator;
+use stackslib::cost_estimates::metrics::UnitMetric;
+use stackslib::util_lib::db::IndexDBTx;
 
 /// Options common to many `stacks-inspect` subcommands
 /// Returned by `process_common_opts()`
@@ -141,13 +141,13 @@ pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
 
     let query = match mode {
         Some("prefix") => format!(
-			"SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
-			argv[3]
-		),
+            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
+            argv[3]
+        ),
         Some("first") => format!(
-			"SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
-			argv[3]
-		),
+            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
+            argv[3]
+        ),
         Some("range") => {
             let arg4 = argv[3]
                 .parse::<u64>()
@@ -155,7 +155,9 @@ pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
             let arg5 = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
             let start = arg4.saturating_sub(1);
             let blocks = arg5.saturating_sub(arg4);
-            format!("SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}")
+            format!(
+                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}"
+            )
         }
         Some("index-range") => {
             let start = argv[3]
@@ -163,12 +165,14 @@ pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
                 .expect("<start_block> not a valid u64");
             let end = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
             let blocks = end.saturating_sub(start);
-            format!("SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
+            format!(
+                "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}"
+            )
         }
         Some("last") => format!(
-			"SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
-			argv[3]
-		),
+            "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
+            argv[3]
+        ),
         Some(_) => print_help_and_exit(),
         // Default to ALL blocks
         None => "SELECT index_block_hash FROM staging_blocks WHERE orphaned = 0".into(),
@@ -229,13 +233,13 @@ pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&Config>) {
 
     let query = match mode {
         Some("prefix") => format!(
-			"SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
-			argv[3]
-		),
+            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 AND index_block_hash LIKE \"{}%\"",
+            argv[3]
+        ),
         Some("first") => format!(
-			"SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
-			argv[3]
-		),
+            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {}",
+            argv[3]
+        ),
         Some("range") => {
             let arg4 = argv[3]
                 .parse::<u64>()
@@ -243,7 +247,9 @@ pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&Config>) {
             let arg5 = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
             let start = arg4.saturating_sub(1);
             let blocks = arg5.saturating_sub(arg4);
-            format!("SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}")
+            format!(
+                "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height ASC LIMIT {start}, {blocks}"
+            )
         }
         Some("index-range") => {
             let start = argv[3]
@@ -251,12 +257,14 @@ pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&Config>) {
                 .expect("<start_block> not a valid u64");
             let end = argv[4].parse::<u64>().expect("<end-block> not a valid u64");
             let blocks = end.saturating_sub(start);
-            format!("SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}")
+            format!(
+                "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY index_block_hash ASC LIMIT {start}, {blocks}"
+            )
         }
         Some("last") => format!(
-			"SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
-			argv[3]
-		),
+            "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0 ORDER BY height DESC LIMIT {}",
+            argv[3]
+        ),
         Some(_) => print_help_and_exit(),
         // Default to ALL blocks
         None => "SELECT index_block_hash FROM nakamoto_staging_blocks WHERE orphaned = 0".into(),
@@ -386,8 +394,12 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
         let n = &argv[0];
         eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
         eprintln!("");
-        eprintln!("Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block");
-        eprintln!("assembly, but does not attempt to broadcast a block commit. This is useful for determining");
+        eprintln!(
+            "Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block"
+        );
+        eprintln!(
+            "assembly, but does not attempt to broadcast a block commit. This is useful for determining"
+        );
         eprintln!("what transactions a given chain state would include in an anchor block,");
         eprintln!("or otherwise simulating a miner.");
         process::exit(1);
@@ -523,11 +535,11 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     let elapsed = start.elapsed();
     let summary = format!(
         "block @ height = {h} off of {pid} ({pch}/{pbh}) in {t}ms. Min-fee: {min_fee}, Max-time: {max_time}",
-        h=parent_stacks_header.stacks_block_height + 1,
-        pid=&parent_stacks_header.index_block_hash(),
-        pch=&parent_stacks_header.consensus_hash,
-        pbh=&parent_stacks_header.anchored_header.block_hash(),
-        t=elapsed.as_millis(),
+        h = parent_stacks_header.stacks_block_height + 1,
+        pid = &parent_stacks_header.index_block_hash(),
+        pch = &parent_stacks_header.consensus_hash,
+        pbh = &parent_stacks_header.anchored_header.block_hash(),
+        t = elapsed.as_millis(),
     );
 
     let code = match result {
@@ -770,7 +782,9 @@ fn replay_block(
             ),
             None => {
                 // shouldn't happen
-                panic!("CORRUPTION: staging block {block_consensus_hash}/{block_hash} does not correspond to a burn block");
+                panic!(
+                    "CORRUPTION: staging block {block_consensus_hash}/{block_hash} does not correspond to a burn block"
+                );
             }
         };
 
@@ -835,8 +849,10 @@ fn replay_block(
     ) {
         Ok((receipt, _, _)) => {
             if receipt.anchored_block_cost != cost {
-                println!("Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
-                         receipt.anchored_block_cost);
+                println!(
+                    "Failed processing block! block = {block_id}. Unexpected cost. expected = {cost}, evaluated = {}",
+                    receipt.anchored_block_cost
+                );
                 process::exit(1);
             }
 
@@ -1153,7 +1169,9 @@ fn replay_block_nakamoto(
         // check the cost
         let evaluated_cost = receipt.anchored_block_cost.clone();
         if evaluated_cost != expected_cost {
-            println!("Failed processing block! block = {block_id}. Unexpected cost. expected = {expected_cost}, evaluated = {evaluated_cost}");
+            println!(
+                "Failed processing block! block = {block_id}. Unexpected cost. expected = {expected_cost}, evaluated = {evaluated_cost}"
+            );
             process::exit(1);
         }
     }
@@ -1197,7 +1215,7 @@ pub mod test {
             "stacks-inspect try-mine --config my_config.toml /tmp/chainstate/mainnet",
         );
         let argv_init = argv.clone();
-        let opts = drain_common_opts(&mut argv, 0);
+        let _opts = drain_common_opts(&mut argv, 0);
         let opts = drain_common_opts(&mut argv, 1);
 
         assert_eq!(argv, argv_init);
