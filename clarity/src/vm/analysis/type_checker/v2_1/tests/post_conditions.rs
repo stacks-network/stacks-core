@@ -32,38 +32,38 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
         // simple
         (
             "(restrict-assets? tx-sender ((with-stx u1000)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // literal asset owner
         (
             "(restrict-assets? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4 ((with-stx u1000)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // literal asset owner with contract id
         (
             "(restrict-assets? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token ((with-stx u1000)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // variable asset owner
         (
             "(let ((p tx-sender))
                 (restrict-assets? p ((with-stx u1000)) true))",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // no allowances
         (
             "(restrict-assets? tx-sender () true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // multiple allowances
         (
             "(restrict-assets? tx-sender ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" (list 0x01)) (with-stacking u1000)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // multiple body expressions
         (
             "(restrict-assets? tx-sender ((with-stx u1000)) (+ u1 u2) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
     ];
     let bad = [
@@ -204,27 +204,27 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
         // simple
         (
             "(as-contract? ((with-stx u1000)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // no allowances
         (
             "(as-contract? () true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // multiple allowances
         (
             "(as-contract? ((with-stx u1000) (with-ft .token \"foo\" u5000) (with-nft .token \"foo\" (list 0x01)) (with-stacking u1000)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // multiple body expressions
         (
             "(as-contract? ((with-stx u1000)) (+ u1 u2) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // with-all-assets-unsafe
         (
             "(as-contract? ((with-all-assets-unsafe)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
 
     ];
@@ -349,22 +349,22 @@ fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         // basic usage
         (
             "(restrict-assets? tx-sender ((with-stx u1000)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // zero amount
         (
             "(restrict-assets? tx-sender ((with-stx u0)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // large amount
         (
             "(restrict-assets? tx-sender ((with-stx u340282366920938463463374607431768211455)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
         // variable amount
         (
             "(let ((amount u1000)) (restrict-assets? tx-sender ((with-stx amount)) true))",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap()
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap()
         ),
     ];
 
@@ -438,37 +438,37 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
         // basic usage with shortcut contract principal
         (
             r#"(restrict-assets? tx-sender ((with-ft .token "token-name" u1000)) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // full literal principal
         (
             r#"(restrict-assets? tx-sender ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.token "token-name" u1000)) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // variable principal
         (
             r#"(let ((contract .token)) (restrict-assets? tx-sender ((with-ft contract "token-name" u1000)) true))"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // variable token name
         (
             r#"(let ((name "token-name")) (restrict-assets? tx-sender ((with-ft .token name u1000)) true))"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // variable amount
         (
             r#"(let ((amount u1000)) (restrict-assets? tx-sender ((with-ft .token "token-name" amount)) true))"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // "*" token name
         (
             r#"(restrict-assets? tx-sender ((with-ft .token "*" u1000)) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // empty token name
         (
             r#"(restrict-assets? tx-sender ((with-ft .token "" u1000)) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
     ];
 
@@ -576,47 +576,47 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         // basic usage with shortcut contract principal
         (
             r#"(restrict-assets? tx-sender ((with-nft .token "token-name" (list u1000))) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // full literal principal
         (
             r#"(restrict-assets? tx-sender ((with-ft 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.token "token-name" u1000)) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // variable principal
         (
             r#"(let ((contract .token)) (restrict-assets? tx-sender ((with-nft contract "token-name" (list u1000))) true))"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // variable token name
         (
             r#"(let ((name "token-name")) (restrict-assets? tx-sender ((with-nft .token name (list u1000))) true))"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // "*" token name
         (
             r#"(restrict-assets? tx-sender ((with-nft .token "*" (list u1000))) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // empty token name
         (
             r#"(restrict-assets? tx-sender ((with-nft .token "" (list u1000))) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // string asset-id
         (
             r#"(restrict-assets? tx-sender ((with-nft .token "token-name" (list "asset-123"))) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // buffer asset-id
         (
             r#"(restrict-assets? tx-sender ((with-nft .token "token-name" (list 0x0123456789))) true)"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // variable asset-id
         (
             r#"(let ((asset-id (list u123))) (restrict-assets? tx-sender ((with-nft .token "token-name" asset-id)) true))"#,
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
     ];
 
@@ -718,17 +718,17 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] _epoch:
         // basic usage
         (
             "(restrict-assets? tx-sender ((with-stacking u1000)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // zero amount
         (
             "(restrict-assets? tx-sender ((with-stacking u0)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
         // variable amount
         (
             "(let ((amount u1000)) (restrict-assets? tx-sender ((with-stacking amount)) true))",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
     ];
 
@@ -805,7 +805,7 @@ fn test_with_all_assets_unsafe_allowance(
         // basic usage
         (
             "(as-contract? ((with-all-assets-unsafe)) true)",
-            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::IntType).unwrap(),
+            TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::UIntType).unwrap(),
         ),
     ];
 

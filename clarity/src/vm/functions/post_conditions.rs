@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 
 use clarity_types::types::{AssetIdentifier, PrincipalData};
 
+use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker};
@@ -205,7 +206,7 @@ pub fn special_restrict_assets(
     if let Some(violation_index) = check_allowances(&asset_owner, &allowances, asset_maps)? {
         env.global_context.roll_back()?;
         // TODO: Emit an event about the allowance violation
-        return Value::error(Value::Int(violation_index));
+        return Value::error(Value::UInt(violation_index));
     }
 
     env.global_context.commit()?;
@@ -279,7 +280,7 @@ pub fn special_as_contract(
             Ok(Some(violation_index)) => {
                 nested_env.global_context.roll_back()?;
                 // TODO: Emit an event about the allowance violation
-                return Value::error(Value::Int(violation_index));
+                return Value::error(Value::UInt(violation_index));
             }
             Err(e) => {
                 nested_env.global_context.roll_back()?;
@@ -299,13 +300,13 @@ pub fn special_as_contract(
 
 /// Check the allowances against the asset map. If any assets moved without a
 /// corresponding allowance return a `Some` with an index of the violated
-/// allowance, or -1 if an asset with no allowance caused the violation. If all
+/// allowance, or 128 if an asset with no allowance caused the violation. If all
 /// allowances are satisfied, return `Ok(None)`.
 fn check_allowances(
     owner: &PrincipalData,
     allowances: &[Allowance],
     assets: &AssetMap,
-) -> InterpreterResult<Option<i128>> {
+) -> InterpreterResult<Option<u128>> {
     // Elements are (index in allowances, amount)
     let mut stx_allowances: Vec<(usize, u128)> = Vec::new();
     // Map assets to a vector of (index in allowances, amount)
@@ -349,14 +350,14 @@ fn check_allowances(
     if let Some(stx_moved) = assets.get_stx(owner) {
         // If there are no allowances for STX, any movement is a violation
         if stx_allowances.is_empty() {
-            return Ok(Some(-1));
+            return Ok(Some(MAX_ALLOWANCES as u128));
         }
 
         // Check against the STX allowances
         for (index, allowance) in &stx_allowances {
             if stx_moved > *allowance {
-                return Ok(Some(i128::try_from(*index).map_err(|_| {
-                    InterpreterError::Expect("failed to convert index to i128".into())
+                return Ok(Some(u128::try_from(*index).map_err(|_| {
+                    InterpreterError::Expect("failed to convert index to u128".into())
                 })?));
             }
         }
@@ -366,14 +367,14 @@ fn check_allowances(
     if let Some(stx_burned) = assets.get_stx_burned(owner) {
         // If there are no allowances for STX, any burn is a violation
         if stx_allowances.is_empty() {
-            return Ok(Some(-1));
+            return Ok(Some(MAX_ALLOWANCES as u128));
         }
 
         // Check against the STX allowances
         for (index, allowance) in &stx_allowances {
             if stx_burned > *allowance {
-                return Ok(Some(i128::try_from(*index).map_err(|_| {
-                    InterpreterError::Expect("failed to convert index to i128".into())
+                return Ok(Some(u128::try_from(*index).map_err(|_| {
+                    InterpreterError::Expect("failed to convert index to u128".into())
                 })?));
             }
         }
@@ -398,7 +399,7 @@ fn check_allowances(
 
             if merged.is_empty() {
                 // No allowance for this asset, any movement is a violation
-                return Ok(Some(-1));
+                return Ok(Some(MAX_ALLOWANCES as u128));
             }
 
             // Sort by allowance index so we check allowances in order
@@ -406,8 +407,8 @@ fn check_allowances(
 
             for (index, allowance) in merged {
                 if *amount_moved > allowance {
-                    return Ok(Some(i128::try_from(index).map_err(|_| {
-                        InterpreterError::Expect("failed to convert index to i128".into())
+                    return Ok(Some(u128::try_from(index).map_err(|_| {
+                        InterpreterError::Expect("failed to convert index to u128".into())
                     })?));
                 }
             }
@@ -431,7 +432,7 @@ fn check_allowances(
 
             if merged.is_empty() {
                 // No allowance for this asset, any movement is a violation
-                return Ok(Some(-1));
+                return Ok(Some(MAX_ALLOWANCES as u128));
             }
 
             // Sort by allowance index so we check allowances in order
@@ -441,8 +442,8 @@ fn check_allowances(
                 // Check against the NFT allowances
                 for id_moved in ids_moved {
                     if !allowance_map.contains(&id_moved.serialize_to_hex()?) {
-                        return Ok(Some(i128::try_from(index).map_err(|_| {
-                            InterpreterError::Expect("failed to convert index to i128".into())
+                        return Ok(Some(u128::try_from(index).map_err(|_| {
+                            InterpreterError::Expect("failed to convert index to u128".into())
                         })?));
                     }
                 }
@@ -454,14 +455,14 @@ fn check_allowances(
     if let Some(stx_stacked) = assets.get_stacking(owner) {
         // If there are no allowances for stacking, any stacking is a violation
         if stacking_allowances.is_empty() {
-            return Ok(Some(-1));
+            return Ok(Some(MAX_ALLOWANCES as u128));
         }
 
         // Check against the stacking allowances
         for (index, allowance) in &stacking_allowances {
             if stx_stacked > *allowance {
-                return Ok(Some(i128::try_from(*index).map_err(|_| {
-                    InterpreterError::Expect("failed to convert index to i128".into())
+                return Ok(Some(u128::try_from(*index).map_err(|_| {
+                    InterpreterError::Expect("failed to convert index to u128".into())
                 })?));
             }
         }

@@ -2563,7 +2563,7 @@ characters.",
 };
 
 const RESTRICT_ASSETS: SpecialAPI = SpecialAPI {
-    input_type: "principal, ((Allowance)*), AnyType, ... A",
+    input_type: "principal, ((Allowance){0,128}), AnyType, ... A",
     snippet: "restrict-assets? ${1:asset-owner} (${2:allowance-1} ${3:allowance-2}) ${4:expr-1}",
     output_type: "(response A int)",
     signature: "(restrict-assets? asset-owner ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)",
@@ -2580,21 +2580,21 @@ error-prone). Returns:
     result of the final body expression and has type `A`.
 * `(err index)` if an allowance was violated, where `index` is the 0-based
     index of the first violated allowance in the list of granted allowances,
-    or -1 if an asset with no allowance caused the violation.",
+    or `u128` if an asset with no allowance caused the violation.",
     example: r#"
 (restrict-assets? tx-sender ()
   (+ u1 u2)
 ) ;; Returns (ok u3)
 (restrict-assets? tx-sender ()
   (try! (stx-transfer? u50 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
-) ;; Returns (err -1)
+) ;; Returns (err u128)
 "#,
 };
 
 const AS_CONTRACT_SAFE: SpecialAPI = SpecialAPI {
-    input_type: "((Allowance)*), AnyType, ... A",
+    input_type: "((Allowance){0,128}), AnyType, ... A",
     snippet: "as-contract? (${1:allowance-1} ${2:allowance-2}) ${3:expr-1}",
-    output_type: "(response A int)",
+    output_type: "(response A uint)",
     signature: "(as-contract? ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)",
     description: "Switches the current context's `tx-sender` and
 `contract-caller` values to the contract's principal and executes the body
@@ -2610,7 +2610,7 @@ value from `as-contract?` (nested responses are error-prone). Returns:
     result of the final body expression and has type `A`.
 * `(err index)` if an allowance was violated, where `index` is the 0-based
     index of the first violated allowance in the list of granted allowances,
-    or -1 if an asset with no allowance caused the violation.",
+    or `u128` if an asset with no allowance caused the violation.",
     example: r#"
 (let ((recipient tx-sender))
   (as-contract? ((with-stx u100))
@@ -2621,7 +2621,7 @@ value from `as-contract?` (nested responses are error-prone). Returns:
   (as-contract? ()
     (try! (stx-transfer? u50 tx-sender recipient))
   )
-) ;; Returns (err -1)
+) ;; Returns (err u128)
 "#,
 };
 
@@ -2668,7 +2668,7 @@ the contract. When `"*"` is used for the token name, the allowance applies to
 (restrict-assets? tx-sender
   ((with-ft current-contract "stackaroo" u50))
   (try! (ft-transfer? stackaroo u100 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
-) ;; Returns (err 0)
+) ;; Returns (err u0)
 "#,
 };
 
@@ -2696,7 +2696,7 @@ the token name, the allowance applies to **all** NFTs defined in `contract-id`."
 (restrict-assets? tx-sender
   ((with-nft current-contract "stackaroo" (list u125)))
   (try! (nft-transfer? stackaroo u124 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
-) ;; Returns (err 0)
+) ;; Returns (err u0)
 "#,
 };
 
@@ -2717,7 +2717,7 @@ locked amount is limited by the amount of uSTX specified.",
   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
     u1100000000000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
   ))
-) ;; Returns (err 0)
+) ;; Returns (err u0)
 (restrict-assets? tx-sender
   ((with-stacking u1000000000000))
   (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx

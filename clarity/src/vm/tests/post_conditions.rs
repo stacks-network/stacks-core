@@ -22,6 +22,7 @@ use clarity_types::types::{PrincipalData, QualifiedContractIdentifier, StandardP
 use clarity_types::Value;
 use stacks_common::types::StacksEpochId;
 
+use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::database::STXBalance;
 use crate::vm::{execute_with_parameters_and_call_in_global_context, ClarityVersion};
 
@@ -77,7 +78,7 @@ fn test_as_contract_with_stx_exceeds() {
     (try! (stx-transfer? u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -89,7 +90,7 @@ fn test_as_contract_with_stx_no_allowance() {
     (try! (stx-transfer? u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -113,7 +114,7 @@ fn test_as_contract_stx_other_allowances() {
     (try! (stx-transfer? u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -133,7 +134,7 @@ fn test_as_contract_with_stx_burn_exceeds() {
 (as-contract? ((with-stx u10))
   (try! (stx-burn? u50 tx-sender))
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -143,7 +144,7 @@ fn test_as_contract_with_stx_burn_no_allowance() {
 (as-contract? ()
   (try! (stx-burn? u50 tx-sender))
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -163,7 +164,7 @@ fn test_as_contract_stx_burn_other_allowances() {
 (as-contract? ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" (list 123)))
   (try! (stx-burn? u50 tx-sender))
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -175,7 +176,7 @@ fn test_as_contract_multiple_allowances_both_low() {
     (try! (stx-transfer? u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -199,7 +200,7 @@ fn test_as_contract_multiple_allowances_one_low() {
     (try! (stx-transfer? u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(1)).unwrap();
+    let expected = Value::error(Value::UInt(1)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -227,7 +228,7 @@ fn test_as_contract_with_ft_exceeds() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -241,7 +242,7 @@ fn test_as_contract_with_ft_no_allowance() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -275,7 +276,7 @@ fn test_as_contract_with_ft_other_allowances() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -289,7 +290,7 @@ fn test_as_contract_with_ft_multiple_allowances_both_low() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -317,7 +318,7 @@ fn test_as_contract_with_ft_multiple_allowances_one_low() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(1)).unwrap();
+    let expected = Value::error(Value::UInt(1)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -345,7 +346,7 @@ fn test_as_contract_with_ft_wildcard_exceeds() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -365,7 +366,7 @@ fn test_as_contract_with_ft_wildcard_other_allowances() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -379,7 +380,7 @@ fn test_as_contract_with_ft_wildcard_multiple_allowances_both_low() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -407,7 +408,7 @@ fn test_as_contract_with_ft_wildcard_multiple_allowances_one_low() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(1)).unwrap();
+    let expected = Value::error(Value::UInt(1)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -421,7 +422,7 @@ fn test_as_contract_with_ft_wildcard_multiple_allowances_low1() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -435,7 +436,7 @@ fn test_as_contract_with_ft_wildcard_multiple_allowances_low2() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -464,7 +465,7 @@ fn test_as_contract_with_nft_not_allowed() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -478,7 +479,7 @@ fn test_as_contract_with_nft_no_allowance() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -512,7 +513,7 @@ fn test_as_contract_with_nft_other_allowances() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -527,7 +528,7 @@ fn test_as_contract_with_nft_multiple_allowances_both_different() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -572,7 +573,7 @@ fn test_as_contract_with_nft_empty_id_list() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -601,7 +602,7 @@ fn test_as_contract_with_nft_wildcard_not_allowed() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -621,7 +622,7 @@ fn test_as_contract_with_nft_wildcard_other_allowances() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -636,7 +637,7 @@ fn test_as_contract_with_nft_wildcard_multiple_allowances_both_different() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -681,7 +682,7 @@ fn test_as_contract_with_nft_wildcard_empty_id_list() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -696,7 +697,7 @@ fn test_as_contract_with_nft_wildcard_multiple_allowances_order1() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -711,7 +712,7 @@ fn test_as_contract_with_nft_wildcard_multiple_allowances_order2() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -733,7 +734,7 @@ fn test_restrict_assets_with_stx_exceeds() {
 (restrict-assets? tx-sender ((with-stx u10))
   (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -743,7 +744,7 @@ fn test_restrict_assets_with_stx_no_allowance() {
 (restrict-assets? tx-sender ()
   (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -763,7 +764,7 @@ fn test_restrict_assets_stx_other_allowances() {
 (restrict-assets? tx-sender ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" (list 123)))
   (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -783,7 +784,7 @@ fn test_restrict_assets_with_stx_burn_exceeds() {
 (restrict-assets? tx-sender ((with-stx u10))
   (try! (stx-burn? u50 tx-sender))
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -793,7 +794,7 @@ fn test_restrict_assets_with_stx_burn_no_allowance() {
 (restrict-assets? tx-sender ()
   (try! (stx-burn? u50 tx-sender))
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -813,7 +814,7 @@ fn test_restrict_assets_stx_burn_other_allowances() {
 (restrict-assets? tx-sender ((with-ft .token "stackaroo" u100) (with-nft .token "stackaroo" (list 123)))
   (try! (stx-burn? u50 tx-sender))
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -823,7 +824,7 @@ fn test_restrict_assets_multiple_allowances_both_low() {
 (restrict-assets? tx-sender ((with-stx u30) (with-stx u20))
   (try! (stx-transfer? u40 tx-sender 'SP000000000000000000002Q6VF78))
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -843,7 +844,7 @@ fn test_restrict_assets_multiple_allowances_one_low() {
 (restrict-assets? tx-sender ((with-stx u100) (with-stx u20))
   (try! (stx-transfer? u40 tx-sender 'SP000000000000000000002Q6VF78))
 )"#;
-    let expected = Value::error(Value::Int(1)).unwrap();
+    let expected = Value::error(Value::UInt(1)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -871,7 +872,7 @@ fn test_restrict_assets_with_ft_exceeds() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -885,7 +886,7 @@ fn test_restrict_assets_with_ft_no_allowance() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -919,7 +920,7 @@ fn test_restrict_assets_with_ft_other_allowances() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -933,7 +934,7 @@ fn test_restrict_assets_with_ft_multiple_allowances_both_low() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -961,7 +962,7 @@ fn test_restrict_assets_with_ft_multiple_allowances_one_low() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(1)).unwrap();
+    let expected = Value::error(Value::UInt(1)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -989,7 +990,7 @@ fn test_restrict_assets_with_ft_wildcard_exceeds() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1009,7 +1010,7 @@ fn test_restrict_assets_with_ft_wildcard_other_allowances() {
     (try! (ft-transfer? stackaroo u50 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1023,7 +1024,7 @@ fn test_restrict_assets_with_ft_wildcard_multiple_allowances_both_low() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1051,7 +1052,7 @@ fn test_restrict_assets_with_ft_wildcard_multiple_allowances_one_low() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(1)).unwrap();
+    let expected = Value::error(Value::UInt(1)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1065,7 +1066,7 @@ fn test_restrict_assets_with_ft_wildcard_multiple_allowances_low1() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1079,7 +1080,7 @@ fn test_restrict_assets_with_ft_wildcard_multiple_allowances_low2() {
     (try! (ft-transfer? stackaroo u40 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1108,7 +1109,7 @@ fn test_restrict_assets_with_nft_not_allowed() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1122,7 +1123,7 @@ fn test_restrict_assets_with_nft_no_allowance() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1156,7 +1157,7 @@ fn test_restrict_assets_with_nft_other_allowances() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1171,7 +1172,7 @@ fn test_restrict_assets_with_nft_multiple_allowances_both_different() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1216,7 +1217,7 @@ fn test_restrict_assets_with_nft_empty_id_list() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1245,7 +1246,7 @@ fn test_restrict_assets_with_nft_wildcard_not_allowed() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1265,7 +1266,7 @@ fn test_restrict_assets_with_nft_wildcard_other_allowances() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(-1)).unwrap();
+    let expected = Value::error(Value::UInt(MAX_ALLOWANCES as u128)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1280,7 +1281,7 @@ fn test_restrict_assets_with_nft_wildcard_multiple_allowances_both_different() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1325,7 +1326,7 @@ fn test_restrict_assets_with_nft_wildcard_empty_id_list() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1340,7 +1341,7 @@ fn test_restrict_assets_with_nft_wildcard_multiple_allowances_order1() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
@@ -1355,6 +1356,6 @@ fn test_restrict_assets_with_nft_wildcard_multiple_allowances_order2() {
     (try! (nft-transfer? stackaroo u123 tx-sender recipient))
   )
 )"#;
-    let expected = Value::error(Value::Int(0)).unwrap();
+    let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }

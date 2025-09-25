@@ -15465,7 +15465,7 @@ fn check_with_stacking_allowances() {
 (define-public (revoke-delegate-stx)
   (as-contract? ()
     (try! (contract-call? 'ST000000000000000000002AMW42H.pox-4 revoke-delegate-stx))
-    (ok true)
+    true
   )
 )
 "#

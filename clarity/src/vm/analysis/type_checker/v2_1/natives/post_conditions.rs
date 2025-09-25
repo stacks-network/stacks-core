@@ -77,7 +77,7 @@ pub fn check_restrict_assets(
     let ok_type = last_return.ok_or_else(|| CheckErrors::CheckerImplementationFailure)?;
     Ok(TypeSignature::new_response(
         ok_type,
-        TypeSignature::IntType,
+        TypeSignature::UIntType,
     )?)
 }
 
@@ -125,7 +125,7 @@ pub fn check_as_contract(
     let ok_type = last_return.ok_or_else(|| CheckErrors::CheckerImplementationFailure)?;
     Ok(TypeSignature::new_response(
         ok_type,
-        TypeSignature::IntType,
+        TypeSignature::UIntType,
     )?)
 }
 
