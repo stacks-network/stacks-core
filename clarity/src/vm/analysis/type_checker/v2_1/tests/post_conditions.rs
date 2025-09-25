@@ -155,43 +155,65 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
             ),
             CheckErrors::TooManyAllowances(MAX_ALLOWANCES, 130),
         ),
+        // different error types thrown from body expressions
+        (
+            "(define-public (test)
+              (restrict-assets? tx-sender ()
+                (try! (if true (ok true) (err u1)))
+                (try! (if true (ok 1) (err 2)))
+                u0
+               )
+            )",
+            CheckErrors::ReturnTypesMustMatch(
+                TypeSignature::new_response(
+                    TypeSignature::NoType.into(),
+                    TypeSignature::UIntType.into(),
+                )
+                .unwrap()
+                .into(),
+                TypeSignature::new_response(
+                    TypeSignature::NoType.into(),
+                    TypeSignature::IntType.into(),
+                )
+                .unwrap()
+                .into(),
+            ),
+        ),
     ];
 
-    for (good_code, expected_type) in &good {
-        info!("test good code: '{}'", good_code);
+    for (code, expected_type) in &good {
         if version < ClarityVersion::Clarity4 {
             // restrict-assets? is only available in Clarity 4+
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(good_code, version)
-                    .unwrap_err()
-                    .err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(good_code, version).unwrap()
+                &type_check_helper_version(code, version).unwrap(),
+                "{code}",
             );
         }
     }
 
-    for (bad_code, expected_err) in &bad {
-        info!("test bad code: '{}'", bad_code);
+    for (code, expected_err) in &bad {
         if version < ClarityVersion::Clarity4 {
             // restrict-assets? is only available in Clarity 4+
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(bad_code, version)
-                    .unwrap_err()
-                    .err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
                 expected_err,
-                type_check_helper_version(bad_code, version)
+                type_check_helper_version(code, version)
                     .unwrap_err()
                     .err
-                    .as_ref()
+                    .as_ref(),
+                "{code}",
             );
         }
     }
@@ -304,31 +326,56 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
             ),
             CheckErrors::TooManyAllowances(MAX_ALLOWANCES, 130),
         ),
+        // different error types thrown from body expressions
+        (
+            "(define-public (test)
+              (as-contract? ()
+                (try! (if true (ok true) (err u1)))
+                (try! (if true (ok 1) (err 2)))
+                u0
+               )
+            )",
+            CheckErrors::ReturnTypesMustMatch(
+                TypeSignature::new_response(
+                    TypeSignature::NoType.into(),
+                    TypeSignature::UIntType.into(),
+                )
+                .unwrap()
+                .into(),
+                TypeSignature::new_response(
+                    TypeSignature::NoType.into(),
+                    TypeSignature::IntType.into(),
+                )
+                .unwrap()
+                .into(),
+            ),
+        ),
     ];
 
     for (code, expected_type) in &good {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             // as-contract? is only available in Clarity 4+
             assert_eq!(
                 CheckErrors::UnknownFunction("as-contract?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}"
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap()
+                &type_check_helper_version(code, version).unwrap(),
+                "{code}"
             );
         }
     }
 
     for (code, expected_err) in &bad {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             // as-contract? is only available in Clarity 4+
             assert_eq!(
                 CheckErrors::UnknownFunction("as-contract?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}"
             );
         } else {
             assert_eq!(
@@ -336,7 +383,8 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
                 type_check_helper_version(code, version)
                     .unwrap_err()
                     .err
-                    .as_ref()
+                    .as_ref(),
+                "{code}"
             );
         }
     }
@@ -398,26 +446,27 @@ fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
     ];
 
     for (code, expected_type) in &good {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}"
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap()
+                &type_check_helper_version(code, version).unwrap(),
+                "{code}"
             );
         }
     }
 
     for (code, expected_err) in &bad {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}"
             );
         } else {
             assert_eq!(
@@ -425,7 +474,8 @@ fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
                 type_check_helper_version(code, version)
                     .unwrap_err()
                     .err
-                    .as_ref()
+                    .as_ref(),
+                "{code}"
             );
         }
     }
@@ -536,26 +586,27 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
     ];
 
     for (code, expected_type) in &good {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap()
+                &type_check_helper_version(code, version).unwrap(),
+                "{code}",
             );
         }
     }
 
     for (code, expected_err) in &bad {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
@@ -563,7 +614,8 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
                 type_check_helper_version(code, version)
                     .unwrap_err()
                     .err
-                    .as_ref()
+                    .as_ref(),
+                "{code}",
             );
         }
     }
@@ -678,26 +730,27 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
     ];
 
     for (code, expected_type) in &good {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap()
+                &type_check_helper_version(code, version).unwrap(),
+                "{code}",
             );
         }
     }
 
     for (code, expected_err) in &bad {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
@@ -705,7 +758,8 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
                 type_check_helper_version(code, version)
                     .unwrap_err()
                     .err
-                    .as_ref()
+                    .as_ref(),
+                "{code}",
             );
         }
     }
@@ -762,26 +816,27 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] _epoch:
     ];
 
     for (code, expected_type) in &good {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap()
+                &type_check_helper_version(code, version).unwrap(),
+                "{code}",
             );
         }
     }
 
     for (code, expected_err) in &bad {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
@@ -789,7 +844,8 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] _epoch:
                 type_check_helper_version(code, version)
                     .unwrap_err()
                     .err
-                    .as_ref()
+                    .as_ref(),
+                "{code}",
             );
         }
     }
@@ -823,26 +879,27 @@ fn test_with_all_assets_unsafe_allowance(
     ];
 
     for (code, expected_type) in &good {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("as-contract?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap()
+                &type_check_helper_version(code, version).unwrap(),
+                "{code}",
             );
         }
     }
 
     for (code, expected_err) in &bad {
-        info!("test code: '{}'", code);
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 CheckErrors::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err
+                *type_check_helper_version(code, version).unwrap_err().err,
+                "{code}",
             );
         } else {
             assert_eq!(
@@ -850,7 +907,8 @@ fn test_with_all_assets_unsafe_allowance(
                 type_check_helper_version(code, version)
                     .unwrap_err()
                     .err
-                    .as_ref()
+                    .as_ref(),
+                "{code}",
             );
         }
     }

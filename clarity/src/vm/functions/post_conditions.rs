@@ -191,12 +191,15 @@ pub fn special_restrict_assets(
     // post-conditions are violated
     env.global_context.begin();
 
-    // evaluate the body expressions
-    let mut last_result = None;
-    for expr in body_exprs {
-        let result = eval(expr, env, context)?;
-        last_result.replace(result);
-    }
+    // Evaluate the body expressions inside a closure so `?` only exits the closure
+    let eval_result: InterpreterResult<Option<Value>> = (|| -> InterpreterResult<Option<Value>> {
+        let mut last_result = None;
+        for expr in body_exprs {
+            let result = eval(expr, env, context)?;
+            last_result.replace(result);
+        }
+        Ok(last_result)
+    })();
 
     let asset_maps = env.global_context.get_readonly_asset_map()?;
 
@@ -211,11 +214,21 @@ pub fn special_restrict_assets(
 
     env.global_context.commit()?;
 
-    // Wrap the result in an `ok` value
-    Value::okay(
-        // last_result should always be Some(...), because of the arg len check above.
-        last_result.ok_or_else(|| InterpreterError::Expect("Failed to get let result".into()))?,
-    )
+    // No allowance violation, so handle the result of the body evaluation
+    match eval_result {
+        Ok(Some(last)) => {
+            // body completed successfully — commit and return ok(last)
+            Value::okay(last)
+        }
+        Ok(None) => {
+            // Body had no expressions (shouldn't happen due to argument checks)
+            Err(InterpreterError::Expect("Failed to get body result".into()).into())
+        }
+        Err(e) => {
+            // Runtime error inside body, pass it up
+            Err(e)
+        }
+    }
 }
 
 /// Handles the function `as-contract?`
@@ -261,14 +274,15 @@ pub fn special_as_contract(
         // post-conditions are violated
         nested_env.global_context.begin();
 
-        // evaluate the body expressions
-        let mut last_result = None;
-        for expr in body_exprs {
-            // TODO: handle runtime errors inside the body expressions correctly
-            // (ensure that the context is always popped and asset maps are checked against allowances)
-            let result = eval(expr, &mut nested_env, context)?;
-            last_result.replace(result);
-        }
+        // Evaluate the body expressions inside a closure so `?` only exits the closure
+        let eval_result: InterpreterResult<Option<Value>> = (|| -> InterpreterResult<Option<Value>> {
+            let mut last_result = None;
+            for expr in body_exprs {
+                let result = eval(expr, &mut nested_env, context)?;
+                last_result.replace(result);
+            }
+            Ok(last_result)
+        })();
 
         let asset_maps = nested_env.global_context.get_readonly_asset_map()?;
 
@@ -290,11 +304,21 @@ pub fn special_as_contract(
 
         nested_env.global_context.commit()?;
 
-        // Wrap the result in an `ok` value
-        Value::okay(
-            // last_result should always be Some(...), because of the arg len check above.
-            last_result.ok_or_else(|| InterpreterError::Expect("Failed to get let result".into()))?,
-        )
+        // No allowance violation, so handle the result of the body evaluation
+        match eval_result {
+            Ok(Some(last)) => {
+                // body completed successfully — commit and return ok(last)
+                Value::okay(last)
+            }
+            Ok(None) => {
+                // Body had no expressions (shouldn't happen due to argument checks)
+                Err(InterpreterError::Expect("Failed to get body result".into()).into())
+            }
+            Err(e) => {
+                // Runtime error inside body, pass it up
+                Err(e)
+            }
+        }
     })
 }
 

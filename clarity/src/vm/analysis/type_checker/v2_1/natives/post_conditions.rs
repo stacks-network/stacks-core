@@ -25,7 +25,9 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::functions::NativeFunctions;
 
-/// Maximum number of allowances allowed in a `restrict-assets?` or `as-contract?` expression.
+/// Maximum number of allowances allowed in a `restrict-assets?` or
+/// `as-contract?` expression. This value is also used to indicate an allowance
+/// violation for an asset with no allowances.
 pub(crate) const MAX_ALLOWANCES: usize = 128;
 /// Maximum number of asset identifiers allowed in a `with-nft` allowance expression.
 pub(crate) const MAX_NFT_IDENTIFIERS: u32 = 128;

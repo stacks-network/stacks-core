@@ -15436,35 +15436,35 @@ fn check_with_stacking_allowances() {
         r#"
 (define-public (delegate-stx (amount uint) (allowed uint))
   (as-contract? ((with-stacking allowed))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
       amount 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-    ))
+    ) (err u1))
   )
 )
 (define-public (delegate-stx-2-allowances (amount uint) (allowed-1 uint) (allowed-2 uint))
   (as-contract? ((with-stacking allowed-1) (with-stacking allowed-2))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
       amount 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-    ))
+    ) (err u1))
   )
 )
 (define-public (delegate-stx-no-allowance (amount uint))
   (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
       amount 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-    ))
+    ) (err u1))
   )
 )
 (define-public (delegate-stx-all (amount uint))
   (as-contract? ((with-all-assets-unsafe))
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
       amount 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
-    ))
+    ) (err u1))
   )
 )
 (define-public (revoke-delegate-stx)
   (as-contract? ()
-    (try! (contract-call? 'ST000000000000000000002AMW42H.pox-4 revoke-delegate-stx))
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 revoke-delegate-stx) (err u1))
     true
   )
 )
@@ -15543,7 +15543,7 @@ fn check_with_stacking_allowances() {
     sender_nonce += 1;
     let delegate_err_txid = submit_tx(&http_origin, &delegate_err_tx);
     info!("Submitted delegate_err txid: {delegate_err_txid}");
-    expected_results.insert(delegate_err_txid, Value::error(Value::Int(0)).unwrap());
+    expected_results.insert(delegate_err_txid, Value::error(Value::UInt(0)).unwrap());
 
     let delegate_2_ok_tx = make_contract_call(
         &sender_sk,
@@ -15590,7 +15590,7 @@ fn check_with_stacking_allowances() {
     info!("Submitted delegate_2_both_err txid: {delegate_2_both_err_txid}");
     expected_results.insert(
         delegate_2_both_err_txid,
-        Value::error(Value::Int(0)).unwrap(),
+        Value::error(Value::UInt(0)).unwrap(),
     );
 
     let delegate_2_first_err_tx = make_contract_call(
@@ -15608,7 +15608,7 @@ fn check_with_stacking_allowances() {
     info!("Submitted delegate_2_first_err txid: {delegate_2_first_err_txid}");
     expected_results.insert(
         delegate_2_first_err_txid,
-        Value::error(Value::Int(0)).unwrap(),
+        Value::error(Value::UInt(0)).unwrap(),
     );
 
     let delegate_2_second_err_tx = make_contract_call(
@@ -15626,7 +15626,7 @@ fn check_with_stacking_allowances() {
     info!("Submitted delegate_2_second_err txid: {delegate_2_second_err_txid}");
     expected_results.insert(
         delegate_2_second_err_txid,
-        Value::error(Value::Int(1)).unwrap(),
+        Value::error(Value::UInt(1)).unwrap(),
     );
 
     let delegate_no_allowance_err_tx = make_contract_call(
@@ -15644,7 +15644,7 @@ fn check_with_stacking_allowances() {
     info!("Submitted delegate_no_allowance_err txid: {delegate_no_allowance_err_txid}");
     expected_results.insert(
         delegate_no_allowance_err_txid,
-        Value::error(Value::Int(-1)).unwrap(),
+        Value::error(Value::UInt(128)).unwrap(),
     );
 
     let delegate_all_tx = make_contract_call(
@@ -15721,3 +15721,8 @@ fn check_with_stacking_allowances() {
 
     run_loop_thread.join().unwrap();
 }
+
+// TODO:
+// - Test stack-stx
+// - Test roll backs
+// - Test successful asset movement

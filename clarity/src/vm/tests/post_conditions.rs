@@ -17,7 +17,7 @@
 //! `restrict-assets?` expressions. The `with-stacking` allowances are tested
 //! in integration tests, since they require changes made outside of the VM.
 
-use clarity_types::errors::InterpreterResult;
+use clarity_types::errors::{Error as ClarityError, InterpreterResult, ShortReturnType};
 use clarity_types::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
 use clarity_types::Value;
 use stacks_common::types::StacksEpochId;
@@ -716,6 +716,21 @@ fn test_as_contract_with_nft_wildcard_multiple_allowances_order2() {
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
 }
 
+#[test]
+fn test_as_contract_with_error_in_body() {
+    let snippet = r#"
+(let ((recipient tx-sender))
+  (as-contract? ()
+    (try! (if false (ok true) (err u200)))
+    true
+  )
+)"#;
+    let expected_err = Value::error(Value::UInt(200)).unwrap();
+    let short_return =
+        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+    assert_eq!(short_return, execute(snippet).unwrap_err());
+}
+
 // ---------- Tests for restrict-assets? ----------
 
 #[test]
@@ -1358,4 +1373,19 @@ fn test_restrict_assets_with_nft_wildcard_multiple_allowances_order2() {
 )"#;
     let expected = Value::error(Value::UInt(0)).unwrap();
     assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_error_in_body() {
+    let snippet = r#"
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ()
+    (try! (if false (ok true) (err u200)))
+    true
+  )
+)"#;
+    let expected_err = Value::error(Value::UInt(200)).unwrap();
+    let short_return =
+        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+    assert_eq!(short_return, execute(snippet).unwrap_err());
 }
