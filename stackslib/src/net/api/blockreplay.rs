@@ -30,6 +30,7 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -131,6 +132,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
             block.header.pox_treatment.len(),
             None,
             None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         ) {
             Ok(builder) => builder,
             Err(e) => return Err(e),
