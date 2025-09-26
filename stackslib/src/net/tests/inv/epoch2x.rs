@@ -1627,7 +1627,7 @@ fn test_sync_inv_2_peers_unstable() {
                 peer_2.next_burnchain_block(burn_ops.clone());
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+            TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
             // NOTE: the nodes only differ by one block -- they agree on the same PoX vector
             if i + 1 < num_blocks {

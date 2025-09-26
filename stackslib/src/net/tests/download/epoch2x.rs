@@ -29,6 +29,7 @@ use crate::chainstate::stacks::db::blocks::MINIMUM_TX_FEE_RATE_PER_BYTE;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::*;
+use crate::chainstate::tests::TestChainstate;
 use crate::net::download::BlockDownloader;
 use crate::net::test::*;
 use crate::net::*;
@@ -104,7 +105,7 @@ fn test_get_block_availability() {
                 peer_2.next_burnchain_block(burn_ops.clone());
             peer_2.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-            TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+            TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
             // We do not have the anchor block for peer 1, therefore it cannot advance its tip.
             if i < 6 {
@@ -537,7 +538,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain() {
                         peers[1].next_burnchain_block(burn_ops.clone());
                     peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     peers[0].next_burnchain_block_raw(burn_ops);
 
@@ -820,7 +821,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_plain_100_blocks() {
                         peers[1].next_burnchain_block(burn_ops.clone());
                     peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     peers[0].next_burnchain_block_raw(burn_ops);
 
@@ -906,7 +907,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_star() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -977,7 +978,7 @@ pub fn test_get_blocks_and_microblocks_5_peers_line() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1056,7 +1057,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_connections() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1132,7 +1133,7 @@ pub fn test_get_blocks_and_microblocks_overwhelmed_sockets() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1219,7 +1220,7 @@ pub fn test_get_blocks_and_microblocks_ban_url() {
                     peers[1].next_burnchain_block(burn_ops.clone());
                 peers[1].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                 peers[0].next_burnchain_block_raw(burn_ops);
 
@@ -1352,7 +1353,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
 
                         peers[1].process_stacks_epoch(&stacks_block, &consensus_hash, &microblocks);
 
-                        TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                        TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                         peers[0].next_burnchain_block_raw(burn_ops);
 
@@ -1442,7 +1443,7 @@ pub fn test_get_blocks_and_microblocks_2_peers_download_multiple_microblock_desc
 
                         peers[1].process_stacks_epoch(&stacks_block, &consensus_hash, &[]);
 
-                        TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                        TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                         peers[0].next_burnchain_block_raw(burn_ops);
 

@@ -39,6 +39,7 @@ use crate::chainstate::stacks::{
     TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
     TransactionPayload, TransactionVersion,
 };
+use crate::chainstate::tests::TestChainstate;
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::test_util::to_addr;
 use crate::net::api::gettenureinfo::RPCGetTenureInfo;
@@ -48,7 +49,7 @@ use crate::net::test::{dns_thread_start, TestEventObserver};
 use crate::net::tests::inv::nakamoto::{
     make_nakamoto_peer_from_invs, make_nakamoto_peers_from_invs_ext, peer_get_nakamoto_invs,
 };
-use crate::net::tests::{NakamotoBootPlan, TestPeer};
+use crate::net::tests::NakamotoBootPlan;
 use crate::net::{Error as NetError, Hash160, NeighborAddress, SortitionDB};
 use crate::stacks_common::types::Address;
 use crate::util_lib::db::Error as DBError;
@@ -2150,14 +2151,14 @@ fn test_nakamoto_download_run_2_peers() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestChainstate::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestChainstate::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2262,14 +2263,14 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestChainstate::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestChainstate::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2447,14 +2448,14 @@ fn test_nakamoto_microfork_download_run_2_peers() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestChainstate::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestChainstate::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2627,14 +2628,14 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestChainstate::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestChainstate::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -2834,14 +2835,14 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {:?}", &ops);
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestChainstate::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestChainstate::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),
@@ -3044,14 +3045,14 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
             &sn.burn_header_hash
         );
         test_debug!("ops = {ops:?}");
-        let block_header = TestPeer::make_next_burnchain_block(
+        let block_header = TestChainstate::make_next_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(
+        TestChainstate::add_burnchain_block(
             &boot_peer.config.chain_config.burnchain,
             &block_header,
             ops.clone(),

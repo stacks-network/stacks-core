@@ -36,6 +36,7 @@ use crate::chainstate::stacks::tests::{
     make_user_stacks_transfer,
 };
 use crate::chainstate::stacks::{Error as ChainstateError, *};
+use crate::chainstate::tests::TestChainstate;
 use crate::clarity_vm::clarity::ClarityConnection;
 use crate::core::*;
 use crate::net::api::getinfo::RPCPeerInfoData;
@@ -600,7 +601,7 @@ fn test_get_blocks_and_microblocks_3_peers_push_available() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1113,7 +1114,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1423,7 +1424,7 @@ fn test_get_blocks_and_microblocks_upload_blocks_http() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -1642,7 +1643,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -2017,7 +2018,7 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -2327,7 +2328,7 @@ fn test_get_blocks_and_microblocks_2_peers_antientropy() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     for i in 1..peers.len() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
@@ -2445,7 +2446,7 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         peers[0].next_burnchain_block(burn_ops.clone());
                     peers[0].process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
-                    TestPeer::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
+                    TestChainstate::set_ops_burn_header_hash(&mut burn_ops, &burn_header_hash);
 
                     if block_num == 0 {
                         for i in 1..peers.len() {
