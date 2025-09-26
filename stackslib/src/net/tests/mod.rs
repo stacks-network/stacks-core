@@ -389,7 +389,7 @@ impl NakamotoBootPlan {
         }
     }
 
-    /// Make a chsintate and transition it into the Nakamoto epoch.
+    /// Make a chainstate and transition it into the Nakamoto epoch.
     /// The node needs to be stacking; otherwise, Nakamoto won't activate.
     pub fn boot_nakamoto_chainstate(
         self,
