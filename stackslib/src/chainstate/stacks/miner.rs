@@ -22,9 +22,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
 
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -50,7 +50,7 @@ use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
-use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use crate::clarity_vm::clarity::{ClarityError, ClarityInstance};
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -655,11 +655,11 @@ impl TransactionResult {
                 }
                 // recover original ClarityError
                 ClarityRuntimeTxError::Acceptable { error, .. } => {
-                    if let clarity_error::Parse(ref parse_err) = error {
+                    if let ClarityError::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
                         match *parse_err.err {
-                            ParseErrors::ExpressionStackDepthTooDeep
-                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                            ParseErrorKind::ExpressionStackDepthTooDeep
+                            | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
                                 info!("Problematic transaction failed AST depth check"; "txid" => %tx.txid());
                                 return (true, Error::ClarityError(error));
                             }
@@ -669,11 +669,11 @@ impl TransactionResult {
                     Error::ClarityError(error)
                 }
                 ClarityRuntimeTxError::CostError(cost, budget) => {
-                    Error::ClarityError(clarity_error::CostError(cost, budget))
+                    Error::ClarityError(ClarityError::CostError(cost, budget))
                 }
                 ClarityRuntimeTxError::AnalysisError(e) => {
-                    let clarity_err = Error::ClarityError(clarity_error::Interpreter(
-                        InterpreterError::Unchecked(e),
+                    let clarity_err = Error::ClarityError(ClarityError::Interpreter(
+                        VmExecutionError::Unchecked(e),
                     ));
                     if epoch_id < StacksEpochId::Epoch21 {
                         // this would invalidate the block, so it's problematic
@@ -688,7 +688,7 @@ impl TransactionResult {
                     assets_modified,
                     tx_events,
                     reason,
-                } => Error::ClarityError(clarity_error::AbortedByCallback {
+                } => Error::ClarityError(ClarityError::AbortedByCallback {
                     output: output.map(Box::new),
                     assets_modified: Box::new(assets_modified),
                     tx_events,

@@ -17,18 +17,18 @@ cargo build -p stacks-inspect
 Basic usage:
 ```bash
 # Show version
-./target/debug/stacks-inspect --version
+cargo run -p stacks-inspect -- --version
 
 # Example: decode a bitcoin header from file
-./target/debug/stacks-inspect decode-bitcoin-header <HEIGHT> <PATH>
+cargo run -p stacks-inspect -- decode-bitcoin-header <HEIGHT> <PATH>
 
 # Example: analyze anti-MEV behavior over a height range
-./target/debug/stacks-inspect analyze-sortition-mev <burn_db> <sort_db> <chainstate_db> <start> <end> [miner advantage ...]
+cargo run -p stacks-inspect -- analyze-sortition-mev <burn_db> <sort_db> <chainstate_db> <start> <end> [miner advantage ...]
 ```
 
 For detailed commands and flags, run:
 ```bash
-./target/debug/stacks-inspect --help
+cargo run -p stacks-inspect -- --help
 ```
 
 Notes:
