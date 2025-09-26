@@ -123,6 +123,9 @@ const DEFAULT_TENURE_TIMEOUT_SECS: u64 = 180;
 /// Default percentage of block budget that must be used before attempting a
 /// time-based tenure extend
 const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
+/// Default percentage of tenure size that must be used before attempting a
+/// time-based tenure extend
+const DEFAULT_TENURE_EXTEND_TENURE_SIZE_THRESHOLD: u64 = 50;
 /// Default number of milliseconds that the miner should sleep between mining
 /// attempts when the mempool is empty.
 const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
@@ -3064,6 +3067,21 @@ pub struct MinerConfig {
     pub max_tenure_bytes: u64,
     /// Enable logging of skipped transactions (generally used for tests)
     pub log_skipped_transactions: bool,
+    /// Percentage of total tenure size that must be used before attempting a time-based tenure extend.
+    ///
+    /// This sets a minimum threshold for the accumulated blocks size within a
+    /// tenure before a time-based tenure extension ([`MinerConfig::tenure_timeout`])
+    /// can be initiated. The miner checks if the proportion of the total tenure
+    /// size so far exceeds this percentage. If the cost usage is below
+    /// this threshold, a time-based extension will not be attempted, even if the
+    /// [`MinerConfig::tenure_timeout`] duration has elapsed. This prevents miners
+    /// from extending tenures very early if they have produced only small blocks.
+    /// ---
+    /// @default: [`DEFAULT_TENURE_EXTEND_TENURE_SIZE_THRESHOLD`]
+    /// @units: percent
+    /// @notes:
+    ///   - Values: 0-100.
+    pub tenure_extend_tenure_size_threshold: u64,
 }
 
 impl Default for MinerConfig {
@@ -3121,6 +3139,7 @@ impl Default for MinerConfig {
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
             max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
             log_skipped_transactions: false,
+            tenure_extend_tenure_size_threshold: DEFAULT_TENURE_EXTEND_TENURE_SIZE_THRESHOLD,
         }
     }
 }
@@ -4053,6 +4072,7 @@ pub struct MinerConfigFile {
     pub replay_transactions: Option<bool>,
     pub stackerdb_timeout_secs: Option<u64>,
     pub max_tenure_bytes: Option<u64>,
+    pub tenure_extend_tenure_size_threshold: Option<u64>,
 }
 
 impl MinerConfigFile {
@@ -4246,7 +4266,8 @@ impl MinerConfigFile {
             replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
-            log_skipped_transactions: false
+            log_skipped_transactions: false,
+            tenure_extend_tenure_size_threshold: self.tenure_extend_tenure_size_threshold.unwrap_or(miner_default_config.tenure_extend_tenure_size_threshold),
         })
     }
 }

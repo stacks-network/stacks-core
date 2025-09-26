@@ -17,8 +17,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::LazyLock;
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{cmp, thread};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::costs::ExecutionCost;
@@ -1676,57 +1676,53 @@ impl BlockMinerThread {
                 info!("Tenure extend: In replay, always extending tenure");
                 self.tenure_extend_reset();
             } else {
-                // Do not extend if we have spent < 50% of the budget, since it is
+                // Do not extend if we have spent < 50% of the budget and < 50% of the tenure size limit, since it is
                 // not necessary.
+
+                let mut tenure_size_usage = 0;
+
+                if let Some(total_tenure_size) =
+                    match NakamotoChainState::get_block_header_nakamoto_total_tenure_size(
+                        chainstate.db(),
+                        &parent_block_id,
+                    ) {
+                        Ok(total_tenure_size) => total_tenure_size,
+                        Err(_) => Some(0),
+                    }
+                {
+                    tenure_size_usage =
+                        total_tenure_size / cmp::max(1, self.config.miner.max_tenure_bytes / 100);
+                }
+
                 let usage = self
                     .tenure_budget
                     .proportion_largest_dimension(&self.tenure_cost);
-                if usage < self.config.miner.tenure_extend_cost_threshold {
+                if usage < self.config.miner.tenure_extend_cost_threshold
+                    && tenure_size_usage < self.config.miner.tenure_extend_cost_threshold
+                {
                     return Ok(NakamotoTenureInfo {
                         coinbase_tx: None,
                         tenure_change_tx: None,
                     });
                 }
 
-                let mut tenure_extended = false;
-
-                if let Some(total_tenure_size) =
-                    NakamotoChainState::get_block_header_nakamoto_total_tenure_size(
-                        chainstate.db(),
-                        &parent_block_id,
-                    )
-                    .unwrap()
+                let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
+                if get_epoch_time_secs() <= tenure_extend_timestamp
+                    && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
                 {
-                    if total_tenure_size > self.config.miner.max_tenure_bytes / 2 {
-                        info!("Miner: Size-based tenure extend";
-                            "current_timestamp" => get_epoch_time_secs(),
-                            "total_tenure_size" => total_tenure_size,
-                            "max_tenure_bytes" => self.config.miner.max_tenure_bytes,
-                        );
-                        self.tenure_extend_reset();
-                        tenure_extended = true;
-                    }
+                    return Ok(NakamotoTenureInfo {
+                        coinbase_tx: None,
+                        tenure_change_tx: None,
+                    });
                 }
 
-                if !tenure_extended {
-                    let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
-                    if get_epoch_time_secs() <= tenure_extend_timestamp
-                        && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
-                    {
-                        return Ok(NakamotoTenureInfo {
-                            coinbase_tx: None,
-                            tenure_change_tx: None,
-                        });
-                    }
-
-                    info!("Miner: Time-based tenure extend";
-                        "current_timestamp" => get_epoch_time_secs(),
-                        "tenure_extend_timestamp" => tenure_extend_timestamp,
-                        "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
-                        "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
-                    );
-                    self.tenure_extend_reset();
-                }
+                info!("Miner: Time-based tenure extend";
+                    "current_timestamp" => get_epoch_time_secs(),
+                    "tenure_extend_timestamp" => tenure_extend_timestamp,
+                    "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
+                    "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
+                );
+                self.tenure_extend_reset();
             }
         }
 
