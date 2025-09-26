@@ -1698,7 +1698,7 @@ impl BlockMinerThread {
                     .tenure_budget
                     .proportion_largest_dimension(&self.tenure_cost);
                 if usage < self.config.miner.tenure_extend_cost_threshold
-                    && tenure_size_usage < self.config.miner.tenure_extend_cost_threshold
+                // && tenure_size_usage < self.config.miner.tenure_extend_cost_threshold
                 {
                     return Ok(NakamotoTenureInfo {
                         coinbase_tx: None,
