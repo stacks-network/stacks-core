@@ -29,7 +29,6 @@ use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use super::clarity_store::SpecialCaseHandler;
 use super::key_value_wrapper::ValueResult;
 use crate::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use crate::vm::ast::ASTRules;
 use crate::vm::contracts::Contract;
 use crate::vm::costs::{CostOverflowingMath, ExecutionCost};
 use crate::vm::database::structures::{
@@ -237,8 +236,6 @@ pub trait BurnStateDB {
     fn get_stacks_epoch(&self, height: u32) -> Option<StacksEpoch>;
     fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch>;
 
-    fn get_ast_rules(&self, height: u32) -> ASTRules;
-
     /// Get the PoX payout addresses for a given burnchain block
     fn get_pox_payout_addrs(
         &self,
@@ -441,10 +438,6 @@ impl BurnStateDB for NullBurnStateDB {
         _sortition_id: &SortitionId,
     ) -> Option<(Vec<TupleData>, u128)> {
         None
-    }
-
-    fn get_ast_rules(&self, _height: u32) -> ASTRules {
-        ASTRules::Typical
     }
 }
 

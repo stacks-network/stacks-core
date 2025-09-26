@@ -203,7 +203,12 @@ impl ParseError {
     }
 
     pub fn rejectable(&self) -> bool {
-        matches!(*self.err, ParseErrorKind::InterpreterFailure)
+        matches!(
+            *self.err,
+            ParseErrorKind::InterpreterFailure
+                | ParseErrorKind::ExpressionStackDepthTooDeep
+                | ParseErrorKind::VaryExpressionStackDepthTooDeep
+        )
     }
 
     pub fn has_pre_expression(&self) -> bool {

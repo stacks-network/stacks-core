@@ -17,8 +17,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::mem;
 
+use clarity::vm::ast::ast_check_size;
 use clarity::vm::ast::errors::ParseErrorKind;
-use clarity::vm::ast::{ast_check_size, ASTRules};
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
 use rand::prelude::*;
@@ -818,31 +818,16 @@ impl Relayer {
 
         // don't relay this block if it's using the wrong AST rules (this would render at least one of its
         // txs problematic).
-        let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_sn.block_height)?;
         let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_sn.block_height)?
             .expect("FATAL: no epoch defined")
             .epoch_id;
-        debug!(
-            "Current AST rules for block {}/{} height {} sortitioned at {} is {:?}",
-            consensus_hash,
-            &block.block_hash(),
-            block.header.total_work.work,
-            &block_sn.block_height,
-            &ast_rules
-        );
-        if !Relayer::static_check_problematic_relayed_block(
-            chainstate.mainnet,
-            epoch_id,
-            block,
-            ast_rules,
-        ) {
+        if !Relayer::static_check_problematic_relayed_block(chainstate.mainnet, epoch_id, block) {
             warn!(
                 "Block is problematic; will not store or relay";
                 "stacks_block_hash" => %block.block_hash(),
                 "consensus_hash" => %consensus_hash,
                 "burn_height" => block.header.total_work.work,
-                "sortition_height" => block_sn.block_height,
-                "ast_rules" => ?ast_rules,
+                "sortition_height" => block_sn.block_height
             );
             return Ok(BlockAcceptResponse::Rejected("Block is problematic".into()));
         }
@@ -988,7 +973,6 @@ impl Relayer {
             chainstate.mainnet,
             epoch_id,
             block,
-            ASTRules::PrecheckSize,
         ) {
             warn!(
                 "Nakamoto block is problematic; will not store or relay";
@@ -1444,13 +1428,6 @@ impl Relayer {
                     }
                 };
 
-            let ast_rules = match SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height) {
-                Ok(rules) => rules,
-                Err(e) => {
-                    error!("Failed to load current AST rules: {:?}", &e);
-                    continue;
-                }
-            };
             let epoch_id = match SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)
             {
                 Ok(Some(epoch)) => epoch.epoch_id,
@@ -1458,7 +1435,7 @@ impl Relayer {
                     panic!("FATAL: no epoch defined");
                 }
                 Err(e) => {
-                    error!("Failed to load epoch: {:?}", &e);
+                    error!("Failed to load epoch: {e:?}");
                     continue;
                 }
             };
@@ -1466,18 +1443,15 @@ impl Relayer {
             let mut stored = false;
             for mblock in microblock_stream.iter() {
                 debug!(
-                    "Preprocess downloaded microblock {}/{}-{}",
-                    consensus_hash,
-                    &anchored_block_hash,
+                    "Preprocess downloaded microblock {consensus_hash}/{anchored_block_hash}-{}",
                     &mblock.block_hash()
                 );
                 if !Relayer::static_check_problematic_relayed_microblock(
                     chainstate.mainnet,
                     epoch_id,
                     mblock,
-                    ast_rules,
                 ) {
-                    info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &mblock.block_hash(), consensus_hash, &anchored_block_hash);
+                    info!("Microblock {} from {consensus_hash}/{anchored_block_hash} is problematic; will not store or relay it, nor its descendants", &mblock.block_hash());
                     break;
                 }
                 match chainstate.preprocess_streamed_microblock(
@@ -1490,11 +1464,8 @@ impl Relayer {
                     }
                     Err(e) => {
                         warn!(
-                            "Invalid downloaded microblock {}/{}-{}: {:?}",
-                            consensus_hash,
-                            &anchored_block_hash,
-                            mblock.block_hash(),
-                            &e
+                            "Invalid downloaded microblock {consensus_hash}/{anchored_block_hash}-{}: {e:?}",
+                            mblock.block_hash()
                         );
                     }
                 }
@@ -1548,25 +1519,21 @@ impl Relayer {
                 let block_snapshot =
                     SortitionDB::get_block_snapshot_consensus(sort_ic, &consensus_hash)?
                         .ok_or(net_error::DBError(db_error::NotFoundError))?;
-                let ast_rules = SortitionDB::get_ast_rules(sort_ic, block_snapshot.block_height)?;
                 let epoch_id = SortitionDB::get_stacks_epoch(sort_ic, block_snapshot.block_height)?
                     .expect("FATAL: no epoch defined")
                     .epoch_id;
 
                 for mblock in mblock_data.microblocks.iter() {
                     debug!(
-                        "Preprocess downloaded microblock {}/{}-{}",
-                        &consensus_hash,
-                        &anchored_block_hash,
+                        "Preprocess downloaded microblock {consensus_hash}/{anchored_block_hash}-{}",
                         &mblock.block_hash()
                     );
                     if !Relayer::static_check_problematic_relayed_microblock(
                         chainstate.mainnet,
                         epoch_id,
                         mblock,
-                        ast_rules,
                     ) {
-                        info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &mblock.block_hash(), &consensus_hash, &anchored_block_hash);
+                        info!("Microblock {} from {consensus_hash}/{anchored_block_hash} is problematic; will not store or relay it, nor its descendants", &mblock.block_hash());
                         continue;
                     }
                     let need_relay = !chainstate.has_descendant_microblock_indexed(
@@ -1805,55 +1772,48 @@ impl Relayer {
         mainnet: bool,
         epoch_id: StacksEpochId,
         tx: &StacksTransaction,
-        ast_rules: ASTRules,
     ) -> Result<(), Error> {
-        debug!(
-            "Check {} to see if it is problematic in {:?}",
-            &tx.txid(),
-            &ast_rules
-        );
+        debug!("Check {} to see if it is problematic", &tx.txid(),);
         if let TransactionPayload::SmartContract(ref smart_contract, ref clarity_version_opt) =
             tx.payload
         {
             let clarity_version =
                 clarity_version_opt.unwrap_or(ClarityVersion::default_for_epoch(epoch_id));
 
-            if ast_rules == ASTRules::PrecheckSize {
-                let origin = tx.get_origin();
-                let issuer_principal = {
-                    let addr = if mainnet {
-                        origin.address_mainnet()
-                    } else {
-                        origin.address_testnet()
-                    };
-                    addr.to_account_principal()
-                };
-                let issuer_principal = if let PrincipalData::Standard(data) = issuer_principal {
-                    data
+            let origin = tx.get_origin();
+            let issuer_principal = {
+                let addr = if mainnet {
+                    origin.address_mainnet()
                 } else {
-                    // not possible
-                    panic!("Transaction had a contract principal origin");
+                    origin.address_testnet()
                 };
+                addr.to_account_principal()
+            };
+            let issuer_principal = if let PrincipalData::Standard(data) = issuer_principal {
+                data
+            } else {
+                // not possible
+                panic!("Transaction had a contract principal origin");
+            };
 
-                let contract_id =
-                    QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
-                let contract_code_str = smart_contract.code_body.to_string();
+            let contract_id =
+                QualifiedContractIdentifier::new(issuer_principal, smart_contract.name.clone());
+            let contract_code_str = smart_contract.code_body.to_string();
 
-                // make sure that the AST isn't unreasonably big
-                let ast_res =
-                    ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
-                match ast_res {
-                    Ok(_) => {}
-                    Err(parse_error) => match *parse_error.err {
-                        ParseErrorKind::ExpressionStackDepthTooDeep
-                        | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
-                            // don't include this block
-                            info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
-                            return Err(Error::ClarityError(parse_error.into()));
-                        }
-                        _ => {}
-                    },
-                }
+            // make sure that the AST isn't unreasonably big
+            let ast_res =
+                ast_check_size(&contract_id, &contract_code_str, clarity_version, epoch_id);
+            match ast_res {
+                Ok(_) => {}
+                Err(parse_error) => match *parse_error.err {
+                    ParseErrorKind::ExpressionStackDepthTooDeep
+                    | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
+                        // don't include this block
+                        info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
+                        return Err(Error::ClarityError(parse_error.into()));
+                    }
+                    _ => {}
+                },
             }
         }
         Ok(())
@@ -1868,12 +1828,9 @@ impl Relayer {
         mainnet: bool,
         epoch_id: StacksEpochId,
         block: &StacksBlock,
-        ast_rules: ASTRules,
     ) -> bool {
         for tx in block.txs.iter() {
-            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
-                .is_err()
-            {
+            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx).is_err() {
                 info!(
                     "Block {} with tx {} will not be stored or relayed",
                     block.block_hash(),
@@ -1894,12 +1851,9 @@ impl Relayer {
         mainnet: bool,
         epoch_id: StacksEpochId,
         block: &NakamotoBlock,
-        ast_rules: ASTRules,
     ) -> bool {
         for tx in block.txs.iter() {
-            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
-                .is_err()
-            {
+            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx).is_err() {
                 info!(
                     "Nakamoto block {} with tx {} will not be stored or relayed",
                     block.header.block_hash(),
@@ -1921,12 +1875,9 @@ impl Relayer {
         mainnet: bool,
         epoch_id: StacksEpochId,
         mblock: &StacksMicroblock,
-        ast_rules: ASTRules,
     ) -> bool {
         for tx in mblock.txs.iter() {
-            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx, ast_rules)
-                .is_err()
-            {
+            if Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, tx).is_err() {
                 info!(
                     "Microblock {} with tx {} will not be stored relayed",
                     mblock.block_hash(),
@@ -1948,27 +1899,6 @@ impl Relayer {
     #[cfg(not(any(test, feature = "testing")))]
     pub fn do_static_problematic_checks() -> bool {
         true
-    }
-
-    /// Should we store and process problematic blocks and microblocks to staging that we mined?
-    #[cfg(any(test, feature = "testing"))]
-    pub fn process_mined_problematic_blocks(
-        cur_ast_rules: ASTRules,
-        processed_ast_rules: ASTRules,
-    ) -> bool {
-        std::env::var("STACKS_PROCESS_PROBLEMATIC_BLOCKS") != Ok("1".into())
-            || cur_ast_rules != processed_ast_rules
-    }
-
-    /// Should we store and process problematic blocks and microblocks to staging that we mined?
-    /// We should do this only if we used a different ruleset than the active one.  If it was
-    /// problematic with the currently-active rules, then obviously it shouldn't be processed.
-    #[cfg(not(any(test, feature = "testing")))]
-    pub fn process_mined_problematic_blocks(
-        cur_ast_rules: ASTRules,
-        processed_ast_rules: ASTRules,
-    ) -> bool {
-        cur_ast_rules != processed_ast_rules
     }
 
     /// Process blocks and microblocks that we recieved, both downloaded (confirmed) and streamed
@@ -2206,13 +2136,7 @@ impl Relayer {
             let mut filtered_tx_data = vec![];
             for (relayers, tx) in tx_data.into_iter() {
                 if Relayer::do_static_problematic_checks()
-                    && Relayer::static_check_problematic_relayed_tx(
-                        mainnet,
-                        epoch_id,
-                        &tx,
-                        ASTRules::PrecheckSize,
-                    )
-                    .is_err()
+                    && Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, &tx).is_err()
                 {
                     info!(
                         "Pushed transaction {} is problematic; will not store or relay",
@@ -2229,13 +2153,7 @@ impl Relayer {
 
         for tx in network_result.uploaded_transactions.drain(..) {
             if Relayer::do_static_problematic_checks()
-                && Relayer::static_check_problematic_relayed_tx(
-                    mainnet,
-                    epoch_id,
-                    &tx,
-                    ASTRules::PrecheckSize,
-                )
-                .is_err()
+                && Relayer::static_check_problematic_relayed_tx(mainnet, epoch_id, &tx).is_err()
             {
                 info!(
                     "Uploaded transaction {} is problematic; will not store or relay",

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::events::*;
 use clarity::vm::tests::{
@@ -101,7 +100,7 @@ fn helper_execute_epoch(
 
     {
         let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
-        env.initialize_contract(contract_id.clone(), contract, ASTRules::PrecheckSize)
+        env.initialize_contract(contract_id.clone(), contract)
             .unwrap();
     }
 

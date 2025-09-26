@@ -3107,6 +3107,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-cli"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "serde_json",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tempfile",
+]
+
+[[package]]
 name = "stacks-common"
 version = "0.0.1"
 dependencies = [
@@ -3164,6 +3175,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-inspect"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "libstackerdb 0.0.1",
+ "mutants",
+ "regex",
+ "rusqlite",
+ "serde_json",
+ "slog",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tikv-jemallocator",
+]
+
+[[package]]
 name = "stacks-node"
 version = "0.1.0"
 dependencies = [
@@ -3196,6 +3223,7 @@ dependencies = [
  "slog",
  "stacks-common 0.0.1",
  "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stacks-inspect",
  "stacks-signer 0.0.1",
  "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "stackslib 0.0.1",
@@ -3314,7 +3342,6 @@ dependencies = [
  "stdext",
  "stx-genesis",
  "tempfile",
- "tikv-jemallocator",
  "time 0.3.41",
  "toml",
  "url",

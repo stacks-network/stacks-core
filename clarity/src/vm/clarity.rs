@@ -4,7 +4,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError};
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
-use crate::vm::ast::{ASTRules, ContractAST};
+use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
@@ -222,18 +222,16 @@ pub trait TransactionConnection: ClarityConnection {
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_content: &str,
-        ast_rules: ASTRules,
     ) -> Result<(ContractAST, ContractAnalysis), ClarityError> {
         let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
-            let ast_result = ast::build_ast_with_rules(
+            let ast_result = ast::build_ast(
                 identifier,
                 contract_content,
                 &mut cost_track,
                 clarity_version,
                 epoch_id,
-                ast_rules,
             );
 
             let contract_ast = match ast_result {

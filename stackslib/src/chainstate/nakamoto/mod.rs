@@ -18,7 +18,6 @@ use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut, Range};
 
 use clarity::util::secp256k1::Secp256k1PublicKey;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::{STXEventType, STXMintEventData, StacksTransactionEvent};
 use clarity::vm::types::PrincipalData;
@@ -4551,7 +4550,7 @@ impl NakamotoChainState {
 
     /// Append a Nakamoto Stacks block to the Stacks chain state.
     /// NOTE: This does _not_ set the block as processed!  The caller must do this.
-    pub(crate) fn append_block<'a>(
+    pub fn append_block<'a>(
         chainstate_tx: &mut ChainstateTx,
         clarity_instance: &'a mut ClarityInstance,
         burn_dbconn: &mut SortitionHandleConn,
@@ -4582,7 +4581,6 @@ impl NakamotoChainState {
             block.txs.len()
         );
 
-        let ast_rules = ASTRules::PrecheckSize;
         let next_block_height = block.header.chain_length;
         let first_block_height = burn_dbconn.context.first_block_height;
 
@@ -4797,21 +4795,17 @@ impl NakamotoChainState {
         );
 
         // process anchored block
-        let (block_fees, txs_receipts) = match StacksChainState::process_block_transactions(
-            &mut clarity_tx,
-            &block.txs,
-            0,
-            ast_rules,
-        ) {
-            Err(e) => {
-                let msg = format!("Invalid Stacks block {}: {:?}", &block_hash, &e);
-                warn!("{}", &msg);
+        let (block_fees, txs_receipts) =
+            match StacksChainState::process_block_transactions(&mut clarity_tx, &block.txs, 0) {
+                Err(e) => {
+                    let msg = format!("Invalid Stacks block {block_hash}: {e:?}");
+                    warn!("{msg}");
 
-                clarity_tx.rollback_block();
-                return Err(ChainstateError::InvalidStacksBlock(msg));
-            }
-            Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
-        };
+                    clarity_tx.rollback_block();
+                    return Err(ChainstateError::InvalidStacksBlock(msg));
+                }
+                Ok((block_fees, _block_burns, txs_receipts)) => (block_fees, txs_receipts),
+            };
 
         tx_receipts.extend(txs_receipts);
 
@@ -5253,12 +5247,7 @@ impl NakamotoChainState {
         let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
         clarity_tx.connection().as_transaction(|clarity| {
             let (ast, analysis) = clarity
-                .analyze_smart_contract(
-                    &contract_id,
-                    ClarityVersion::Clarity2,
-                    &contract_content,
-                    ASTRules::PrecheckSize,
-                )
+                .analyze_smart_contract(&contract_id, ClarityVersion::Clarity2, &contract_content)
                 .unwrap();
             clarity
                 .initialize_smart_contract(
