@@ -349,7 +349,7 @@ impl NakamotoBootPlan {
         }
     }
 
-    /// Make a chsintate and transition it into the Nakamoto epoch.
+    /// Make a chainstate and transition it into the Nakamoto epoch.
     /// The node needs to be stacking; otherwise, Nakamoto won't activate.
     pub fn boot_nakamoto_chainstate(
         mut self,
@@ -416,7 +416,7 @@ impl NakamotoBootPlan {
         chain
     }
 
-    /// Bring a TestPeer into the Nakamoto Epoch
+    /// Bring a TestChainstate into the Nakamoto Epoch
     fn advance_to_nakamoto_chainstate(&mut self, chain: &mut TestChainstate) {
         let mut chain_nonce = 0;
         let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&self.private_key));

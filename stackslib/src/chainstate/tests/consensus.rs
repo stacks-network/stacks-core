@@ -46,9 +46,9 @@ pub struct ExpectedTransactionOutput {
     pub cost: ExecutionCost,
 }
 
-/// Represents the expected outputs for a block's transactions.
+/// Represents the expected outputs for a block's execution.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct ExpectedOutputs {
+pub struct ExpectedBlockOutput {
     /// The expected outputs for each transaction, in input order.
     pub transactions: Vec<ExpectedTransactionOutput>,
     /// The total execution cost of the block.
@@ -59,8 +59,10 @@ pub struct ExpectedOutputs {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ExpectedResult {
     /// The test should succeed with the specified outputs.
-    Success(ExpectedOutputs),
-    /// The test should fail with an error containing the specified string.
+    Success(ExpectedBlockOutput),
+    /// The test should fail with an error matching the specified string
+    /// Cannot match on the exact Error directly as they do not implement
+    /// Serialize/Deserialize or PartialEq
     Failure(String),
 }
 
@@ -200,8 +202,9 @@ impl ConsensusMismatch {
                 mismatches.error = Some(("Ok".to_string(), expected_err));
             }
             (Err(actual_err), ExpectedResult::Failure(expected_err)) => {
-                if !actual_err.to_string().contains(&expected_err) {
-                    mismatches.error = Some((actual_err.to_string(), expected_err));
+                let actual_err_str = actual_err.to_string();
+                if actual_err_str != expected_err {
+                    mismatches.error = Some((actual_err_str, expected_err));
                 }
             }
             (Err(actual_err), ExpectedResult::Success(_)) => {
@@ -406,7 +409,7 @@ impl ConsensusTest<'_> {
 
 /// Creates a default test vector with empty transactions and zero cost.
 fn default_test_vector() -> ConsensusTestVector {
-    let outputs = ExpectedOutputs {
+    let outputs = ExpectedBlockOutput {
         transactions: vec![],
         total_block_cost: ExecutionCost::ZERO,
     };
@@ -426,7 +429,7 @@ fn failing_test_vector() -> ConsensusTestVector {
         marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
         epoch_id: StacksEpochId::Epoch30 as u32,
         payloads: vec![],
-        expected_result: ExpectedResult::Failure("state root mismatch".to_string()),
+        expected_result: ExpectedResult::Failure(ChainstateError::InvalidStacksBlock("Block c8eeff18a0b03dec385bfe8268bc87ccf93fc00ff73af600c4e1aaef6e0dfaf5 state root mismatch: expected 0000000000000000000000000000000000000000000000000000000000000000, got 6fe3e70b95f5f56c9c7c2c59ba8fc9c19cdfede25d2dcd4d120438bc27dfa88b".into()).to_string()),
     }
 }
 
