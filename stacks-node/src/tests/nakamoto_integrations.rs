@@ -15744,7 +15744,7 @@ fn check_restrict_assets_rollback() {
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
-    let deploy_fee = 3000;
+    let deploy_fee = 4000;
     let call_fee = 400;
     let max_transfer_amt = 1000;
     naka_conf.add_initial_balance(
@@ -15835,51 +15835,145 @@ fn check_restrict_assets_rollback() {
     let contract_name = "test-contract";
     let contract = format!(
         r#"
-(define-public (single-transfer (recipient principal) (amount uint) (allowed uint))
+(define-public (single-transfer
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
   (restrict-assets? tx-sender ((with-stx allowed))
     (unwrap! (stx-transfer? amount tx-sender recipient) (err u200))
   )
 )
-(define-public (two-transfers (recipient principal) (amount-1 uint) (amount-2 uint) (allowed uint))
+(define-public (two-transfers
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
   (restrict-assets? tx-sender ((with-stx allowed))
     (try! (match (stx-transfer? amount-1 tx-sender recipient)
-      v (ok v) e (err (+ u200 e))))
+      v (ok v)
+      e (err (+ u200 e))
+    ))
     (try! (match (stx-transfer? amount-2 tx-sender recipient)
-      v (ok v) e (err (+ u300 e))))
+      v (ok v)
+      e (err (+ u300 e))
+    ))
   )
 )
-(define-public (transfer-then-err (recipient principal) (amount uint) (allowed uint))
+(define-public (transfer-then-err
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
   (restrict-assets? tx-sender ((with-stx allowed))
     (try! (match (stx-transfer? amount tx-sender recipient)
-      v (ok v) e (err (+ u200 e))))
-    (try! (if false (ok true) (err u200)))
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (try! (if false
+      (ok true)
+      (err u300)
+    ))
   )
 )
-(define-public (err-then-transfer (recipient principal) (amount uint) (allowed uint))
+(define-public (err-then-transfer
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
   (restrict-assets? tx-sender ((with-stx allowed))
-    (try! (if false (ok true) (err u200)))
+    (try! (if false
+      (ok true)
+      (err u200)
+    ))
     (try! (match (stx-transfer? amount tx-sender recipient)
-      v (ok v) e (err (+ u200 e))))
+      v (ok v)
+      e (err (+ u300 e))
+    ))
   )
 )
-(define-public (transfer-before (recipient principal) (amount-1 uint) (amount-2 uint) (allowed uint))
+(define-public (transfer-before
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
   (begin
     (try! (match (stx-transfer? amount-1 tx-sender recipient)
-      v (ok v) e (err (+ u200 e))))
+      v (ok v)
+      e (err (+ u200 e))
+    ))
     (restrict-assets? tx-sender ((with-stx allowed))
       (try! (match (stx-transfer? amount-2 tx-sender recipient)
-        v (ok v) e (err (+ u300 e))))
+        v (ok v)
+        e (err (+ u300 e))
+      ))
     )
   )
 )
-(define-public (transfer-after (recipient principal) (amount-1 uint) (amount-2 uint) (allowed uint))
+(define-public (transfer-before-catch-err
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
   (begin
-    (unwrap! (restrict-assets? tx-sender ((with-stx allowed))
-      (try! (match (stx-transfer? amount-1 tx-sender recipient)
-        v (ok v) e (err (+ u200 e))))
-    ) (err u300))
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (unwrap-err! (restrict-assets? tx-sender ((with-stx allowed))
+        (try! (match (stx-transfer? amount-2 tx-sender recipient)
+          v (ok v)
+          e (err (+ u300 e))
+        ))
+      )
+      (err u400)
+    )
+    (ok true)
+  )
+)
+(define-public (transfer-after
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (unwrap!
+      (restrict-assets? tx-sender ((with-stx allowed))
+        (try! (match (stx-transfer? amount-1 tx-sender recipient)
+          v (ok v)
+          e (err (+ u200 e))
+        ))
+      )
+      (err u300)
+    )
     (match (stx-transfer? amount-2 tx-sender recipient)
-      v (ok v) e (err (+ u200 e)))
+      v (ok v)
+      e (err (+ u200 e))
+    )
+  )
+)
+(define-public (transfer-after-catch-err
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (unwrap-err! (restrict-assets? tx-sender ((with-stx allowed))
+      (try! (match (stx-transfer? amount-1 tx-sender recipient)
+        v (ok v)
+        e (err (+ u300 e))
+      )))
+      (err u400)
+    )
+    (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    )
   )
 )
 "#
@@ -16015,10 +16109,11 @@ fn check_restrict_assets_rollback() {
         recipient_expected, new_recipient_balance,
         "incorrect recipient balance"
     );
-    sender_balance = new_sender_balance;
-    recipient_balance = new_recipient_balance;
 
     info!("Test: Transfer that exceeds allowance");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 1000;
 
     let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
         &http_origin,
@@ -16031,7 +16126,7 @@ fn check_restrict_assets_rollback() {
         "single-transfer",
         &[
             Value::Principal(recipient.clone().into()),
-            Value::UInt(1000),
+            Value::UInt(amount),
             Value::UInt(500),
         ],
         &recipient,
@@ -16048,10 +16143,10 @@ fn check_restrict_assets_rollback() {
         recipient_expected, new_recipient_balance,
         "incorrect recipient balance"
     );
-    sender_balance = new_sender_balance;
-    recipient_balance = new_recipient_balance;
 
     info!("Test: 2 transfers within allowance");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
     let amount1 = 200;
     let amount2 = 600;
 
@@ -16084,10 +16179,10 @@ fn check_restrict_assets_rollback() {
         recipient_expected, new_recipient_balance,
         "incorrect recipient balance"
     );
-    sender_balance = new_sender_balance;
-    recipient_balance = new_recipient_balance;
 
     info!("Test: 2 transfers that exceed allowance");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
     let amount1 = 500;
     let amount2 = 600;
 
@@ -16120,8 +16215,218 @@ fn check_restrict_assets_rollback() {
         recipient_expected, new_recipient_balance,
         "incorrect recipient balance"
     );
+
+    info!("Test: transfer then trigger an error in restrict-assets?");
     sender_balance = new_sender_balance;
     recipient_balance = new_recipient_balance;
+    let amount = 500;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-then-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(300);
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: error then transfer in restrict-assets?");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 500;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "err-then-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(200);
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer before successful restrict-assets?");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 700;
+    let amount2 = 500;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-before",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount1 - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer before restrict-assets? violation");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 700;
+    let amount2 = 1200;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-before-catch-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount1;
+    let recipient_expected = recipient_balance + amount1;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer after successful restrict-assets?");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 700;
+    let amount2 = 500;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-after",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount1 - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer after restrict-assets? violation");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 1200;
+    let amount2 = 700;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-after-catch-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount2;
+    let recipient_expected = recipient_balance + amount2;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
 
     coord_channel
         .lock()
