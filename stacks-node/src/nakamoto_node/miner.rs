@@ -1679,7 +1679,7 @@ impl BlockMinerThread {
                 // Do not extend if we have spent < 50% of the budget and < 50% of the tenure size limit, since it is
                 // not necessary.
 
-                let mut tenure_size_usage = 0;
+                let mut _tenure_size_usage = 0;
 
                 if let Some(total_tenure_size) =
                     match NakamotoChainState::get_block_header_nakamoto_total_tenure_size(
@@ -1690,7 +1690,7 @@ impl BlockMinerThread {
                         Err(_) => Some(0),
                     }
                 {
-                    tenure_size_usage =
+                    _tenure_size_usage =
                         total_tenure_size / cmp::max(1, self.config.miner.max_tenure_bytes / 100);
                 }
 
