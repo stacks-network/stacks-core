@@ -732,7 +732,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             if total_tenure_size >= self.max_tenure_bytes {
-                return TransactionResult::skipped_due_to_error(tx, Error::TenureTooBigError);
+                //return TransactionResult::skipped_due_to_error(tx, Error::TenureTooBigError);
             }
         }
 
