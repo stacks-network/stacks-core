@@ -21,8 +21,8 @@ use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::DEFAULT_CLI_EPOCH;
 use stacks_inspect::{
-    command_contract_hash, command_validate_block, command_validate_block_nakamoto,
-    command_replay_mock_mining, command_try_mine, drain_common_opts,
+    command_contract_hash, command_replay_mock_mining, command_try_mine, command_validate_block,
+    command_validate_block_nakamoto, drain_common_opts,
 };
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
