@@ -19,10 +19,12 @@ use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKe
 use clarity::types::StacksEpochId;
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
+use clarity::vm::ast::errors::{ParseError, ParseErrors};
+use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::types::{PrincipalData, ResponseData};
-use clarity::vm::Value as ClarityValue;
+use clarity::vm::{Value as ClarityValue, MAX_CALL_STACK_DEPTH};
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
 
@@ -32,10 +34,9 @@ use crate::chainstate::stacks::boot::{RewardSet, RewardSetData};
 use crate::chainstate::stacks::db::StacksEpochReceipt;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TenureChangeCause};
 use crate::chainstate::tests::TestChainstate;
-use crate::clarity_vm::clarity::PreCommitClarityBlock;
-use crate::core::test_util::make_stacks_transfer_tx;
+use crate::clarity_vm::clarity::{Error as ClarityError, PreCommitClarityBlock};
+use crate::core::test_util::{make_contract_publish, make_stacks_transfer_tx};
 use crate::net::tests::NakamotoBootPlan;
-
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
 pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
@@ -484,6 +485,64 @@ fn test_append_stx_transfers() {
         epoch_id: StacksEpochId::Epoch30 as u32,
         transactions,
         expected_result: ExpectedResult::Success(outputs),
+    };
+    ConsensusTest::new(function_name!(), test_vector).run()
+}
+
+#[test]
+fn test_append_chainstate_error_expression_stack_depth_too_deep() {
+    // something just over the limit of the expression depth
+    let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
+    let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
+    let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
+    let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");
+
+    let sender_privk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let tx_fee = (tx_exceeds_body.len() * 100) as u64;
+    let initial_balances = vec![(
+        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&sender_privk)).into(),
+        tx_fee,
+    )];
+    let tx_bytes = make_contract_publish(
+        &sender_privk,
+        0,
+        tx_fee,
+        CHAIN_ID_TESTNET,
+        "test-exceeds",
+        &tx_exceeds_body,
+    );
+    let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+    let transfer_result = ExpectedTransactionOutput {
+        return_type: ClarityValue::Response(ResponseData {
+            committed: true,
+            data: Box::new(ClarityValue::Bool(true)),
+        }),
+        cost: ExecutionCost {
+            write_length: 0,
+            write_count: 0,
+            read_length: 0,
+            read_count: 0,
+            runtime: 0,
+        },
+    };
+    let outputs = ExpectedBlockOutput {
+        transactions: vec![transfer_result],
+        total_block_cost: ExecutionCost::ZERO,
+    };
+    // TODO: should look into append_block. It does weird wrapping of ChainstateError variants inside ChainstateError::StacksInvalidBlock.
+    let e = ChainstateError::ClarityError(ClarityError::Parse(ParseError::new(
+        ParseErrors::ExpressionStackDepthTooDeep,
+    )));
+    let msg = format!("Invalid Stacks block 518dfea674b5c4874e025a31e01a522c8269005c0685d12658f0359757de6692: {e:?}");
+    let test_vector = ConsensusTestVector {
+        initial_balances,
+        // Marf hash doesn't matter. It will fail with ExpressionStackDepthTooDeep
+        marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
+        epoch_id: StacksEpochId::Epoch30 as u32,
+        transactions: vec![tx],
+        expected_result: ExpectedResult::Failure(
+            ChainstateError::InvalidStacksBlock(msg).to_string(),
+        ),
     };
     ConsensusTest::new(function_name!(), test_vector).run()
 }
