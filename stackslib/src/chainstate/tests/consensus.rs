@@ -233,6 +233,15 @@ impl ConsensusMismatch {
     pub fn is_empty(&self) -> bool {
         self.transactions.is_empty() && self.total_block_cost.is_none() && self.error.is_none()
     }
+
+    /// Serializes the given `ConsensusMismatch` as pretty-printed JSON,  
+    /// or returns an empty string if `None`.
+    pub fn to_json_string_pretty(mismatch: &Option<ConsensusMismatch>) -> String {
+        mismatch
+            .as_ref()
+            .map(|m| serde_json::to_string_pretty(m).unwrap())
+            .unwrap_or("".into())
+    }
 }
 
 /// Represents a consensus test with chainstate and test vector.
@@ -350,11 +359,11 @@ impl ConsensusTest<'_> {
         // Compare actual vs expected results.
         let mismatches =
             ConsensusMismatch::from_test_result(result, self.test_vector.expected_result);
-        let mismatch_str = mismatches
-            .as_ref()
-            .map(|m| serde_json::to_string_pretty(m).unwrap())
-            .unwrap_or("".into());
-        assert!(mismatches.is_none(), "Mismatches found: {mismatch_str}");
+        assert!(
+            mismatches.is_none(),
+            "Mismatches found: {}",
+            ConsensusMismatch::to_json_string_pretty(&mismatches)
+        );
     }
 
     /// Constructs a Nakamoto block with the given transactions and state index root.
