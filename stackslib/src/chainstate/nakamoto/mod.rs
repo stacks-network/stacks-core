@@ -3555,8 +3555,19 @@ impl NakamotoChainState {
                 &tenure_change_tx.tenure_consensus_hash,
             ));
             marf_values.push(nakamoto_keys::make_tenure_id_value(&block_found_tenure_id));
+        }
+
+        if let Some(tenure_tx) = new_block.get_tenure_tx_payload() {
+            // either a block-found or a tenure-extend, but we have a new tenure ID in this fork
+            let tenure_id = NakamotoTenureEventId {
+                burn_view_consensus_hash: tenure_tx.burn_view_consensus_hash.clone(),
+                block_id: new_tip.block_id(),
+            };
+
+            marf_keys.push(nakamoto_keys::ongoing_tenure_id().to_string());
+            marf_values.push(nakamoto_keys::make_tenure_id_value(&tenure_id));
         } else {
-            // if we are here we need to accumulate the parent total tenure size
+            // if we are here (no new tenure or tenure_extend) we need to accumulate the parent total tenure size
             if let Some(current_total_tenure_size) =
                 NakamotoChainState::get_block_header_nakamoto_total_tenure_size(
                     &headers_tx,
@@ -3571,17 +3582,6 @@ impl NakamotoChainState {
                     }
                 };
             }
-        }
-
-        if let Some(tenure_tx) = new_block.get_tenure_tx_payload() {
-            // either a block-found or a tenure-extend, but we have a new tenure ID in this fork
-            let tenure_id = NakamotoTenureEventId {
-                burn_view_consensus_hash: tenure_tx.burn_view_consensus_hash.clone(),
-                block_id: new_tip.block_id(),
-            };
-
-            marf_keys.push(nakamoto_keys::ongoing_tenure_id().to_string());
-            marf_values.push(nakamoto_keys::make_tenure_id_value(&tenure_id));
         }
 
         // record the highest block in this tenure

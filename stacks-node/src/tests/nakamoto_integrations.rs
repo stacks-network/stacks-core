@@ -15717,3 +15717,154 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
 
     run_loop_thread.join().unwrap();
 }
+
+#[test]
+#[ignore]
+/// Tests that the tenure size limit is correctly reset on tenure extend.
+/// Deploys 10 (big) contracts (each 512K)
+/// The block limit is 2MB, the tenure limit is 3MB
+/// One block will contains 3 of the deployed contracts (the block size will be reached at it)
+/// The following ones will contains the others as tenure extend is constantly triggered
+fn smaller_tenure_size_for_miner_with_tenure_extend() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let mut senders: Vec<(Secp256k1PrivateKey, StacksAddress)> = vec![];
+
+    // number of deploys to submit in the test
+    let num_deploys = 10;
+
+    for _ in 0..num_deploys {
+        let sender_sk = Secp256k1PrivateKey::random();
+        let sender_addr = tests::to_addr(&sender_sk);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_addr.clone()).to_string(),
+            10000000000000,
+        );
+
+        senders.push((sender_sk, sender_addr));
+    }
+
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+
+    naka_conf.miner.max_tenure_bytes = 3 * 1024 * 1024; // 3MB
+    naka_conf.miner.log_skipped_transactions = true;
+    // quickly tenure extend
+    naka_conf.miner.tenure_timeout = Duration::from_secs(1);
+    naka_conf.miner.tenure_extend_cost_threshold = 2;
+
+    naka_conf.add_initial_balance(
+        PrincipalData::from(signer_addr.clone()).to_string(),
+        10000000000000,
+    );
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register(
+        &mut naka_conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    let mut long_comment = String::from(";; ");
+    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    let contract = format!(
+        r#"
+        {long_comment}
+        (define-public (test-fn)
+          (ok "Hello, world!")
+        )
+     "#
+    );
+
+    let deploy_fee = 524504;
+
+    test_observer::clear();
+
+    for deploy in 0..num_deploys {
+        info!("Submitting deploy {deploy}");
+        let contract_name = format!("test-{deploy}");
+
+        let contract_tx = make_contract_publish(
+            &senders[deploy].0,
+            0,
+            deploy_fee,
+            naka_conf.burnchain.chain_id,
+            &contract_name,
+            &contract,
+        );
+
+        submit_tx(&http_origin, &contract_tx);
+    }
+
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let mut deployed_contracts = 0;
+        for deploy in 0..num_deploys {
+            if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+                deployed_contracts += 1;
+            }
+        }
+        Ok(deployed_contracts == 10)
+    })
+    .unwrap();
+
+    let blocks = test_observer::get_blocks();
+
+    assert_eq!(
+        blocks.len(),
+        5,
+        "Should have successfully mined five blocks, but got {}",
+        blocks.len()
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
