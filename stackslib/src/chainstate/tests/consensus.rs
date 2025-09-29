@@ -12,15 +12,16 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::collections::HashMap;
-
+use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
-use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, TrieHash};
-use clarity::types::{Address, StacksEpochId};
+use clarity::consts::CHAIN_ID_TESTNET;
+use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash};
+use clarity::types::StacksEpochId;
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::events::StacksTransactionEvent;
+use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::Value as ClarityValue;
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
@@ -29,13 +30,15 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::boot::{RewardSet, RewardSetData};
 use crate::chainstate::stacks::db::StacksEpochReceipt;
-use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksTransaction, TenureChangeCause, TransactionAuth,
-    TransactionPayload, TransactionVersion,
-};
+use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TenureChangeCause};
 use crate::chainstate::tests::TestChainstate;
 use crate::clarity_vm::clarity::PreCommitClarityBlock;
+use crate::core::test_util::make_stacks_transfer_tx;
 use crate::net::tests::NakamotoBootPlan;
+
+pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
+pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
+pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
 /// Represents the expected output of a transaction in a test.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -69,14 +72,14 @@ pub enum ExpectedResult {
 /// Defines a test vector for a consensus test, including chainstate setup and expected outcomes.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ConsensusTestVector {
-    /// Initial balances for Stacks addresses during chainstate instantiation.
-    pub initial_balances: HashMap<String, u64>,
+    /// Initial balances for the provided PrincipalData during chainstate instantiation.
+    pub initial_balances: Vec<(PrincipalData, u64)>,
     /// Hex representation of the MARF hash for block construction.
     pub marf_hash: String,
     /// The epoch ID for the test environment.
     pub epoch_id: u32,
-    /// Transaction payloads to include in the block, as serialized strings.
-    pub payloads: Vec<String>,
+    /// Transactions to include in the block
+    pub transactions: Vec<StacksTransaction>,
     /// The expected result after appending the constructed block.
     pub expected_result: ExpectedResult,
 }
@@ -253,16 +256,18 @@ pub struct ConsensusTest<'a> {
 impl ConsensusTest<'_> {
     /// Creates a new `ConsensusTest` with the given test name and vector.
     pub fn new(test_name: &str, test_vector: ConsensusTestVector) -> Self {
+        if let ExpectedResult::Success(output) = &test_vector.expected_result {
+            assert_eq!(
+                output.transactions.len(),
+                test_vector.transactions.len(),
+                "Test vector is invalid. Must specify an expected output per input transaction"
+            );
+        }
         let privk = StacksPrivateKey::from_hex(
             "510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101",
         )
         .unwrap();
 
-        let initial_balances = test_vector
-            .initial_balances
-            .iter()
-            .map(|(addr, amount)| (StacksAddress::from_string(addr).unwrap().into(), *amount))
-            .collect();
         let epoch_id = StacksEpochId::try_from(test_vector.epoch_id).unwrap();
         let chain = match epoch_id {
             StacksEpochId::Epoch30
@@ -271,7 +276,7 @@ impl ConsensusTest<'_> {
             | StacksEpochId::Epoch33 => {
                 let mut chain = NakamotoBootPlan::new(test_name)
                     .with_pox_constants(10, 3)
-                    .with_initial_balances(initial_balances)
+                    .with_initial_balances(test_vector.initial_balances.clone())
                     .with_private_key(privk)
                     .boot_nakamoto_chainstate(None);
                 let (burn_ops, mut tenure_change, miner_key) =
@@ -305,24 +310,7 @@ impl ConsensusTest<'_> {
     /// Runs the consensus test, validating the results against the expected outcome.
     pub fn run(mut self) {
         debug!("--------- Running test vector ---------");
-        let txs: Vec<_> = self
-            .test_vector
-            .payloads
-            .iter()
-            .map(|payload_str| {
-                let payload: TransactionPayload = serde_json::from_str(payload_str).unwrap();
-                StacksTransaction::new(
-                    TransactionVersion::Testnet,
-                    TransactionAuth::from_p2pkh(&StacksPrivateKey::random()).unwrap(),
-                    payload,
-                )
-            })
-            .collect();
-
-        let marf_hash = TrieHash::from_hex(&self.test_vector.marf_hash).unwrap();
-
-        let (block, block_size) = self.construct_nakamoto_block(txs, marf_hash);
-
+        let (block, block_size) = self.construct_nakamoto_block();
         let mut stacks_node = self.chain.stacks_node.take().unwrap();
         let sortdb = self.chain.sortdb.take().unwrap();
         let chain_tip =
@@ -367,11 +355,8 @@ impl ConsensusTest<'_> {
     }
 
     /// Constructs a Nakamoto block with the given transactions and state index root.
-    fn construct_nakamoto_block(
-        &self,
-        txs: Vec<StacksTransaction>,
-        state_index_root: TrieHash,
-    ) -> (NakamotoBlock, usize) {
+    fn construct_nakamoto_block(&self) -> (NakamotoBlock, usize) {
+        let state_index_root = TrieHash::from_hex(&self.test_vector.marf_hash).unwrap();
         let chain_tip = NakamotoChainState::get_canonical_block_header(
             self.chain.stacks_node.as_ref().unwrap().chainstate.db(),
             self.chain.sortdb.as_ref().unwrap(),
@@ -395,7 +380,7 @@ impl ConsensusTest<'_> {
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
             },
-            txs,
+            txs: self.test_vector.transactions.clone(),
         };
 
         let tx_merkle_root = {
@@ -416,38 +401,89 @@ impl ConsensusTest<'_> {
     }
 }
 
-/// Creates a default test vector with empty transactions and zero cost.
-fn default_test_vector() -> ConsensusTestVector {
+#[test]
+fn test_append_empty_block() {
     let outputs = ExpectedBlockOutput {
         transactions: vec![],
         total_block_cost: ExecutionCost::ZERO,
     };
-    ConsensusTestVector {
-        initial_balances: HashMap::new(),
+    let test_vector = ConsensusTestVector {
+        initial_balances: Vec::new(),
         marf_hash: "6fe3e70b95f5f56c9c7c2c59ba8fc9c19cdfede25d2dcd4d120438bc27dfa88b".into(),
         epoch_id: StacksEpochId::Epoch30 as u32,
-        payloads: vec![],
+        transactions: vec![],
         expected_result: ExpectedResult::Success(outputs),
-    }
-}
-
-/// Creates a test vector expecting a failure due to a state root mismatch.
-fn failing_test_vector() -> ConsensusTestVector {
-    ConsensusTestVector {
-        initial_balances: HashMap::new(),
-        marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
-        epoch_id: StacksEpochId::Epoch30 as u32,
-        payloads: vec![],
-        expected_result: ExpectedResult::Failure(ChainstateError::InvalidStacksBlock("Block c8eeff18a0b03dec385bfe8268bc87ccf93fc00ff73af600c4e1aaef6e0dfaf5 state root mismatch: expected 0000000000000000000000000000000000000000000000000000000000000000, got 6fe3e70b95f5f56c9c7c2c59ba8fc9c19cdfede25d2dcd4d120438bc27dfa88b".into()).to_string()),
-    }
-}
-
-#[test]
-fn test_append_empty_block() {
-    ConsensusTest::new(function_name!(), default_test_vector()).run()
+    };
+    ConsensusTest::new(function_name!(), test_vector).run()
 }
 
 #[test]
 fn test_append_state_index_root_mismatch() {
-    ConsensusTest::new(function_name!(), failing_test_vector()).run()
+    let test_vector = ConsensusTestVector {
+        initial_balances: Vec::new(),
+        // An invalid MARF. Will result in state root mismatch
+        marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
+        epoch_id: StacksEpochId::Epoch30 as u32,
+        transactions: vec![],
+        expected_result: ExpectedResult::Failure(ChainstateError::InvalidStacksBlock("Block c8eeff18a0b03dec385bfe8268bc87ccf93fc00ff73af600c4e1aaef6e0dfaf5 state root mismatch: expected 0000000000000000000000000000000000000000000000000000000000000000, got 6fe3e70b95f5f56c9c7c2c59ba8fc9c19cdfede25d2dcd4d120438bc27dfa88b".into()).to_string()),
+    };
+    ConsensusTest::new(function_name!(), test_vector).run()
+}
+
+#[test]
+fn test_append_stx_transfers() {
+    let sender_privks = [
+        StacksPrivateKey::from_hex(SK_1).unwrap(),
+        StacksPrivateKey::from_hex(SK_2).unwrap(),
+        StacksPrivateKey::from_hex(SK_3).unwrap(),
+    ];
+    let send_amount = 1_000;
+    let tx_fee = 180;
+    let mut initial_balances = Vec::new();
+    let transactions = sender_privks
+        .iter()
+        .map(|sender_privk| {
+            initial_balances.push((
+                StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk)).into(),
+                send_amount + tx_fee,
+            ));
+            make_stacks_transfer_tx(
+                sender_privk,
+                0,
+                tx_fee,
+                CHAIN_ID_TESTNET,
+                &boot_code_addr(false).into(),
+                send_amount,
+            )
+        })
+        .collect();
+    let transfer_result = ExpectedTransactionOutput {
+        return_type: ClarityValue::Response(ResponseData {
+            committed: true,
+            data: Box::new(ClarityValue::Bool(true)),
+        }),
+        cost: ExecutionCost {
+            write_length: 0,
+            write_count: 0,
+            read_length: 0,
+            read_count: 0,
+            runtime: 0,
+        },
+    };
+    let outputs = ExpectedBlockOutput {
+        transactions: vec![
+            transfer_result.clone(),
+            transfer_result.clone(),
+            transfer_result,
+        ],
+        total_block_cost: ExecutionCost::ZERO,
+    };
+    let test_vector = ConsensusTestVector {
+        initial_balances,
+        marf_hash: "3838b1ae67f108b10ec7a7afb6c2b18e6468be2423d7183ffa2f7824b619b8be".into(),
+        epoch_id: StacksEpochId::Epoch30 as u32,
+        transactions,
+        expected_result: ExpectedResult::Success(outputs),
+    };
+    ConsensusTest::new(function_name!(), test_vector).run()
 }
