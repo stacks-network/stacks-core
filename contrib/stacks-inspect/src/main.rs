@@ -19,6 +19,11 @@ extern crate stacks_common;
 use clarity::consts::CHAIN_ID_MAINNET;
 use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
+use clarity_cli::DEFAULT_CLI_EPOCH;
+use stacks_inspect::{
+    command_contract_hash, command_replay_block, command_replay_block_nakamoto,
+    command_replay_mock_mining, command_try_mine, drain_common_opts,
+};
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksBlockBuilder, StacksMicroblock, StacksTransaction,
@@ -80,6 +85,7 @@ use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnect
 use stackslib::clarity::vm::ClarityVersion;
 use stackslib::clarity::vm::costs::ExecutionCost;
 use stackslib::clarity::vm::types::StacksAddressExtensions;
+use stackslib::clarity_cli;
 use stackslib::core::MemPoolDB;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
@@ -91,7 +97,6 @@ use stackslib::net::relay::Relayer;
 use stackslib::net::{GetNakamotoInvData, HandshakeData, StacksMessage, StacksMessageType};
 use stackslib::util_lib::db::sqlite_open;
 use stackslib::util_lib::strings::UrlString;
-use stackslib::{clarity_cli, cli};
 
 struct P2PSession {
     pub local_peer: LocalPeer,
@@ -301,7 +306,7 @@ fn main() {
         process::exit(1);
     }
 
-    let common_opts = cli::drain_common_opts(&mut argv, 1);
+    let common_opts = drain_common_opts(&mut argv, 1);
 
     if argv[1] == "--version" {
         println!(
@@ -789,7 +794,7 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "try-mine" {
-        cli::command_try_mine(&argv[1..], common_opts.config.as_ref());
+        command_try_mine(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
@@ -896,7 +901,7 @@ check if the associated microblocks can be downloaded
         }
         let program: String = fs::read_to_string(&argv[2])
             .unwrap_or_else(|_| panic!("Error reading file: {}", argv[2]));
-        let clarity_version = ClarityVersion::default_for_epoch(clarity_cli::DEFAULT_CLI_EPOCH);
+        let clarity_version = ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH);
         match clarity_cli::vm_execute(&program, clarity_version) {
             Ok(Some(result)) => println!("{result}"),
             Ok(None) => println!(),
@@ -1582,17 +1587,17 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "replay-block" {
-        cli::command_replay_block(&argv[1..], common_opts.config.as_ref());
+        command_replay_block(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
     if argv[1] == "replay-naka-block" {
-        cli::command_replay_block_nakamoto(&argv[1..], common_opts.config.as_ref());
+        command_replay_block_nakamoto(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
     if argv[1] == "replay-mock-mining" {
-        cli::command_replay_mock_mining(&argv[1..], common_opts.config.as_ref());
+        command_replay_mock_mining(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
@@ -1601,7 +1606,7 @@ check if the associated microblocks can be downloaded
     }
 
     if argv[1] == "contract-hash" {
-        cli::command_contract_hash(&argv[1..], common_opts.config.as_ref());
+        command_contract_hash(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
