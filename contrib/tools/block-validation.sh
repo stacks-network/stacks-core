@@ -198,7 +198,7 @@ start_validation() {
     local slice_blocks=$((block_diff / slices))         ## how many blocks to validate per slice
     ${TESTING} && echo "${COLRED}Testing: ${TESTING}${COLRESET}"
     echo "Total blocks: ${COLYELLOW}${total_blocks}${COLRESET}"
-    echo "Staring Block: ${COLYELLOW}$starting_block${COLRESET}"
+    echo "Starting Block: ${COLYELLOW}$starting_block${COLRESET}"
     echo "Block diff: ${COLYELLOW}$block_diff${COLRESET}"
     echo "******************************************************"
     echo "Total slices: ${COLYELLOW}${slices}${COLRESET}"
