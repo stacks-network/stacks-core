@@ -565,7 +565,7 @@ impl<'a> TestChainstate<'a> {
         self.sortdb.as_mut().unwrap()
     }
 
-    pub fn sortdb_ref(&mut self) -> &SortitionDB {
+    pub fn sortdb_ref(&self) -> &SortitionDB {
         self.sortdb.as_ref().unwrap()
     }
 

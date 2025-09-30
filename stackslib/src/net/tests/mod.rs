@@ -25,6 +25,8 @@ pub mod relay;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::types::EpochList;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
 use rand::Rng;
@@ -101,11 +103,13 @@ pub struct NakamotoBootPlan {
     pub malleablized_blocks: bool,
     pub network_id: u32,
     pub txindex: bool,
+    pub epochs: Option<EpochList<ExecutionCost>>,
 }
 
 impl NakamotoBootPlan {
     pub fn new(test_name: &str) -> Self {
         let (test_signers, test_stackers) = TestStacker::common_signing_set();
+        let pox_constants = TestPeerConfig::default().burnchain.pox_constants;
         Self {
             test_name: test_name.to_string(),
             pox_constants: TestPeerConfig::default().burnchain.pox_constants,
@@ -119,6 +123,7 @@ impl NakamotoBootPlan {
             malleablized_blocks: true,
             network_id: TestPeerConfig::default().network_id,
             txindex: false,
+            epochs: None,
         }
     }
 
@@ -151,6 +156,11 @@ impl NakamotoBootPlan {
             2 * cycle_length + 1,
         );
         self.pox_constants = new_consts;
+        self
+    }
+
+    pub fn with_epochs(mut self, epochs: EpochList<ExecutionCost>) -> Self {
+        self.epochs = Some(epochs);
         self
     }
 
@@ -367,16 +377,13 @@ impl NakamotoBootPlan {
         )
         .unwrap();
 
-        // reward cycles are 5 blocks long
-        // first 25 blocks are boot-up
-        // reward cycle 6 instantiates pox-3
-        // we stack in reward cycle 7 so pox-3 is evaluated to find reward set participation
-        chainstate_config.epochs = Some(StacksEpoch::unit_test_3_0_only(
+        let default_epoch = StacksEpoch::unit_test_3_0_only(
             (self.pox_constants.pox_4_activation_height
                 + self.pox_constants.reward_cycle_length
                 + 1)
             .into(),
-        ));
+        );
+        chainstate_config.epochs = Some(self.epochs.clone().unwrap_or(default_epoch));
         chainstate_config.initial_balances = vec![];
         if self.add_default_balance {
             chainstate_config
