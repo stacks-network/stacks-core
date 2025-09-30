@@ -16437,7 +16437,754 @@ fn check_restrict_assets_rollback() {
     run_loop_thread.join().unwrap();
 }
 
-// TODO:
-// - Test stack-stx
-// - Test roll backs
-// - Test successful asset movement
+#[test]
+#[ignore]
+/// Verify the error handling and rollback works as expected in
+/// `as-contract?` expressions
+fn check_as_contract_rollback() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let recipient_sk = Secp256k1PrivateKey::random();
+    let recipient = tests::to_addr(&recipient_sk);
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let contract_name = "test-contract";
+    let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
+        issuer: sender_addr.clone().into(),
+        name: contract_name.into(),
+    });
+    let deploy_fee = 4000;
+    let call_fee = 400;
+    let max_transfer_amt = 1000;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + call_fee * 30,
+    );
+    naka_conf.add_initial_balance(contract_addr.to_string(), max_transfer_amt * 30);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let mut sender_nonce = 0;
+    let contract = format!(
+        r#"
+(define-public (single-transfer
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (as-contract? ((with-stx allowed))
+    (unwrap! (stx-transfer? amount tx-sender recipient) (err u200))
+  )
+)
+(define-public (two-transfers
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (as-contract? ((with-stx allowed))
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (try! (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u300 e))
+    ))
+  )
+)
+(define-public (transfer-then-err
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (as-contract? ((with-stx allowed))
+    (try! (match (stx-transfer? amount tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (try! (if false
+      (ok true)
+      (err u300)
+    ))
+  )
+)
+(define-public (err-then-transfer
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (as-contract? ((with-stx allowed))
+    (try! (if false
+      (ok true)
+      (err u200)
+    ))
+    (try! (match (stx-transfer? amount tx-sender recipient)
+      v (ok v)
+      e (err (+ u300 e))
+    ))
+  )
+)
+(define-public (transfer-before
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (as-contract? ((with-stx allowed))
+      (try! (match (stx-transfer? amount-2 tx-sender recipient)
+        v (ok v)
+        e (err (+ u300 e))
+      ))
+    )
+  )
+)
+(define-public (transfer-before-catch-err
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (unwrap-err! (as-contract? ((with-stx allowed))
+        (try! (match (stx-transfer? amount-2 tx-sender recipient)
+          v (ok v)
+          e (err (+ u300 e))
+        ))
+      )
+      (err u400)
+    )
+    (ok true)
+  )
+)
+(define-public (transfer-after
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (unwrap!
+      (as-contract? ((with-stx allowed))
+        (try! (match (stx-transfer? amount-1 tx-sender recipient)
+          v (ok v)
+          e (err (+ u200 e))
+        ))
+      )
+      (err u300)
+    )
+    (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    )
+  )
+)
+(define-public (transfer-after-catch-err
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (unwrap-err! (as-contract? ((with-stx allowed))
+      (try! (match (stx-transfer? amount-1 tx-sender recipient)
+        v (ok v)
+        e (err (+ u300 e))
+      )))
+      (err u400)
+    )
+    (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    )
+  )
+)
+"#
+    );
+
+    let contract_tx = make_contract_publish_versioned(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        contract_name,
+        &contract,
+        Some(ClarityVersion::Clarity4),
+    );
+    sender_nonce += 1;
+    let deploy_txid = submit_tx(&http_origin, &contract_tx);
+    info!("Submitted deploy txid: {deploy_txid}");
+
+    let mut stacks_block_height = 0;
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+        Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        .unwrap();
+
+    let mut contract_balance = get_account(&http_origin, &contract_addr).balance;
+    let mut recipient_balance = get_account(&http_origin, &recipient).balance;
+
+    // helper to submit a call, wait for it to be mined/processed, and return the parsed result
+    fn submit_call_and_get_result(
+        http_origin: &str,
+        sender_sk: &Secp256k1PrivateKey,
+        sender_nonce: &mut u64,
+        call_fee: u64,
+        chain_id: u32,
+        sender_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[Value],
+        recipient: &StacksAddress,
+    ) -> (Value, u128, u128) {
+        let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
+            issuer: sender_addr.clone().into(),
+            name: contract_name.into(),
+        });
+        let contract_balance = get_account(http_origin, &contract_addr).balance;
+        let recipient_balance = get_account(http_origin, recipient).balance;
+        info!("contract balance: {contract_balance}");
+        info!("recipient balance: {recipient_balance}");
+
+        test_observer::clear();
+
+        let call_tx = make_contract_call(
+            sender_sk,
+            *sender_nonce,
+            call_fee,
+            chain_id,
+            sender_addr,
+            contract_name,
+            function_name,
+            function_args,
+        );
+        *sender_nonce += 1;
+        let call_txid = submit_tx(http_origin, &call_tx);
+        info!("Submitted call txid: {call_txid}");
+
+        wait_for(60, || {
+            let cur_sender_nonce = get_account(http_origin, sender_addr).nonce;
+            Ok(cur_sender_nonce == *sender_nonce)
+        })
+        .expect("Timed out waiting for contract calls");
+
+        let mut found = false;
+        let blocks = test_observer::get_blocks();
+        let mut parsed: Option<Value> = None;
+        for block in blocks.iter() {
+            for tx in block.get("transactions").unwrap().as_array().unwrap() {
+                let txid = tx
+                    .get("txid")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .strip_prefix("0x")
+                    .unwrap();
+                if txid == call_txid {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    parsed = Some(Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap());
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+        assert!(found, "Should have found expected tx");
+
+        let parsed = parsed.expect("parsed value");
+        let contract_balance = get_account(http_origin, &contract_addr).balance;
+        let recipient_balance = get_account(http_origin, recipient).balance;
+        (parsed, contract_balance, recipient_balance)
+    }
+
+    info!("Test: Successful transfer");
+    let amount = 1000;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "single-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance - amount;
+    let recipient_expected = recipient_balance + amount;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: Transfer that exceeds allowance");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 1000;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "single-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(500),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(0);
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: 2 transfers within allowance");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 200;
+    let amount2 = 600;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "two-transfers",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance - amount1 - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: 2 transfers that exceed allowance");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 500;
+    let amount2 = 600;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "two-transfers",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(0);
+    assert_eq!(expected, parsed);
+    let sender_expected = contract_balance;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        sender_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer then trigger an error in restrict-assets?");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 500;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-then-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(300);
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: error then transfer in restrict-assets?");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 500;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "err-then-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(200);
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer before successful restrict-assets?");
+    let sender_balance = get_account(&http_origin, &sender_addr).balance;
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 700;
+    let amount2 = 500;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-before",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    let sender_expected = sender_balance - call_fee as u128 - amount1;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+    assert_eq!(
+        sender_expected,
+        get_account(&http_origin, &sender_addr).balance,
+        "incorrect sender balance"
+    );
+
+    info!("Test: transfer before restrict-assets? violation");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let sender_balance = get_account(&http_origin, &sender_addr).balance;
+    let amount1 = 700;
+    let amount2 = 1200;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-before-catch-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance + amount1;
+    let sender_expected = sender_balance - call_fee as u128 - amount1;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+    assert_eq!(
+        sender_expected,
+        get_account(&http_origin, &sender_addr).balance,
+        "incorrect sender balance"
+    );
+
+    info!("Test: transfer after successful restrict-assets?");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let sender_balance = get_account(&http_origin, &sender_addr).balance;
+    let amount1 = 700;
+    let amount2 = 500;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-after",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance - amount1;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    let sender_expected = sender_balance - call_fee as u128 - amount2;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+    assert_eq!(
+        sender_expected,
+        get_account(&http_origin, &sender_addr).balance,
+        "incorrect sender balance"
+    );
+
+    info!("Test: transfer after restrict-assets? violation");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let sender_balance = get_account(&http_origin, &sender_addr).balance;
+    let amount1 = 1200;
+    let amount2 = 700;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-after-catch-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance + amount2;
+    let sender_expected = sender_balance - call_fee as u128 - amount2;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+    assert_eq!(
+        sender_expected,
+        get_account(&http_origin, &sender_addr).balance,
+        "incorrect sender balance"
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
