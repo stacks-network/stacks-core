@@ -1,0 +1,78 @@
+type: object
+properties:
+  block_hash:
+    type: string
+    description: Hash of the block
+    pattern: "^[0-9a-f]{64}$"
+  block_id:
+    type: string
+    description: Block ID (index block hash)
+    pattern: "^[0-9a-f]{64}$"
+  block_height:
+    type: integer
+    description: Height of the Stacks block
+    format: uint64
+  consensus_hash:
+    type: string
+    description: Consensus hash of the tenure
+    pattern: "^[0-9a-f]{40}$"
+  fees:
+    type: integer
+    description: total fees for the block
+  miner_signature:
+    type: string
+    description: Uncompressed signature of the miner
+    pattern: "^[0-9a-f]{130}$"
+  parent_block_id:
+    type: string
+    description: Parent Block ID (index block hash)
+    pattern: "^[0-9a-f]{64}$"
+  signer_signature:
+    type: array
+    items:
+      type: string
+      description: Uncompressed signature of the signer
+      pattern: "^[0-9a-f]{130}$"
+  state_index_root:
+    type: string
+    pattern: "^[0-9a-f]{64}$"
+    description: block state index root computed from the MARF (got from the original block) 
+  timestamp:
+    type: integer
+  tx_merkle_root:
+    type: string
+    description: merkle_root of the included transactions
+  valid_merkle_root:
+    type: boolean
+    description: does the merkle_root matches the chain block and the simulated one?
+  transactions:
+    type: array
+    items:
+      type: object
+      properties:
+        data:
+          type: object
+          description: JSON representation of the transaction payload
+        events:
+          type: array
+          items:
+            type: object
+            description: JSON representation of the transaction events
+        execution_cost:
+          type: object
+          description: costs accounting for the transaction
+        hex:
+          type: string
+          description: hexadecimal representation of the transaction body
+        result:
+          type: object
+          description: Clarity value representing the transaction result
+        stx_burned:
+          type: integer
+          description: number of burned stx
+        tx_index:
+          type: integer
+          description: index of the transaction in the array of transactions
+        txid:
+          type: string
+          description: transaction id
