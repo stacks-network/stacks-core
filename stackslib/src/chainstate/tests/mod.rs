@@ -569,6 +569,14 @@ impl<'a> TestChainstate<'a> {
         self.sortdb.as_ref().unwrap()
     }
 
+    pub fn stacks_node(&mut self) -> &mut TestStacksNode {
+        self.stacks_node.as_mut().unwrap()
+    }
+
+    pub fn stacks_node_ref(&self) -> &TestStacksNode {
+        self.stacks_node.as_ref().unwrap()
+    }
+
     /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce, and then increments
     /// the provided reference.
     pub fn tenure_with_txs(
