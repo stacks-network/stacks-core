@@ -653,22 +653,19 @@ impl RelayerThread {
             let canonical_stacks_tip =
                 StacksBlockId::new(&canonical_stacks_tip_ch, &canonical_stacks_tip_bh);
 
-            let commits_to_tip_tenure = match Self::sortition_commits_to_stacks_tip_tenure(
+            let commits_to_tip_tenure = Self::sortition_commits_to_stacks_tip_tenure(
                 &mut self.chainstate,
                 &canonical_stacks_tip,
                 &canonical_stacks_snapshot,
                 &sn,
-            ) {
-                Ok(b) => b,
-                Err(e) => {
-                    warn!(
-                        "Relayer: Failed to determine if winning sortition commits to current tenure: {e:?}";
-                        "sortition_ch" => %sn.consensus_hash,
-                        "stacks_tip_ch" => %canonical_stacks_tip_ch
-                    );
-                    false
-                }
-            };
+            ).unwrap_or_else(|e| {
+                warn!(
+                    "Relayer: Failed to determine if winning sortition commits to current tenure: {e:?}";
+                    "sortition_ch" => %sn.consensus_hash,
+                    "stacks_tip_ch" => %canonical_stacks_tip_ch
+                );
+                false
+            });
 
             if !commits_to_tip_tenure {
                 let won_ongoing_tenure_sortition =

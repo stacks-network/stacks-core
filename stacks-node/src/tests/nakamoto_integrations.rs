@@ -5495,11 +5495,11 @@ fn forked_tenure_is_ignored() {
             .get_stacks_blocks_processed();
         // We don't expect a block in this tenure, because the miner should instead be building off
         // of a previous tenure
-        let block_in_tenure = get_last_block_in_current_tenure(&sortdb, &chainstate).is_none();
+        let no_block_in_tenure = get_last_block_in_current_tenure(&sortdb, &chainstate).is_none();
         Ok(commits_count > commits_before
             && blocks_count > blocks_before
             && blocks_processed > blocks_processed_before
-            && block_in_tenure)
+            && no_block_in_tenure)
     })
     .unwrap_or_else(|_| {
         let commits_count = commits_submitted.load(Ordering::SeqCst);
@@ -5508,20 +5508,20 @@ fn forked_tenure_is_ignored() {
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-        let block_in_tenure = get_last_block_in_current_tenure(&sortdb, &chainstate).is_none();
-        error!("Tenure C failed to produce a block";
+        let no_block_in_tenure = get_last_block_in_current_tenure(&sortdb, &chainstate).is_none();
+        error!("Tenure C shouldn't have produced a block";
             "commits_count" => commits_count,
             "commits_before" => commits_before,
             "blocks_count" => blocks_count,
             "blocks_before" => blocks_before,
             "blocks_processed" => blocks_processed,
             "blocks_processed_before" => blocks_processed_before,
-            "block_in_tenure" => block_in_tenure,
+            "no_block_in_tenure" => no_block_in_tenure,
         );
-        panic!("Tenure C failed to produce a block");
+        panic!("Tenure C shouldn't have produced a block");
     });
 
-    info!("Tenure C produced a block!");
+    info!("Tenure C did not produce a block");
 
     let block_tenure_c = get_last_block_in_current_tenure(&sortdb, &chainstate);
     assert!(block_tenure_c.is_none());
