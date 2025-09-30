@@ -2642,7 +2642,7 @@ expression. `with-stx` is not allowed outside of `restrict-assets?` or
 (restrict-assets? tx-sender
   ((with-stx u50))
   (try! (stx-transfer? u100 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
-) ;; Returns (err 0)
+) ;; Returns (err u0)
 "#,
 };
 
