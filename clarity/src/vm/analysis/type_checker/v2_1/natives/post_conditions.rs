@@ -39,14 +39,20 @@ pub fn check_restrict_assets(
 ) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(3, args)?;
 
-    let asset_owner = &args[0];
-    let allowance_list = args[1]
+    let asset_owner = args
+        .first()
+        .ok_or(CheckErrors::CheckerImplementationFailure)?;
+    let allowance_list = args
+        .get(1)
+        .ok_or(CheckErrors::CheckerImplementationFailure)?
         .match_list()
         .ok_or(CheckErrors::ExpectedListOfAllowances(
             "restrict-assets?".into(),
             2,
         ))?;
-    let body_exprs = &args[2..];
+    let body_exprs = args
+        .get(2..)
+        .ok_or(CheckErrors::CheckerImplementationFailure)?;
 
     if allowance_list.len() > MAX_ALLOWANCES {
         return Err(CheckErrors::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
@@ -90,13 +96,17 @@ pub fn check_as_contract(
 ) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
-    let allowance_list = args[0]
+    let allowance_list = args
+        .first()
+        .ok_or(CheckErrors::CheckerImplementationFailure)?
         .match_list()
         .ok_or(CheckErrors::ExpectedListOfAllowances(
             "as-contract?".into(),
             1,
         ))?;
-    let body_exprs = &args[1..];
+    let body_exprs = args
+        .get(1..)
+        .ok_or(CheckErrors::CheckerImplementationFailure)?;
 
     if allowance_list.len() > MAX_ALLOWANCES {
         return Err(CheckErrors::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
@@ -185,7 +195,12 @@ fn check_allowance_with_stx(
 ) -> Result<bool, CheckError> {
     check_argument_count(1, args)?;
 
-    checker.type_check_expects(&args[0], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(
+        args.first()
+            .ok_or(CheckErrors::CheckerImplementationFailure)?,
+        context,
+        &TypeSignature::UIntType,
+    )?;
 
     Ok(false)
 }
@@ -199,9 +214,24 @@ fn check_allowance_with_ft(
 ) -> Result<bool, CheckError> {
     check_argument_count(3, args)?;
 
-    checker.type_check_expects(&args[0], context, &TypeSignature::PrincipalType)?;
-    checker.type_check_expects(&args[1], context, &ASCII_128)?;
-    checker.type_check_expects(&args[2], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(
+        args.first()
+            .ok_or(CheckErrors::CheckerImplementationFailure)?,
+        context,
+        &TypeSignature::PrincipalType,
+    )?;
+    checker.type_check_expects(
+        args.get(1)
+            .ok_or(CheckErrors::CheckerImplementationFailure)?,
+        context,
+        &ASCII_128,
+    )?;
+    checker.type_check_expects(
+        args.get(2)
+            .ok_or(CheckErrors::CheckerImplementationFailure)?,
+        context,
+        &TypeSignature::UIntType,
+    )?;
 
     Ok(false)
 }
@@ -215,11 +245,25 @@ fn check_allowance_with_nft(
 ) -> Result<bool, CheckError> {
     check_argument_count(3, args)?;
 
-    checker.type_check_expects(&args[0], context, &TypeSignature::PrincipalType)?;
-    checker.type_check_expects(&args[1], context, &ASCII_128)?;
+    checker.type_check_expects(
+        args.first()
+            .ok_or(CheckErrors::CheckerImplementationFailure)?,
+        context,
+        &TypeSignature::PrincipalType,
+    )?;
+    checker.type_check_expects(
+        args.get(1)
+            .ok_or(CheckErrors::CheckerImplementationFailure)?,
+        context,
+        &ASCII_128,
+    )?;
 
     // Asset identifiers must be a Clarity list with any type of elements
-    let id_list_ty = checker.type_check(&args[2], context)?;
+    let id_list_ty = checker.type_check(
+        args.get(2)
+            .ok_or(CheckErrors::CheckerImplementationFailure)?,
+        context,
+    )?;
     let TypeSignature::SequenceType(SequenceSubtype::ListType(list_data)) = id_list_ty else {
         return Err(CheckErrors::WithNftExpectedListOfIdentifiers.into());
     };
@@ -243,7 +287,12 @@ fn check_allowance_with_stacking(
 ) -> Result<bool, CheckError> {
     check_argument_count(1, args)?;
 
-    checker.type_check_expects(&args[0], context, &TypeSignature::UIntType)?;
+    checker.type_check_expects(
+        args.first()
+            .ok_or(CheckErrors::CheckerImplementationFailure)?,
+        context,
+        &TypeSignature::UIntType,
+    )?;
 
     Ok(false)
 }
