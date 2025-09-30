@@ -4073,6 +4073,7 @@ pub struct MinerConfigFile {
     pub stackerdb_timeout_secs: Option<u64>,
     pub max_tenure_bytes: Option<u64>,
     pub tenure_extend_tenure_size_threshold: Option<u64>,
+    pub log_skipped_transactions: Option<bool>,
 }
 
 impl MinerConfigFile {
@@ -4266,7 +4267,7 @@ impl MinerConfigFile {
             replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
             max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
-            log_skipped_transactions: false,
+            log_skipped_transactions: self.log_skipped_transactions.unwrap_or(miner_default_config.log_skipped_transactions),
             tenure_extend_tenure_size_threshold: self.tenure_extend_tenure_size_threshold.unwrap_or(miner_default_config.tenure_extend_tenure_size_threshold),
         })
     }
