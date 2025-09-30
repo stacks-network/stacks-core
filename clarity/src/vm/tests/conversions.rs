@@ -14,11 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::types::MAX_TO_ASCII_BUFFER_LEN;
 use stacks_common::types::StacksEpochId;
 
 pub use crate::vm::analysis::errors::CheckErrors;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::MAX_TO_ASCII_BUFFER_LEN;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -314,8 +314,8 @@ fn test_simple_string_to_int() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeValueError(
             vec![
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(Value::Int(1))
         )
@@ -379,8 +379,8 @@ fn test_simple_string_to_uint() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeValueError(
             vec![
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(Value::Int(1))
         )

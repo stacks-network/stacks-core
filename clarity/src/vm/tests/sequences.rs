@@ -114,15 +114,15 @@ fn test_index_of() {
     let bad_expected = [
         CheckErrors::ExpectedSequence(Box::new(TypeSignature::IntType)),
         CheckErrors::TypeValueError(
-            Box::new(TypeSignature::min_buffer().unwrap()),
+            Box::new(TypeSignature::BUFFER_MIN),
             Box::new(execute("\"a\"").unwrap().unwrap()),
         ),
         CheckErrors::TypeValueError(
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
             Box::new(execute("\"a\"").unwrap().unwrap()),
         ),
         CheckErrors::TypeValueError(
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
             Box::new(execute("u\"a\"").unwrap().unwrap()),
         ),
     ];
