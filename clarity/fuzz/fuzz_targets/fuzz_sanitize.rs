@@ -29,7 +29,7 @@ use clarity::vm::ClarityName;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::serialization::SerializationError;
 use stacks_common::types::StacksEpochId;
-use clarity::vm::analysis::CheckErrors;
+use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::StringSubtype;
 
 use libfuzzer_sys::arbitrary;
@@ -131,9 +131,9 @@ impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
     }
 }
 
-pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, CheckErrors> {
+pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, CheckErrorKind> {
     match me {
-        TypeSignature::NoType => Err(CheckErrors::CouldNotDetermineType),
+        TypeSignature::NoType => Err(CheckErrorKind::CouldNotDetermineType),
         TypeSignature::IntType => match x {
             ClarityValue::Int(_) => Ok(true),
             _ => Ok(false),
@@ -238,7 +238,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
         },
         TypeSignature::CallableType(_) |
         TypeSignature::ListUnionType(_) |
-        TypeSignature::TraitReferenceType(_) => Err(CheckErrors::TraitReferenceNotAllowed),
+        TypeSignature::TraitReferenceType(_) => Err(CheckErrorKind::TraitReferenceNotAllowed),
     }
 }
 
@@ -274,7 +274,7 @@ fn fuzz_sanitize(input: ClarityValue) {
         deserialize_unsanitized.unwrap_err();
     } else {
         let deser_value = match deserialize_unsanitized {
-            Err(SerializationError::BadTypeError(CheckErrors::TypeSignatureTooDeep)) => {
+            Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
                 // pre-2.4, deserializer could error on types deeper than a deserialization limit of 16.
                 // with sanitization enabled (a 2.4-gated feature), these serializations are readable.
                 ClarityValue::deserialize_read(
@@ -294,7 +294,7 @@ fn fuzz_sanitize(input: ClarityValue) {
         true
     ) {
         Ok(x) => x,
-        Err(SerializationError::BadTypeError(CheckErrors::TypeSignatureTooDeep)) => {
+        Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
             assert!(!did_strict_admit, "Unsanitized inputs may fail to deserialize, but they must have needed sanitization");
             // check that the sanitized value *is* readable
             let serialized = sanitized_value.serialize_to_vec().expect("serialize sanitized");
@@ -303,7 +303,7 @@ fn fuzz_sanitize(input: ClarityValue) {
                 Some(&computed_type),
                 false
             ) {
-                Err(SerializationError::BadTypeError(CheckErrors::TypeSignatureTooDeep)) => {
+                Err(SerializationError::BadTypeError(CheckErrorKind::TypeSignatureTooDeep)) => {
                     // pre-2.4, deserializer could error on legal types deeper than a deserialization limit of 16.
                     // with sanitization enabled (a 2.4-gated feature), these serializations are readable.
                     ClarityValue::deserialize_read(

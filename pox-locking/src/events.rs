@@ -16,7 +16,7 @@
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::LimitedCostTracker;
-use clarity::vm::errors::Error as ClarityError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, ResponseData, TupleData};
 use clarity::vm::Value;
 #[cfg(any(test, feature = "testing"))]
@@ -565,7 +565,7 @@ pub fn synthesize_pox_event_info(
     function_name: &str,
     args: &[Value],
     response: &ResponseData,
-) -> Result<Option<Value>, ClarityError> {
+) -> Result<Option<Value>, VmExecutionError> {
     // the first thing we do is check the current epoch. In Epochs <= 2.4,
     //  synthesizing PoX events was an assessed cost, so event generation
     //  must remain identical.
@@ -610,7 +610,7 @@ fn inner_synthesize_pox_event_info(
     function_name: &str,
     args: &[Value],
     response: &ResponseData,
-) -> Result<Option<Value>, ClarityError> {
+) -> Result<Option<Value>, VmExecutionError> {
     let sender = match sender_opt {
         Some(sender) => sender,
         None => {
@@ -687,7 +687,7 @@ fn inner_synthesize_pox_event_info(
                 Ok(Value::Tuple(event_tuple))
             },
         )
-        .map_err(|e: ClarityError| {
+        .map_err(|e: VmExecutionError| {
             error!("Failed to synthesize PoX event: {:?}", &e);
             e
         })?;

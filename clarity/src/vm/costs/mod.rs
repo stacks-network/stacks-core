@@ -19,6 +19,7 @@ use std::{cmp, fmt};
 
 pub use clarity_types::errors::CostErrors;
 pub use clarity_types::execution_cost::{CostOverflowingMath, ExecutionCost};
+use clarity_types::VmExecutionError;
 use costs_1::Costs1;
 use costs_2::Costs2;
 use costs_2_testnet::Costs2Testnet;
@@ -28,7 +29,7 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckErrors, RuntimeErrorType};
+use super::errors::{CheckErrorKind, RuntimeError};
 use crate::boot_util::boot_code_id;
 use crate::vm::contexts::{ContractContext, GlobalContext};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -215,8 +216,9 @@ impl DefaultVersion {
         };
         r.map_err(|e| {
             let e = match e {
-                crate::vm::errors::Error::Runtime(RuntimeErrorType::NotImplemented, _) => {
-                    CheckErrors::UndefinedFunction(cost_function_ref.function_name.clone()).into()
+                VmExecutionError::Runtime(RuntimeError::NotImplemented, _) => {
+                    CheckErrorKind::UndefinedFunction(cost_function_ref.function_name.clone())
+                        .into()
                 }
                 other => other,
             };

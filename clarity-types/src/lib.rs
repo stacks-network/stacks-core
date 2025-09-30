@@ -31,7 +31,7 @@ pub mod representations;
 pub mod token;
 pub mod types;
 
-pub use errors::Error;
+pub use errors::VmExecutionError;
 pub use representations::{ClarityName, ContractName};
 pub use types::Value;
 

@@ -14,9 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub use clarity::vm::analysis::errors::CheckErrors;
+pub use clarity::vm::analysis::errors::CheckErrorKind;
 use clarity::vm::contracts::Contract;
-use clarity::vm::errors::Error as clarity_vm_error;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{QualifiedContractIdentifier, Value};
 
 use crate::chainstate::stacks::db::*;
@@ -31,8 +31,8 @@ impl StacksChainState {
         clarity_tx
             .with_clarity_db_readonly(|ref mut db| match db.get_contract(contract_id) {
                 Ok(c) => Ok(Some(c)),
-                Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchContract(_))) => Ok(None),
-                Err(e) => Err(clarity_error::Interpreter(e)),
+                Err(VmExecutionError::Unchecked(CheckErrorKind::NoSuchContract(_))) => Ok(None),
+                Err(e) => Err(ClarityError::Interpreter(e)),
             })
             .map_err(Error::ClarityError)
     }
@@ -47,10 +47,10 @@ impl StacksChainState {
             .with_clarity_db_readonly(|ref mut db| {
                 match db.lookup_variable_unknown_descriptor(contract_id, data_var, &epoch) {
                     Ok(c) => Ok(Some(c)),
-                    Err(clarity_vm_error::Unchecked(CheckErrors::NoSuchDataVariable(_))) => {
+                    Err(VmExecutionError::Unchecked(CheckErrorKind::NoSuchDataVariable(_))) => {
                         Ok(None)
                     }
-                    Err(e) => Err(clarity_error::Interpreter(e)),
+                    Err(e) => Err(ClarityError::Interpreter(e)),
                 }
             })
             .map_err(Error::ClarityError)

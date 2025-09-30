@@ -18,7 +18,7 @@ use lazy_static::lazy_static;
 use regex::{Captures, Regex};
 use stacks_common::util::hash::hex_bytes;
 
-use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult};
+use crate::vm::ast::errors::{ParseError, ParseErrorKind, ParseResult};
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::representations::{
     ClarityName, ContractName, PreSymbolicExpression, MAX_STRING_LEN,
@@ -98,7 +98,7 @@ impl LexMatcher {
 fn get_value_or_err(input: &str, captures: Captures) -> ParseResult<String> {
     let matched = captures
         .name("value")
-        .ok_or(ParseError::new(ParseErrors::FailedCapturingInput))?;
+        .ok_or(ParseError::new(ParseErrorKind::FailedCapturingInput))?;
     Ok(input[matched.start()..matched.end()].to_string())
 }
 
@@ -207,7 +207,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                 column_pos = 1;
                 current_line = current_line
                     .checked_add(1)
-                    .ok_or(ParseError::new(ParseErrors::ProgramTooLarge))?;
+                    .ok_or(ParseError::new(ParseErrorKind::ProgramTooLarge))?;
             }
         }
 
@@ -215,7 +215,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
         let current_slice = &input[munch_index..];
         for matcher in lex_matchers.iter() {
             if let Some(captures) = matcher.matcher.captures(current_slice) {
-                let whole_match = captures.get(0).ok_or(ParseErrors::InterpreterFailure)?;
+                let whole_match = captures.get(0).ok_or(ParseErrorKind::InterpreterFailure)?;
                 assert_eq!(whole_match.start(), 0);
                 munch_index += whole_match.end();
 
@@ -231,7 +231,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                             TokenType::Whitespace => Ok(()),
                             TokenType::Comma => Ok(()),
                             TokenType::Colon => Ok(()),
-                            _ => Err(ParseError::new(ParseErrors::SeparatorExpected(
+                            _ => Err(ParseError::new(ParseErrorKind::SeparatorExpected(
                                 current_slice[..whole_match.end()].to_string(),
                             ))),
                         }
@@ -244,9 +244,11 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                             TokenType::Whitespace => Ok(()),
                             TokenType::Comma => Ok(()),
                             TokenType::Colon => Ok(()),
-                            _ => Err(ParseError::new(ParseErrors::SeparatorExpectedAfterColon(
-                                current_slice[..whole_match.end()].to_string(),
-                            ))),
+                            _ => Err(ParseError::new(
+                                ParseErrorKind::SeparatorExpectedAfterColon(
+                                    current_slice[..whole_match.end()].to_string(),
+                                ),
+                            )),
                         }
                     }
                 }?;
@@ -260,7 +262,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         nesting_depth += 1;
                         if nesting_depth > max_nesting {
                             return Err(ParseError::new(
-                                ParseErrors::VaryExpressionStackDepthTooDeep,
+                                ParseErrorKind::VaryExpressionStackDepthTooDeep,
                             ));
                         }
                         Ok(LexItem::LeftParen)
@@ -289,7 +291,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         nesting_depth += 1;
                         if nesting_depth > max_nesting {
                             return Err(ParseError::new(
-                                ParseErrors::VaryExpressionStackDepthTooDeep,
+                                ParseErrorKind::VaryExpressionStackDepthTooDeep,
                             ));
                         }
                         Ok(LexItem::LeftCurly)
@@ -302,7 +304,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                     TokenType::Variable => {
                         let value = get_value_or_err(current_slice, captures)?;
                         if value.contains('#') {
-                            Err(ParseError::new(ParseErrors::IllegalVariableName(value)))
+                            Err(ParseError::new(ParseErrorKind::IllegalVariableName(value)))
                         } else {
                             Ok(LexItem::Variable(value))
                         }
@@ -311,7 +313,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value.parse::<u128>() {
                             Ok(parsed) => Ok(Value::UInt(parsed)),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingIntValue(
+                            Err(_e) => Err(ParseError::new(ParseErrorKind::FailedParsingIntValue(
                                 str_value.clone(),
                             ))),
                         }?;
@@ -321,7 +323,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value.parse::<i128>() {
                             Ok(parsed) => Ok(Value::Int(parsed)),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingIntValue(
+                            Err(_e) => Err(ParseError::new(ParseErrorKind::FailedParsingIntValue(
                                 str_value.clone(),
                             ))),
                         }?;
@@ -333,7 +335,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                             match PrincipalData::parse_qualified_contract_principal(&str_value) {
                                 Ok(parsed) => Ok(Value::Principal(parsed)),
                                 Err(_e) => Err(ParseError::new(
-                                    ParseErrors::FailedParsingPrincipal(str_value.clone()),
+                                    ParseErrorKind::FailedParsingPrincipal(str_value.clone()),
                                 )),
                             }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
@@ -342,9 +344,9 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match str_value[1..].to_string().try_into() {
                             Ok(parsed) => Ok(parsed),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(
-                                str_value.clone(),
-                            ))),
+                            Err(_e) => Err(ParseError::new(
+                                ParseErrorKind::FailedParsingPrincipal(str_value.clone()),
+                            )),
                         }?;
                         Ok(LexItem::SugaredContractIdentifier(str_value.len(), value))
                     }
@@ -352,7 +354,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match TraitIdentifier::parse_fully_qualified(&str_value) {
                             Ok(parsed) => Ok(parsed),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(
+                            Err(_e) => Err(ParseError::new(ParseErrorKind::FailedParsingField(
                                 str_value.clone(),
                             ))),
                         }?;
@@ -363,9 +365,9 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         let (contract_name, field_name) =
                             match TraitIdentifier::parse_sugared_syntax(&str_value) {
                                 Ok((contract_name, field_name)) => Ok((contract_name, field_name)),
-                                Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingField(
-                                    str_value.clone(),
-                                ))),
+                                Err(_e) => Err(ParseError::new(
+                                    ParseErrorKind::FailedParsingField(str_value.clone()),
+                                )),
                             }?;
                         Ok(LexItem::SugaredFieldIdentifier(
                             str_value.len(),
@@ -377,30 +379,32 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let value = match PrincipalData::parse_standard_principal(&str_value) {
                             Ok(parsed) => Ok(Value::Principal(PrincipalData::Standard(parsed))),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingPrincipal(
-                                str_value.clone(),
-                            ))),
+                            Err(_e) => Err(ParseError::new(
+                                ParseErrorKind::FailedParsingPrincipal(str_value.clone()),
+                            )),
                         }?;
                         Ok(LexItem::LiteralValue(str_value.len(), value))
                     }
                     TokenType::TraitReferenceLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let data = str_value.clone().try_into().map_err(|_| {
-                            ParseError::new(ParseErrors::IllegalVariableName(str_value.to_string()))
+                            ParseError::new(ParseErrorKind::IllegalVariableName(
+                                str_value.to_string(),
+                            ))
                         })?;
                         Ok(LexItem::TraitReference(str_value.len(), data))
                     }
                     TokenType::HexStringLiteral => {
                         let str_value = get_value_or_err(current_slice, captures)?;
                         let byte_vec = hex_bytes(&str_value).map_err(|x| {
-                            ParseError::new(ParseErrors::FailedParsingHexValue(
+                            ParseError::new(ParseErrorKind::FailedParsingHexValue(
                                 str_value.clone(),
                                 x.to_string(),
                             ))
                         })?;
                         let value = match Value::buff_from(byte_vec) {
                             Ok(parsed) => Ok(parsed),
-                            Err(_e) => Err(ParseError::new(ParseErrors::FailedParsingBuffer(
+                            Err(_e) => Err(ParseError::new(ParseErrorKind::FailedParsingBuffer(
                                 str_value.clone(),
                             ))),
                         }?;
@@ -414,7 +418,9 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
 
                         let value = match Value::string_ascii_from_bytes(byte_vec) {
                             Ok(parsed) => Ok(parsed),
-                            Err(_e) => Err(ParseError::new(ParseErrors::InvalidCharactersDetected)),
+                            Err(_e) => {
+                                Err(ParseError::new(ParseErrorKind::InvalidCharactersDetected))
+                            }
                         }?;
                         Ok(LexItem::LiteralValue(str_value_len, value))
                     }
@@ -426,7 +432,9 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
                         let value = match Value::string_utf8_from_string_utf8_literal(unescaped_str)
                         {
                             Ok(parsed) => Ok(parsed),
-                            Err(_e) => Err(ParseError::new(ParseErrors::InvalidCharactersDetected)),
+                            Err(_e) => {
+                                Err(ParseError::new(ParseErrorKind::InvalidCharactersDetected))
+                            }
                         }?;
                         Ok(LexItem::LiteralValue(str_value_len, value))
                     }
@@ -443,7 +451,7 @@ fn inner_lex(input: &str, max_nesting: u64) -> ParseResult<Vec<(LexItem, u32, u3
     if munch_index == input.len() {
         Ok(result)
     } else {
-        Err(ParseError::new(ParseErrors::FailedParsingRemainder(
+        Err(ParseError::new(ParseErrorKind::FailedParsingRemainder(
             input[munch_index..].to_string(),
         )))
     }
@@ -471,10 +479,10 @@ fn unescape_ascii_chars(escaped_str: String, allow_unicode_escape: bool) -> Pars
                     'r' => unescaped_str.push('\r'),
                     '0' => unescaped_str.push('\0'),
                     'u' if allow_unicode_escape => unescaped_str.push_str("\\u"),
-                    _ => return Err(ParseError::new(ParseErrors::InvalidEscaping)),
+                    _ => return Err(ParseError::new(ParseErrorKind::InvalidEscaping)),
                 }
             } else {
-                return Err(ParseError::new(ParseErrors::InvalidEscaping));
+                return Err(ParseError::new(ParseErrorKind::InvalidEscaping));
             }
         } else {
             unescaped_str.push(char);
@@ -525,12 +533,12 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
                                 .into_iter()
                                 .map(|i| match i {
                                     ParseStackItem::Expression(e) => Ok(e),
-                                    ParseStackItem::Colon => {
-                                        Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected))
-                                    }
-                                    ParseStackItem::Comma => {
-                                        Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected))
-                                    }
+                                    ParseStackItem::Colon => Err(ParseError::new(
+                                        ParseErrorKind::ColonSeparatorUnexpected,
+                                    )),
+                                    ParseStackItem::Comma => Err(ParseError::new(
+                                        ParseErrorKind::CommaSeparatorUnexpected,
+                                    )),
                                 })
                                 .collect();
                             let checked_list = checked_list?;
@@ -540,7 +548,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
                         }
                         ParseContext::CollectTuple => {
                             let mut error =
-                                ParseError::new(ParseErrors::ClosingTupleLiteralExpected);
+                                ParseError::new(ParseErrorKind::ClosingTupleLiteralExpected);
                             error.diagnostic.add_span(
                                 start_line,
                                 start_column,
@@ -552,7 +560,9 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
                     }
                 } else {
                     debug!("Closing parenthesis expected ({line_pos}, {column_pos})");
-                    return Err(ParseError::new(ParseErrors::ClosingParenthesisUnexpected));
+                    return Err(ParseError::new(
+                        ParseErrorKind::ClosingParenthesisUnexpected,
+                    ));
                 }
             }
             LexItem::LeftCurly => {
@@ -574,21 +584,21 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
                                             checked_list.push(e);
                                             Ok(())
                                         } else {
-                                            Err(ParseErrors::TupleItemExpected(index))
+                                            Err(ParseErrorKind::TupleItemExpected(index))
                                         }
                                     }
                                     1 => {
                                         if let ParseStackItem::Colon = item {
                                             Ok(())
                                         } else {
-                                            Err(ParseErrors::TupleColonExpected(index))
+                                            Err(ParseErrorKind::TupleColonExpected(index))
                                         }
                                     }
                                     3 => {
                                         if let ParseStackItem::Comma = item {
                                             Ok(())
                                         } else {
-                                            Err(ParseErrors::TupleCommaExpected(index))
+                                            Err(ParseErrorKind::TupleCommaExpected(index))
                                         }
                                     }
                                     _ => unreachable!("More than four modulos of four."),
@@ -600,7 +610,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
                         }
                         ParseContext::CollectList => {
                             let mut error =
-                                ParseError::new(ParseErrors::ClosingParenthesisExpected);
+                                ParseError::new(ParseErrorKind::ClosingParenthesisExpected);
                             error.diagnostic.add_span(
                                 start_line,
                                 start_column,
@@ -612,13 +622,15 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
                     }
                 } else {
                     debug!("Closing tuple literal unexpected ({line_pos}, {column_pos})");
-                    return Err(ParseError::new(ParseErrors::ClosingTupleLiteralUnexpected));
+                    return Err(ParseError::new(
+                        ParseErrorKind::ClosingTupleLiteralUnexpected,
+                    ));
                 }
             }
             LexItem::Variable(value) => {
                 let end_column = column_pos + (value.len() as u32) - 1;
                 let value = value.clone().try_into().map_err(|_| {
-                    ParseError::new(ParseErrors::IllegalVariableName(value.to_string()))
+                    ParseError::new(ParseErrorKind::IllegalVariableName(value.to_string()))
                 })?;
                 let mut pre_expr = PreSymbolicExpression::atom(value);
                 pre_expr.set_span(line_pos, column_pos, line_pos, end_column);
@@ -673,7 +685,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
             }
             LexItem::ColonSeparator => {
                 match parse_stack.last_mut() {
-                    None => return Err(ParseError::new(ParseErrors::ColonSeparatorUnexpected)),
+                    None => return Err(ParseError::new(ParseErrorKind::ColonSeparatorUnexpected)),
                     Some((ref mut list, ..)) => {
                         list.push(ParseStackItem::Colon);
                     }
@@ -681,7 +693,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
             }
             LexItem::CommaSeparator => {
                 match parse_stack.last_mut() {
-                    None => return Err(ParseError::new(ParseErrors::CommaSeparatorUnexpected)),
+                    None => return Err(ParseError::new(ParseErrorKind::CommaSeparatorUnexpected)),
                     Some((ref mut list, ..)) => {
                         list.push(ParseStackItem::Comma);
                     }
@@ -693,7 +705,7 @@ pub fn parse_lexed(input: Vec<(LexItem, u32, u32)>) -> ParseResult<Vec<PreSymbol
 
     // check unfinished stack:
     if !parse_stack.is_empty() {
-        let mut error = ParseError::new(ParseErrors::ClosingParenthesisExpected);
+        let mut error = ParseError::new(ParseErrorKind::ClosingParenthesisExpected);
         if let Some((_list, start_line, start_column, _parse_context)) = parse_stack.pop() {
             error.diagnostic.add_span(start_line, start_column, 0, 0);
             debug!(
@@ -722,7 +734,7 @@ pub fn parse_no_stack_limit(input: &str) -> ParseResult<Vec<PreSymbolicExpressio
 
 #[cfg(test)]
 mod test {
-    use crate::vm::ast::errors::ParseErrors;
+    use crate::vm::ast::errors::ParseErrorKind;
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::representations::{PreSymbolicExpression, PreSymbolicExpressionType};
     use crate::vm::types::{CharType, PrincipalData, SequenceData, Value};
@@ -1057,56 +1069,56 @@ mod test {
 
         assert!(matches!(
             *ast::parser::v1::parse(split_tokens).unwrap_err().err,
-            ParseErrors::SeparatorExpected(_)
+            ParseErrorKind::SeparatorExpected(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(too_much_closure).unwrap_err().err,
-            ParseErrors::ClosingParenthesisUnexpected
+            ParseErrorKind::ClosingParenthesisUnexpected
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(not_enough_closure).unwrap_err().err,
-            ParseErrors::ClosingParenthesisExpected
+            ParseErrorKind::ClosingParenthesisExpected
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(middle_hash).unwrap_err().err,
-            ParseErrors::FailedParsingRemainder(_)
+            ParseErrorKind::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(unicode).unwrap_err().err,
-            ParseErrors::FailedParsingRemainder(_)
+            ParseErrorKind::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(name_with_dot).unwrap_err().err,
-            ParseErrors::SeparatorExpected(_)
+            ParseErrorKind::SeparatorExpected(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(wrong_tuple_literal_close)
                 .unwrap_err()
                 .err,
-            ParseErrors::ClosingTupleLiteralExpected
+            ParseErrorKind::ClosingTupleLiteralExpected
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(wrong_list_close).unwrap_err().err,
-            ParseErrors::ClosingParenthesisExpected
+            ParseErrorKind::ClosingParenthesisExpected
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(extra_tuple_literal_close)
                 .unwrap_err()
                 .err,
-            ParseErrors::ClosingTupleLiteralUnexpected
+            ParseErrorKind::ClosingTupleLiteralUnexpected
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(unexpected_comma).unwrap_err().err,
-            ParseErrors::CommaSeparatorUnexpected
+            ParseErrorKind::CommaSeparatorUnexpected
         ));
 
         // { a: b,c: 3 } is legal
@@ -1116,75 +1128,75 @@ mod test {
             *ast::parser::v1::parse(tuple_colon_no_space)
                 .unwrap_err()
                 .err,
-            ParseErrors::SeparatorExpectedAfterColon(_)
+            ParseErrorKind::SeparatorExpectedAfterColon(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(shorthand_tuple).unwrap_err().err,
-            ParseErrors::TupleColonExpected(_)
+            ParseErrorKind::TupleColonExpected(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(shorthand_tuple_dangling_comma)
                 .unwrap_err()
                 .err,
-            ParseErrors::TupleItemExpected(_)
+            ParseErrorKind::TupleItemExpected(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(decorative_colon_on_value)
                 .unwrap_err()
                 .err,
-            ParseErrors::TupleCommaExpected(_)
+            ParseErrorKind::TupleCommaExpected(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(tuple_literal_colon_after_comma)
                 .unwrap_err()
                 .err,
-            ParseErrors::TupleItemExpected(_)
+            ParseErrorKind::TupleItemExpected(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(empty_tuple_literal_comma)
                 .unwrap_err()
                 .err,
-            ParseErrors::TupleItemExpected(_)
+            ParseErrorKind::TupleItemExpected(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(empty_tuple_literal_colon)
                 .unwrap_err()
                 .err,
-            ParseErrors::TupleItemExpected(_)
+            ParseErrorKind::TupleItemExpected(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(legacy_boolean_literals)
                 .unwrap_err()
                 .err,
-            ParseErrors::FailedParsingRemainder(_)
+            ParseErrorKind::FailedParsingRemainder(_)
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(function_with_CR).unwrap_err().err,
-            ParseErrors::FailedParsingRemainder(_)
+            ParseErrorKind::FailedParsingRemainder(_)
         ));
         assert!(matches!(
             *ast::parser::v1::parse(function_with_CRLF).unwrap_err().err,
-            ParseErrors::FailedParsingRemainder(_)
+            ParseErrorKind::FailedParsingRemainder(_)
         ));
         assert!(matches!(
             *ast::parser::v1::parse(function_with_NEL).unwrap_err().err,
-            ParseErrors::FailedParsingRemainder(_)
+            ParseErrorKind::FailedParsingRemainder(_)
         ));
         assert!(matches!(
             *ast::parser::v1::parse(function_with_LS).unwrap_err().err,
-            ParseErrors::FailedParsingRemainder(_)
+            ParseErrorKind::FailedParsingRemainder(_)
         ));
         assert!(matches!(
             *ast::parser::v1::parse(function_with_PS).unwrap_err().err,
-            ParseErrors::FailedParsingRemainder(_)
+            ParseErrorKind::FailedParsingRemainder(_)
         ));
 
         ast::parser::v1::parse(function_with_LF).unwrap();
@@ -1193,14 +1205,14 @@ mod test {
             *ast::parser::v1::parse(string_with_invalid_escape)
                 .unwrap_err()
                 .err,
-            ParseErrors::InvalidEscaping
+            ParseErrorKind::InvalidEscaping
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(ascii_string_with_unicode_escape)
                 .unwrap_err()
                 .err,
-            ParseErrors::InvalidEscaping
+            ParseErrorKind::InvalidEscaping
         ));
 
         assert!(
@@ -1227,14 +1239,14 @@ mod test {
             *ast::parser::v1::parse(&exceeds_stack_depth_tuple)
                 .unwrap_err()
                 .err,
-            ParseErrors::VaryExpressionStackDepthTooDeep
+            ParseErrorKind::VaryExpressionStackDepthTooDeep
         ));
 
         assert!(matches!(
             *ast::parser::v1::parse(&exceeds_stack_depth_list)
                 .unwrap_err()
                 .err,
-            ParseErrors::VaryExpressionStackDepthTooDeep
+            ParseErrorKind::VaryExpressionStackDepthTooDeep
         ));
     }
 
@@ -1243,7 +1255,7 @@ mod test {
         let long_contract_name = "(define-private (transfer (id uint) (receiver principal)) (contract-call? 'SP3D6PV2ACBPEKYJTCMH7HEN02KP87QSP8KTEH335.megapont-robot-expansion-nftSPNWZ5V2TPWGQGVDR6T7B6RQ4XMGZ4PXTEE0VQ0S.guests-hosted-stacks-parrots transfer id tx-sender receiver))";
         assert!(matches!(
             *ast::parser::v1::parse(long_contract_name).unwrap_err().err,
-            ParseErrors::SeparatorExpected(_)
+            ParseErrorKind::SeparatorExpected(_)
         ));
     }
 }

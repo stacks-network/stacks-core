@@ -241,7 +241,7 @@ impl EvalHook for CoverageReporter {
         _env: &mut crate::vm::Environment,
         _context: &crate::vm::LocalContext,
         _expr: &SymbolicExpression,
-        _res: &core::result::Result<crate::vm::Value, crate::vm::errors::Error>,
+        _res: &core::result::Result<crate::vm::Value, crate::vm::errors::VmExecutionError>,
     ) {
     }
 

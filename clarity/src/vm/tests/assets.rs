@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::{AssetMap, OwnedEnvironment};
-use crate::vm::errors::Error;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
@@ -25,7 +25,7 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
 use crate::vm::{
     contexts::AssetMapEntry,
-    errors::{CheckErrors, RuntimeErrorType},
+    errors::{CheckErrorKind, RuntimeError},
     tests::{
         execute, is_committed, is_err_code, symbols_from_values, tl_env_factory as env_factory,
         TopLevelMemoryEnvironmentGenerator,
@@ -136,7 +136,7 @@ fn execute_transaction(
     contract_identifier: &QualifiedContractIdentifier,
     tx: &str,
     args: &[SymbolicExpression],
-) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), VmExecutionError> {
     env.execute_transaction(issuer, None, contract_identifier.clone(), tx, args)
 }
 
@@ -296,7 +296,7 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     //         &symbols_from_values(vec![Value::UInt(2), p2.clone(), p1.clone()])
     //     )
     //     .unwrap_err(),
-    //     RuntimeErrorType::ArithmeticOverflow.into()
+    //     RuntimeError::ArithmeticOverflow.into()
     // );
 
     // test 6: check balance
@@ -606,7 +606,7 @@ fn test_simple_token_system(
 
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
     ));
 
     let (result, asset_map, _events) = execute_transaction(
@@ -835,7 +835,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
     ));
 
     let err = owned_env
@@ -843,7 +843,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
         .unwrap_err();
     assert!(matches!(
         err,
-        Error::Unchecked(CheckErrors::TypeValueError(_, _))
+        VmExecutionError::Unchecked(CheckErrorKind::TypeValueError(_, _))
     ));
 
     owned_env
@@ -890,7 +890,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     .unwrap_err();
     println!("{err}");
     assert!(match err {
-        Error::Runtime(RuntimeErrorType::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
+        VmExecutionError::Runtime(RuntimeError::SupplyOverflow(x, y), _) => (x, y) == (6, 5),
         _ => false,
     });
 }

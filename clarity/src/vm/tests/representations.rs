@@ -17,7 +17,7 @@ use proptest::prelude::*;
 use proptest::string::string_regex;
 use stacks_common::codec::StacksMessageCodec;
 
-use crate::vm::errors::RuntimeErrorType;
+use crate::vm::errors::RuntimeError;
 use crate::vm::representations::{
     CLARITY_NAME_REGEX_STRING, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
     CONTRACT_NAME_REGEX_STRING, MAX_STRING_LEN,
@@ -164,7 +164,7 @@ fn prop_clarity_name_invalid_patterns() {
         prop_assert!(result.is_err(), "Expected invalid name '{}' to be rejected", name);
         prop_assert!(matches!(
             result.unwrap_err(),
-            RuntimeErrorType::BadNameValue(_, _)
+            RuntimeError::BadNameValue(_, _)
         ), "Expected BadNameValue error for invalid name '{}'", name);
     });
 }
@@ -302,7 +302,7 @@ fn prop_contract_name_invalid_patterns() {
         prop_assert!(result.is_err(), "Expected invalid contract name '{}' to be rejected", name);
         prop_assert!(matches!(
             result.unwrap_err(),
-            RuntimeErrorType::BadNameValue(_, _)
+            RuntimeError::BadNameValue(_, _)
         ), "Expected BadNameValue error for invalid contract name '{}'", name);
     });
 }

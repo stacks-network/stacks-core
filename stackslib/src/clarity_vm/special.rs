@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::contexts::GlobalContext;
-use clarity::vm::errors::Error as ClarityError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 
 /// Handle special cases of contract-calls -- namely, those into PoX that should lock up STX
@@ -27,7 +27,7 @@ pub fn handle_contract_call_special_cases(
     function_name: &str,
     args: &[Value],
     result: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), VmExecutionError> {
     pox_locking::handle_contract_call_special_cases(
         global_context,
         sender,

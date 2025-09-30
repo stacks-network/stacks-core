@@ -19,7 +19,7 @@ use stacks_common::types::StacksEpochId;
 use {assert_json_diff, serde_json};
 
 use crate::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::analysis::errors::CheckErrorKind;
 use crate::vm::analysis::{mem_type_check, type_check};
 use crate::vm::ast::parse;
 use crate::vm::database::MemoryBackingStore;
@@ -492,7 +492,7 @@ fn test_names_tokens_contracts_bad() {
             )
         })
         .unwrap_err();
-    assert!(matches!(*err.err, CheckErrors::TypeError(_, _)));
+    assert!(matches!(*err.err, CheckErrorKind::TypeError(_, _)));
 }
 
 #[test]
@@ -534,7 +534,7 @@ fn test_bad_map_usage() {
     for contract in tests.iter() {
         let err = mem_type_check(contract, ClarityVersion::Clarity1, StacksEpochId::Epoch2_05)
             .unwrap_err();
-        assert!(matches!(*err.err, CheckErrors::TypeError(_, _)));
+        assert!(matches!(*err.err, CheckErrorKind::TypeError(_, _)));
     }
 
     assert!(matches!(
@@ -545,7 +545,7 @@ fn test_bad_map_usage() {
         )
         .unwrap_err()
         .err,
-        CheckErrors::UnionTypeError(_, _)
+        CheckErrorKind::UnionTypeError(_, _)
     ));
 }
 
@@ -663,7 +663,10 @@ fn test_expects() {
         )
         .unwrap_err();
         eprintln!("unmatched_return_types returned check error: {err}");
-        assert!(matches!(*err.err, CheckErrors::ReturnTypesMustMatch(_, _)));
+        assert!(matches!(
+            *err.err,
+            CheckErrorKind::ReturnTypesMustMatch(_, _)
+        ));
     }
 
     let err = mem_type_check(
@@ -673,7 +676,10 @@ fn test_expects() {
     )
     .unwrap_err();
     eprintln!("bad_default_types returned check error: {err}");
-    assert!(matches!(*err.err, CheckErrors::DefaultTypesMustMatch(_, _)));
+    assert!(matches!(
+        *err.err,
+        CheckErrorKind::DefaultTypesMustMatch(_, _)
+    ));
 
     let err = mem_type_check(
         notype_response_type,
@@ -684,7 +690,7 @@ fn test_expects() {
     eprintln!("notype_response_type returned check error: {err}");
     assert!(matches!(
         *err.err,
-        CheckErrors::CouldNotDetermineResponseErrType
+        CheckErrorKind::CouldNotDetermineResponseErrType
     ));
 
     let err = mem_type_check(
@@ -696,6 +702,6 @@ fn test_expects() {
     eprintln!("notype_response_type_2 returned check error: {err}");
     assert!(matches!(
         *err.err,
-        CheckErrors::CouldNotDetermineResponseOkType
+        CheckErrorKind::CouldNotDetermineResponseOkType
     ));
 }
