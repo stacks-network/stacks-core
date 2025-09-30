@@ -1,0 +1,5 @@
+---
+source: stackslib/src/chainstate/tests/consensus.rs
+expression: result
+---
+Failure("Invalid Stacks block 5822414b927f7f2da902f1009a894706bf0a51a56d239b3da3a501e8978ab6fb: ClarityError(Parse(ParseError { err: ExpressionStackDepthTooDeep, pre_expressions: None, diagnostic: Diagnostic { level: Error, message: \"AST has too deep of an expression nesting. The maximum stack depth is 64\", spans: [], suggestion: None } }))")
