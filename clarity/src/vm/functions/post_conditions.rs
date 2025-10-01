@@ -208,7 +208,6 @@ pub fn special_restrict_assets(
     // - Emit an event
     if let Some(violation_index) = check_allowances(&asset_owner, &allowances, asset_maps)? {
         env.global_context.roll_back()?;
-        // TODO: Emit an event about the allowance violation
         return Value::error(Value::UInt(violation_index));
     }
 
@@ -293,7 +292,6 @@ pub fn special_as_contract(
             Ok(None) => {}
             Ok(Some(violation_index)) => {
                 nested_env.global_context.roll_back()?;
-                // TODO: Emit an event about the allowance violation
                 return Value::error(Value::UInt(violation_index));
             }
             Err(e) => {
