@@ -1,5 +1,0 @@
----
-source: stackslib/src/chainstate/tests/consensus.rs
-expression: result
----
-Failure("Block c8eeff18a0b03dec385bfe8268bc87ccf93fc00ff73af600c4e1aaef6e0dfaf5 state root mismatch: expected 0000000000000000000000000000000000000000000000000000000000000000, got 6fe3e70b95f5f56c9c7c2c59ba8fc9c19cdfede25d2dcd4d120438bc27dfa88b")
