@@ -15327,8 +15327,8 @@ fn check_block_time_keyword() {
 
 #[test]
 #[ignore]
-/// Verify the `with-stacking` allowances work as expected
-fn check_with_stacking_allowances() {
+/// Verify the `with-stacking` allowances work as expected when delegating STX.
+fn check_with_stacking_allowances_delegate_stx() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -15680,6 +15680,599 @@ fn check_with_stacking_allowances() {
     wait_for(60, || {
         let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
         Ok(cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contract calls");
+
+    let blocks = test_observer::get_blocks();
+    let mut found = 0;
+    for block in blocks.iter() {
+        for tx in block.get("transactions").unwrap().as_array().unwrap() {
+            let txid = tx
+                .get("txid")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .strip_prefix("0x")
+                .unwrap();
+            if let Some(expected) = expected_results.get(txid) {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                found += 1;
+                assert_eq!(&parsed, expected);
+            } else {
+                // If there are any txids we don't expect, panic, because it probably means
+                // there is an error in the test itself.
+                panic!("Found unexpected txid: {txid}");
+            }
+        }
+    }
+
+    assert_eq!(
+        found,
+        expected_results.len(),
+        "Should have found all expected txs"
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Verify the `with-stacking` allowances work as expected when stacking STX
+fn check_with_stacking_allowances_stack_stx() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    let signer_sk = signers.signer_keys[0].clone();
+    let signer_pk = StacksPublicKey::from_private(&signer_sk);
+
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let deploy_fee = 3000;
+    let call_fee = 400;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + call_fee * 30,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
+    // Default stacker used for bootstrapping
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    // Stackers used for testing
+    let stackers: Vec<_> = (0..3).map(|_| setup_stacker(&mut naka_conf)).collect();
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let signer_key_hex = Value::buff_from(signer_pk.to_bytes_compressed()).unwrap();
+    let mut sender_nonce = 0;
+    let contract_name = "test-contract";
+    let contract = format!(
+        r#"
+(define-constant signer-key {signer_key_hex})
+(define-public (stack-stx (amount uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32)))) (signature (optional (buff 65))) (auth-id uint) (allowed uint))
+  (restrict-assets? tx-sender ((with-stacking allowed))
+    (match
+      (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-stx
+        amount pox-addr burn-block-height u12 signature signer-key amount auth-id
+      )
+      v true
+      e (try! (if false (ok true) (err (to-uint e))))
+    )
+  )
+)
+(define-public (stack-stx-2-allowances (amount uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32)))) (signature (optional (buff 65))) (auth-id uint) (allowed-1 uint) (allowed-2 uint))
+  (restrict-assets? tx-sender ((with-stacking allowed-1) (with-stacking allowed-2))
+    (match
+      (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-stx
+        amount pox-addr burn-block-height u12 signature signer-key amount auth-id
+      )
+      v true
+      e (try! (if false (ok true) (err (to-uint e))))
+    )
+  )
+)
+(define-public (stack-stx-no-allowance (amount uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32)))) (signature (optional (buff 65))) (auth-id uint))
+  (restrict-assets? tx-sender ()
+    (match
+      (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-stx
+        amount pox-addr burn-block-height u12 signature signer-key amount auth-id
+      )
+      v true
+      e (try! (if false (ok true) (err (to-uint e))))
+    )
+  )
+)
+(define-public (stack-stx-all (amount uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32)))) (signature (optional (buff 65))) (auth-id uint))
+  (begin
+    (try! (stx-transfer? amount tx-sender current-contract))
+    (as-contract? ((with-all-assets-unsafe))
+      (match
+        (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-stx
+          amount pox-addr burn-block-height u12 signature signer-key amount auth-id
+        )
+        v true
+        e (try! (if false (ok true) (err (to-uint e))))
+      )
+    )
+  )
+)
+"#
+    );
+
+    let contract_tx = make_contract_publish_versioned(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        contract_name,
+        &contract,
+        Some(ClarityVersion::Clarity4),
+    );
+    sender_nonce += 1;
+    let deploy_txid = submit_tx(&http_origin, &contract_tx);
+    info!("Submitted deploy txid: {deploy_txid}");
+
+    let mut stacks_block_height = 0;
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+        Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        .unwrap();
+
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+
+    test_observer::clear();
+
+    // Amount to stack
+    let amount = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+
+    // Map txid to expected result, `true` for ok, `false` for error
+    let mut expected_results = HashMap::new();
+    let mut wait_for_nonce = HashMap::new();
+
+    // ***** Successfully stack with stackers[0]
+    let stacker = &stackers[0];
+    let stacker_addr = tests::to_addr(stacker);
+    let mut stacker_nonce = 0;
+
+    // Authorize the contract
+    let authorize_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &boot_code_addr(false),
+        "pox-4",
+        "allow-contract-caller",
+        &[
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+                .into(),
+            Value::none(),
+        ],
+    );
+    stacker_nonce += 1;
+    let authorize_txid = submit_tx(&http_origin, &authorize_tx);
+    info!("Submitted authorize txid: {authorize_txid}");
+    expected_results.insert(authorize_txid, Value::okay_true());
+
+    let auth_id = 1;
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        stacker_addr.bytes().clone(),
+    );
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature_bytes = make_pox_4_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle.into(),
+        &Pox4SignatureTopic::StackStx,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        POX_4_DEFAULT_STACKER_STX_AMT,
+        auth_id,
+    )
+    .unwrap()
+    .to_rsv();
+    let signature = Value::some(clarity::vm::Value::buff_from(signature_bytes).unwrap()).unwrap();
+    let stack_ok_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx",
+        &[
+            amount.clone(),
+            pox_addr_tuple,
+            signature,
+            Value::UInt(auth_id),
+            amount.clone(),
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_ok_txid = submit_tx(&http_origin, &stack_ok_tx);
+    info!("Submitted stack_ok txid: {stack_ok_txid}");
+    expected_results.insert(stack_ok_txid, Value::okay_true());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[1]
+    let stacker = &stackers[1];
+    let stacker_addr = tests::to_addr(stacker);
+    let mut stacker_nonce = 0;
+
+    // Authorize the contract
+    let authorize_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &boot_code_addr(false),
+        "pox-4",
+        "allow-contract-caller",
+        &[
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+                .into(),
+            Value::none(),
+        ],
+    );
+    stacker_nonce += 1;
+    let authorize_txid = submit_tx(&http_origin, &authorize_tx);
+    info!("Submitted authorize txid: {authorize_txid}");
+    expected_results.insert(authorize_txid, Value::okay_true());
+
+    let auth_id = 1;
+    let allowed = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 1);
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        stacker_addr.bytes().clone(),
+    );
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature_bytes = make_pox_4_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle.into(),
+        &Pox4SignatureTopic::StackStx,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        POX_4_DEFAULT_STACKER_STX_AMT,
+        auth_id,
+    )
+    .unwrap()
+    .to_rsv();
+    let signature = Value::some(clarity::vm::Value::buff_from(signature_bytes).unwrap()).unwrap();
+    let stack_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+            allowed,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_err_txid = submit_tx(&http_origin, &stack_err_tx);
+    info!("Submitted stack_err txid: {stack_err_txid}");
+    expected_results.insert(stack_err_txid, Value::error(Value::UInt(0)).unwrap());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Stack successfully with stackers[1] with two allowances
+    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT + 100);
+    let stack_2_ok_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-2-allowances",
+        &[
+            amount.clone(),
+            pox_addr_tuple,
+            signature,
+            Value::UInt(auth_id),
+            allowed1,
+            allowed2,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_2_ok_txid = submit_tx(&http_origin, &stack_2_ok_tx);
+    info!("Submitted stack_2_ok_txid txid: {stack_2_ok_txid}");
+    expected_results.insert(stack_2_ok_txid, Value::okay_true());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[2] with two allowances (both too small)
+    let stacker = &stackers[2];
+    let stacker_addr = tests::to_addr(stacker);
+    let mut stacker_nonce = 0;
+
+    // Authorize the contract
+    let authorize_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &boot_code_addr(false),
+        "pox-4",
+        "allow-contract-caller",
+        &[
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+                .into(),
+            Value::none(),
+        ],
+    );
+    stacker_nonce += 1;
+    let authorize_txid = submit_tx(&http_origin, &authorize_tx);
+    info!("Submitted authorize txid: {authorize_txid}");
+    expected_results.insert(authorize_txid, Value::okay_true());
+
+    let auth_id = 1;
+    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
+    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 1000);
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        stacker_addr.bytes().clone(),
+    );
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature_bytes = make_pox_4_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle.into(),
+        &Pox4SignatureTopic::StackStx,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        POX_4_DEFAULT_STACKER_STX_AMT,
+        auth_id,
+    )
+    .unwrap()
+    .to_rsv();
+    let signature = Value::some(clarity::vm::Value::buff_from(signature_bytes).unwrap()).unwrap();
+    let stack_2_both_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-2-allowances",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+            allowed1,
+            allowed2,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_2_both_err_txid = submit_tx(&http_origin, &stack_2_both_err_tx);
+    info!("Submitted stack_2_both_err txid: {stack_2_both_err_txid}");
+    expected_results.insert(stack_2_both_err_txid, Value::error(Value::UInt(0)).unwrap());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[2] with two allowances (first too small)
+    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
+    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+
+    let stack_2_first_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-2-allowances",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+            allowed1,
+            allowed2,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_2_first_err_txid = submit_tx(&http_origin, &stack_2_first_err_tx);
+    info!("Submitted stack_2_first_err txid: {stack_2_first_err_txid}");
+    expected_results.insert(
+        stack_2_first_err_txid,
+        Value::error(Value::UInt(0)).unwrap(),
+    );
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[2] with two allowances (second too small)
+    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
+
+    let stack_2_second_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-2-allowances",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+            allowed1,
+            allowed2,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_2_second_err_txid = submit_tx(&http_origin, &stack_2_second_err_tx);
+    info!("Submitted stack_2_second_err txid: {stack_2_second_err_txid}");
+    expected_results.insert(
+        stack_2_second_err_txid,
+        Value::error(Value::UInt(1)).unwrap(),
+    );
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[2] with no allowance
+    let stack_no_allowance_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-no-allowance",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_no_allowance_err_txid = submit_tx(&http_origin, &stack_no_allowance_err_tx);
+    info!("Submitted stack_no_allowance_err txid: {stack_no_allowance_err_txid}");
+    expected_results.insert(
+        stack_no_allowance_err_txid,
+        Value::error(Value::UInt(128)).unwrap(),
+    );
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Stack successfully with stackers[2] with with-all-assets-unsafe
+    let stack_all_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-all",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_all_txid = submit_tx(&http_origin, &stack_all_tx);
+    info!("Submitted stack_all txid: {stack_all_txid}");
+    expected_results.insert(stack_all_txid, Value::okay_true());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    wait_for(60, || {
+        for (addr, expected_nonce) in &wait_for_nonce {
+            let cur_nonce = get_account(&http_origin, addr).nonce;
+            if cur_nonce != *expected_nonce {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     })
     .expect("Timed out waiting for contract calls");
 
