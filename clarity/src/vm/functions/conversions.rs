@@ -22,7 +22,6 @@ use crate::vm::errors::{
     check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::signatures::TO_ASCII_MAX_BUFF;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
@@ -151,8 +150,8 @@ pub fn native_string_to_int_generic(
         }
         _ => Err(CheckErrors::UnionTypeValueError(
             vec![
-                TypeSignature::max_string_ascii()?,
-                TypeSignature::max_string_utf8()?,
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(value),
         )
@@ -277,8 +276,8 @@ pub fn special_to_ascii(
                 TypeSignature::UIntType,
                 TypeSignature::BoolType,
                 TypeSignature::PrincipalType,
-                TO_ASCII_MAX_BUFF.clone(),
-                TypeSignature::max_string_utf8()?,
+                TypeSignature::TO_ASCII_BUFFER_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(value),
         )
@@ -325,7 +324,7 @@ pub fn from_consensus_buff(
         Ok(buff_data.data)
     } else {
         Err(CheckErrors::TypeValueError(
-            Box::new(TypeSignature::max_buffer()?),
+            Box::new(TypeSignature::BUFFER_MAX),
             Box::new(value),
         ))
     }?;

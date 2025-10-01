@@ -31,7 +31,7 @@ use crate::vm::ast::parse;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::types::signatures::{CallableSubtype, TO_ASCII_MAX_BUFF, TO_ASCII_RESPONSE_STRING};
+use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{
     BufferLength, ListTypeData, QualifiedContractIdentifier, SequenceSubtype, StringSubtype,
     StringUTF8Length, TypeSignature,
@@ -3503,16 +3503,19 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
 #[apply(test_clarity_versions)]
 fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let to_ascii_response_type = Some(
-        TypeSignature::new_response(TO_ASCII_RESPONSE_STRING.clone(), TypeSignature::UIntType)
-            .unwrap(),
+        TypeSignature::new_response(
+            TypeSignature::TO_ASCII_STRING_ASCII_MAX,
+            TypeSignature::UIntType,
+        )
+        .unwrap(),
     );
     let to_ascii_expected_types = vec![
         TypeSignature::IntType,
         TypeSignature::UIntType,
         TypeSignature::BoolType,
         TypeSignature::PrincipalType,
-        TO_ASCII_MAX_BUFF.clone(),
-        TypeSignature::max_string_utf8().unwrap(),
+        TypeSignature::TO_ASCII_BUFFER_MAX,
+        TypeSignature::STRING_UTF8_MAX,
     ];
     let test_cases = [
         (
@@ -3543,6 +3546,11 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         (
             "(to-ascii? 0x1234)",
             "buffer type",
+            Ok(to_ascii_response_type.clone()),
+        ),
+        (
+            &format!("(to-ascii? 0x{})", "ff".repeat(524284)),
+            "max len buffer type",
             Ok(to_ascii_response_type.clone()),
         ),
         (

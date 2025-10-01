@@ -32,8 +32,7 @@ use crate::vm::errors::CheckErrors;
 pub use crate::vm::types::signatures::{
     parse_name_type_pairs, AssetIdentifier, BufferLength, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, ListTypeData, SequenceSubtype, StringSubtype,
-    StringUTF8Length, TupleTypeSignature, TypeSignature, TypeSignatureExt, BUFF_1, BUFF_20,
-    BUFF_21, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    StringUTF8Length, TupleTypeSignature, TypeSignature, TypeSignatureExt,
 };
 use crate::vm::ClarityVersion;
 
@@ -81,7 +80,9 @@ impl BlockInfoProperty {
         use self::BlockInfoProperty::*;
         match self {
             Time | MinerSpendWinner | MinerSpendTotal | BlockReward => TypeSignature::UIntType,
-            IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash => BUFF_32.clone(),
+            IdentityHeaderHash | VrfSeed | HeaderHash | BurnchainHeaderHash => {
+                TypeSignature::BUFFER_32
+            }
             MinerAddress => TypeSignature::PrincipalType,
         }
     }
@@ -91,15 +92,15 @@ impl BurnBlockInfoProperty {
     pub fn type_result(&self) -> std::result::Result<TypeSignature, CheckErrors> {
         use self::BurnBlockInfoProperty::*;
         let result = match self {
-            HeaderHash => BUFF_32.clone(),
+            HeaderHash => TypeSignature::BUFFER_32,
             PoxAddrs => TupleTypeSignature::try_from(vec![
                 (
                     "addrs".into(),
                     TypeSignature::list_of(
                         TypeSignature::TupleType(
                             TupleTypeSignature::try_from(vec![
-                                ("version".into(), BUFF_1.clone()),
-                                ("hashbytes".into(), BUFF_32.clone()),
+                                ("version".into(), TypeSignature::BUFFER_1),
+                                ("hashbytes".into(), TypeSignature::BUFFER_32),
                             ])
                             .map_err(|_| {
                                 CheckErrors::Expects(
@@ -125,7 +126,7 @@ impl StacksBlockInfoProperty {
         use self::StacksBlockInfoProperty::*;
         match self {
             Time => TypeSignature::UIntType,
-            IndexHeaderHash | HeaderHash => BUFF_32.clone(),
+            IndexHeaderHash | HeaderHash => TypeSignature::BUFFER_32,
         }
     }
 }
@@ -135,7 +136,7 @@ impl TenureInfoProperty {
         use self::TenureInfoProperty::*;
         match self {
             Time | MinerSpendWinner | MinerSpendTotal | BlockReward => TypeSignature::UIntType,
-            VrfSeed | BurnchainHeaderHash => BUFF_32.clone(),
+            VrfSeed | BurnchainHeaderHash => TypeSignature::BUFFER_32,
             MinerAddress => TypeSignature::PrincipalType,
         }
     }
