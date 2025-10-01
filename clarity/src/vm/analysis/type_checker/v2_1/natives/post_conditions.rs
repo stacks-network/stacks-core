@@ -16,7 +16,6 @@
 use clarity_types::errors::analysis::{check_argument_count, check_arguments_at_least};
 use clarity_types::errors::{CheckError, CheckErrors};
 use clarity_types::representations::SymbolicExpression;
-use clarity_types::types::signatures::ASCII_128;
 use clarity_types::types::{SequenceSubtype, TypeSignature};
 
 use crate::vm::analysis::type_checker::contexts::TypingContext;
@@ -224,7 +223,7 @@ fn check_allowance_with_ft(
         args.get(1)
             .ok_or(CheckErrors::CheckerImplementationFailure)?,
         context,
-        &ASCII_128,
+        &TypeSignature::STRING_ASCII_128,
     )?;
     checker.type_check_expects(
         args.get(2)
@@ -255,7 +254,7 @@ fn check_allowance_with_nft(
         args.get(1)
             .ok_or(CheckErrors::CheckerImplementationFailure)?,
         context,
-        &ASCII_128,
+        &TypeSignature::STRING_ASCII_128,
     )?;
 
     // Asset identifiers must be a Clarity list with any type of elements

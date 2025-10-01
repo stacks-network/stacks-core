@@ -33,20 +33,29 @@ use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::util::hash;
 
 pub use self::signatures::{
-    AssetIdentifier, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_33, BUFF_64, BUFF_65, BufferLength,
-    ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length, TupleTypeSignature,
-    TypeSignature,
+    AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
+    TupleTypeSignature, TypeSignature,
 };
 use crate::errors::{CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType};
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
-// use crate::vm::ClarityVersion;
 
+/// Maximum size in bytes allowed for types.
 pub const MAX_VALUE_SIZE: u32 = 1024 * 1024; // 1MB
+/// Bytes serialization upper limit.
 pub const BOUND_VALUE_SERIALIZATION_BYTES: u32 = MAX_VALUE_SIZE * 2;
+/// Hex serialization upper limit.
 pub const BOUND_VALUE_SERIALIZATION_HEX: u32 = BOUND_VALUE_SERIALIZATION_BYTES * 2;
-
+/// Maximum length for UFT8 string.
+pub const MAX_UTF8_VALUE_SIZE: u32 = MAX_VALUE_SIZE / 4;
+/// Maximum string length returned from `to-ascii?`.
+/// 5 bytes reserved for embedding in response.
+pub const MAX_TO_ASCII_RESULT_LEN: u32 = MAX_VALUE_SIZE - 5;
+/// Maximum buffer length returned from `to-ascii?`.
+/// 2 bytes reserved for "0x" prefix and 2 characters per byte.
+pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
+/// Maximum allowed nesting depth of types.
 pub const MAX_TYPE_DEPTH: u8 = 32;
-// this is the charged size for wrapped values, i.e., response or optionals
+/// this is the charged size for wrapped values, i.e., response or optionals
 pub const WRAPPER_VALUE_SIZE: u32 = 1;
 
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
@@ -342,10 +351,10 @@ impl SequenceData {
 
     pub fn element_size(&self) -> Result<u32> {
         let out = match self {
-            SequenceData::Buffer(..) => TypeSignature::min_buffer()?.size(),
+            SequenceData::Buffer(..) => TypeSignature::BUFFER_MIN.size(),
             SequenceData::List(data) => data.type_signature.get_list_item_type().size(),
-            SequenceData::String(CharType::ASCII(..)) => TypeSignature::min_string_ascii()?.size(),
-            SequenceData::String(CharType::UTF8(..)) => TypeSignature::min_string_utf8()?.size(),
+            SequenceData::String(CharType::ASCII(..)) => TypeSignature::STRING_ASCII_MIN.size(),
+            SequenceData::String(CharType::UTF8(..)) => TypeSignature::STRING_UTF8_MIN.size(),
         }?;
         Ok(out)
     }
@@ -455,7 +464,7 @@ impl SequenceData {
                     }
                 } else {
                     Err(CheckErrors::TypeValueError(
-                        Box::new(TypeSignature::min_buffer()?),
+                        Box::new(TypeSignature::BUFFER_MIN),
                         Box::new(to_find),
                     )
                     .into())
@@ -484,7 +493,7 @@ impl SequenceData {
                     }
                 } else {
                     Err(CheckErrors::TypeValueError(
-                        Box::new(TypeSignature::min_string_ascii()?),
+                        Box::new(TypeSignature::STRING_ASCII_MIN),
                         Box::new(to_find),
                     )
                     .into())
@@ -505,7 +514,7 @@ impl SequenceData {
                     }
                 } else {
                     Err(CheckErrors::TypeValueError(
-                        Box::new(TypeSignature::min_string_utf8()?),
+                        Box::new(TypeSignature::STRING_UTF8_MIN),
                         Box::new(to_find),
                     )
                     .into())

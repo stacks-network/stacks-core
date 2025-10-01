@@ -25,7 +25,6 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, UIntType};
 use crate::vm::types::{
     FixedFunction, FunctionType, QualifiedContractIdentifier, TypeSignature, TypeSignatureExt as _,
-    BUFF_32, BUFF_64,
 };
 use crate::vm::ClarityVersion;
 mod assets;
@@ -452,7 +451,10 @@ fn test_at_block() {
     let bad = [
         (
             "(at-block (sha512 u0) u1)",
-            CheckErrors::TypeError(Box::new(BUFF_32.clone()), Box::new(BUFF_64.clone())),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(TypeSignature::BUFFER_64),
+            ),
         ),
         (
             "(at-block (sha256 u0) u1 u2)",
@@ -717,16 +719,16 @@ fn test_index_of() {
             Box::new(TypeSignature::UIntType),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_buffer().unwrap()),
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::BUFFER_MIN),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
         ),
         CheckErrors::CouldNotDetermineType,
         CheckErrors::CouldNotDetermineType,

@@ -3000,7 +3000,7 @@ mod test {
         BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
     };
     use crate::vm::docs::get_output_type_string;
-    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
+    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
     use crate::vm::types::{
         FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     };
@@ -3539,7 +3539,10 @@ mod test {
 
         function_type = FunctionType::Binary(
             FunctionArgSignature::Single(TypeSignature::IntType),
-            FunctionArgSignature::Union(vec![ASCII_40, TypeSignature::IntType]),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::STRING_ASCII_40,
+                TypeSignature::IntType,
+            ]),
             ret.clone(),
         );
         result = get_input_type_string(&function_type);
@@ -3686,7 +3689,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
                 TypeSignature::PrincipalType,
-                ASCII_40,
+                TypeSignature::STRING_ASCII_40,
             ]),
             FunctionReturnsSignature::TypeOfArgAtPosition(1),
         );

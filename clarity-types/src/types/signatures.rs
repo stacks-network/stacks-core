@@ -19,16 +19,15 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::{cmp, fmt};
 
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use stacks_common::types::StacksEpochId;
 
 use crate::errors::CheckErrors;
 use crate::representations::{CONTRACT_MAX_NAME_LENGTH, ClarityName, ContractName};
 use crate::types::{
-    CharType, MAX_TYPE_DEPTH, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier,
-    SequenceData, SequencedValue, StandardPrincipalData, TraitIdentifier, Value,
-    WRAPPER_VALUE_SIZE,
+    CharType, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
+    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, PrincipalData, QualifiedContractIdentifier, SequenceData,
+    SequencedValue, StandardPrincipalData, TraitIdentifier, Value, WRAPPER_VALUE_SIZE,
 };
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Serialize, Deserialize, Hash)]
@@ -104,8 +103,164 @@ mod tuple_type_map_serde {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BufferLength(u32);
 
+impl BufferLength {
+    /// Attempts to create a [`BufferLength`] from a [`u32`] as an [`Option`].
+    ///
+    /// This function is primarily intended for internal use when defining
+    /// `const` values, since it returns an [`Option`] that can be unwrapped
+    /// with [`Option::expect`] in a `const fn`.
+    const fn try_from_u32_as_opt(value: u32) -> Option<BufferLength> {
+        if value > MAX_VALUE_SIZE {
+            None
+        } else {
+            Some(BufferLength(value))
+        }
+    }
+
+    /// Attempts to create a [`BufferLength`] from a [`i128`] as a [`Result`].
+    ///
+    /// This function is primarily intended for internal runtime use,
+    /// and serves as the central place for all integer validation logic.
+    fn try_from_i128(data: i128) -> Result<Self, CheckErrors> {
+        if data > (MAX_VALUE_SIZE as i128) {
+            Err(CheckErrors::ValueTooLarge)
+        } else if data < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
+        } else {
+            Ok(BufferLength(data as u32))
+        }
+    }
+}
+
+/// Test-only utilities for [`BufferLength`].
+#[cfg(test)]
+impl BufferLength {
+    /// Allow to create a [`BufferLength`] in unsafe way,
+    /// allowing direct write-access to its internal state.
+    pub fn new_unsafe(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the underlying [`u32`] value of this [`BufferLength`].
+    /// This to have an easy read-access to its internal state.
+    pub fn get_value(&self) -> u32 {
+        self.0
+    }
+}
+
+impl From<&BufferLength> for u32 {
+    fn from(v: &BufferLength) -> u32 {
+        v.0
+    }
+}
+
+impl From<BufferLength> for u32 {
+    fn from(v: BufferLength) -> u32 {
+        v.0
+    }
+}
+
+impl TryFrom<u32> for BufferLength {
+    type Error = CheckErrors;
+    fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
+        Self::try_from(data as i128)
+    }
+}
+
+impl TryFrom<usize> for BufferLength {
+    type Error = CheckErrors;
+    fn try_from(data: usize) -> Result<BufferLength, CheckErrors> {
+        Self::try_from(data as i128)
+    }
+}
+
+impl TryFrom<i128> for BufferLength {
+    type Error = CheckErrors;
+    fn try_from(data: i128) -> Result<BufferLength, CheckErrors> {
+        Self::try_from_i128(data)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StringUTF8Length(u32);
+
+impl StringUTF8Length {
+    /// Attempts to create a [`StringUTF8Length`] from a [`u32`] as an [`Option`].
+    ///
+    /// This function is primarily intended for internal use when defining
+    /// `const` values, since it returns an [`Option`] that can be unwrapped
+    /// with [`Option::expect`] in a `const fn`.
+    const fn try_from_u32_as_opt(value: u32) -> Option<StringUTF8Length> {
+        if value > MAX_UTF8_VALUE_SIZE {
+            None
+        } else {
+            Some(StringUTF8Length(value))
+        }
+    }
+
+    /// Attempts to create a [`StringUTF8Length`] from a [`i128`] as a [`Result`].
+    ///
+    /// This function is primarily intended for internal runtime use,
+    /// and serves as the central place for all integer validation logic.
+    fn try_from_i128(value: i128) -> Result<Self, CheckErrors> {
+        if value > MAX_UTF8_VALUE_SIZE as i128 {
+            Err(CheckErrors::ValueTooLarge)
+        } else if value < 0 {
+            Err(CheckErrors::ValueOutOfBounds)
+        } else {
+            Ok(StringUTF8Length(value as u32))
+        }
+    }
+}
+
+/// Test-only utilities for [`StringUTF8Length`].
+#[cfg(test)]
+impl StringUTF8Length {
+    /// Allow to create a [`StringUTF8Length`] in unsafe way,
+    /// allowing direct write-access to its internal state.
+    pub fn new_unsafe(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the underlying [`u32`] value of this [`StringUTF8Length`].
+    /// This to have an easy read-access to its internal state.
+    pub fn get_value(&self) -> u32 {
+        self.0
+    }
+}
+
+impl From<&StringUTF8Length> for u32 {
+    fn from(v: &StringUTF8Length) -> u32 {
+        v.0
+    }
+}
+
+impl From<StringUTF8Length> for u32 {
+    fn from(v: StringUTF8Length) -> u32 {
+        v.0
+    }
+}
+
+impl TryFrom<u32> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: u32) -> Result<StringUTF8Length, CheckErrors> {
+        Self::try_from(data as i128)
+    }
+}
+
+impl TryFrom<usize> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: usize) -> Result<StringUTF8Length, CheckErrors> {
+        Self::try_from(data as i128)
+    }
+}
+
+impl TryFrom<i128> for StringUTF8Length {
+    type Error = CheckErrors;
+    fn try_from(data: i128) -> Result<StringUTF8Length, CheckErrors> {
+        Self::try_from_i128(data)
+    }
+}
 
 // INVARIANTS enforced by the Type Signatures.
 //   1. A TypeSignature constructor will always fail rather than construct a
@@ -150,14 +305,12 @@ pub enum SequenceSubtype {
 }
 
 impl SequenceSubtype {
-    pub fn unit_type(&self) -> Result<TypeSignature, CheckErrors> {
+    pub fn unit_type(&self) -> TypeSignature {
         match &self {
-            SequenceSubtype::ListType(list_data) => Ok(list_data.clone().destruct().0),
-            SequenceSubtype::BufferType(_) => TypeSignature::min_buffer(),
-            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => {
-                TypeSignature::min_string_ascii()
-            }
-            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::min_string_utf8(),
+            SequenceSubtype::ListType(list_data) => list_data.clone().destruct().0,
+            SequenceSubtype::BufferType(_) => TypeSignature::BUFFER_MIN,
+            SequenceSubtype::StringType(StringSubtype::ASCII(_)) => TypeSignature::STRING_ASCII_MIN,
+            SequenceSubtype::StringType(StringSubtype::UTF8(_)) => TypeSignature::STRING_UTF8_MIN,
         }
     }
 
@@ -183,91 +336,6 @@ use self::TypeSignature::{
     ResponseType, SequenceType, TraitReferenceType, TupleType, UIntType,
 };
 
-/// Maximum string length returned from `to-ascii?`.
-/// 5 bytes reserved for embedding in response.
-const MAX_TO_ASCII_RESULT_LEN: u32 = MAX_VALUE_SIZE - 5;
-
-/// Maximum buffer length returned from `to-ascii?`.
-/// 2 bytes reserved for "0x" prefix and 2 characters per byte.
-pub const MAX_TO_ASCII_BUFFER_LEN: u32 = (MAX_TO_ASCII_RESULT_LEN - 2) / 2;
-
-lazy_static! {
-    pub static ref BUFF_64: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(64u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_65: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(65u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_32: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(32u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_33: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(33u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_20: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(20u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_21: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(21u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_1: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(1u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    pub static ref BUFF_16: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(16u32).expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    /// Maximum-sized buffer allowed for `to-ascii?` call.
-    pub static ref TO_ASCII_MAX_BUFF: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(MAX_TO_ASCII_BUFFER_LEN)
-                .expect("BUG: Legal Clarity buffer length marked invalid"),
-        ))
-    };
-    /// Maximum-length string returned from `to-ascii?`
-    pub static ref TO_ASCII_RESPONSE_STRING: TypeSignature = {
-        #[allow(clippy::expect_used)]
-        SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(BufferLength::try_from(MAX_TO_ASCII_RESULT_LEN)
-                .expect("BUG: Legal Clarity buffer length marked invalid")),
-        ))
-    };
-}
-
-pub const ASCII_40: TypeSignature = SequenceType(SequenceSubtype::StringType(
-    StringSubtype::ASCII(BufferLength(40)),
-));
-pub const ASCII_128: TypeSignature = SequenceType(SequenceSubtype::StringType(
-    StringSubtype::ASCII(BufferLength(128)),
-));
-pub const UTF8_40: TypeSignature = SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
-    StringUTF8Length(40),
-)));
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListTypeData {
     max_len: u32,
@@ -283,109 +351,6 @@ impl From<ListTypeData> for TypeSignature {
 impl From<TupleTypeSignature> for TypeSignature {
     fn from(data: TupleTypeSignature) -> Self {
         TupleType(data)
-    }
-}
-
-impl From<&BufferLength> for u32 {
-    fn from(v: &BufferLength) -> u32 {
-        v.0
-    }
-}
-
-impl From<BufferLength> for u32 {
-    fn from(v: BufferLength) -> u32 {
-        v.0
-    }
-}
-
-impl TryFrom<u32> for BufferLength {
-    type Error = CheckErrors;
-    fn try_from(data: u32) -> Result<BufferLength, CheckErrors> {
-        if data > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(BufferLength(data))
-        }
-    }
-}
-
-impl TryFrom<usize> for BufferLength {
-    type Error = CheckErrors;
-    fn try_from(data: usize) -> Result<BufferLength, CheckErrors> {
-        if data > (MAX_VALUE_SIZE as usize) {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(BufferLength(data as u32))
-        }
-    }
-}
-
-impl TryFrom<i128> for BufferLength {
-    type Error = CheckErrors;
-    fn try_from(data: i128) -> Result<BufferLength, CheckErrors> {
-        if data > (MAX_VALUE_SIZE as i128) {
-            Err(CheckErrors::ValueTooLarge)
-        } else if data < 0 {
-            Err(CheckErrors::ValueOutOfBounds)
-        } else {
-            Ok(BufferLength(data as u32))
-        }
-    }
-}
-
-impl From<&StringUTF8Length> for u32 {
-    fn from(v: &StringUTF8Length) -> u32 {
-        v.0
-    }
-}
-
-impl From<StringUTF8Length> for u32 {
-    fn from(v: StringUTF8Length) -> u32 {
-        v.0
-    }
-}
-
-impl TryFrom<u32> for StringUTF8Length {
-    type Error = CheckErrors;
-    fn try_from(data: u32) -> Result<StringUTF8Length, CheckErrors> {
-        let len = data
-            .checked_mul(4)
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if len > MAX_VALUE_SIZE {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(StringUTF8Length(data))
-        }
-    }
-}
-
-impl TryFrom<usize> for StringUTF8Length {
-    type Error = CheckErrors;
-    fn try_from(data: usize) -> Result<StringUTF8Length, CheckErrors> {
-        let len = data
-            .checked_mul(4)
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if len > (MAX_VALUE_SIZE as usize) {
-            Err(CheckErrors::ValueTooLarge)
-        } else {
-            Ok(StringUTF8Length(data as u32))
-        }
-    }
-}
-
-impl TryFrom<i128> for StringUTF8Length {
-    type Error = CheckErrors;
-    fn try_from(data: i128) -> Result<StringUTF8Length, CheckErrors> {
-        let len = data
-            .checked_mul(4)
-            .ok_or_else(|| CheckErrors::ValueTooLarge)?;
-        if len > (MAX_VALUE_SIZE as i128) {
-            Err(CheckErrors::ValueTooLarge)
-        } else if data < 0 {
-            Err(CheckErrors::ValueOutOfBounds)
-        } else {
-            Ok(StringUTF8Length(data as u32))
-        }
     }
 }
 
@@ -458,20 +423,6 @@ impl TypeSignature {
         } else {
             Ok(ResponseType(Box::new((ok_type, err_type))))
         }
-    }
-
-    pub fn new_string_ascii(len: usize) -> Result<TypeSignature, CheckErrors> {
-        let len = BufferLength::try_from(len)?;
-        Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(len),
-        )))
-    }
-
-    pub fn new_string_utf8(len: usize) -> Result<TypeSignature, CheckErrors> {
-        let len = StringUTF8Length::try_from(len)?;
-        Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
-            StringSubtype::UTF8(len),
-        )))
     }
 
     pub fn is_response_type(&self) -> bool {
@@ -881,82 +832,87 @@ impl TupleTypeSignature {
 }
 
 impl TypeSignature {
-    pub fn empty_buffer() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::BufferType(
-            0_u32.try_into().map_err(|_| {
-                CheckErrors::Expects("FAIL: Empty clarity value size is not realizable".into())
-            })?,
+    /// Buffer type with minimum length. Alias for [`TypeSignature::BUFFER_1`].
+    pub const BUFFER_MIN: TypeSignature = TypeSignature::BUFFER_1;
+    /// Buffer type with maximum length ([`MAX_VALUE_SIZE`]).
+    pub const BUFFER_MAX: TypeSignature = Self::type_buffer_const(MAX_VALUE_SIZE);
+    /// Buffer type with length 1.
+    pub const BUFFER_1: TypeSignature = Self::type_buffer_const(1);
+    /// Buffer type with length 20.
+    pub const BUFFER_20: TypeSignature = Self::type_buffer_const(20);
+    /// Buffer type with length 32.
+    pub const BUFFER_32: TypeSignature = Self::type_buffer_const(32);
+    /// Buffer type with length 33.
+    pub const BUFFER_33: TypeSignature = Self::type_buffer_const(33);
+    /// Buffer type with length 64.
+    pub const BUFFER_64: TypeSignature = Self::type_buffer_const(64);
+    /// Buffer type with length 65.
+    pub const BUFFER_65: TypeSignature = Self::type_buffer_const(65);
+
+    /// String ASCII type with minimum length (`1`).
+    pub const STRING_ASCII_MIN: TypeSignature = Self::type_ascii_const(1);
+    /// String ASCII type with maximum length ([`MAX_VALUE_SIZE`]).
+    pub const STRING_ASCII_MAX: TypeSignature = Self::type_ascii_const(MAX_VALUE_SIZE);
+    /// String ASCII type with length 40.
+    pub const STRING_ASCII_40: TypeSignature = Self::type_ascii_const(40);
+    /// String ASCII type with length 128.
+    pub const STRING_ASCII_128: TypeSignature = Self::type_ascii_const(128);
+
+    /// String UTF8 type with minimum length (`1`).
+    pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8(1);
+    /// String UTF8 type with maximum length ([`MAX_UTF8_VALUE_SIZE`]).
+    pub const STRING_UTF8_MAX: TypeSignature = Self::type_string_utf8(MAX_UTF8_VALUE_SIZE);
+    /// String UTF8 type with length 40.
+    pub const STRING_UTF8_40: TypeSignature = Self::type_string_utf8(40);
+
+    /// Longest ([`MAX_TO_ASCII_BUFFER_LEN`]) buffer allowed for `to-ascii?` call.
+    pub const TO_ASCII_BUFFER_MAX: TypeSignature = Self::type_buffer_const(MAX_TO_ASCII_BUFFER_LEN);
+    /// Longest ([`MAX_TO_ASCII_RESULT_LEN`]) string allowed for `to-ascii?` call.
+    pub const TO_ASCII_STRING_ASCII_MAX: TypeSignature =
+        Self::type_ascii_const(MAX_TO_ASCII_RESULT_LEN);
+
+    /// Longest ([`CONTRACT_MAX_NAME_LENGTH`]) string allowed for `contract-name`.
+    pub const CONTRACT_NAME_STRING_ASCII_MAX: TypeSignature =
+        Self::type_ascii_const(CONTRACT_MAX_NAME_LENGTH as u32);
+
+    /// Creates a buffer type with the specified length.
+    ///
+    /// # Note
+    /// This function is intended for use in constant contexts or for testing purposes.
+    /// It may panic if the provided length is invalid.
+    const fn type_buffer_const(len: u32) -> Self {
+        SequenceType(SequenceSubtype::BufferType(
+            BufferLength::try_from_u32_as_opt(len).expect("Invalid buffer length!"),
+        ))
+    }
+
+    /// Creates a string ASCII type with the specified length.
+    ///
+    /// # Note
+    /// This function is intended for use in constant contexts or for testing purposes.
+    /// It may panic if the provided length is invalid.
+    const fn type_ascii_const(len: u32) -> Self {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+            BufferLength::try_from_u32_as_opt(len).expect("Invalid ascii length!"),
         )))
     }
 
-    pub fn min_buffer() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::BufferType(
-            1_u32.try_into().map_err(|_| {
-                CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
-            })?,
+    /// Creates a string UTF8 type with the specified length.
+    ///
+    /// # Note
+    /// This function is intended for use in constant contexts or for testing purposes.
+    /// It may panic if the provided length is invalid.
+    const fn type_string_utf8(len: u32) -> Self {
+        SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+            StringUTF8Length::try_from_u32_as_opt(len).expect("Invalid utf8 length!"),
         )))
     }
 
-    pub fn min_string_ascii() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(1_u32.try_into().map_err(|_| {
-                CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
-            })?),
-        )))
-    }
-
-    pub fn min_string_utf8() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::UTF8(1_u32.try_into().map_err(|_| {
-                CheckErrors::Expects("FAIL: Min clarity value size is not realizable".into())
-            })?),
-        )))
-    }
-
-    pub fn max_string_ascii() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(BufferLength::try_from(MAX_VALUE_SIZE).map_err(|_| {
-                CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".into(),
-                )
-            })?),
-        )))
-    }
-
-    pub fn max_string_utf8() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::UTF8(StringUTF8Length::try_from(MAX_VALUE_SIZE / 4).map_err(|_| {
-                CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size is no longer realizable in UTF8 Type".into(),
-                )
-            })?),
-        )))
-    }
-
-    pub fn max_buffer() -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::BufferType(
-            BufferLength::try_from(MAX_VALUE_SIZE).map_err(|_| {
-                CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size is no longer realizable in Buffer Type".into(),
-                )
-            })?,
-        )))
-    }
-
-    pub fn contract_name_string_ascii_type() -> Result<TypeSignature, CheckErrors> {
-        TypeSignature::bound_string_ascii_type(CONTRACT_MAX_NAME_LENGTH.try_into().map_err(
-            |_| CheckErrors::Expects("FAIL: contract name max length exceeds u32 space".into()),
-        )?)
-    }
-
-    pub fn bound_string_ascii_type(max_len: u32) -> Result<TypeSignature, CheckErrors> {
-        Ok(SequenceType(SequenceSubtype::StringType(
-            StringSubtype::ASCII(BufferLength::try_from(max_len).map_err(|_| {
-                CheckErrors::Expects(
-                    "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".into(),
-                )
-            })?),
-        )))
+    /// Creates a string ASCII type with the specified length.
+    /// It may panic if the provided length is invalid.
+    #[cfg(any(test, feature = "testing"))]
+    pub const fn new_ascii_type_checked(len: u32) -> Self {
+        Self::type_ascii_const(len)
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)

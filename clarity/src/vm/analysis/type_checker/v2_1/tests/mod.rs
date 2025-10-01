@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -33,7 +34,7 @@ use crate::vm::types::StringSubtype::*;
 use crate::vm::types::TypeSignature::{BoolType, IntType, PrincipalType, SequenceType, UIntType};
 use crate::vm::types::{
     BufferLength, FixedFunction, FunctionType, QualifiedContractIdentifier, TraitIdentifier,
-    TypeSignature, TypeSignatureExt as _, BUFF_1, BUFF_20, BUFF_21, BUFF_32, BUFF_64,
+    TypeSignature, TypeSignatureExt as _,
 };
 use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
@@ -101,7 +102,7 @@ fn test_from_consensus_buff() {
         (
             "(from-consensus-buff? int u6)",
             CheckErrors::TypeError(
-                Box::new(TypeSignature::max_buffer().unwrap()),
+                Box::new(TypeSignature::BUFFER_MAX),
                 Box::new(TypeSignature::UIntType),
             ),
         ),
@@ -747,7 +748,10 @@ fn test_at_block() {
     let bad = [
         (
             "(at-block (sha512 u0) u1)",
-            CheckErrors::TypeError(Box::new(BUFF_32.clone()), Box::new(BUFF_64.clone())),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(TypeSignature::BUFFER_64),
+            ),
         ),
         (
             "(at-block (sha256 u0) u1 u2)",
@@ -1086,16 +1090,16 @@ fn test_index_of() {
             Box::new(TypeSignature::UIntType),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_buffer().unwrap()),
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::BUFFER_MIN),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
         ),
         CheckErrors::TypeError(
             Box::new(TypeSignature::list_of(TypeSignature::IntType, 1).unwrap()),
@@ -1107,16 +1111,16 @@ fn test_index_of() {
             Box::new(TypeSignature::UIntType),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_buffer().unwrap()),
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::BUFFER_MIN),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
         ),
         CheckErrors::TypeError(
-            Box::new(TypeSignature::min_string_ascii().unwrap()),
-            Box::new(TypeSignature::min_string_utf8().unwrap()),
+            Box::new(TypeSignature::STRING_ASCII_MIN),
+            Box::new(TypeSignature::STRING_UTF8_MIN),
         ),
         CheckErrors::CouldNotDetermineType,
         CheckErrors::CouldNotDetermineType,
@@ -2228,8 +2232,8 @@ fn test_string_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
             vec![
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(17_u32).unwrap(),
@@ -2237,8 +2241,8 @@ fn test_string_to_ints() {
         ),
         CheckErrors::UnionTypeError(
             vec![
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(IntType),
         ),
@@ -2246,8 +2250,8 @@ fn test_string_to_ints() {
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::UnionTypeError(
             vec![
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(SequenceType(BufferType(
                 BufferLength::try_from(17_u32).unwrap(),
@@ -2255,8 +2259,8 @@ fn test_string_to_ints() {
         ),
         CheckErrors::UnionTypeError(
             vec![
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
             Box::new(IntType),
         ),
@@ -3347,7 +3351,7 @@ fn test_principal_destruct() {
         CheckErrors::IncorrectArgumentCount(1, 0),
         CheckErrors::TypeError(
             Box::new(TypeSignature::PrincipalType),
-            Box::new(BUFF_1.clone()),
+            Box::new(TypeSignature::BUFFER_1),
         ),
     ];
 
@@ -3409,31 +3413,39 @@ fn test_principal_construct() {
         // The first buffer is too long, should be `(buff 1)`.
         (
             r#"(principal-construct? 0xfa6bf38ed557fe417333710d6033e9419391a320 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(Box::new(BUFF_1.clone()), Box::new(BUFF_20.clone())),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_1),
+                Box::new(TypeSignature::BUFFER_20),
+            ),
         ),
         // The second buffer is too long, should be `(buff 20)`.
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a32009)"#,
-            CheckErrors::TypeError(Box::new(BUFF_20.clone()), Box::new(BUFF_21.clone())),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_20),
+                Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
+                    21_u32.try_into().unwrap(),
+                ))),
+            ),
         ),
         // `int` argument instead of `(buff 1)` for version.
         (
             r#"(principal-construct? 22 0xfa6bf38ed557fe417333710d6033e9419391a320)"#,
-            CheckErrors::TypeError(Box::new(BUFF_1.clone()), Box::new(IntType.clone())),
+            CheckErrors::TypeError(Box::new(TypeSignature::BUFFER_1), Box::new(IntType.clone())),
         ),
         // `name` argument is too long
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foooooooooooooooooooooooooooooooooooooooo")"#,
             CheckErrors::TypeError(
-                Box::new(TypeSignature::contract_name_string_ascii_type().unwrap()),
-                Box::new(TypeSignature::bound_string_ascii_type(41).unwrap()),
+                Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
+                Box::new(SequenceType(StringType(ASCII(41_u32.try_into().unwrap())))),
             ),
         ),
         // bad argument type for `name`
         (
             r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 u123)"#,
             CheckErrors::TypeError(
-                Box::new(TypeSignature::contract_name_string_ascii_type().unwrap()),
+                Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                 Box::new(UIntType),
             ),
         ),

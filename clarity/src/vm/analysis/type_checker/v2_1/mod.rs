@@ -407,9 +407,9 @@ impl FunctionType {
                         vec![
                             TypeSignature::IntType,
                             TypeSignature::UIntType,
-                            TypeSignature::max_string_ascii()?,
-                            TypeSignature::max_string_utf8()?,
-                            TypeSignature::max_buffer()?,
+                            TypeSignature::STRING_ASCII_MAX,
+                            TypeSignature::STRING_UTF8_MAX,
+                            TypeSignature::BUFFER_MAX,
                         ],
                         Box::new(first.clone()),
                     )

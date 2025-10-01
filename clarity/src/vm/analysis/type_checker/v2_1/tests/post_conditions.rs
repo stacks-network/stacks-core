@@ -420,7 +420,7 @@ fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
             r#"(restrict-assets? tx-sender ((with-stx "1000")) true)"#,
             CheckErrors::TypeError(
                 TypeSignature::UIntType.into(),
-                TypeSignature::new_string_ascii(4).unwrap().into(),
+                TypeSignature::new_ascii_type_checked(4).into(),
             ),
         ),
         // wrong type - int instead of uint
@@ -543,7 +543,7 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
         (
             "(restrict-assets? tx-sender ((with-ft .token u123 u1000)) true)",
             CheckErrors::TypeError(
-                TypeSignature::new_string_ascii(MAX_STRING_LEN as usize).unwrap().into(),
+                TypeSignature::new_ascii_type_checked(MAX_STRING_LEN as u32).into(),
                 TypeSignature::UIntType.into(),
             ),
         ),
@@ -552,7 +552,7 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
             r#"(restrict-assets? tx-sender ((with-ft .token "token-name" "1000")) true)"#,
             CheckErrors::TypeError(
                 TypeSignature::UIntType.into(),
-                TypeSignature::new_string_ascii(4).unwrap().into(),
+                TypeSignature::new_ascii_type_checked(4).into(),
             ),
         ),
         // wrong type for amount - int instead of uint
@@ -567,8 +567,8 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
         (
             "(restrict-assets? tx-sender ((with-ft .token \"this-token-name-is-way-too-long-to-be-valid-because-it-has-more-than-one-hundred-and-twenty-eight-characters-in-it-so-it-is-not-a-valid-token-name\" u1000)) true)",
             CheckErrors::TypeError(
-                TypeSignature::new_string_ascii(MAX_STRING_LEN as usize).unwrap().into(),
-                TypeSignature::new_string_ascii(146).unwrap().into(),
+                TypeSignature::new_ascii_type_checked(MAX_STRING_LEN as u32).into(),
+                TypeSignature::new_ascii_type_checked(146u32).into(),
             ),
         ),
     ];
@@ -693,7 +693,7 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         (
             "(restrict-assets? tx-sender ((with-nft .token u123 (list u456))) true)",
             CheckErrors::TypeError(
-                TypeSignature::new_string_ascii(MAX_STRING_LEN as usize).unwrap().into(),
+                TypeSignature::new_ascii_type_checked(MAX_STRING_LEN as u32).into(),
                 TypeSignature::UIntType.into(),
             ),
         ),
@@ -701,8 +701,8 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         (
             "(restrict-assets? tx-sender ((with-ft .token \"this-token-name-is-way-too-long-to-be-valid-because-it-has-more-than-one-hundred-and-twenty-eight-characters-in-it-so-it-is-not-a-valid-token-name\" u1000)) true)",
             CheckErrors::TypeError(
-                TypeSignature::new_string_ascii(MAX_STRING_LEN as usize).unwrap().into(),
-                TypeSignature::new_string_ascii(146).unwrap().into(),
+                TypeSignature::new_ascii_type_checked(MAX_STRING_LEN as u32).into(),
+                TypeSignature::new_ascii_type_checked(146u32).into(),
             ),
         ),
         // too many identifiers (more than 128)
@@ -790,7 +790,7 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] _epoch:
             r#"(restrict-assets? tx-sender ((with-stacking "1000")) true)"#,
             CheckErrors::TypeError(
                 TypeSignature::UIntType.into(),
-                TypeSignature::new_string_ascii(4).unwrap().into(),
+                TypeSignature::new_ascii_type_checked(4).into(),
             ),
         ),
         // wrong type - int instead of uint

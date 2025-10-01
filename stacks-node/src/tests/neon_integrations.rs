@@ -37,7 +37,6 @@ use stacks::chainstate::stacks::{
     StacksTransaction, TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_cli::vm_execute as execute;
-use stacks::cli;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MemPoolWalkTxTypes};
@@ -80,6 +79,7 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
+use stacks_inspect;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -6294,9 +6294,10 @@ fn antientropy_integration_test() {
     let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
     let target_height = 3 + (3 * burnchain_config.pox_constants.reward_cycle_length);
 
+    let conf_bootstrap_node_threaded = conf_bootstrap_node.clone();
     let bootstrap_node_thread = thread::spawn(move || {
         let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-            conf_bootstrap_node.clone(),
+            conf_bootstrap_node_threaded.clone(),
             None,
             Some(burnchain_config.clone()),
             None,
@@ -6306,7 +6307,7 @@ fn antientropy_integration_test() {
 
         eprintln!("Chain bootstrapped...");
 
-        let mut run_loop = neon::RunLoop::new(conf_bootstrap_node.clone());
+        let mut run_loop = neon::RunLoop::new(conf_bootstrap_node_threaded.clone());
         let blocks_processed = run_loop.get_blocks_processed_arc();
         let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -6397,7 +6398,7 @@ fn antientropy_integration_test() {
     );
 
     let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-        conf_follower_node.clone(),
+        conf_bootstrap_node.clone(),
         None,
         Some(burnchain_config),
         None,
@@ -9600,7 +9601,7 @@ fn mock_miner_replay() {
     let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
 
     info!("Replaying mock mined blocks...");
-    cli::command_replay_mock_mining(&args, Some(&conf));
+    stacks_inspect::command_replay_mock_mining(&args, Some(&conf));
 
     // ---------- Test finished, clean up ----------
 
