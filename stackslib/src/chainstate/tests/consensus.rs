@@ -210,6 +210,8 @@ pub struct TestBlock {
 /// Defines a test vector for a consensus test, including chainstate setup and expected outcomes.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ConsensusTestVector {
+    /// Initial balances for the provided PrincipalData during chainstate instantiation.
+    pub initial_balances: Vec<(PrincipalData, u64)>,
     /// A mapping of epoch to Blocks that should be applied in that epoch
     pub epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
 }
@@ -217,17 +219,40 @@ pub struct ConsensusTestVector {
 /// Represents a consensus test with chainstate and test vector.
 pub struct ConsensusTest<'a> {
     pub chain: TestChainstate<'a>,
+    pub test_vector: ConsensusTestVector,
 }
 
 impl ConsensusTest<'_> {
     /// Creates a new `ConsensusTest` with the given test name and vector.
-    pub fn new(test_name: &str, initial_balances: Vec<(PrincipalData, u64)>) -> Self {
+    pub fn new(test_name: &str, test_vector: ConsensusTestVector) -> Self {
+        // Validate blocks
+        for (epoch_id, blocks) in &test_vector.epoch_blocks {
+            assert!(
+                !matches!(
+                    *epoch_id,
+                    StacksEpochId::Epoch10
+                        | StacksEpochId::Epoch20
+                        | StacksEpochId::Epoch2_05
+                        | StacksEpochId::Epoch21
+                        | StacksEpochId::Epoch22
+                        | StacksEpochId::Epoch23
+                        | StacksEpochId::Epoch24
+                        | StacksEpochId::Epoch25
+                ),
+                "Pre-Nakamoto Tenures are not Supported"
+            );
+            assert!(
+                !blocks.is_empty(),
+                "Each epoch must have at least one block"
+            );
+        }
+
         // Set up chainstate to start at Epoch 3.0
         // We don't really ever want the reward cycle to force a new signer set...
         // so for now just set the cycle length to a high value (100)
         let mut boot_plan = NakamotoBootPlan::new(test_name)
             .with_pox_constants(100, 3)
-            .with_initial_balances(initial_balances.clone())
+            .with_initial_balances(test_vector.initial_balances.clone())
             .with_private_key(FAUCET_PRIV_KEY.clone());
         let epochs = epoch_3_0_onwards(
             (boot_plan.pox_constants.pox_4_activation_height
@@ -237,7 +262,7 @@ impl ConsensusTest<'_> {
         boot_plan = boot_plan.with_epochs(epochs);
         let chain = boot_plan.boot_nakamoto_chainstate(None);
 
-        Self { chain }
+        Self { chain, test_vector }
     }
 
     /// Advances the chainstate to the specified epoch. Creating a tenure change block per burn block height
@@ -277,41 +302,20 @@ impl ConsensusTest<'_> {
     ///
     /// This method constructs a block from the test vector, appends it to the
     /// chain, and returns the result of the block processing.
-    pub fn run(mut self, test_vector: ConsensusTestVector) -> Vec<ExpectedResult> {
-        // Validate blocks
-        for (epoch_id, blocks) in &test_vector.epoch_blocks {
-            assert!(
-                !matches!(
-                    *epoch_id,
-                    StacksEpochId::Epoch10
-                        | StacksEpochId::Epoch20
-                        | StacksEpochId::Epoch2_05
-                        | StacksEpochId::Epoch21
-                        | StacksEpochId::Epoch22
-                        | StacksEpochId::Epoch23
-                        | StacksEpochId::Epoch24
-                        | StacksEpochId::Epoch25
-                ),
-                "Pre-Nakamoto Tenures are not Supported"
-            );
-            assert!(
-                !blocks.is_empty(),
-                "Each epoch must have at least one block"
-            );
-        }
-
+    pub fn run(mut self) -> Vec<ExpectedResult> {
         // Get sorted epochs
-        let mut epochs: Vec<StacksEpochId> = test_vector.epoch_blocks.keys().cloned().collect();
+        let mut epochs: Vec<StacksEpochId> =
+            self.test_vector.epoch_blocks.keys().cloned().collect();
         epochs.sort();
 
         let mut results = vec![];
         for epoch in epochs {
             debug!(
                 "--------- Processing epoch {epoch:?} with {} blocks ---------",
-                test_vector.epoch_blocks[&epoch].len()
+                self.test_vector.epoch_blocks[&epoch].len()
             );
             self.advance_to_epoch(epoch);
-            for (i, block) in test_vector.epoch_blocks[&epoch].iter().enumerate() {
+            for (i, block) in self.test_vector.epoch_blocks[&epoch].iter().enumerate() {
                 debug!("--------- Running block {i} for epoch {epoch:?} ---------");
                 let (nakamoto_block, block_size) =
                     self.construct_nakamoto_block(&block.marf_hash, &block.transactions);
@@ -463,8 +467,11 @@ fn test_append_empty_blocks() {
         }],
     );
 
-    let test_vector = ConsensusTestVector { epoch_blocks };
-    let result = ConsensusTest::new(function_name!(), vec![]).run(test_vector);
+    let test_vector = ConsensusTestVector {
+        initial_balances: vec![],
+        epoch_blocks,
+    };
+    let result = ConsensusTest::new(function_name!(), test_vector).run();
     insta::assert_ron_snapshot!(result);
 }
 
@@ -500,8 +507,11 @@ fn test_append_state_index_root_mismatches() {
         }],
     );
 
-    let test_vector = ConsensusTestVector { epoch_blocks };
-    let result = ConsensusTest::new(function_name!(), vec![]).run(test_vector);
+    let test_vector = ConsensusTestVector {
+        initial_balances: vec![],
+        epoch_blocks,
+    };
+    let result = ConsensusTest::new(function_name!(), test_vector).run();
     insta::assert_ron_snapshot!(result);
 }
 
@@ -564,9 +574,12 @@ fn test_append_stx_transfers_success() {
         }],
     );
 
-    let test_vector = ConsensusTestVector { epoch_blocks };
+    let test_vector = ConsensusTestVector {
+        initial_balances,
+        epoch_blocks,
+    };
 
-    let result = ConsensusTest::new(function_name!(), initial_balances).run(test_vector);
+    let result = ConsensusTest::new(function_name!(), test_vector).run();
     insta::assert_ron_snapshot!(result);
 }
 
@@ -619,8 +632,11 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
         }],
     );
 
-    let test_vector = ConsensusTestVector { epoch_blocks };
-    let result = ConsensusTest::new(function_name!(), vec![]).run(test_vector);
+    let test_vector = ConsensusTestVector {
+        initial_balances: vec![],
+        epoch_blocks,
+    };
+    let result = ConsensusTest::new(function_name!(), test_vector).run();
     insta::assert_ron_snapshot!(result);
 }
 
@@ -669,9 +685,42 @@ fn test_append_block_with_contract_upload_success() {
             transactions: vec![tx.clone()],
         }],
     );
-    let test_vector = ConsensusTestVector { epoch_blocks };
+    let test_vector = ConsensusTestVector {
+        initial_balances: vec![],
+        epoch_blocks,
+    };
 
-    let result = ConsensusTest::new(function_name!(), vec![]).run(test_vector);
-
-    insta::assert_ron_snapshot!(result);
+    let result = ConsensusTest::new(function_name!(), test_vector).run();
+    // Example of expecting the same result across all blocks
+    insta::allow_duplicates! {
+        for res in result {
+            // Example of inline snapshot
+            insta::assert_ron_snapshot!(res, @r"
+            Success(ExpectedBlockOutput(
+              transactions: [
+                ExpectedTransactionOutput(
+                  return_type: Response(ResponseData(
+                    committed: true,
+                    data: Bool(true),
+                  )),
+                  cost: ExecutionCost(
+                    write_length: 13,
+                    write_count: 2,
+                    read_length: 1,
+                    read_count: 1,
+                    runtime: 8114,
+                  ),
+                ),
+              ],
+              total_block_cost: ExecutionCost(
+                write_length: 13,
+                write_count: 2,
+                read_length: 1,
+                read_count: 1,
+                runtime: 8114,
+              ),
+            ))
+            ");
+        }
+    }
 }
