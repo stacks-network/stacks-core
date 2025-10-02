@@ -41,7 +41,9 @@ use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksEpochReceipt;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TenureChangeCause};
 use crate::chainstate::tests::TestChainstate;
-use crate::core::test_util::{make_contract_publish, make_stacks_transfer_tx};
+use crate::core::test_util::{
+    make_contract_call, make_contract_publish, make_stacks_transfer_tx, to_addr,
+};
 use crate::core::{EpochList, BLOCK_LIMIT_MAINNET_21};
 use crate::net::tests::NakamotoBootPlan;
 
@@ -54,6 +56,9 @@ pub const FAUCET_PRIV_KEY: LazyCell<StacksPrivateKey> = LazyCell::new(|| {
     StacksPrivateKey::from_hex("510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101")
         .expect("Failed to parse private key")
 });
+
+const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
+                                    (define-public (bar (x uint)) (ok x))";
 
 fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
     info!("StacksEpoch unit_test first_burn_height = {first_burnchain_height}");
@@ -721,6 +726,80 @@ fn test_append_block_with_contract_upload_success() {
               ),
             ))
             ");
+        }
+    }
+}
+
+#[test]
+fn test_append_block_with_contract_call_success() {
+    let tx_fee = (FOO_CONTRACT.len() * 100) as u64;
+
+    let tx_bytes = make_contract_publish(
+        &FAUCET_PRIV_KEY,
+        0,
+        tx_fee,
+        CHAIN_ID_TESTNET,
+        "foo_contract",
+        FOO_CONTRACT,
+    );
+    let tx_contract_deploy =
+        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+
+    let tx_bytes = make_contract_call(
+        &FAUCET_PRIV_KEY,
+        1,
+        200,
+        CHAIN_ID_TESTNET,
+        &to_addr(&FAUCET_PRIV_KEY),
+        "foo_contract",
+        "bar",
+        &[ClarityValue::UInt(1)],
+    );
+    let tx_contract_call =
+        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+
+    let mut epoch_blocks = HashMap::new();
+    epoch_blocks.insert(
+        StacksEpochId::Epoch30,
+        vec![TestBlock {
+            marf_hash: "186c8e49bcfc59bb67ed22f031f009a44681f296392e0f92bed520918ba463ae".into(),
+            transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
+        }],
+    );
+
+    epoch_blocks.insert(
+        StacksEpochId::Epoch31,
+        vec![TestBlock {
+            marf_hash: "ad23713f072473cad6a32125ed5fa822bb62bbfae8ed2302209c12d2f1958128".into(),
+            transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
+        }],
+    );
+
+    epoch_blocks.insert(
+        StacksEpochId::Epoch32,
+        vec![TestBlock {
+            marf_hash: "021bd30b09b5ac6ff34abd11f05244a966af937b584b1752f272cd717bb25f1d".into(),
+            transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
+        }],
+    );
+
+    epoch_blocks.insert(
+        StacksEpochId::Epoch33,
+        vec![TestBlock {
+            marf_hash: "416e728daeec4de695c89d15eede8ddb7b85fb4af82daffb1e0d8166a3e93451".into(),
+            transactions: vec![tx_contract_deploy, tx_contract_call],
+        }],
+    );
+
+    let test_vector = ConsensusTestVector {
+        initial_balances: vec![],
+        epoch_blocks,
+    };
+
+    let result = ConsensusTest::new(function_name!(), test_vector).run();
+    insta::allow_duplicates! {
+        for res in result {
+            insta::assert_ron_snapshot!(res);
         }
     }
 }
