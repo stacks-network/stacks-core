@@ -27,7 +27,7 @@ use crate::vm::errors::{
     check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
 };
 use crate::vm::representations::SymbolicExpression;
-use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value, BUFF_32, BUFF_33, BUFF_65};
+use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value};
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
 macro_rules! native_hash_func {
@@ -41,7 +41,7 @@ macro_rules! native_hash_func {
                     vec![
                         TypeSignature::IntType,
                         TypeSignature::UIntType,
-                        TypeSignature::max_buffer()?,
+                        TypeSignature::BUFFER_MAX,
                     ],
                     Box::new(input),
                 )),
@@ -103,7 +103,7 @@ pub fn special_principal_of(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(BUFF_33.clone()),
+                    Box::new(TypeSignature::BUFFER_33),
                     Box::new(param0),
                 )
                 .into());
@@ -111,9 +111,11 @@ pub fn special_principal_of(
             data
         }
         _ => {
-            return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_33.clone()), Box::new(param0)).into(),
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                Box::new(param0),
             )
+            .into())
         }
     };
 
@@ -149,7 +151,7 @@ pub fn special_secp256k1_recover(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(BUFF_32.clone()),
+                    Box::new(TypeSignature::BUFFER_32),
                     Box::new(param0),
                 )
                 .into());
@@ -157,9 +159,11 @@ pub fn special_secp256k1_recover(
             data
         }
         _ => {
-            return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(param0)).into(),
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(param0),
             )
+            .into())
         }
     };
 
@@ -168,7 +172,7 @@ pub fn special_secp256k1_recover(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(BUFF_65.clone()),
+                    Box::new(TypeSignature::BUFFER_65),
                     Box::new(param1),
                 )
                 .into());
@@ -179,9 +183,11 @@ pub fn special_secp256k1_recover(
             data
         }
         _ => {
-            return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_65),
+                Box::new(param1),
             )
+            .into())
         }
     };
 
@@ -211,7 +217,7 @@ pub fn special_secp256k1_verify(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(BUFF_32.clone()),
+                    Box::new(TypeSignature::BUFFER_32),
                     Box::new(param0),
                 )
                 .into());
@@ -219,9 +225,11 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_32.clone()), Box::new(param0)).into(),
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(param0),
             )
+            .into())
         }
     };
 
@@ -230,7 +238,7 @@ pub fn special_secp256k1_verify(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(BUFF_65.clone()),
+                    Box::new(TypeSignature::BUFFER_65),
                     Box::new(param1),
                 )
                 .into());
@@ -244,9 +252,11 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_65.clone()), Box::new(param1)).into(),
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_65),
+                Box::new(param1),
             )
+            .into())
         }
     };
 
@@ -255,7 +265,7 @@ pub fn special_secp256k1_verify(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
                 return Err(CheckErrors::TypeValueError(
-                    Box::new(BUFF_33.clone()),
+                    Box::new(TypeSignature::BUFFER_33),
                     Box::new(param2),
                 )
                 .into());
@@ -263,9 +273,11 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(
-                CheckErrors::TypeValueError(Box::new(BUFF_33.clone()), Box::new(param2)).into(),
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                Box::new(param2),
             )
+            .into())
         }
     };
 

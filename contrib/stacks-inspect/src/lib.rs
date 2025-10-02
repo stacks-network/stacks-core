@@ -120,7 +120,7 @@ pub fn drain_common_opts(argv: &mut Vec<String>, start_at: usize) -> CommonOpts 
 ///
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
+pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
@@ -202,7 +202,7 @@ pub fn command_replay_block(argv: &[String], conf: Option<&Config>) {
 ///
 /// Arguments:
 ///  - `argv`: Args in CLI format: `<command-name> [args...]`
-pub fn command_replay_block_nakamoto(argv: &[String], conf: Option<&Config>) {
+pub fn command_validate_block_nakamoto(argv: &[String], conf: Option<&Config>) {
     let print_help_and_exit = || -> ! {
         let n = &argv[0];
         eprintln!("Usage:");
