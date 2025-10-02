@@ -25,6 +25,8 @@ pub mod relay;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::types::EpochList;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
 use rand::Rng;
@@ -99,14 +101,16 @@ pub struct NakamotoBootPlan {
     pub malleablized_blocks: bool,
     pub network_id: u32,
     pub txindex: bool,
+    pub epochs: Option<EpochList<ExecutionCost>>,
 }
 
 impl NakamotoBootPlan {
     pub fn new(test_name: &str) -> Self {
         let (test_signers, test_stackers) = TestStacker::common_signing_set();
+        let default_config = TestChainstateConfig::default();
         Self {
             test_name: test_name.to_string(),
-            pox_constants: TestChainstateConfig::default().burnchain.pox_constants,
+            pox_constants: default_config.burnchain.pox_constants,
             private_key: StacksPrivateKey::from_seed(&[2]),
             initial_balances: vec![],
             test_stackers,
@@ -115,8 +119,9 @@ impl NakamotoBootPlan {
             num_peers: 0,
             add_default_balance: true,
             malleablized_blocks: true,
-            network_id: TestChainstateConfig::default().network_id,
+            network_id: default_config.network_id,
             txindex: false,
+            epochs: None,
         }
     }
 
@@ -134,12 +139,13 @@ impl NakamotoBootPlan {
         )
         .unwrap();
 
-        chainstate_config.epochs = Some(StacksEpoch::unit_test_3_0_only(
+        let default_epoch = StacksEpoch::unit_test_3_0_only(
             (self.pox_constants.pox_4_activation_height
                 + self.pox_constants.reward_cycle_length
                 + 1)
             .into(),
-        ));
+        );
+        chainstate_config.epochs = Some(self.epochs.clone().unwrap_or(default_epoch));
         chainstate_config.initial_balances = vec![];
         if self.add_default_balance {
             chainstate_config
@@ -202,6 +208,11 @@ impl NakamotoBootPlan {
             2 * cycle_length + 1,
         );
         self.pox_constants = new_consts;
+        self
+    }
+
+    pub fn with_epochs(mut self, epochs: EpochList<ExecutionCost>) -> Self {
+        self.epochs = Some(epochs);
         self
     }
 
