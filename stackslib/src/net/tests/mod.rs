@@ -25,6 +25,8 @@ pub mod relay;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::types::EpochList;
+use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
 use rand::Rng;
@@ -61,6 +63,7 @@ use crate::chainstate::stacks::{
     TokenTransferMemo, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
     TransactionPayload, TransactionVersion,
 };
+use crate::chainstate::tests::{TestChainstate, TestChainstateConfig};
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::core::{StacksEpoch, StacksEpochExtension};
 use crate::net::relay::Relayer;
@@ -100,11 +103,13 @@ pub struct NakamotoBootPlan {
     pub malleablized_blocks: bool,
     pub network_id: u32,
     pub txindex: bool,
+    pub epochs: Option<EpochList<ExecutionCost>>,
 }
 
 impl NakamotoBootPlan {
     pub fn new(test_name: &str) -> Self {
         let (test_signers, test_stackers) = TestStacker::common_signing_set();
+        let pox_constants = TestPeerConfig::default().burnchain.pox_constants;
         Self {
             test_name: test_name.to_string(),
             pox_constants: TestPeerConfig::default().burnchain.pox_constants,
@@ -118,6 +123,7 @@ impl NakamotoBootPlan {
             malleablized_blocks: true,
             network_id: TestPeerConfig::default().network_id,
             txindex: false,
+            epochs: None,
         }
     }
 
@@ -150,6 +156,11 @@ impl NakamotoBootPlan {
             2 * cycle_length + 1,
         );
         self.pox_constants = new_consts;
+        self
+    }
+
+    pub fn with_epochs(mut self, epochs: EpochList<ExecutionCost>) -> Self {
+        self.epochs = Some(epochs);
         self
     }
 
@@ -346,6 +357,220 @@ impl NakamotoBootPlan {
 
             assert!(possible_chain_tips.contains(&peer.network.stacks_tip.block_id()));
         }
+    }
+
+    /// Make a chainstate and transition it into the Nakamoto epoch.
+    /// The node needs to be stacking; otherwise, Nakamoto won't activate.
+    pub fn boot_nakamoto_chainstate(
+        mut self,
+        observer: Option<&TestEventObserver>,
+    ) -> TestChainstate<'_> {
+        let mut chainstate_config = TestChainstateConfig::new(&self.test_name);
+        chainstate_config.txindex = self.txindex;
+        chainstate_config.network_id = self.network_id;
+
+        let addr = StacksAddress::from_public_keys(
+            C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+            &AddressHashMode::SerializeP2PKH,
+            1,
+            &vec![StacksPublicKey::from_private(&self.private_key)],
+        )
+        .unwrap();
+
+        let default_epoch = StacksEpoch::unit_test_3_0_only(
+            (self.pox_constants.pox_4_activation_height
+                + self.pox_constants.reward_cycle_length
+                + 1)
+            .into(),
+        );
+        chainstate_config.epochs = Some(self.epochs.clone().unwrap_or(default_epoch));
+        chainstate_config.initial_balances = vec![];
+        if self.add_default_balance {
+            chainstate_config
+                .initial_balances
+                .push((addr.to_account_principal(), 1_000_000_000_000_000_000));
+        }
+        chainstate_config
+            .initial_balances
+            .append(&mut self.initial_balances.clone());
+
+        // Create some balances for test Stackers
+        // They need their stacking amount + enough to pay fees
+        let fee_payment_balance = 10_000;
+        let stacker_balances = self.test_stackers.iter().map(|test_stacker| {
+            (
+                PrincipalData::from(key_to_stacks_addr(&test_stacker.stacker_private_key)),
+                u64::try_from(test_stacker.amount).expect("Stacking amount too large"),
+            )
+        });
+        let signer_balances = self.test_stackers.iter().map(|test_stacker| {
+            (
+                PrincipalData::from(key_to_stacks_addr(&test_stacker.signer_private_key)),
+                fee_payment_balance,
+            )
+        });
+
+        chainstate_config.initial_balances.extend(stacker_balances);
+        chainstate_config.initial_balances.extend(signer_balances);
+        chainstate_config.test_signers = Some(self.test_signers.clone());
+        chainstate_config.test_stackers = Some(self.test_stackers.clone());
+        chainstate_config.burnchain.pox_constants = self.pox_constants.clone();
+        let mut chain = TestChainstate::new_with_observer(chainstate_config.clone(), observer);
+
+        chain.mine_malleablized_blocks = self.malleablized_blocks;
+
+        self.advance_to_nakamoto_chainstate(&mut chain);
+        chain
+    }
+
+    /// Bring a TestChainstate into the Nakamoto Epoch
+    fn advance_to_nakamoto_chainstate(&mut self, chain: &mut TestChainstate) {
+        let mut chain_nonce = 0;
+        let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&self.private_key));
+        let default_pox_addr =
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
+
+        let mut sortition_height = chain.get_burn_block_height();
+        debug!("\n\n======================");
+        debug!(
+            "PoxConstants = {:#?}",
+            &chain.config.burnchain.pox_constants
+        );
+        debug!("tip = {sortition_height}");
+        debug!("========================\n\n");
+
+        let epoch_25_height = chain
+            .config
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.epoch_id == StacksEpochId::Epoch25)
+            .unwrap()
+            .start_height;
+
+        let epoch_30_height = chain
+            .config
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.epoch_id == StacksEpochId::Epoch30)
+            .unwrap()
+            .start_height;
+
+        // advance to just past pox-4 instantiation
+        let mut blocks_produced = false;
+        while sortition_height <= epoch_25_height {
+            chain.tenure_with_txs(&[], &mut chain_nonce);
+            sortition_height = chain.get_burn_block_height();
+            blocks_produced = true;
+        }
+
+        // need to produce at least 1 block before making pox-4 lockups:
+        //  the way `burn-block-height` constant works in Epoch 2.5 is such
+        //  that if its the first block produced, this will be 0 which will
+        //  prevent the lockups from being valid.
+        if !blocks_produced {
+            chain.tenure_with_txs(&[], &mut chain_nonce);
+            sortition_height = chain.get_burn_block_height();
+        }
+
+        debug!("\n\n======================");
+        debug!("Make PoX-4 lockups");
+        debug!("========================\n\n");
+
+        let reward_cycle = chain
+            .config
+            .burnchain
+            .block_height_to_reward_cycle(sortition_height)
+            .unwrap();
+
+        // Make all the test Stackers stack
+        let stack_txs: Vec<_> = chain
+            .config
+            .test_stackers
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|test_stacker| {
+                let pox_addr = test_stacker
+                    .pox_addr
+                    .clone()
+                    .unwrap_or(default_pox_addr.clone());
+                let max_amount = test_stacker.max_amount.unwrap_or(u128::MAX);
+                let signature = make_pox_4_signer_key_signature(
+                    &pox_addr,
+                    &test_stacker.signer_private_key,
+                    reward_cycle.into(),
+                    &crate::util_lib::signed_structured_data::pox4::Pox4SignatureTopic::StackStx,
+                    chain.config.network_id,
+                    12,
+                    max_amount,
+                    1,
+                )
+                .unwrap()
+                .to_rsv();
+                make_pox_4_lockup_chain_id(
+                    &test_stacker.stacker_private_key,
+                    0,
+                    test_stacker.amount,
+                    &pox_addr,
+                    12,
+                    &StacksPublicKey::from_private(&test_stacker.signer_private_key),
+                    sortition_height + 1,
+                    Some(signature),
+                    max_amount,
+                    1,
+                    chain.config.network_id,
+                )
+            })
+            .collect();
+
+        let mut stacks_block = chain.tenure_with_txs(&stack_txs, &mut chain_nonce);
+
+        let (stacks_tip_ch, stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(chain.sortdb().conn()).unwrap();
+        let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+        assert_eq!(stacks_block, stacks_tip);
+
+        debug!("\n\n======================");
+        debug!("Advance to the Prepare Phase");
+        debug!("========================\n\n");
+        while !chain.config.burnchain.is_in_prepare_phase(sortition_height) {
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(chain.sortdb().conn()).unwrap();
+            let old_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            stacks_block = chain.tenure_with_txs(&[], &mut chain_nonce);
+
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(chain.sortdb().conn()).unwrap();
+            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            assert_ne!(old_tip, stacks_tip);
+            sortition_height = chain.get_burn_block_height();
+        }
+
+        debug!("\n\n======================");
+        debug!("Advance to Epoch 3.0");
+        debug!("========================\n\n");
+
+        // advance to the start of epoch 3.0
+        while sortition_height < epoch_30_height - 1 {
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(chain.sortdb().conn()).unwrap();
+            let old_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            chain.tenure_with_txs(&[], &mut chain_nonce);
+
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(chain.sortdb().conn()).unwrap();
+            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            assert_ne!(old_tip, stacks_tip);
+            sortition_height = chain.get_burn_block_height();
+        }
+
+        debug!("\n\n======================");
+        debug!("Welcome to Nakamoto!");
+        debug!("========================\n\n");
     }
 
     /// Make a peer and transition it into the Nakamoto epoch.
