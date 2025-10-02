@@ -457,13 +457,11 @@ pub fn special_at_block(
             }
         }
         x => {
-            return Err(
-                CheckErrorKind::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(x),
             )
-            .into(),
-            )
+            .into())
         }
     };
 

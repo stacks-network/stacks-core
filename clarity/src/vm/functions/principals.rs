@@ -210,14 +210,11 @@ pub fn special_principal_construct(
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
-                Err(
-                    CheckErrorKind::TypeValueError(
+                Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_1),
                     Box::new(version),
                 )
-                
-                        .into(),
-                )
+                .into())
             };
         }
     };
