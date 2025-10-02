@@ -1845,7 +1845,7 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
-        E: From<InterpreterError>,
+        E: From<InterpreterError> + std::error::Error,
     {
         using!(self.log, "log", |log| {
             using!(self.cost_track, "cost tracker", |cost_track| {
@@ -1867,8 +1867,15 @@ impl TransactionConnection for ClarityTransactionConnection<'_, '_> {
                     self.epoch,
                 );
                 let result = to_do(&mut vm_env);
-                let (mut db, cost_track) = vm_env
-                    .destruct()
+                let destruct_result = vm_env.destruct();
+                if destruct_result.is_none() {
+                    if let Err(e) = result.as_ref() {
+                        error!("Failed to recover database reference after executing transaction, execution failed with error: {:?}", e);
+                    } else {
+                        error!("Failed to recover database reference after executing transaction");
+                    }
+                }
+                let (mut db, cost_track) = destruct_result
                     .expect("Failed to recover database reference after executing transaction");
                 // DO NOT reset memory usage yet -- that should happen only when the TX commits.
 

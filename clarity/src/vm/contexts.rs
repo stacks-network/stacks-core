@@ -1547,8 +1547,8 @@ impl<'a, 'b> Environment<'a, 'b> {
             result
         })();
 
-        match result {
-            Ok(contract) => {
+        let result = match result {
+            Ok(contract) => (|| {
                 let data_size = contract.contract_context.data_size;
                 self.global_context
                     .database
@@ -1556,14 +1556,17 @@ impl<'a, 'b> Environment<'a, 'b> {
                 self.global_context
                     .database
                     .set_contract_data_size(&contract_identifier, data_size)?;
-
-                self.global_context.commit()?;
                 Ok(())
-            }
-            Err(e) => {
-                self.global_context.roll_back()?;
-                Err(e)
-            }
+            })(),
+            Err(e) => Err(e),
+        };
+
+        if let Err(e) = result {
+            self.global_context.roll_back()?;
+            return Err(e);
+        } else {
+            self.global_context.commit()?;
+            return Ok(());
         }
     }
 

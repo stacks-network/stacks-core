@@ -63,6 +63,8 @@ enum StxErrorCodes {
 /// The context used when making calls into the Wasm module.
 pub struct ClarityWasmContext<'a, 'b> {
     pub global_context: &'a mut GlobalContext<'b>,
+    nested_context_count: u32,
+    nested_context_traces: Vec<String>,
     contract_context: Option<&'a ContractContext>,
     contract_context_mut: Option<&'a mut ContractContext>,
     pub call_stack: &'a mut CallStack,
@@ -94,6 +96,8 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
     ) -> Self {
         ClarityWasmContext {
             global_context,
+            nested_context_count: 0,
+            nested_context_traces: vec![],
             contract_context: None,
             contract_context_mut: Some(contract_context),
             call_stack,
@@ -118,6 +122,8 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
     ) -> Self {
         ClarityWasmContext {
             global_context,
+            nested_context_count: 0,
+            nested_context_traces: vec![],
             contract_context: Some(contract_context),
             contract_context_mut: None,
             call_stack,
@@ -359,6 +365,25 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         self.push_to_event_batch(event);
         Ok(())
     }
+
+    /// Ensure all nested contexts have exited.
+    pub fn ensure_nested_contexts_exited(&self, e: Option<&wasmtime::Error>) -> Result<(), Error> {
+        if self.nested_context_count == 0 {
+            return Ok(());
+        }
+        if let Some(e) = e {
+            panic!(
+                "Failed to rollback global context after wasm execution failure: {:?}\n{:?}",
+                e,
+                self.nested_context_traces.join("\n")
+            );
+        } else {
+            panic!(
+                "Nested contexts have not exited:\n{:?}",
+                self.nested_context_traces.join("\n")
+            );
+        }
+    }
 }
 
 /// Push a placeholder value for Wasm type `ty` onto the data stack.
@@ -431,8 +456,13 @@ pub fn initialize_contract(
     top_level
         .call(&mut store, &[], results.as_mut_slice())
         .map_err(|e| {
+            store
+                .data()
+                .ensure_nested_contexts_exited(Some(&e))
+                .unwrap();
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
+    store.data().ensure_nested_contexts_exited(None).unwrap();
 
     // Save the compiled Wasm module into the contract context
     store.data_mut().contract_context_mut()?.set_wasm_module(
@@ -589,8 +619,13 @@ pub fn call_function<'a>(
     // Call the function
     func.call(&mut store, &wasm_args, &mut results)
         .map_err(|e| {
+            store
+                .data()
+                .ensure_nested_contexts_exited(Some(&e))
+                .unwrap();
             error_mapping::resolve_error(e, instance, &mut store, &epoch, &clarity_version)
         })?;
+    store.data().ensure_nested_contexts_exited(None).unwrap();
 
     // If the function returns a value, translate it into a Clarity `Value`
     wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store, epoch)
@@ -6574,6 +6609,9 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 
                 // Write the result to the return buffer
                 let return_ty = if trait_id_length == 0 {
+                    if function.get_return_type().is_none() {
+                        warn!("Return type is none: {:?}", function);
+                    }
                     // This is a direct call
                     function
                         .get_return_type()
@@ -6632,7 +6670,14 @@ fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
             "clarity",
             "begin_public_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
-                caller.data_mut().global_context.begin();
+                let context = caller.data_mut();
+                context.global_context.begin();
+                context.nested_context_traces.push(format!(
+                    "{}: begin_public_call {}",
+                    context.nested_context_traces.len(),
+                    std::backtrace::Backtrace::capture(),
+                ));
+                context.nested_context_count += 1;
                 Ok(())
             },
         )
@@ -6653,7 +6698,14 @@ fn link_begin_read_only_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
             "clarity",
             "begin_read_only_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
-                caller.data_mut().global_context.begin_read_only();
+                let context = caller.data_mut();
+                context.global_context.begin_read_only();
+                context.nested_context_traces.push(format!(
+                    "{}: begin_read_only_call {}",
+                    context.nested_context_traces.len(),
+                    std::backtrace::Backtrace::capture(),
+                ));
+                context.nested_context_count += 1;
                 Ok(())
             },
         )
@@ -6675,7 +6727,14 @@ fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
             "clarity",
             "commit_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
-                caller.data_mut().global_context.commit()?;
+                let context = caller.data_mut();
+                context.global_context.commit()?;
+                context.nested_context_traces.push(format!(
+                    "{}: commit_call {}",
+                    context.nested_context_traces.len(),
+                    std::backtrace::Backtrace::capture(),
+                ));
+                context.nested_context_count -= 1;
                 Ok(())
             },
         )
@@ -6698,7 +6757,14 @@ fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
             "clarity",
             "roll_back_call",
             |mut caller: Caller<'_, ClarityWasmContext>| {
-                caller.data_mut().global_context.roll_back()?;
+                let context = caller.data_mut();
+                context.global_context.roll_back()?;
+                context.nested_context_traces.push(format!(
+                    "{}: roll_back_call {}",
+                    context.nested_context_traces.len(),
+                    std::backtrace::Backtrace::capture(),
+                ));
+                context.nested_context_count -= 1;
                 Ok(())
             },
         )
@@ -6792,21 +6858,23 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                     x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into()),
                 };
 
-                caller
-                    .data_mut()
+                let context = caller.data_mut();
+                context
                     .global_context
                     .add_memory(cost_constants::AT_BLOCK_MEMORY)
                     .map_err(|e| Error::from(e))?;
 
-                caller.data_mut().global_context.begin_read_only();
+                context.global_context.begin_read_only();
+                context.nested_context_traces.push(format!(
+                    "{}: enter_at_block {}",
+                    context.nested_context_traces.len(),
+                    std::backtrace::Backtrace::capture(),
+                ));
+                context.nested_context_count += 1;
 
-                let prev_bhh = caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .set_block_hash(bhh, false)?;
+                let prev_bhh = context.global_context.database.set_block_hash(bhh, false)?;
 
-                caller.data_mut().push_at_block(prev_bhh);
+                context.push_at_block(prev_bhh);
 
                 Ok(())
             },
@@ -6831,19 +6899,21 @@ fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
             |mut caller: Caller<'_, ClarityWasmContext>| {
                 // Pop back to the current block
                 let bhh = caller.data_mut().pop_at_block()?;
-                caller
-                    .data_mut()
-                    .global_context
-                    .database
-                    .set_block_hash(bhh, true)?;
+                let context = caller.data_mut();
+                context.global_context.database.set_block_hash(bhh, true)?;
 
                 // Roll back any changes that occurred during the `at-block`
                 // expression. This is precautionary, since only read-only
                 // operations are allowed during an `at-block` expression.
-                caller.data_mut().global_context.roll_back()?;
+                context.global_context.roll_back()?;
+                context.nested_context_traces.push(format!(
+                    "{}: exit_at_block {}",
+                    context.nested_context_traces.len(),
+                    std::backtrace::Backtrace::capture(),
+                ));
+                context.nested_context_count -= 1;
 
-                caller
-                    .data_mut()
+                context
                     .global_context
                     .cost_track
                     .drop_memory(cost_constants::AT_BLOCK_MEMORY)?;
