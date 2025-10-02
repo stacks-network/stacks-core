@@ -15,12 +15,342 @@
 use std::collections::HashSet;
 
 use crate::errors::CheckErrorKind;
+use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
 use crate::types::{
-    MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype, TraitIdentifier,
-    TupleTypeSignature,
+    BufferLength, MAX_TO_ASCII_BUFFER_LEN, MAX_TO_ASCII_RESULT_LEN, MAX_TYPE_DEPTH,
+    MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE, QualifiedContractIdentifier, SequenceSubtype,
+    StringSubtype, StringUTF8Length, TraitIdentifier, TupleTypeSignature, WRAPPER_VALUE_SIZE,
 };
+
+#[test]
+fn test_core_constants() {
+    assert_eq!(1_048_576, MAX_VALUE_SIZE);
+    assert_eq!(262_144, MAX_UTF8_VALUE_SIZE);
+    assert_eq!(1_048_571, MAX_TO_ASCII_RESULT_LEN);
+    assert_eq!(524_284, MAX_TO_ASCII_BUFFER_LEN);
+    assert_eq!(32, MAX_TYPE_DEPTH);
+    assert_eq!(1, WRAPPER_VALUE_SIZE);
+}
+
+#[test]
+fn test_buffer_length_try_from_u32_trait() {
+    let buffer = BufferLength::try_from(0_u32).unwrap();
+    assert_eq!(0, buffer.get_value());
+
+    let buffer = BufferLength::try_from(MAX_VALUE_SIZE).unwrap();
+    assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
+
+    let err = BufferLength::try_from(MAX_VALUE_SIZE + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+}
+
+#[test]
+fn test_buffer_length_try_from_usize_trait() {
+    let buffer = BufferLength::try_from(0_usize).unwrap();
+    assert_eq!(0, buffer.get_value());
+
+    let buffer = BufferLength::try_from(MAX_VALUE_SIZE as usize).unwrap();
+    assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
+
+    let err = BufferLength::try_from(MAX_VALUE_SIZE as usize + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+}
+
+#[test]
+fn test_buffer_length_try_from_i128_trait() {
+    let buffer = BufferLength::try_from(0_i128).unwrap();
+    assert_eq!(0, buffer.get_value());
+
+    let buffer = BufferLength::try_from(MAX_VALUE_SIZE as i128).unwrap();
+    assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
+
+    let err = BufferLength::try_from(MAX_VALUE_SIZE as i128 + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+
+    let err = BufferLength::try_from(-1_i128).unwrap_err();
+    assert_eq!(CheckErrors::ValueOutOfBounds, err);
+}
+
+#[test]
+fn test_buffer_length_to_u32_using_from_trait() {
+    let buffer = BufferLength::new_unsafe(0);
+    assert_eq!(0, u32::from(&buffer));
+    assert_eq!(0, u32::from(buffer));
+}
+
+#[test]
+fn test_type_buffer_min_to_be_buffer_1() {
+    assert_eq!(TypeSignature::BUFFER_1, TypeSignature::BUFFER_MIN);
+}
+
+#[test]
+fn test_type_buffer_max() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::BufferType(
+        BufferLength::new_unsafe(MAX_VALUE_SIZE),
+    ));
+    let actual = TypeSignature::BUFFER_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(
+        1_048_580,
+        actual.size().unwrap(),
+        "size should be 1_048_580"
+    );
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_buffer_1() {
+    let expected =
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(1)));
+    let actual = TypeSignature::BUFFER_1;
+
+    assert_eq!(expected, actual);
+    assert_eq!(5, actual.size().unwrap(), "size should be 5");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_buffer_20() {
+    let expected =
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(20)));
+    let actual = TypeSignature::BUFFER_20;
+
+    assert_eq!(expected, actual);
+    assert_eq!(24, actual.size().unwrap(), "size should be 24");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_buffer_32() {
+    let expected =
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(32)));
+    let actual = TypeSignature::BUFFER_32;
+
+    assert_eq!(expected, actual);
+    assert_eq!(36, actual.size().unwrap(), "size should be 36");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_buffer_33() {
+    let expected =
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(33)));
+    let actual = TypeSignature::BUFFER_33;
+
+    assert_eq!(expected, actual);
+    assert_eq!(37, actual.size().unwrap(), "size should be 37");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_buffer_64() {
+    let expected =
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(64)));
+    let actual = TypeSignature::BUFFER_64;
+
+    assert_eq!(expected, actual);
+    assert_eq!(68, actual.size().unwrap(), "size should be 68");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_buffer_65() {
+    let expected =
+        TypeSignature::SequenceType(SequenceSubtype::BufferType(BufferLength::new_unsafe(65)));
+    let actual = TypeSignature::BUFFER_65;
+
+    assert_eq!(expected, actual);
+    assert_eq!(69, actual.size().unwrap(), "size should be 69");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_ascii_min() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(1),
+    )));
+    let actual = TypeSignature::STRING_ASCII_MIN;
+
+    assert_eq!(expected, actual);
+    assert_eq!(5, actual.size().unwrap(), "size should be 5");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_ascii_max() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(MAX_VALUE_SIZE),
+    )));
+    let actual = TypeSignature::STRING_ASCII_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(
+        1_048_580,
+        actual.size().unwrap(),
+        "size should be 1_048_580"
+    );
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_ascii_40() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(40),
+    )));
+    let actual = TypeSignature::STRING_ASCII_40;
+
+    assert_eq!(expected, actual);
+    assert_eq!(44, actual.size().unwrap(), "size should be 44");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_string_utf8_length_try_from_u32_trait() {
+    let string = StringUTF8Length::try_from(0_u32).unwrap();
+    assert_eq!(0, string.get_value());
+
+    let string = StringUTF8Length::try_from(1_u32).unwrap();
+    assert_eq!(1, string.get_value());
+
+    let string = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE).unwrap();
+    assert_eq!(MAX_UTF8_VALUE_SIZE, string.get_value());
+
+    let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+}
+
+#[test]
+fn test_string_utf8_length_try_from_usize_trait() {
+    let string = StringUTF8Length::try_from(0_usize).unwrap();
+    assert_eq!(0, string.get_value());
+
+    let string = StringUTF8Length::try_from(1_usize).unwrap();
+    assert_eq!(1, string.get_value());
+
+    let string = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as usize).unwrap();
+    assert_eq!(MAX_UTF8_VALUE_SIZE, string.get_value());
+
+    let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as usize + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+}
+
+#[test]
+fn test_string_utf8_length_try_from_i128_trait() {
+    let string = StringUTF8Length::try_from(0_i128).unwrap();
+    assert_eq!(0, string.get_value());
+
+    let string = StringUTF8Length::try_from(1_i128).unwrap();
+    assert_eq!(1, string.get_value());
+
+    let string = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as i128).unwrap();
+    assert_eq!(MAX_UTF8_VALUE_SIZE, string.get_value());
+
+    let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as i128 + 1).unwrap_err();
+    assert_eq!(CheckErrors::ValueTooLarge, err);
+
+    let err = StringUTF8Length::try_from(-1_i128).unwrap_err();
+    assert_eq!(CheckErrors::ValueOutOfBounds, err);
+}
+
+#[test]
+fn test_type_string_utf8_min() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+        StringUTF8Length::new_unsafe(1),
+    )));
+    let actual = TypeSignature::STRING_UTF8_MIN;
+
+    assert_eq!(expected, actual);
+    assert_eq!(8, actual.size().unwrap(), "size should be 8");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_utf8_max() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+        StringUTF8Length::new_unsafe(MAX_UTF8_VALUE_SIZE),
+    )));
+    let actual = TypeSignature::STRING_UTF8_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(TypeSignature::STRING_UTF8_MAX, actual);
+    assert_eq!(
+        1_048_580,
+        actual.size().unwrap(),
+        "size should be 1_048_580"
+    );
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_utf8_40() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(
+        StringUTF8Length::new_unsafe(40),
+    )));
+    let actual = TypeSignature::STRING_UTF8_40;
+
+    assert_eq!(expected, actual);
+    assert_eq!(164, actual.size().unwrap(), "size should be 164");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_buffer_max_for_to_ascii_call() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::BufferType(
+        BufferLength::new_unsafe(MAX_TO_ASCII_BUFFER_LEN),
+    ));
+    let actual = TypeSignature::TO_ASCII_BUFFER_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(524_288, actual.size().unwrap(), "size should be 524_288");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_max_ascii_for_to_ascii_call() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(MAX_TO_ASCII_RESULT_LEN),
+    )));
+    let actual = TypeSignature::TO_ASCII_STRING_ASCII_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(
+        1_048_575,
+        actual.size().unwrap(),
+        "size should be 1_048_575"
+    );
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
+
+#[test]
+fn test_type_string_max_ascii_for_contract_name() {
+    let expected = TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(
+        BufferLength::new_unsafe(CONTRACT_MAX_NAME_LENGTH as u32),
+    )));
+    let actual = TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX;
+
+    assert_eq!(expected, actual);
+    assert_eq!(44, actual.size().unwrap(), "size should be 44");
+    assert_eq!(5, actual.type_size().unwrap(), "type size should be 5");
+    assert_eq!(1, actual.depth(), "depth should be 1");
+}
 
 #[test]
 fn test_least_supertype() {
@@ -68,8 +398,8 @@ fn test_least_supertype() {
             TypeSignature::BoolType,
         ),
         (
-            (TypeSignature::NoType, TypeSignature::min_buffer().unwrap()),
-            TypeSignature::min_buffer().unwrap(),
+            (TypeSignature::NoType, TypeSignature::BUFFER_MIN),
+            TypeSignature::BUFFER_MIN,
         ),
         (
             (
@@ -81,16 +411,13 @@ fn test_least_supertype() {
         (
             (
                 TypeSignature::NoType,
-                TypeSignature::bound_string_ascii_type(17).unwrap(),
+                TypeSignature::new_ascii_type_checked(17),
             ),
-            TypeSignature::bound_string_ascii_type(17).unwrap(),
+            TypeSignature::new_ascii_type_checked(17),
         ),
         (
-            (
-                TypeSignature::NoType,
-                TypeSignature::max_string_utf8().unwrap(),
-            ),
-            TypeSignature::max_string_utf8().unwrap(),
+            (TypeSignature::NoType, TypeSignature::STRING_UTF8_MAX),
+            TypeSignature::STRING_UTF8_MAX,
         ),
         (
             (TypeSignature::NoType, TypeSignature::PrincipalType),
@@ -169,11 +496,8 @@ fn test_least_supertype() {
         ((UIntType, UIntType), UIntType),
         ((BoolType, BoolType), BoolType),
         (
-            (
-                TypeSignature::max_buffer().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
-            ),
-            TypeSignature::max_buffer().unwrap(),
+            (TypeSignature::BUFFER_MAX, TypeSignature::BUFFER_MAX),
+            TypeSignature::BUFFER_MAX,
         ),
         (
             (
@@ -184,17 +508,17 @@ fn test_least_supertype() {
         ),
         (
             (
-                TypeSignature::bound_string_ascii_type(17).unwrap(),
-                TypeSignature::bound_string_ascii_type(17).unwrap(),
+                TypeSignature::new_ascii_type_checked(17),
+                TypeSignature::new_ascii_type_checked(17),
             ),
-            TypeSignature::bound_string_ascii_type(17).unwrap(),
+            TypeSignature::new_ascii_type_checked(17),
         ),
         (
             (
-                TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_UTF8_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ),
-            TypeSignature::max_string_utf8().unwrap(),
+            TypeSignature::STRING_UTF8_MAX,
         ),
         (
             (TypeSignature::PrincipalType, TypeSignature::PrincipalType),
@@ -276,11 +600,8 @@ fn test_least_supertype() {
 
     let matched_pairs = [
         (
-            (
-                TypeSignature::max_buffer().unwrap(),
-                TypeSignature::min_buffer().unwrap(),
-            ),
-            TypeSignature::max_buffer().unwrap(),
+            (TypeSignature::BUFFER_MAX, TypeSignature::BUFFER_MIN),
+            TypeSignature::BUFFER_MAX,
         ),
         (
             (
@@ -291,17 +612,17 @@ fn test_least_supertype() {
         ),
         (
             (
-                TypeSignature::min_string_ascii().unwrap(),
-                TypeSignature::bound_string_ascii_type(17).unwrap(),
+                TypeSignature::STRING_ASCII_MIN,
+                TypeSignature::new_ascii_type_checked(17),
             ),
-            TypeSignature::bound_string_ascii_type(17).unwrap(),
+            TypeSignature::new_ascii_type_checked(17),
         ),
         (
             (
-                TypeSignature::min_string_utf8().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
+                TypeSignature::STRING_UTF8_MIN,
+                TypeSignature::STRING_UTF8_MAX,
             ),
-            TypeSignature::max_string_utf8().unwrap(),
+            TypeSignature::STRING_UTF8_MAX,
         ),
         (
             (
@@ -354,7 +675,7 @@ fn test_least_supertype() {
                     5,
                 )
                 .unwrap(),
-                TypeSignature::list_of(TypeSignature::min_buffer().unwrap(), 3).unwrap(),
+                TypeSignature::list_of(TypeSignature::BUFFER_MIN, 3).unwrap(),
             ),
             TypeSignature::list_of(
                 TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -369,14 +690,14 @@ fn test_least_supertype() {
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![(
                         "b".into(),
-                        TypeSignature::min_string_ascii().unwrap(),
+                        TypeSignature::STRING_ASCII_MIN,
                     )])
                     .unwrap(),
                 ),
                 TypeSignature::TupleType(
                     TupleTypeSignature::try_from(vec![(
                         "b".into(),
-                        TypeSignature::bound_string_ascii_type(17).unwrap(),
+                        TypeSignature::new_ascii_type_checked(17),
                     )])
                     .unwrap(),
                 ),
@@ -384,18 +705,17 @@ fn test_least_supertype() {
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![(
                     "b".into(),
-                    TypeSignature::bound_string_ascii_type(17).unwrap(),
+                    TypeSignature::new_ascii_type_checked(17),
                 )])
                 .unwrap(),
             ),
         ),
         (
             (
-                TypeSignature::new_option(TypeSignature::min_string_ascii().unwrap()).unwrap(),
-                TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17).unwrap())
-                    .unwrap(),
+                TypeSignature::new_option(TypeSignature::STRING_ASCII_MIN).unwrap(),
+                TypeSignature::new_option(TypeSignature::new_ascii_type_checked(17)).unwrap(),
             ),
-            TypeSignature::new_option(TypeSignature::bound_string_ascii_type(17).unwrap()).unwrap(),
+            TypeSignature::new_option(TypeSignature::new_ascii_type_checked(17)).unwrap(),
         ),
         (
             (
@@ -427,22 +747,16 @@ fn test_least_supertype() {
     let bad_pairs = [
         (IntType, UIntType),
         (BoolType, IntType),
-        (
-            TypeSignature::max_buffer().unwrap(),
-            TypeSignature::max_string_ascii().unwrap(),
-        ),
+        (TypeSignature::BUFFER_MAX, TypeSignature::STRING_ASCII_MAX),
         (
             TypeSignature::list_of(TypeSignature::UIntType, 42).unwrap(),
             TypeSignature::list_of(TypeSignature::IntType, 42).unwrap(),
         ),
         (
-            TypeSignature::min_string_utf8().unwrap(),
-            TypeSignature::bound_string_ascii_type(17).unwrap(),
+            TypeSignature::STRING_UTF8_MIN,
+            TypeSignature::new_ascii_type_checked(17),
         ),
-        (
-            TypeSignature::min_string_utf8().unwrap(),
-            TypeSignature::min_buffer().unwrap(),
-        ),
+        (TypeSignature::STRING_UTF8_MIN, TypeSignature::BUFFER_MIN),
         (
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![("a".into(), TypeSignature::IntType)]).unwrap(),
@@ -453,7 +767,7 @@ fn test_least_supertype() {
         ),
         (
             TypeSignature::new_option(TypeSignature::IntType).unwrap(),
-            TypeSignature::new_option(TypeSignature::min_string_utf8().unwrap()).unwrap(),
+            TypeSignature::new_option(TypeSignature::STRING_UTF8_MIN).unwrap(),
         ),
         (
             TypeSignature::new_response(TypeSignature::IntType, TypeSignature::BoolType).unwrap(),
@@ -473,10 +787,7 @@ fn test_least_supertype() {
             TypeSignature::PrincipalType,
         ),
         (list_union.clone(), TypeSignature::PrincipalType),
-        (
-            TypeSignature::min_string_ascii().unwrap(),
-            list_union_principals,
-        ),
+        (TypeSignature::STRING_ASCII_MIN, list_union_principals),
         (
             TypeSignature::list_of(
                 TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -485,23 +796,20 @@ fn test_least_supertype() {
                 5,
             )
             .unwrap(),
-            TypeSignature::list_of(TypeSignature::min_string_ascii().unwrap(), 3).unwrap(),
+            TypeSignature::list_of(TypeSignature::STRING_ASCII_MIN, 3).unwrap(),
         ),
         (
             TypeSignature::TupleType(
-                TupleTypeSignature::try_from(vec![(
-                    "b".into(),
-                    TypeSignature::min_string_ascii().unwrap(),
-                )])
-                .unwrap(),
+                TupleTypeSignature::try_from(vec![("b".into(), TypeSignature::STRING_ASCII_MIN)])
+                    .unwrap(),
             ),
             TypeSignature::TupleType(
                 TupleTypeSignature::try_from(vec![("b".into(), TypeSignature::UIntType)]).unwrap(),
             ),
         ),
         (
-            TypeSignature::new_option(TypeSignature::min_string_ascii().unwrap()).unwrap(),
-            TypeSignature::new_option(TypeSignature::min_string_utf8().unwrap()).unwrap(),
+            TypeSignature::new_option(TypeSignature::STRING_ASCII_MIN).unwrap(),
+            TypeSignature::new_option(TypeSignature::STRING_UTF8_MIN).unwrap(),
         ),
         (
             TypeSignature::new_response(TypeSignature::PrincipalType, list_union).unwrap(),
@@ -525,15 +833,4 @@ fn test_least_supertype() {
             CheckErrorKind::TypeError(..)
         );
     }
-}
-
-#[test]
-fn test_type_signature_bound_string_ascii_type_returns_check_errors() {
-    let err = TypeSignature::bound_string_ascii_type(MAX_VALUE_SIZE + 1).unwrap_err();
-    assert_eq!(
-        CheckErrorKind::Expects(
-            "FAIL: Max Clarity Value Size is no longer realizable in ASCII Type".to_string()
-        ),
-        err
-    );
 }

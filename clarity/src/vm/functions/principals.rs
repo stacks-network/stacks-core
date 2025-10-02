@@ -13,7 +13,6 @@ use crate::vm::errors::{
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
 };
-use crate::vm::types::signatures::{BUFF_1, BUFF_20};
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
@@ -212,7 +211,11 @@ pub fn special_principal_construct(
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
                 Err(
-                    CheckErrorKind::TypeValueError(Box::new(BUFF_1.clone()), Box::new(version))
+                    CheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_1),
+                    Box::new(version),
+                )
+                
                         .into(),
                 )
             };
@@ -221,9 +224,11 @@ pub fn special_principal_construct(
 
     let version_byte = if verified_version.len() > 1 {
         // should have been caught by the type-checker
-        return Err(
-            CheckErrorKind::TypeValueError(Box::new(BUFF_1.clone()), Box::new(version)).into(),
-        );
+        return Err(CheckErrorKind::TypeValueError(
+            Box::new(TypeSignature::BUFFER_1),
+            Box::new(version),
+        )
+        .into());
     } else if verified_version.is_empty() {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
         // will type-check to (buff 1)
@@ -248,7 +253,7 @@ pub fn special_principal_construct(
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
         _ => {
             return Err(CheckErrorKind::TypeValueError(
-                Box::new(BUFF_20.clone()),
+                Box::new(TypeSignature::BUFFER_20),
                 Box::new(hash_bytes),
             )
             .into())
@@ -259,7 +264,7 @@ pub fn special_principal_construct(
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_hash_bytes.len() > 20 {
         return Err(CheckErrorKind::TypeValueError(
-            Box::new(BUFF_20.clone()),
+            Box::new(TypeSignature::BUFFER_20),
             Box::new(hash_bytes),
         )
         .into());
@@ -283,7 +288,7 @@ pub fn special_principal_construct(
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
             _ => {
                 return Err(CheckErrorKind::TypeValueError(
-                    Box::new(TypeSignature::contract_name_string_ascii_type()?),
+                    Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                     Box::new(name),
                 )
                 .into())
@@ -300,7 +305,7 @@ pub fn special_principal_construct(
         // if it's too long, then this should have been caught by the type-checker
         if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
             return Err(CheckErrorKind::TypeValueError(
-                Box::new(TypeSignature::contract_name_string_ascii_type()?),
+                Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
                 Box::new(Value::from(name_bytes)),
             )
             .into());
