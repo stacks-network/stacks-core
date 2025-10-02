@@ -27,7 +27,6 @@ use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKe
 use clarity::types::{StacksEpoch, StacksEpochId};
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::ast::errors::{ParseError, ParseErrors};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
@@ -42,7 +41,6 @@ use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::StacksEpochReceipt;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TenureChangeCause};
 use crate::chainstate::tests::TestChainstate;
-use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::test_util::{make_contract_publish, make_stacks_transfer_tx};
 use crate::core::{EpochList, BLOCK_LIMIT_MAINNET_21};
 use crate::net::tests::NakamotoBootPlan;
@@ -574,7 +572,6 @@ fn test_append_stx_transfers_success() {
 
 #[test]
 fn test_append_chainstate_error_expression_stack_depth_too_deep() {
-    let sender_privk = StacksPrivateKey::from_hex(SK_1).unwrap();
     let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
     let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
     let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
@@ -591,13 +588,7 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
     );
 
     let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-    let initial_balances = vec![(
-        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&sender_privk)).into(),
-        tx_fee,
-    )];
-    let e = ChainstateError::ClarityError(ClarityError::Parse(ParseError::new(
-        ParseErrors::ExpressionStackDepthTooDeep,
-    )));
+
     let mut epoch_blocks = HashMap::new();
     epoch_blocks.insert(
         StacksEpochId::Epoch30,
@@ -629,7 +620,7 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
     );
 
     let test_vector = ConsensusTestVector { epoch_blocks };
-    let result = ConsensusTest::new(function_name!(), initial_balances).run(test_vector);
+    let result = ConsensusTest::new(function_name!(), vec![]).run(test_vector);
     insta::assert_ron_snapshot!(result);
 }
 
