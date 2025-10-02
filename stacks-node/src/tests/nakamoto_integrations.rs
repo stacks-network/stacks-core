@@ -5300,8 +5300,8 @@ fn burn_ops_integration_test() {
 /// Miner B starts its tenure, Miner B produces a Stacks block b_0, but miner C submits its block commit before b_0 is broadcasted.
 /// Bitcoin block C, containing Miner C's block commit, is mined BEFORE miner C has a chance to update their block commit with b_0's information.
 /// This test asserts:
-///  * tenure C ignores b_0, and correctly builds off of block a_x.
-fn forked_tenure_is_ignored() {
+///  * tenure C correctly extends b_0, building off of block B despite the commit being submitted before b_0 was broadcasted.
+fn bad_commit_does_not_trigger_fork() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
