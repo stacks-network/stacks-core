@@ -437,7 +437,7 @@ pub fn special_replace_at(
     runtime_cost(ClarityCostFunction::ReplaceAt, env, seq_type.size()?)?;
 
     let expected_elem_type = if let TypeSignature::SequenceType(seq_subtype) = &seq_type {
-        seq_subtype.unit_type()?
+        seq_subtype.unit_type()
     } else {
         return Err(CheckErrors::ExpectedSequence(Box::new(seq_type)).into());
     };

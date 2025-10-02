@@ -10,7 +10,7 @@ use crate::vm::{
     errors::CheckErrors,
     functions::principals::PrincipalConstructErrorCode,
     types::TypeSignature::PrincipalType,
-    types::{ResponseData, TypeSignature, BUFF_1, BUFF_20},
+    types::{ResponseData, TypeSignature},
 };
 use crate::vm::{execute_with_parameters, ClarityVersion};
 
@@ -906,7 +906,7 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct? 0x590493 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            Box::new(BUFF_1.clone()),
+            Box::new(TypeSignature::BUFFER_1),
             Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("590493").unwrap()
             }))),
@@ -924,10 +924,11 @@ fn test_principal_construct_check_errors() {
     // `CheckErrors`.
     let input = r#"(principal-construct? u22 0x0102030405060708091011121314151617181920)"#;
     assert_eq!(
-        Err(
-            CheckErrors::TypeValueError(Box::new(BUFF_1.clone()), Box::new(Value::UInt(22)),)
-                .into()
-        ),
+        Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BUFFER_1),
+            Box::new(Value::UInt(22)),
+        )
+        .into()),
         execute_with_parameters(
             input,
             ClarityVersion::Clarity2,
@@ -948,7 +949,7 @@ fn test_principal_construct_check_errors() {
         )
         .unwrap_err(),
         CheckErrors::TypeValueError(
-            Box::new(BUFF_20.clone()),
+            Box::new(TypeSignature::BUFFER_20),
             Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
                 data: hex_bytes("010203040506070809101112131415161718192021").unwrap()
             }))),
@@ -960,7 +961,7 @@ fn test_principal_construct_check_errors() {
     let input = r#"(principal-construct? 0x16 0x0102030405060708091011121314151617181920 "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")"#;
     assert_eq!(
         Err(CheckErrors::TypeValueError(
-            Box::new(TypeSignature::contract_name_string_ascii_type().unwrap()),
+            Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
                     data: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
