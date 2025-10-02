@@ -474,28 +474,28 @@ fn test_append_state_index_root_mismatches() {
     epoch_blocks.insert(
         StacksEpochId::Epoch30,
         vec![TestBlock {
-            marf_hash: "f1934080b22ef0192cfb39710690e7cb0efa9cff950832b33544bde3aa1484a5".into(),
+            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![],
         }],
     );
     epoch_blocks.insert(
         StacksEpochId::Epoch31,
         vec![TestBlock {
-            marf_hash: "a05f1383613215f5789eb977e4c62dfbb789d90964e14865d109375f7f6dc3cf".into(),
+            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![],
         }],
     );
     epoch_blocks.insert(
         StacksEpochId::Epoch32,
         vec![TestBlock {
-            marf_hash: "c17829daff8746329c65ae658f4087519c6a8bd8c7f21e51644ddbc9c010390f".into(),
+            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![],
         }],
     );
     epoch_blocks.insert(
         StacksEpochId::Epoch33,
         vec![TestBlock {
-            marf_hash: "23ecbcb91cac914ba3994a15f3ea7189bcab4e9762530cd0e6c7d237fcd6dc78".into(),
+            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![],
         }],
     );
