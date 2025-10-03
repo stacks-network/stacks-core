@@ -651,9 +651,10 @@ impl ConsensusTest<'_> {
                     Ok(())
                 })
             })
-            .unwrap();
+            .expect("MARF: Failure on block metadata setup!");
 
-        StacksChainState::process_block_transactions(&mut clarity_tx, block_txs, 0).unwrap();
+        StacksChainState::process_block_transactions(&mut clarity_tx, block_txs, 0)
+            .expect("MARF: Failure on processing block transactions!");
 
         NakamotoChainState::finish_block(
             &mut clarity_tx,
@@ -661,7 +662,7 @@ impl ConsensusTest<'_> {
             false,
             chain_tip.burn_header_height,
         )
-        .unwrap();
+        .expect("MARF: Failure on finishing block!");
 
         let trie_hash = clarity_tx.seal();
         clarity_tx.rollback_block();
