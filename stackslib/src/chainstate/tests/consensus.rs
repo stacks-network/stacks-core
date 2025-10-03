@@ -39,8 +39,11 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::boot::{RewardSet, RewardSetData};
-use crate::chainstate::stacks::db::StacksEpochReceipt;
-use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TenureChangeCause};
+use crate::chainstate::stacks::db::{StacksChainState, StacksEpochReceipt};
+use crate::chainstate::stacks::{
+    Error as ChainstateError, StacksTransaction, TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH,
+    MINER_BLOCK_HEADER_HASH,
+};
 use crate::chainstate::tests::TestChainstate;
 use crate::clarity_vm::clarity::{Error as ClarityError, PreCommitClarityBlock};
 use crate::core::test_util::{make_contract_publish, make_stacks_transfer_tx};
@@ -170,6 +173,16 @@ pub enum ExpectedResult {
     Failure(String),
 }
 
+impl ExpectedResult {
+    pub fn is_success(&self) -> bool {
+        matches!(&self, Self::Success(_))
+    }
+
+    pub fn is_failure(&self) -> bool {
+        matches!(&self, Self::Failure(_))
+    }
+}
+
 /// Represents a block to be appended in a test and its expected result.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TestBlock {
@@ -179,6 +192,16 @@ pub struct TestBlock {
     pub transactions: Vec<StacksTransaction>,
     /// The expected result after appending the constructed block.
     pub expected_result: ExpectedResult,
+}
+
+impl TestBlock {
+    pub fn is_success(&self) -> bool {
+        self.expected_result.is_success()
+    }
+
+    pub fn is_failure(&self) -> bool {
+        self.expected_result.is_failure()
+    }
 }
 
 /// Defines a test vector for a consensus test, including chainstate setup and expected outcomes.
@@ -459,10 +482,10 @@ impl ConsensusTest<'_> {
                 self.test_vector.epoch_blocks[&epoch].len()
             );
             self.advance_to_epoch(epoch);
-            for (i, block) in self.test_vector.epoch_blocks[&epoch].iter().enumerate() {
+            let epoch_blocks = self.test_vector.epoch_blocks[&epoch].clone();
+            for (i, block) in epoch_blocks.iter().enumerate() {
                 debug!("--------- Running block {i} for epoch {epoch:?} ---------");
-                let (nakamoto_block, block_size) =
-                    self.construct_nakamoto_block(&block.marf_hash, &block.transactions);
+                let (nakamoto_block, block_size) = self.construct_nakamoto_block(&block);
                 let sortdb = self.chain.sortdb.take().unwrap();
                 let chain_tip = NakamotoChainState::get_canonical_block_header(
                     self.chain.stacks_node().chainstate.db(),
@@ -524,13 +547,8 @@ impl ConsensusTest<'_> {
         }
     }
 
-    /// Constructs a Nakamoto block with the given transactions and state index root.
-    fn construct_nakamoto_block(
-        &self,
-        marf_hash: &str,
-        transactions: &[StacksTransaction],
-    ) -> (NakamotoBlock, usize) {
-        let state_index_root = TrieHash::from_hex(marf_hash).unwrap();
+    /// Constructs a Nakamoto block with the given [`TestBlock`] configuration.
+    fn construct_nakamoto_block(&mut self, test_block: &TestBlock) -> (NakamotoBlock, usize) {
         let chain_tip = NakamotoChainState::get_canonical_block_header(
             self.chain.stacks_node.as_ref().unwrap().chainstate.db(),
             self.chain.sortdb.as_ref().unwrap(),
@@ -553,13 +571,13 @@ impl ConsensusTest<'_> {
                 consensus_hash: chain_tip.consensus_hash.clone(),
                 parent_block_id: chain_tip.index_block_hash(),
                 tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
-                state_index_root,
+                state_index_root: TrieHash::from_empty_data(),
                 timestamp: 1,
                 miner_signature: MessageSignature::empty(),
                 signer_signature: vec![],
                 pox_treatment: BitVec::ones(1).unwrap(),
             },
-            txs: transactions.to_vec(),
+            txs: test_block.transactions.to_vec(),
         };
 
         let tx_merkle_root = {
@@ -570,13 +588,72 @@ impl ConsensusTest<'_> {
                 .collect();
             MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
         };
-
         block.header.tx_merkle_root = tx_merkle_root;
+
+        block.header.state_index_root = if test_block.is_success() {
+            self.compute_block_marf_index(block.header.timestamp, &block.txs)
+        } else {
+            //64 hex zeroes
+            TrieHash::from_bytes(&[0; 32]).unwrap()
+        };
+
         self.chain.miner.sign_nakamoto_block(&mut block);
         let mut signers = self.chain.config.test_signers.clone().unwrap_or_default();
         signers.sign_nakamoto_block(&mut block, cycle);
         let block_len = block.serialize_to_vec().len();
         (block, block_len)
+    }
+
+    fn compute_block_marf_index(
+        &mut self,
+        block_time: u64,
+        block_txs: &Vec<StacksTransaction>,
+    ) -> TrieHash {
+        let node = self.chain.stacks_node.as_mut().unwrap();
+        let sortdb = self.chain.sortdb.as_ref().unwrap();
+        let burndb_conn = sortdb.index_handle_at_tip();
+        let chainstate = &mut node.chainstate;
+
+        let chain_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+            .unwrap()
+            .unwrap();
+
+        let (chainstate_tx, clarity_instance) = chainstate.chainstate_tx_begin().unwrap();
+        let burndb_conn = sortdb.index_handle_at_tip();
+
+        let mut clarity_tx = StacksChainState::chainstate_block_begin(
+            &chainstate_tx,
+            clarity_instance,
+            &burndb_conn,
+            &chain_tip.consensus_hash,
+            &chain_tip.anchored_header.block_hash(),
+            &MINER_BLOCK_CONSENSUS_HASH,
+            &MINER_BLOCK_HEADER_HASH,
+        );
+
+        clarity_tx
+            .connection()
+            .as_free_transaction(|clarity_tx_conn| {
+                clarity_tx_conn.with_clarity_db(|db| {
+                    db.setup_block_metadata(Some(block_time))?;
+                    Ok(())
+                })
+            })
+            .unwrap();
+
+        StacksChainState::process_block_transactions(&mut clarity_tx, block_txs, 0).unwrap();
+
+        NakamotoChainState::finish_block(
+            &mut clarity_tx,
+            None,
+            false,
+            chain_tip.burn_header_height,
+        )
+        .unwrap();
+
+        let trie_hash = clarity_tx.seal();
+        clarity_tx.rollback_block();
+        return trie_hash;
     }
 }
 
