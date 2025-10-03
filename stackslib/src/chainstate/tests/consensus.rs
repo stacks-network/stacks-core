@@ -174,10 +174,11 @@ pub enum ExpectedResult {
 }
 
 impl ExpectedResult {
+    /// Returns `true` if this result represents a successful outcome.
     pub fn is_success(&self) -> bool {
         matches!(&self, Self::Success(_))
     }
-
+    /// Returns `true` if this result represents a failed outcome.
     pub fn is_failure(&self) -> bool {
         matches!(&self, Self::Failure(_))
     }
@@ -195,10 +196,12 @@ pub struct TestBlock {
 }
 
 impl TestBlock {
+    /// Returns `true` if the [`ExpectedResult`] variant represents a successful outcome.
     pub fn is_success(&self) -> bool {
         self.expected_result.is_success()
     }
 
+    /// Returns `true` if the [`ExpectedResult`] variant represents a failed outcome.
     pub fn is_failure(&self) -> bool {
         self.expected_result.is_failure()
     }
@@ -590,10 +593,11 @@ impl ConsensusTest<'_> {
         };
         block.header.tx_merkle_root = tx_merkle_root;
 
+        // Set the MARF root hash: compute it for success cases,
+        // or use an all-zero hash for failure cases.
         block.header.state_index_root = if test_block.is_success() {
-            self.compute_block_marf_index(block.header.timestamp, &block.txs)
+            self.compute_block_marf_root_hash(block.header.timestamp, &block.txs)
         } else {
-            //64 hex zeroes
             TrieHash::from_bytes(&[0; 32]).unwrap()
         };
 
@@ -604,7 +608,15 @@ impl ConsensusTest<'_> {
         (block, block_len)
     }
 
-    fn compute_block_marf_index(
+    /// Computes the MARF root hash for a block.
+    ///
+    /// This function is intended for use in success test cases only, where all
+    /// transactions are valid. In other scenarios, the computation may fail.
+    ///
+    /// The implementation is deliberately minimal: it does not cover every
+    /// possible situation (such as new tenure handling), but it should be
+    /// sufficient for the scope of our test cases.
+    fn compute_block_marf_root_hash(
         &mut self,
         block_time: u64,
         block_txs: &Vec<StacksTransaction>,
