@@ -187,8 +187,6 @@ impl ExpectedResult {
 /// Represents a block to be appended in a test and its expected result.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TestBlock {
-    /// Hex representation of the MARF hash for block construction.
-    pub marf_hash: String,
     /// Transactions to include in the block
     pub transactions: Vec<StacksTransaction>,
     /// The expected result after appending the constructed block.
@@ -680,7 +678,6 @@ fn test_append_empty_blocks() {
     epoch_blocks.insert(
         StacksEpochId::Epoch30,
         vec![TestBlock {
-            marf_hash: "f1934080b22ef0192cfb39710690e7cb0efa9cff950832b33544bde3aa1484a5".into(),
             transactions: vec![],
             expected_result: expected_result.clone(),
         }],
@@ -688,7 +685,6 @@ fn test_append_empty_blocks() {
     epoch_blocks.insert(
         StacksEpochId::Epoch31,
         vec![TestBlock {
-            marf_hash: "a05f1383613215f5789eb977e4c62dfbb789d90964e14865d109375f7f6dc3cf".into(),
             transactions: vec![],
             expected_result: expected_result.clone(),
         }],
@@ -696,7 +692,6 @@ fn test_append_empty_blocks() {
     epoch_blocks.insert(
         StacksEpochId::Epoch32,
         vec![TestBlock {
-            marf_hash: "c17829daff8746329c65ae658f4087519c6a8bd8c7f21e51644ddbc9c010390f".into(),
             transactions: vec![],
             expected_result: expected_result.clone(),
         }],
@@ -704,7 +699,6 @@ fn test_append_empty_blocks() {
     epoch_blocks.insert(
         StacksEpochId::Epoch33,
         vec![TestBlock {
-            marf_hash: "23ecbcb91cac914ba3994a15f3ea7189bcab4e9762530cd0e6c7d237fcd6dc78".into(),
             transactions: vec![],
             expected_result: expected_result.clone(),
         }],
@@ -723,7 +717,6 @@ fn test_append_state_index_root_mismatches() {
     epoch_blocks.insert(
         StacksEpochId::Epoch30,
         vec![TestBlock {
-            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![],
             expected_result: ExpectedResult::Failure(
                 ChainstateError::InvalidStacksBlock(
@@ -736,7 +729,6 @@ fn test_append_state_index_root_mismatches() {
     epoch_blocks.insert(
         StacksEpochId::Epoch31,
         vec![TestBlock {
-            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![],
             expected_result: ExpectedResult::Failure(
                 ChainstateError::InvalidStacksBlock(
@@ -749,7 +741,6 @@ fn test_append_state_index_root_mismatches() {
     epoch_blocks.insert(
         StacksEpochId::Epoch32,
         vec![TestBlock {
-            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![],
             expected_result: ExpectedResult::Failure(
                 ChainstateError::InvalidStacksBlock(
@@ -762,7 +753,6 @@ fn test_append_state_index_root_mismatches() {
     epoch_blocks.insert(
         StacksEpochId::Epoch33,
         vec![TestBlock {
-            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![],
             expected_result: ExpectedResult::Failure(
                 ChainstateError::InvalidStacksBlock(
@@ -833,7 +823,6 @@ fn test_append_stx_transfers_success() {
     epoch_blocks.insert(
         StacksEpochId::Epoch30,
         vec![TestBlock {
-            marf_hash: "63ea49669d2216ebc7e4f8b5e1cd2c99b8aff9806794adf87dcf709c0a244798".into(),
             transactions: transactions.clone(),
             expected_result: ExpectedResult::Success(outputs.clone()),
         }],
@@ -841,7 +830,6 @@ fn test_append_stx_transfers_success() {
     epoch_blocks.insert(
         StacksEpochId::Epoch31,
         vec![TestBlock {
-            marf_hash: "7fc538e605a4a353871c4a655ae850fe9a70c3875b65f2bb42ea3bef5effed2c".into(),
             transactions: transactions.clone(),
             expected_result: ExpectedResult::Success(outputs.clone()),
         }],
@@ -849,7 +837,6 @@ fn test_append_stx_transfers_success() {
     epoch_blocks.insert(
         StacksEpochId::Epoch32,
         vec![TestBlock {
-            marf_hash: "4d5c9a6d07806ac5006137de22b083de66fff7119143dd5cd92e4a457d66e028".into(),
             transactions: transactions.clone(),
             expected_result: ExpectedResult::Success(outputs.clone()),
         }],
@@ -857,7 +844,6 @@ fn test_append_stx_transfers_success() {
     epoch_blocks.insert(
         StacksEpochId::Epoch33,
         vec![TestBlock {
-            marf_hash: "66eed8c0ab31db111a5adcc83d38a7004c6e464e3b9fb9f52ec589bc6d5f2d32".into(),
             transactions: transactions.clone(),
             expected_result: ExpectedResult::Success(outputs.clone()),
         }],
@@ -900,7 +886,6 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
     epoch_blocks.insert(
         StacksEpochId::Epoch30,
         vec![TestBlock {
-            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![tx.clone()],
             expected_result: ExpectedResult::Failure(
                 ChainstateError::InvalidStacksBlock(format!(
@@ -913,7 +898,6 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
     epoch_blocks.insert(
         StacksEpochId::Epoch31,
         vec![TestBlock {
-            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![tx.clone()],
             expected_result: ExpectedResult::Failure(
                 ChainstateError::InvalidStacksBlock(format!(
@@ -926,7 +910,6 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
     epoch_blocks.insert(
         StacksEpochId::Epoch32,
         vec![TestBlock {
-            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![tx.clone()],
             expected_result: ExpectedResult::Failure(
                 ChainstateError::InvalidStacksBlock(format!(
@@ -939,7 +922,6 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
     epoch_blocks.insert(
         StacksEpochId::Epoch33,
         vec![TestBlock {
-            marf_hash: "0000000000000000000000000000000000000000000000000000000000000000".into(),
             transactions: vec![tx.clone()],
             expected_result: ExpectedResult::Failure(
                 ChainstateError::InvalidStacksBlock(format!(
