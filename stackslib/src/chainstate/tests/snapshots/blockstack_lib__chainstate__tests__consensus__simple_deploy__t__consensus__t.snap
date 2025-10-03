@@ -1,0 +1,28 @@
+---
+source: stackslib/src/chainstate/tests/consensus.rs
+expression: res
+---
+Success(ExpectedBlockOutput(
+  transactions: [
+    ExpectedTransactionOutput(
+      return_type: Response(ResponseData(
+        committed: true,
+        data: Bool(true),
+      )),
+      cost: ExecutionCost(
+        write_length: 121,
+        write_count: 2,
+        read_length: 1,
+        read_count: 1,
+        runtime: 11968,
+      ),
+    ),
+  ],
+  total_block_cost: ExecutionCost(
+    write_length: 121,
+    write_count: 2,
+    read_length: 1,
+    read_count: 1,
+    runtime: 11968,
+  ),
+))

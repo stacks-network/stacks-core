@@ -31,6 +31,7 @@ use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{Value as ClarityValue, MAX_CALL_STACK_DEPTH};
+use pinny::tag;
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
 
@@ -59,6 +60,351 @@ pub const FAUCET_PRIV_KEY: LazyCell<StacksPrivateKey> = LazyCell::new(|| {
 
 const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
+
+/// Generates a consensus test function that validates blockchain state transitions across epochs.
+///
+/// This macro creates a test that runs transactions against specified MARF (Merkelized Adaptive
+/// Radix Forest) states across multiple epochs, then captures the results as snapshot tests.
+///
+/// # Arguments
+///
+/// * `name` - Identifier for the generated test function
+/// * `epochs` - Optional array of epoch identifiers. If omitted, tests all epochs >= Epoch30.
+///   When provided, must be same length as `marfs` (compile-time enforced)
+/// * `txs` - Array of transactions to execute in each epoch's test block
+/// * `marfs` - Array of MARF hash strings. Length must match `epochs` if epochs are specified,
+///   otherwise one MARF per default epoch (Epoch30, Epoch31, Epoch32, Epoch33)
+/// * `initial_balances` - Optional `Vec<(PrincipalData, u64)>` of initial account balances.
+///   Defaults to empty vec if omitted
+/// * `expect_same_result` - Optional boolean flag (defaults to `false`)
+///   - `true`: Uses `insta::allow_duplicates!` to create multiple snapshots from iteration
+///   - `false`: Creates a single snapshot of the entire result
+///
+/// # Compile-Time Guarantees
+///
+/// The macro enforces that the number of epochs matches the number of MARF hashes at compile time.
+/// If the lengths don't match, compilation will fail with a type error.
+///
+/// When epochs are omitted, the macro automatically tests against all epochs >= 3.0. If a new
+/// epoch is added to `StacksEpochId`, you must explicitly update the `ALL_EPOCHS_GTE_30` constant
+/// in the macro, which will cause a compile error if the MARF count doesn't match.
+///
+/// # Examples
+///
+/// ```ignore
+/// // Test all epochs >= 3.0 (must provide 4 MARFs for Epoch30, 31, 32, 33)
+/// consensus_test!(
+///     test_all_recent_epochs,
+///     txs: [transfer_tx_1, transfer_tx_2],
+///     marfs: ["hash_30", "hash_31", "hash_32", "hash_33"]
+/// );
+///
+/// // Test specific epochs with custom initial balances
+/// consensus_test!(
+///     test_simple_transfer,
+///     epochs: [StacksEpochId::Epoch30, StacksEpochId::Epoch31],
+///     txs: [transfer_tx_1, transfer_tx_2],
+///     marfs: ["hash_1", "hash_2"],
+///     initial_balances: vec![(principal_alice, 1000), (principal_bob, 500)]
+/// );
+///
+/// // With explicit expect_same_result flag
+/// consensus_test!(
+///     test_multi_snapshot,
+///     epochs: [StacksEpochId::Epoch32],
+///     txs: [tx_a, tx_b],
+///     marfs: ["marf_a"],
+///     expect_same_result: true
+/// );
+///
+/// // All parameters with trailing commas
+/// consensus_test!(
+///     test_full_params,
+///     epochs: [StacksEpochId::Epoch30, StacksEpochId::Epoch31,],
+///     txs: [some_tx,],
+///     marfs: ["marf_a", "marf_b",],
+///     initial_balances: vec![(alice, 100),],
+///     expect_same_result: false,
+/// );
+/// ```
+///
+/// # Generated Test Structure
+///
+/// The macro generates a test function that:
+/// 1. Validates that epochs and marfs arrays have matching lengths (at compile time)
+/// 2. Creates a `TestBlock` for each epoch with the corresponding MARF hash and all transactions
+/// 3. Constructs a `ConsensusTestVector` with specified (or empty) initial balances
+/// 4. Runs the consensus test
+/// 5. Creates snapshot(s) using `insta::assert_ron_snapshot!`
+macro_rules! consensus_test {
+    // Entry point with epochs specified
+    (
+        $name:ident,
+        epochs: [$($epoch:expr),+ $(,)?],
+        txs: [$($tx:expr),+ $(,)?],
+        marfs: [$($marf:expr),+ $(,)?]
+        $(, initial_balances: $initial_balances:expr)?
+        $(, expect_same_result: $expect_same_result:expr)?
+        $(,)?
+    ) => {
+        consensus_test!(@impl $name,
+            epochs_provided: [$($epoch),+],
+            txs: [$($tx),+],
+            marfs: [$($marf),+],
+            initial_balances: ($($initial_balances)?),
+            expect_same_result: ($($expect_same_result)?)
+        );
+    };
+
+    // Entry point without epochs (defaults to all epochs >= 3.0)
+    (
+        $name:ident,
+        txs: [$($tx:expr),+ $(,)?],
+        marfs: [$($marf:expr),+ $(,)?]
+        $(, initial_balances: $initial_balances:expr)?
+        $(, expect_same_result: $expect_same_result:expr)?
+        $(,)?
+    ) => {
+        consensus_test!(@impl $name,
+            epochs_default: [],
+            txs: [$($tx),+],
+            marfs: [$($marf),+],
+            initial_balances: ($($initial_balances)?),
+            expect_same_result: ($($expect_same_result)?)
+        );
+    };
+
+    // Implementation with epochs provided
+    (@impl $name:ident,
+        epochs_provided: [$($epoch:expr),+],
+        txs: [$($tx:expr),+],
+        marfs: [$($marf:expr),+],
+        initial_balances: ($($initial_balances:expr)?),
+        expect_same_result: ($($expect_same_result:expr)?)
+    ) => {
+        #[tag(consensus)]
+        #[test]
+        fn $name() {
+            // Compile-time validation: ensure epochs and marfs have same length
+            const EPOCHS_LEN: usize = { 0 $(+ { let _ = $epoch; 1 })+ };
+            const MARFS_LEN: usize = { 0 $(+ { let _ = stringify!($marf); 1 })+ };
+            const _: [(); EPOCHS_LEN] = [(); MARFS_LEN];
+
+            let epochs_vec = vec![$($epoch),+];
+            consensus_test!(@run_test, epochs_vec, [$($tx),+], [$($marf),+], ($($initial_balances)?), ($($expect_same_result)?));
+        }
+    };
+
+    // Implementation without epochs (use defaults)
+    (@impl $name:ident,
+        epochs_default: [],
+        txs: [$($tx:expr),+],
+        marfs: [$($marf:expr),+],
+        initial_balances: ($($initial_balances:expr)?),
+        expect_same_result: ($($expect_same_result:expr)?)
+    ) => {
+        #[tag(consensus)]
+        #[test]
+        fn $name() {
+            // Define all epochs >= 3.0 that should be tested by default
+            // IMPORTANT: If you add a new epoch >= 3.0 to StacksEpochId, you MUST add it here
+            // or the compile-time MARF count validation will fail.
+            const ALL_EPOCHS_GTE_30: &[StacksEpochId] = &[
+                StacksEpochId::Epoch30,
+                StacksEpochId::Epoch31,
+                StacksEpochId::Epoch32,
+                StacksEpochId::Epoch33,
+            ];
+
+            // Compile-time validation: ensure marfs count matches default epochs count
+            const MARFS_LEN: usize = { 0 $(+ { let _ = stringify!($marf); 1 })+ };
+            const DEFAULT_EPOCHS_LEN: usize = ALL_EPOCHS_GTE_30.len();
+            const _: [(); DEFAULT_EPOCHS_LEN] = [(); MARFS_LEN];
+
+            let epochs_vec = ALL_EPOCHS_GTE_30.to_vec();
+            consensus_test!(@run_test, epochs_vec, [$($tx),+], [$($marf),+], ($($initial_balances)?), ($($expect_same_result)?));
+        }
+    };
+
+    // Shared test execution logic
+    (@run_test, $epochs_vec:expr, [$($tx:expr),+], [$($marf:expr),+], ($($initial_balances:expr)?), ($($expect_same_result:expr)?)) => {
+        {
+            let marfs_vec = vec![$($marf.to_string()),+];
+            let txs_vec = vec![$($tx.clone()),+];
+
+            // Create epoch blocks by pairing each epoch with its corresponding MARF hash
+            let epoch_blocks = $epochs_vec
+                .into_iter()
+                .zip(marfs_vec)
+                .map(|(epoch, marf_hash)| {
+                    (
+                        epoch,
+                        vec![TestBlock {
+                            marf_hash,
+                            transactions: txs_vec.clone(),
+                        }],
+                    )
+                })
+                .collect();
+
+            // Handle initial_balances parameter (default to empty vec if not provided)
+            #[allow(unused_mut)]
+            let mut initial_balances = vec![];
+            $(initial_balances = $initial_balances;)?
+
+            let test_vector = ConsensusTestVector {
+                initial_balances,
+                epoch_blocks,
+            };
+
+            let result = ConsensusTest::new(function_name!(), test_vector).run();
+
+            // Handle expect_same_result parameter (default to false if not provided)
+            let mut expect_same = false;
+            $(expect_same = $expect_same_result;)?
+
+            if expect_same {
+                // Allow duplicate snapshots - useful for iterating over results
+                // where each iteration should produce the same snapshot
+                insta::allow_duplicates! {
+                    for res in result {
+                        insta::assert_ron_snapshot!(res);
+                    }
+                }
+            } else {
+                // Standard single snapshot of the entire result
+                insta::assert_ron_snapshot!(result);
+            }
+        }
+    };
+}
+
+// #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+// pub struct EpochTestConfig {
+//     /// The epoch ID for this configuration
+//     pub epoch_id: StacksEpochId,
+//     /// If None, uses default_transactions. If Some, overrides completely.
+//     pub blocks: Option<Vec<TestBlock>>,
+// }
+
+// #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+// pub struct ConsensusTestVector {
+//     /// Default transactions to apply to all epochs unless overridden
+//     pub default_transactions: Vec<StacksTransaction>,
+
+//     // /// Epoch-specific configurations (overrides defaults)
+//     // pub epochs: Vec<EpochTestConfig>,
+// }
+
+/// A helper to create transactions with incrementing nonces for each account.
+pub struct TransactionFactory {
+    /// Map of address to next nonce
+    nonce_counter: HashMap<StacksAddress, u64>,
+    /// The default chain ID to use for transactions
+    default_chain_id: u32,
+}
+
+impl TransactionFactory {
+    /// Creates a new [`TransactionFactory`] with the specified default chain ID.
+    pub fn new(default_chain_id: u32) -> Self {
+        Self {
+            nonce_counter: HashMap::new(),
+            default_chain_id,
+        }
+    }
+
+    /// Create a STX transfer transaction.
+    ///
+    /// Arguments:
+    /// - `from`: The sender's private key.
+    /// - `to`: The recipient's principal data.
+    /// - `amount`: The amount of STX to transfer.
+    ///
+    /// Returns:
+    /// A [`StacksTransaction`] representing the transfer.
+    ///
+    /// Note: The transaction fee is set to 180 micro-STX.
+    pub fn transfer(
+        &mut self,
+        from: &StacksPrivateKey,
+        to: &PrincipalData,
+        amount: u64,
+    ) -> StacksTransaction {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(from));
+        let nonce = self.nonce_counter.entry(address).or_insert(0);
+        let tx = make_stacks_transfer_tx(from, *nonce, 180, self.default_chain_id, to, amount);
+        *nonce += 1;
+        tx
+    }
+
+    /// Create a contract deployment transaction.
+    ///
+    /// Arguments:
+    /// `sender`: The sender's private key.
+    /// `name`: The name of the contract.
+    /// `code`: The contract code as a string.
+    ///
+    /// Returns:
+    /// A [`StacksTransaction`] representing the contract deployment.
+    ///
+    /// Note: The transaction fee is set based on the contract code length.
+    pub fn contract_deploy(
+        &mut self,
+        sender: &StacksPrivateKey,
+        name: &str,
+        code: &str,
+    ) -> StacksTransaction {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
+        let nonce = self.nonce_counter.entry(address).or_insert(0);
+        let tx_bytes = make_contract_publish(
+            sender,
+            *nonce,
+            (code.len() * 100) as u64,
+            self.default_chain_id,
+            name,
+            code,
+        );
+        *nonce += 1;
+        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
+    }
+
+    /// Create a contract call transaction.
+    ///
+    /// Arguments:
+    /// `sender`: The sender's private key.
+    /// `contract_addr`: The address of the contract.
+    /// `contract_name`: The name of the contract.
+    /// `function_name`: The name of the function to call.
+    /// `args`: The arguments to pass to the function.
+    ///
+    /// Returns:
+    /// A [`StacksTransaction`] representing the contract call.
+    ///
+    /// Note: The transaction fee is set to 180 micro-STX.
+    pub fn contract_call(
+        &mut self,
+        sender: &StacksPrivateKey,
+        contract_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        args: &[ClarityValue],
+    ) -> StacksTransaction {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
+        let nonce = self.nonce_counter.entry(address).or_insert(0);
+        let tx_bytes = make_contract_call(
+            sender,
+            *nonce,
+            180,
+            self.default_chain_id,
+            contract_addr,
+            contract_name,
+            function_name,
+            args,
+        );
+        *nonce += 1;
+        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
+    }
+}
 
 fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
     info!("StacksEpoch unit_test first_burn_height = {first_burnchain_height}");
@@ -732,37 +1078,23 @@ fn test_append_block_with_contract_upload_success() {
 
 #[test]
 fn test_append_block_with_contract_call_success() {
-    let tx_fee = (FOO_CONTRACT.len() * 100) as u64;
-
-    let tx_bytes = make_contract_publish(
-        &FAUCET_PRIV_KEY,
-        0,
-        tx_fee,
-        CHAIN_ID_TESTNET,
-        "foo_contract",
-        FOO_CONTRACT,
-    );
+    let mut tx_factory = TransactionFactory::new(CHAIN_ID_TESTNET);
     let tx_contract_deploy =
-        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
+        tx_factory.contract_deploy(&FAUCET_PRIV_KEY, "foo_contract", FOO_CONTRACT);
 
-    let tx_bytes = make_contract_call(
+    let tx_contract_call = tx_factory.contract_call(
         &FAUCET_PRIV_KEY,
-        1,
-        200,
-        CHAIN_ID_TESTNET,
         &to_addr(&FAUCET_PRIV_KEY),
         "foo_contract",
-        "bar",
+        "foo",
         &[ClarityValue::UInt(1)],
     );
-    let tx_contract_call =
-        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
 
     let mut epoch_blocks = HashMap::new();
     epoch_blocks.insert(
         StacksEpochId::Epoch30,
         vec![TestBlock {
-            marf_hash: "186c8e49bcfc59bb67ed22f031f009a44681f296392e0f92bed520918ba463ae".into(),
+            marf_hash: "71a180468f679c0de8ec54dac46153dcf8199cb26d06fc5d424cf2b5f1bec02e".into(),
             transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
         }],
     );
@@ -770,7 +1102,7 @@ fn test_append_block_with_contract_call_success() {
     epoch_blocks.insert(
         StacksEpochId::Epoch31,
         vec![TestBlock {
-            marf_hash: "ad23713f072473cad6a32125ed5fa822bb62bbfae8ed2302209c12d2f1958128".into(),
+            marf_hash: "84564f25858d226e4842b13945c4e1a5e81e9865670b8b189db47d19a82bf553".into(),
             transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
         }],
     );
@@ -778,7 +1110,7 @@ fn test_append_block_with_contract_call_success() {
     epoch_blocks.insert(
         StacksEpochId::Epoch32,
         vec![TestBlock {
-            marf_hash: "021bd30b09b5ac6ff34abd11f05244a966af937b584b1752f272cd717bb25f1d".into(),
+            marf_hash: "6b7ce25a44f5538e34424838a8a87f129c4200faaa63fa0a355ebf67fec143a2".into(),
             transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
         }],
     );
@@ -786,7 +1118,7 @@ fn test_append_block_with_contract_call_success() {
     epoch_blocks.insert(
         StacksEpochId::Epoch33,
         vec![TestBlock {
-            marf_hash: "416e728daeec4de695c89d15eede8ddb7b85fb4af82daffb1e0d8166a3e93451".into(),
+            marf_hash: "5f7f4413976284ccce9da888d588974f4757b1ee928775449321c779147fbeaa".into(),
             transactions: vec![tx_contract_deploy, tx_contract_call],
         }],
     );
@@ -803,3 +1135,36 @@ fn test_append_block_with_contract_call_success() {
         }
     }
 }
+
+// A simple test that deploys the same valid contract in multiple epochs,
+// expecting the same result each block
+consensus_test!(
+    simple_deploy,
+    epochs: [StacksEpochId::Epoch30, StacksEpochId::Epoch33],
+    txs: [TransactionFactory::new(CHAIN_ID_TESTNET).contract_deploy(
+        &FAUCET_PRIV_KEY,
+        "foo_contract",
+        FOO_CONTRACT
+    )],
+    marfs: [
+        "fcec90c303e786ce01056627bbb28c5fa4da1f911fdac52bda038cdbb0bf2085",
+        "ad9ae1e5c421dbf0306e06405ca6550bafb1e42972dd19b840e381f065b4d791"],
+    expect_same_result: true
+);
+
+// A simple test that deploys the same valid contract to all valid epochs,
+// expecting the same result each block
+consensus_test!(
+    deploy_all_epochs,
+    txs: [TransactionFactory::new(CHAIN_ID_TESTNET).contract_deploy(
+        &FAUCET_PRIV_KEY,
+        "foo_contract",
+        FOO_CONTRACT
+    )],
+    marfs: [
+        "fcec90c303e786ce01056627bbb28c5fa4da1f911fdac52bda038cdbb0bf2085",
+        "da16ceca00f93eaca0c22b82509a592836171fa0443022a654690d0c50e90c12",
+        "e99d6948aa2d0fd172a37ea79703e428268b466df5c1dae753bd508d1c7e02a8",
+        "ad9ae1e5c421dbf0306e06405ca6550bafb1e42972dd19b840e381f065b4d791"],
+    expect_same_result: true
+);
