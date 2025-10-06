@@ -11415,6 +11415,11 @@ fn tenure_extend_after_failed_miner() {
 #[test]
 #[ignore]
 /// Test that a miner will extend its tenure after the succeding miner commits to the wrong block.
+///
+/// This test is quite similar to `tenure_extend_after_stale_commit_different_miner`,
+/// with the difference that signers will reject a reorg attempt due to the reorg attempt
+/// being more than `first_proposal_burn_block_timing` seconds.
+///
 /// - Miner 1 wins a tenure and mines normally
 /// - Miner 1 wins another tenure and mines normally, but miner 2 does not see any blocks from this tenure
 /// - Miner 2 wins a tenure and is unable to mine a block
@@ -18861,10 +18866,14 @@ fn signers_treat_signatures_as_precommits() {
 /// We're verifying that, in this scenario, the tenure is extended,
 /// instead of a new one being created (and forking the tip).
 ///
-/// - Miner A wins tenure A
-/// - Miner B wins tenure B, with 2 blocks
-/// - Miner A wins tenure C, but with a block commit to tip A
-/// - We verify that Miner B extends Tenure B
+/// This test is quite similar to `tenure_extend_after_bad_commit`, but
+/// with the difference of the fact that there are 2 blocks mined in tenure B,
+/// which means signers will always reject a reorg attempt (regardless of timing).
+///
+/// - Miner 1 wins tenure A
+/// - Miner 2 wins tenure B, with 2 blocks
+/// - Miner 1 wins tenure C, but with a block commit to tip A
+/// - We verify that Miner 1 extends Tenure B
 fn tenure_extend_after_stale_commit_different_miner() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
