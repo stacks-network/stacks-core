@@ -15497,6 +15497,19 @@ fn smaller_tenure_size_for_miner() {
         deployed_contracts
     );
 
+    // ensure no tenure extend
+    for block in &blocks {
+        let txs = test_observer::parse_transactions(block);
+        let has_tenure_extend = txs.iter().any(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tenure_change) => {
+                tenure_change.cause == TenureChangeCause::Extended
+            }
+            _ => false,
+        });
+
+        assert!(!has_tenure_extend, "Unexpected tenure extend transaction");
+    }
+
     coord_channel
         .lock()
         .expect("Mutex poisoned")
@@ -15708,6 +15721,19 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
         "Should have successfully deployes 10 contracts, but got {}",
         deployed_contracts
     );
+
+    // ensure no tenure extend
+    for block in &blocks {
+        let txs = test_observer::parse_transactions(block);
+        let has_tenure_extend = txs.iter().any(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tenure_change) => {
+                tenure_change.cause == TenureChangeCause::Extended
+            }
+            _ => false,
+        });
+
+        assert!(!has_tenure_extend, "Unexpected tenure extend transaction");
+    }
 
     coord_channel
         .lock()
