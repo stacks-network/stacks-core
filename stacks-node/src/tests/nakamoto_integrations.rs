@@ -15860,6 +15860,23 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
         blocks.len()
     );
 
+    // ensure tenure extend is present in the last 3 blocks
+    for (block_index, block) in blocks.iter().enumerate() {
+        let txs = test_observer::parse_transactions(block);
+        let has_tenure_extend = txs.iter().any(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tenure_change) => {
+                tenure_change.cause == TenureChangeCause::Extended
+            }
+            _ => false,
+        });
+
+        if block_index > 1 {
+            assert!(has_tenure_extend, "Expected tenure extend transaction");
+        } else {
+            assert!(!has_tenure_extend, "Unexpected tenure extend transaction");
+        }
+    }
+
     coord_channel
         .lock()
         .expect("Mutex poisoned")
