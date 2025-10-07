@@ -721,46 +721,6 @@ impl ConsensusTest<'_> {
 }
 
 #[test]
-fn test_append_empty_blocks() {
-    let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            marf_hash: "f1934080b22ef0192cfb39710690e7cb0efa9cff950832b33544bde3aa1484a5".into(),
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            marf_hash: "a05f1383613215f5789eb977e4c62dfbb789d90964e14865d109375f7f6dc3cf".into(),
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            marf_hash: "c17829daff8746329c65ae658f4087519c6a8bd8c7f21e51644ddbc9c010390f".into(),
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            marf_hash: "23ecbcb91cac914ba3994a15f3ea7189bcab4e9762530cd0e6c7d237fcd6dc78".into(),
-            transactions: vec![],
-        }],
-    );
-
-    let test_vector = ConsensusTestVector {
-        initial_balances: vec![],
-        epoch_blocks,
-    };
-    let result = ConsensusTest::new(function_name!(), test_vector).run();
-    insta::assert_ron_snapshot!(result);
-}
-
-#[test]
 fn test_append_stx_transfers_success() {
     let sender_privks = [
         StacksPrivateKey::from_hex(SK_1).unwrap(),
@@ -884,6 +844,18 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
     let result = ConsensusTest::new(function_name!(), test_vector).run();
     insta::assert_ron_snapshot!(result);
 }
+
+consensus_test!(
+    empty_blocks,
+    txs: [],
+    marfs: [
+        "f1934080b22ef0192cfb39710690e7cb0efa9cff950832b33544bde3aa1484a5",
+        "a05f1383613215f5789eb977e4c62dfbb789d90964e14865d109375f7f6dc3cf",
+        "c17829daff8746329c65ae658f4087519c6a8bd8c7f21e51644ddbc9c010390f",
+        "23ecbcb91cac914ba3994a15f3ea7189bcab4e9762530cd0e6c7d237fcd6dc78",
+    ],
+    expect_same_result: true
+);
 
 consensus_test!(
     state_index_root_mismatches,

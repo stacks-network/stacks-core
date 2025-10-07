@@ -1,0 +1,14 @@
+---
+source: stackslib/src/chainstate/tests/consensus.rs
+expression: res
+---
+Success(ExpectedBlockOutput(
+  transactions: [],
+  total_block_cost: ExecutionCost(
+    write_length: 0,
+    write_count: 0,
+    read_length: 0,
+    read_count: 0,
+    runtime: 0,
+  ),
+))
