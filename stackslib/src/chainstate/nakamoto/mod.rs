@@ -298,6 +298,8 @@ pub static NAKAMOTO_CHAINSTATE_SCHEMA_7: &[&str] = &[
     //
     // Default to 0.
     r#"
+    -- total_tenure_size cannot be consensus critical as existing nodes which migrate will report a 0 size while
+    -- nodes booting from genesis sync will get the true tenure size
     ALTER TABLE nakamoto_block_headers
     ADD COLUMN total_tenure_size NOT NULL DEFAULT 0;
     "#,
