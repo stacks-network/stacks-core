@@ -299,7 +299,7 @@ impl TransactionFactory {
             code,
         );
         *nonce += 1;
-        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
+        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
     }
 
     /// Create a contract call transaction.
@@ -314,7 +314,7 @@ impl TransactionFactory {
     /// Returns:
     /// A [`StacksTransaction`] representing the contract call.
     ///
-    /// Note: The transaction fee is set to 180 micro-STX.
+    /// Note: The transaction fee is set to 200 micro-STX.
     pub fn contract_call(
         &mut self,
         sender: &StacksPrivateKey,
@@ -328,7 +328,7 @@ impl TransactionFactory {
         let tx_bytes = make_contract_call(
             sender,
             *nonce,
-            180,
+            200,
             self.default_chain_id,
             contract_addr,
             contract_name,
@@ -336,7 +336,7 @@ impl TransactionFactory {
             args,
         );
         *nonce += 1;
-        StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap()
+        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
     }
 }
 
@@ -943,14 +943,14 @@ consensus_test!(
             sender: &FAUCET_PRIV_KEY,
             contract_addr: &to_addr(&FAUCET_PRIV_KEY),
             contract_name: "foo_contract",
-            function_name: "foo",
+            function_name: "bar",
             args: &[ClarityValue::UInt(1)],
         }
     ],
     marfs: [
-        "71a180468f679c0de8ec54dac46153dcf8199cb26d06fc5d424cf2b5f1bec02e",
-        "84564f25858d226e4842b13945c4e1a5e81e9865670b8b189db47d19a82bf553",
-        "6b7ce25a44f5538e34424838a8a87f129c4200faaa63fa0a355ebf67fec143a2",
-        "5f7f4413976284ccce9da888d588974f4757b1ee928775449321c779147fbeaa"],
+        "186c8e49bcfc59bb67ed22f031f009a44681f296392e0f92bed520918ba463ae",
+        "ad23713f072473cad6a32125ed5fa822bb62bbfae8ed2302209c12d2f1958128",
+        "021bd30b09b5ac6ff34abd11f05244a966af937b584b1752f272cd717bb25f1d",
+        "416e728daeec4de695c89d15eede8ddb7b85fb4af82daffb1e0d8166a3e93451"],
     expect_same_result: true
 );

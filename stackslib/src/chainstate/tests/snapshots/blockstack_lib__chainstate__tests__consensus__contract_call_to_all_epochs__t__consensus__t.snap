@@ -19,17 +19,15 @@ Success(ExpectedBlockOutput(
     ),
     ExpectedTransactionOutput(
       return_type: Response(ResponseData(
-        committed: false,
-        data: Optional(OptionalData(
-          data: None,
-        )),
+        committed: true,
+        data: UInt(1),
       )),
       cost: ExecutionCost(
         write_length: 0,
         write_count: 0,
         read_length: 103,
         read_count: 3,
-        runtime: 187,
+        runtime: 499,
       ),
     ),
   ],
@@ -38,6 +36,6 @@ Success(ExpectedBlockOutput(
     write_count: 2,
     read_length: 104,
     read_count: 4,
-    runtime: 12155,
+    runtime: 12467,
   ),
 ))
