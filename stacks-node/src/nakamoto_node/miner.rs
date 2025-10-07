@@ -1687,7 +1687,12 @@ impl BlockMinerThread {
                         &parent_block_id,
                     ) {
                         Ok(total_tenure_size) => total_tenure_size,
-                        Err(_) => Some(0),
+                        Err(e) => match e {
+                            ChainstateError::DBError(e) => {
+                                return Err(NakamotoNodeError::DBError(e))
+                            }
+                            _ => return Err(NakamotoNodeError::UnexpectedChainState),
+                        },
                     }
                 {
                     tenure_size_usage =
