@@ -15332,8 +15332,8 @@ fn check_block_time_keyword() {
 /// Tests that the tenure size limit is correctly accounted.
 /// Deploys 10 (big) contracts (each 512K)
 /// The block limit is 2MB, the tenure limit is 3MB
-/// One block will contains 3 of the deployed contracts (the block size will be reached at it)
-/// The following one will contains 2 of the deployed contract (tenure size limit will be reached)
+/// One block will contain 3 of the deployed contracts (the block size will be reached at it)
+/// The following one will contain 2 of the deployed contract (tenure size limit will be reached)
 fn smaller_tenure_size_for_miner() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -15511,8 +15511,8 @@ fn smaller_tenure_size_for_miner() {
 /// Tests that the tenure size limit is correctly accounted.
 /// Deploys 10 (big) contracts (each 512K)
 /// The block limit is 2MB, the tenure limit is 3MB
-/// One block will contains 3 of the deployed contracts (the block size will be reached at it)
-/// The following one will contains 2 of the deployed contract (tenure size limit will be reached)
+/// One block will contain 3 of the deployed contracts (the block size will be reached at it)
+/// The following one will contain 2 of the deployed contract (tenure size limit will be reached)
 /// Start a new tenure to process the remaining transactions.
 fn smaller_tenure_size_for_miner_on_two_tenures() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
@@ -15723,8 +15723,8 @@ fn smaller_tenure_size_for_miner_on_two_tenures() {
 /// Tests that the tenure size limit is correctly reset on tenure extend.
 /// Deploys 10 (big) contracts (each 512K)
 /// The block limit is 2MB, the tenure limit is 3MB
-/// One block will contains 3 of the deployed contracts (the block size will be reached at it)
-/// The following ones will contains the others as tenure extend is constantly triggered
+/// One block will contain 3 of the deployed contracts (the block size will be reached at it)
+/// The following ones will contain the others as tenure extend is constantly triggered
 fn smaller_tenure_size_for_miner_with_tenure_extend() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
