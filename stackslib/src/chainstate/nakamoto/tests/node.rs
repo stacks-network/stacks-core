@@ -697,6 +697,7 @@ impl TestStacksNode {
         mut after_block: G,
         malleablize: bool,
         mined_canonical: bool,
+        timestamp: Option<u64>,
     ) -> Result<Vec<(NakamotoBlock, u64, ExecutionCost, Vec<NakamotoBlock>)>, ChainstateError>
     where
         S: FnMut(&mut NakamotoBlockBuilder),
@@ -806,6 +807,10 @@ impl TestStacksNode {
                     &coinbase.clone().unwrap(),
                 )
             };
+            // Optionally overwrite the timestamp to enable predictable blocks.
+            if let Some(timestamp) = timestamp {
+                builder.header.timestamp = timestamp;
+            }
             miner_setup(&mut builder);
 
             tenure_change = None;
@@ -1062,82 +1067,82 @@ impl TestStacksNode {
     }
 }
 
-impl TestPeer<'_> {
-    /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
-    /// Stacks 2.x block.
-    /// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
-    fn get_nakamoto_parent(
-        miner: &TestMiner,
-        stacks_node: &TestStacksNode,
-        sortdb: &SortitionDB,
-    ) -> (
-        StacksBlockId,
-        Option<StacksBlock>,
-        Option<Vec<NakamotoBlock>>,
-    ) {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        if let Some(parent_blocks) = stacks_node.get_last_nakamoto_tenure(miner) {
-            debug!("Parent will be a Nakamoto block");
+/// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
+/// Stacks 2.x block.
+/// Returns (last-tenure-id, epoch2-parent, nakamoto-parent-tenure, parent-sortition)
+pub fn get_nakamoto_parent(
+    miner: &TestMiner,
+    stacks_node: &TestStacksNode,
+    sortdb: &SortitionDB,
+) -> (
+    StacksBlockId,
+    Option<StacksBlock>,
+    Option<Vec<NakamotoBlock>>,
+) {
+    let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+    if let Some(parent_blocks) = stacks_node.get_last_nakamoto_tenure(miner) {
+        debug!("Parent will be a Nakamoto block");
 
-            // parent is an epoch 3 nakamoto block
-            let first_parent = parent_blocks.first().unwrap();
-            debug!("First parent is {:?}", first_parent);
+        // parent is an epoch 3 nakamoto block
+        let first_parent = parent_blocks.first().unwrap();
+        debug!("First parent is {:?}", first_parent);
 
-            // sanity check -- this parent must correspond to a sortition
-            assert!(
-                SortitionDB::get_block_snapshot_consensus(
-                    sortdb.conn(),
-                    &first_parent.header.consensus_hash,
-                )
-                .unwrap()
-                .unwrap()
-                .sortition
-            );
-
-            let last_tenure_id = StacksBlockId::new(
+        // sanity check -- this parent must correspond to a sortition
+        assert!(
+            SortitionDB::get_block_snapshot_consensus(
+                sortdb.conn(),
                 &first_parent.header.consensus_hash,
-                &first_parent.header.block_hash(),
-            );
-            (last_tenure_id, None, Some(parent_blocks))
+            )
+            .unwrap()
+            .unwrap()
+            .sortition
+        );
+
+        let last_tenure_id = StacksBlockId::new(
+            &first_parent.header.consensus_hash,
+            &first_parent.header.block_hash(),
+        );
+        (last_tenure_id, None, Some(parent_blocks))
+    } else {
+        // parent may be an epoch 2.x block
+        let (parent_opt, parent_sortition_opt) = if let Some(parent_block) =
+            stacks_node.get_last_anchored_block(miner)
+        {
+            debug!("Parent will be a Stacks 2.x block");
+            let ic = sortdb.index_conn();
+            let sort_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                &ic,
+                &tip.sortition_id,
+                &parent_block.block_hash(),
+            )
+            .unwrap();
+            if sort_opt.is_none() {
+                warn!("No parent sortition in epoch2: tip.sortition_id = {}, parent_block.block_hash() = {}", &tip.sortition_id, &parent_block.block_hash());
+            }
+            (Some(parent_block), sort_opt)
         } else {
-            // parent may be an epoch 2.x block
-            let (parent_opt, parent_sortition_opt) = if let Some(parent_block) =
-                stacks_node.get_last_anchored_block(miner)
-            {
-                debug!("Parent will be a Stacks 2.x block");
-                let ic = sortdb.index_conn();
-                let sort_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                    &ic,
-                    &tip.sortition_id,
-                    &parent_block.block_hash(),
-                )
-                .unwrap();
-                if sort_opt.is_none() {
-                    warn!("No parent sortition in epoch2: tip.sortition_id = {}, parent_block.block_hash() = {}", &tip.sortition_id, &parent_block.block_hash());
-                }
-                (Some(parent_block), sort_opt)
-            } else {
-                warn!(
-                    "No parent sortition in epoch2: tip.sortition_id = {}",
-                    &tip.sortition_id
-                );
-                (None, None)
-            };
+            warn!(
+                "No parent sortition in epoch2: tip.sortition_id = {}",
+                &tip.sortition_id
+            );
+            (None, None)
+        };
 
-            let last_tenure_id = if let Some(last_epoch2_block) = parent_opt.as_ref() {
-                let parent_sort = parent_sortition_opt.as_ref().unwrap();
-                StacksBlockId::new(
-                    &parent_sort.consensus_hash,
-                    &last_epoch2_block.header.block_hash(),
-                )
-            } else {
-                // must be a genesis block (testing only!)
-                StacksBlockId(BOOT_BLOCK_HASH.0)
-            };
-            (last_tenure_id, parent_opt, None)
-        }
+        let last_tenure_id = if let Some(last_epoch2_block) = parent_opt.as_ref() {
+            let parent_sort = parent_sortition_opt.as_ref().unwrap();
+            StacksBlockId::new(
+                &parent_sort.consensus_hash,
+                &last_epoch2_block.header.block_hash(),
+            )
+        } else {
+            // must be a genesis block (testing only!)
+            StacksBlockId(BOOT_BLOCK_HASH.0)
+        };
+        (last_tenure_id, parent_opt, None)
     }
+}
 
+impl TestPeer<'_> {
     /// Start the next Nakamoto tenure.
     /// This generates the VRF key and block-commit txs, as well as the TenureChange and
     /// leader key this commit references
@@ -1163,7 +1168,7 @@ impl TestPeer<'_> {
                     Some(nakamoto_parent_tenure.clone()),
                 )
             } else {
-                Self::get_nakamoto_parent(&self.miner, &stacks_node, &sortdb)
+                get_nakamoto_parent(&self.miner, &stacks_node, &sortdb)
             };
 
         // find the VRF leader key register tx to use.
@@ -1466,6 +1471,7 @@ impl TestPeer<'_> {
                 after_block,
                 peer.mine_malleablized_blocks,
                 peer.nakamoto_parent_tenure_opt.is_none(),
+                None,
             )?;
 
             let just_blocks = blocks
@@ -1554,6 +1560,7 @@ impl TestPeer<'_> {
             |_| true,
             self.mine_malleablized_blocks,
             self.nakamoto_parent_tenure_opt.is_none(),
+            None,
         )
         .unwrap();
 
