@@ -186,6 +186,7 @@ pub struct StacksHeaderInfo {
     /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x blocks
     pub burn_view: Option<ConsensusHash>,
     /// Total tenure size (reset at every tenure extend) in bytes
+    /// Not consensus-critical (may differ between nodes)
     pub total_tenure_size: u64,
 }
 
