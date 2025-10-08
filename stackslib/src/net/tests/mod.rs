@@ -104,6 +104,8 @@ pub struct NakamotoBootPlan {
     pub network_id: u32,
     pub txindex: bool,
     pub epochs: Option<EpochList<ExecutionCost>>,
+    pub tip_transactions: Vec<StacksTransaction>,
+    pub ignore_transaction_errors: bool,
 }
 
 impl NakamotoBootPlan {
@@ -124,6 +126,8 @@ impl NakamotoBootPlan {
             network_id: TestPeerConfig::default().network_id,
             txindex: false,
             epochs: None,
+            tip_transactions: vec![],
+            ignore_transaction_errors: false,
         }
     }
 
@@ -166,6 +170,16 @@ impl NakamotoBootPlan {
 
     pub fn with_initial_balances(mut self, initial_balances: Vec<(PrincipalData, u64)>) -> Self {
         self.initial_balances = initial_balances;
+        self
+    }
+
+    pub fn with_tip_transactions(mut self, tip_transactions: Vec<StacksTransaction>) -> Self {
+        self.tip_transactions = tip_transactions;
+        self
+    }
+
+    pub fn with_ignore_transaction_errors(mut self, ignore_transaction_errors: bool) -> Self {
+        self.ignore_transaction_errors = ignore_transaction_errors;
         self
     }
 
@@ -891,6 +905,7 @@ impl NakamotoBootPlan {
         let test_signers = self.test_signers.clone();
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
+        let ignore_transaction_errors = self.ignore_transaction_errors;
 
         let (mut peer, mut other_peers) = self.boot_nakamoto_peers(observer);
         if boot_plan.is_empty() {
@@ -1191,11 +1206,13 @@ impl NakamotoBootPlan {
                         // transactions processed in the same order
                         assert_eq!(receipt.transaction.txid(), tx.txid());
                         // no CheckErrors
-                        assert!(
-                            receipt.vm_error.is_none(),
-                            "Receipt had a CheckErrors: {:?}",
-                            &receipt
-                        );
+                        if !ignore_transaction_errors {
+                            assert!(
+                                receipt.vm_error.is_none(),
+                                "Receipt had a CheckErrors: {:?}",
+                                &receipt
+                            );
+                        }
                         // transaction was not aborted post-hoc
                         assert!(!receipt.post_condition_aborted);
                     }

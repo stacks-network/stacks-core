@@ -76,3 +76,6 @@ properties:
         txid:
           type: string
           description: transaction id
+        vm_error:
+          type: string
+          description: optional vm error (for runtime failures)
