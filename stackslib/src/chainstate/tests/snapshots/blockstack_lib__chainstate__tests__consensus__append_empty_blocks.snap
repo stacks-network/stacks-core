@@ -4,6 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
+    marf_hash: "f1934080b22ef0192cfb39710690e7cb0efa9cff950832b33544bde3aa1484a5",
     transactions: [],
     total_block_cost: ExecutionCost(
       write_length: 0,
@@ -14,6 +15,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
+    marf_hash: "a05f1383613215f5789eb977e4c62dfbb789d90964e14865d109375f7f6dc3cf",
     transactions: [],
     total_block_cost: ExecutionCost(
       write_length: 0,
@@ -24,6 +26,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
+    marf_hash: "c17829daff8746329c65ae658f4087519c6a8bd8c7f21e51644ddbc9c010390f",
     transactions: [],
     total_block_cost: ExecutionCost(
       write_length: 0,
@@ -34,6 +37,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
+    marf_hash: "23ecbcb91cac914ba3994a15f3ea7189bcab4e9762530cd0e6c7d237fcd6dc78",
     transactions: [],
     total_block_cost: ExecutionCost(
       write_length: 0,

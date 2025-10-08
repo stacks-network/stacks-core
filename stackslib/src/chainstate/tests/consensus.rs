@@ -166,6 +166,8 @@ pub struct ExpectedTransactionOutput {
 /// Represents the expected outputs for a block's execution.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ExpectedBlockOutput {
+    /// The expected block marf
+    pub marf_hash: TrieHash,
     /// The expected outputs for each transaction, in input order.
     pub transactions: Vec<ExpectedTransactionOutput>,
     /// The total execution cost of the block.
@@ -183,8 +185,11 @@ pub enum ExpectedResult {
     Failure(String),
 }
 
-impl From<Result<StacksEpochReceipt, ChainstateError>> for ExpectedResult {
-    fn from(result: Result<StacksEpochReceipt, ChainstateError>) -> Self {
+impl ExpectedResult {
+    fn create_from(
+        result: Result<StacksEpochReceipt, ChainstateError>,
+        marf_hash: TrieHash,
+    ) -> Self {
         match result {
             Ok(epoch_receipt) => {
                 let transactions: Vec<ExpectedTransactionOutput> = epoch_receipt
@@ -197,6 +202,7 @@ impl From<Result<StacksEpochReceipt, ChainstateError>> for ExpectedResult {
                     .collect();
                 let total_block_cost = epoch_receipt.anchored_block_cost.clone();
                 ExpectedResult::Success(ExpectedBlockOutput {
+                    marf_hash,
                     transactions,
                     total_block_cost,
                 })
@@ -367,14 +373,12 @@ impl ConsensusTest<'_> {
                     );
 
                     debug!("--------- Appended block: {} ---------", result.is_ok());
-                    results.push(
-                        result
-                            .map(|(receipt, clarity_commit, _, _)| {
-                                clarity_commit.commit();
-                                receipt
-                            })
-                            .into(),
-                    );
+                    let remapped_result = result.map(|(receipt, clarity_commit, _, _)| {
+                        clarity_commit.commit();
+                        receipt
+                    });
+                    let expected_marf = nakamoto_block.header.state_index_root;
+                    results.push(ExpectedResult::create_from(remapped_result, expected_marf));
                     chainstate_tx.commit().unwrap();
                 }
 
@@ -430,15 +434,11 @@ impl ConsensusTest<'_> {
 
         // Set the MARF root hash or use an all-zero hash in case of failure.
         // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-        /*
         let marf_result = self.compute_block_marf_root_hash(block.header.timestamp, &block.txs);
         block.header.state_index_root = match marf_result {
             Ok(marf) => marf,
             Err(_) => TrieHash::from_bytes(&[0; 32]).unwrap(),
         };
-         */
-
-        block.header.state_index_root = TrieHash::from_bytes(&[0; 32]).unwrap();
 
         self.chain.miner.sign_nakamoto_block(&mut block);
         let mut signers = self.chain.config.test_signers.clone().unwrap_or_default();
@@ -517,50 +517,12 @@ impl ConsensusTest<'_> {
         NakamotoChainState::finish_block(clarity_tx, None, false, burn_header_height)
             .map_err(|e| e.to_string())?;
 
-        let trie_hash = clarity_tx.seal();
-        //clarity_tx.rollback_block();
-        Ok(trie_hash)
+        Ok(clarity_tx.seal())
     }
 }
 
 #[test]
 fn test_append_empty_blocks() {
-    let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-
-    let test_vector = ConsensusTestVector {
-        initial_balances: vec![],
-        epoch_blocks,
-    };
-    let result = ConsensusTest::new(function_name!(), test_vector).run();
-    insta::assert_ron_snapshot!(result);
-}
-
-//#[test]
-fn test_append_state_index_root_mismatches() {
     let mut epoch_blocks = HashMap::new();
     epoch_blocks.insert(
         StacksEpochId::Epoch30,
@@ -759,38 +721,110 @@ fn test_append_block_with_contract_upload_success() {
     };
 
     let result = ConsensusTest::new(function_name!(), test_vector).run();
-    // Example of expecting the same result across all blocks
-    insta::allow_duplicates! {
-        for res in result {
-            // Example of inline snapshot
-            insta::assert_ron_snapshot!(res, @r"
-            Success(ExpectedBlockOutput(
-              transactions: [
-                ExpectedTransactionOutput(
-                  return_type: Response(ResponseData(
-                    committed: true,
-                    data: Bool(true),
-                  )),
-                  cost: ExecutionCost(
-                    write_length: 13,
-                    write_count: 2,
-                    read_length: 1,
-                    read_count: 1,
-                    runtime: 8114,
-                  ),
-                ),
-              ],
-              total_block_cost: ExecutionCost(
-                write_length: 13,
-                write_count: 2,
-                read_length: 1,
-                read_count: 1,
-                runtime: 8114,
-              ),
-            ))
-            ");
-        }
-    }
+    insta::assert_ron_snapshot!(result, @r#"
+    [
+      Success(ExpectedBlockOutput(
+        marf_hash: "b45acd35f4c48a834a2f898ca8bb6c48416ac6bec9d8a3f3662b61ab97b1edde",
+        transactions: [
+          ExpectedTransactionOutput(
+            return_type: Response(ResponseData(
+              committed: true,
+              data: Bool(true),
+            )),
+            cost: ExecutionCost(
+              write_length: 13,
+              write_count: 2,
+              read_length: 1,
+              read_count: 1,
+              runtime: 8114,
+            ),
+          ),
+        ],
+        total_block_cost: ExecutionCost(
+          write_length: 13,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8114,
+        ),
+      )),
+      Success(ExpectedBlockOutput(
+        marf_hash: "521d75234ec6c64f68648b6b0f6f385d89b58efb581211a411e0e88aa71f3371",
+        transactions: [
+          ExpectedTransactionOutput(
+            return_type: Response(ResponseData(
+              committed: true,
+              data: Bool(true),
+            )),
+            cost: ExecutionCost(
+              write_length: 13,
+              write_count: 2,
+              read_length: 1,
+              read_count: 1,
+              runtime: 8114,
+            ),
+          ),
+        ],
+        total_block_cost: ExecutionCost(
+          write_length: 13,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8114,
+        ),
+      )),
+      Success(ExpectedBlockOutput(
+        marf_hash: "511e1cc37e83ef3de4ea56962574d6ddd2d8840d24d9238f19eee5a35127df6a",
+        transactions: [
+          ExpectedTransactionOutput(
+            return_type: Response(ResponseData(
+              committed: true,
+              data: Bool(true),
+            )),
+            cost: ExecutionCost(
+              write_length: 13,
+              write_count: 2,
+              read_length: 1,
+              read_count: 1,
+              runtime: 8114,
+            ),
+          ),
+        ],
+        total_block_cost: ExecutionCost(
+          write_length: 13,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8114,
+        ),
+      )),
+      Success(ExpectedBlockOutput(
+        marf_hash: "3520c2dd96f7d91e179c4dcd00f3c49c16d6ec21434fb16921922558282eab26",
+        transactions: [
+          ExpectedTransactionOutput(
+            return_type: Response(ResponseData(
+              committed: true,
+              data: Bool(true),
+            )),
+            cost: ExecutionCost(
+              write_length: 13,
+              write_count: 2,
+              read_length: 1,
+              read_count: 1,
+              runtime: 8114,
+            ),
+          ),
+        ],
+        total_block_cost: ExecutionCost(
+          write_length: 13,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8114,
+        ),
+      )),
+    ]
+    "#);
 }
 
 #[test]
@@ -856,9 +890,5 @@ fn test_append_block_with_contract_call_success() {
     };
 
     let result = ConsensusTest::new(function_name!(), test_vector).run();
-    insta::allow_duplicates! {
-        for res in result {
-            insta::assert_ron_snapshot!(res);
-        }
-    }
+    insta::assert_ron_snapshot!(result);
 }
