@@ -65,6 +65,7 @@ enum ParserStackElement {
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, fail_fast: bool) -> Result<Self, ParseErrors> {
+        let fail_fast = false;
         let lexer = match Lexer::new(input, fail_fast) {
             Ok(lexer) => lexer,
             Err(e) => return Err(ParseErrors::Lexer(e)),
@@ -221,6 +222,7 @@ impl<'a> Parser<'a> {
             } => {
                 if let Some(node) = node_opt {
                     if !*whitespace && node.match_comment().is_none() {
+                        dbg!(&node);
                         self.add_diagnostic(ParseErrors::ExpectedWhitespace, node.span().clone())?;
                     }
                     nodes.push(node);
@@ -1074,6 +1076,7 @@ impl<'a> Parser<'a> {
 }
 
 pub fn parse(input: &str) -> ParseResult<Vec<PreSymbolicExpression>> {
+    dbg!(input);
     let mut parser = match Parser::new(input, true) {
         Ok(parser) => parser,
         Err(e) => return Err(ParseError::new(e)),
@@ -1093,6 +1096,7 @@ pub fn parse_collect_diagnostics(
 ) -> (Vec<PreSymbolicExpression>, Vec<Diagnostic>, bool) {
     // When not in fail_fast mode, Parser::new always returns Ok.
     let mut parser = Parser::new(input, false).unwrap();
+    dbg!(input);
 
     // When not in fail_fast mode, Parser::parse always returns Ok.
     let stmts = parser.parse().unwrap();
