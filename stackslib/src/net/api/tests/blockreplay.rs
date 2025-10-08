@@ -71,7 +71,7 @@ fn test_block_reply_errors() {
     let test_observer = TestEventObserver::new();
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
 
-    let sort_db = rpc_test.peer_1.sortdb.take().unwrap();
+    let sort_db = rpc_test.peer_1.chain.sortdb.take().unwrap();
     let chainstate = rpc_test.peer_1.chainstate();
 
     let err = handler.block_replay(&sort_db, chainstate).err().unwrap();
