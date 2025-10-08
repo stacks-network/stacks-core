@@ -86,6 +86,9 @@ pub struct ProposalEvalConfig {
     pub reorg_attempts_activity_timeout: Duration,
     /// Time to wait before submitting a block proposal to the stacks-node
     pub proposal_wait_for_parent_time: Duration,
+    /// How many blocks after a fork should we reset the replay set,
+    /// as a failsafe mechanism
+    pub reset_replay_set_after_fork_blocks: u64,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -98,6 +101,7 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             reorg_attempts_activity_timeout: value.reorg_attempts_activity_timeout,
             tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time: value.proposal_wait_for_parent_time,
+            reset_replay_set_after_fork_blocks: value.reset_replay_set_after_fork_blocks,
         }
     }
 }
@@ -203,7 +207,7 @@ impl SortitionData {
                 return Ok(false);
             }
 
-            let Some(first_block_mined) = tenure.first_block_mined else {
+            let Some(first_block_mined) = &tenure.first_block_mined else {
                 continue;
             };
             let Some(local_block_info) =

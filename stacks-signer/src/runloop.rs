@@ -316,7 +316,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             signer_entries,
             signer_slot_ids: signer_slot_ids.into_values().collect(),
             first_proposal_burn_block_timing: self.config.first_proposal_burn_block_timing,
-            stacks_private_key: self.config.stacks_private_key,
+            stacks_private_key: self.config.stacks_private_key.clone(),
             node_host: self.config.node_host.to_string(),
             mainnet: self.config.network.is_mainnet(),
             db_path: self.config.db_path.clone(),
@@ -329,6 +329,7 @@ impl<Signer: SignerTrait<T>, T: StacksMessageCodec + Clone + Send + Debug> RunLo
             reorg_attempts_activity_timeout: self.config.reorg_attempts_activity_timeout,
             proposal_wait_for_parent_time: self.config.proposal_wait_for_parent_time,
             validate_with_replay_tx: self.config.validate_with_replay_tx,
+            reset_replay_set_after_fork_blocks: self.config.reset_replay_set_after_fork_blocks,
             capitulate_miner_view_timeout: self.config.capitulate_miner_view_timeout,
             stackerdb_timeout: self.config.stackerdb_timeout,
             #[cfg(any(test, feature = "testing"))]

@@ -1107,10 +1107,10 @@ impl SpvClient {
         let max_target_bits = BlockHeader::compact_target_from_u256(&max_target);
 
         let parent_header = if !headers_in_range.is_empty() {
-            headers_in_range[0]
+            headers_in_range[0].clone()
         } else {
             match self.read_block_header(current_header_height - 1)? {
-                Some(res) => res.header,
+                Some(res) => res.header.clone(),
                 None => return Ok(None),
             }
         };
@@ -1322,8 +1322,8 @@ mod test {
         let genesis_header = LoneBlockHeader {
             header: BlockHeader {
                 version: 1,
-                prev_blockhash: genesis_prev_blockhash,
-                merkle_root: genesis_merkle_root,
+                prev_blockhash: genesis_prev_blockhash.clone(),
+                merkle_root: genesis_merkle_root.clone(),
                 time: 1231006505,
                 bits: 0x1d00ffff,
                 nonce: 2083236893,
@@ -1332,9 +1332,9 @@ mod test {
         };
 
         test_debug!("\n");
-        test_debug!("genesis prev blockhash = {}", genesis_prev_blockhash);
-        test_debug!("genesis merkle root = {}", genesis_merkle_root);
-        test_debug!("genesis block hash = {}", genesis_block_hash);
+        test_debug!("genesis prev blockhash = {genesis_prev_blockhash}");
+        test_debug!("genesis merkle root = {genesis_merkle_root}");
+        test_debug!("genesis block hash = {genesis_block_hash}");
 
         assert_eq!(genesis_header.header.bitcoin_hash(), genesis_block_hash);
     }
@@ -1618,7 +1618,7 @@ mod test {
 
     #[test]
     fn test_spv_check_pow() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_pow -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }
@@ -1633,7 +1633,7 @@ mod test {
 
     #[test]
     fn test_spv_check_work_bad_blocks_rejected() {
-        if !env::var("BLOCKSTACK_SPV_HEADERS_DB").is_ok() {
+        if env::var("BLOCKSTACK_SPV_HEADERS_DB").is_err() {
             eprintln!("Skipping test_spv_check_work_reorg_accepted -- no BLOCKSTACK_SPV_HEADERS_DB envar set");
             return;
         }

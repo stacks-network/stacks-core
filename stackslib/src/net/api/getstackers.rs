@@ -27,8 +27,7 @@ use crate::net::http::{
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest,
-    StacksHttpResponse,
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::{Error as NetError, StacksNodeState, TipRequest};
 
@@ -166,7 +165,7 @@ impl RPCRequestHandler for GetStackersRequestHandler {
                 return error_resp.try_into_contents().map_err(NetError::from);
             }
         };
-        let Some(cycle_number) = self.cycle_number.clone() else {
+        let Some(cycle_number) = self.cycle_number else {
             return StacksHttpResponse::new_error(
                     &preamble,
                     &HttpBadRequest::new_json(json!({"response": "error", "err_msg": "Failed to read cycle number in request"}))
@@ -201,8 +200,7 @@ impl RPCRequestHandler for GetStackersRequestHandler {
             }
         };
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&response)?;
         Ok((preamble, body))
     }

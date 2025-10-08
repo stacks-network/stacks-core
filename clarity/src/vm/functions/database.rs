@@ -28,7 +28,7 @@ use crate::vm::errors::{
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
-    StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value, BUFF_32,
+    StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value,
 };
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
@@ -210,9 +210,11 @@ pub fn special_contract_call(
     if let Some(returns_type_signature) = type_returns_constraint {
         let actual_returns = TypeSignature::type_of(&result)?;
         if !returns_type_signature.admits_type(env.epoch(), &actual_returns)? {
-            return Err(
-                CheckErrors::ReturnTypesMustMatch(returns_type_signature, actual_returns).into(),
-            );
+            return Err(CheckErrors::ReturnTypesMustMatch(
+                Box::new(returns_type_signature),
+                Box::new(actual_returns),
+            )
+            .into());
         }
     }
 
@@ -449,7 +451,13 @@ pub fn special_at_block(
                 StacksBlockId::from(data.as_slice())
             }
         }
-        x => return Err(CheckErrors::TypeValueError(BUFF_32.clone(), x).into()),
+        x => {
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(x),
+            )
+            .into())
+        }
     };
 
     env.add_memory(cost_constants::AT_BLOCK_MEMORY)?;
@@ -755,7 +763,10 @@ pub fn special_get_block_info(
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(x),
+        )),
     }?;
 
     let height_value = match u32::try_from(height_value) {
@@ -903,7 +914,11 @@ pub fn special_get_burn_block_info(
     let height_value = match height_eval {
         Value::UInt(result) => result,
         x => {
-            return Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x).into());
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::UIntType),
+                Box::new(x),
+            )
+            .into());
         }
     };
 
@@ -1000,7 +1015,10 @@ pub fn special_get_stacks_block_info(
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(x),
+        )),
     }?;
 
     let Ok(height_value) = u32::try_from(height_value) else {
@@ -1078,7 +1096,10 @@ pub fn special_get_tenure_info(
     let height_eval = eval(&args[1], env, context)?;
     let height_value = match height_eval {
         Value::UInt(result) => Ok(result),
-        x => Err(CheckErrors::TypeValueError(TypeSignature::UIntType, x)),
+        x => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::UIntType),
+            Box::new(x),
+        )),
     }?;
 
     let Ok(height_value) = u32::try_from(height_value) else {
@@ -1148,4 +1169,43 @@ pub fn special_get_tenure_info(
     };
 
     Value::some(result)
+}
+
+/// Handles the function `contract-hash?`
+pub fn special_contract_hash(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    check_argument_count(1, args)?;
+    let contract_expr = args
+        .first()
+        .ok_or(CheckErrors::IncorrectArgumentCount(1, 0))?;
+    let contract_value = eval(contract_expr, env, context)?;
+    let contract_identifier = match contract_value {
+        Value::Principal(PrincipalData::Standard(_)) => {
+            // If the value is a standard principal, we return `(err u1)`.
+            return Ok(Value::err_uint(1));
+        }
+        Value::Principal(PrincipalData::Contract(contract_identifier)) => contract_identifier,
+        _ => {
+            // If the value is not a principal, we return a check error.
+            return Err(
+                CheckErrors::ExpectedContractPrincipalValue(Box::new(contract_value)).into(),
+            );
+        }
+    };
+
+    runtime_cost(ClarityCostFunction::ContractHash, env, 0)?;
+
+    let Some(contract_hash) = env
+        .global_context
+        .database
+        .get_contract_hash(&contract_identifier)?
+    else {
+        // If the contract does not exist, we return `(err u2)`.
+        return Ok(Value::err_uint(2));
+    };
+
+    Value::okay(Value::buff_from(contract_hash.as_bytes().to_vec())?)
 }

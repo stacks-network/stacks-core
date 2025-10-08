@@ -26,7 +26,7 @@ use crate::burnchains::bitcoin::address::{
     to_c32_version_byte, BitcoinAddress, LegacyBitcoinAddress, LegacyBitcoinAddressType,
     SegwitBitcoinAddress,
 };
-use crate::burnchains::bitcoin::BitcoinTxOutput;
+use crate::burnchains::bitcoin::{BitcoinNetworkType, BitcoinTxOutput};
 use crate::burnchains::Address;
 use crate::util_lib::boot::boot_code_addr;
 
@@ -98,7 +98,7 @@ impl PoxAddress {
     #[cfg(any(test, feature = "testing"))]
     pub fn hashmode(&self) -> Option<AddressHashMode> {
         match *self {
-            PoxAddress::Standard(_, hm) => hm.clone(),
+            PoxAddress::Standard(_, hm) => hm,
             _ => None,
         }
     }
@@ -116,7 +116,7 @@ impl PoxAddress {
     /// Used only in tests, and even then, only in ones that expect a legacy Bitcoin address.
     #[cfg(any(test, feature = "testing"))]
     pub fn hash160(&self) -> Hash160 {
-        match *self {
+        match self {
             PoxAddress::Standard(addr, _) => addr.bytes().clone(),
             _ => panic!("Called hash160 on a non-standard PoX address"),
         }
@@ -125,7 +125,7 @@ impl PoxAddress {
     /// Get the data portion of this address.  This does not include the address or witness
     /// version.
     pub fn bytes(&self) -> Vec<u8> {
-        match *self {
+        match self {
             PoxAddress::Standard(addr, _) => addr.bytes().0.to_vec(),
             PoxAddress::Addr20(_, _, bytes) => bytes.to_vec(),
             PoxAddress::Addr32(_, _, bytes) => bytes.to_vec(),
@@ -311,7 +311,7 @@ impl PoxAddress {
                     }
                 };
                 let version = Value::buff_from_byte(*hm as u8);
-                let hashbytes = Value::buff_from(Vec::from(addr.bytes().0.clone()))
+                let hashbytes = Value::buff_from(Vec::from(addr.bytes().0))
                     .expect("FATAL: hash160 does not fit into a Clarity value");
 
                 let tuple_data = TupleData::from_data(vec![
@@ -324,7 +324,7 @@ impl PoxAddress {
             }
             PoxAddress::Addr20(ref _mainnet, ref addrtype, ref addrbytes) => {
                 let version = Value::buff_from_byte(*addrtype as u8);
-                let hashbytes = Value::buff_from(Vec::from(addrbytes.clone()))
+                let hashbytes = Value::buff_from(Vec::from(*addrbytes))
                     .expect("FATAL: could not create a 20-byte buffer");
 
                 let tuple_data = TupleData::from_data(vec![
@@ -337,7 +337,7 @@ impl PoxAddress {
             }
             PoxAddress::Addr32(ref _mainnet, ref addrtype, ref addrbytes) => {
                 let version = Value::buff_from_byte(*addrtype as u8);
-                let hashbytes = Value::buff_from(Vec::from(addrbytes.clone()))
+                let hashbytes = Value::buff_from(Vec::from(*addrbytes))
                     .expect("FATAL: could not create a 32-byte buffer");
 
                 let tuple_data = TupleData::from_data(vec![
@@ -375,23 +375,37 @@ impl PoxAddress {
         }
     }
 
+    /// Fallback to convert `mainnet` bool to a BitcoinNetworkType
+    /// preserving previous behaviour where a method was expecting the
+    /// `mainnet' flag
+    fn network_type_from_mainnet_fallback(mainnet: bool) -> BitcoinNetworkType {
+        if mainnet {
+            BitcoinNetworkType::Mainnet
+        } else {
+            BitcoinNetworkType::Testnet
+        }
+    }
+
     /// Convert this PoxAddress into a base58check string
     pub fn to_b58(self) -> String {
         match self {
             PoxAddress::Standard(addr, _) => addr.to_b58(),
             PoxAddress::Addr20(mainnet, addrtype, addrbytes) => match addrtype {
                 PoxAddressType20::P2WPKH => {
-                    let btc_addr = SegwitBitcoinAddress::P2WPKH(mainnet, addrbytes);
+                    let network = PoxAddress::network_type_from_mainnet_fallback(mainnet);
+                    let btc_addr = SegwitBitcoinAddress::P2WPKH(network, addrbytes);
                     btc_addr.to_bech32()
                 }
             },
             PoxAddress::Addr32(mainnet, addrtype, addrbytes) => match addrtype {
                 PoxAddressType32::P2WSH => {
-                    let btc_addr = SegwitBitcoinAddress::P2WSH(mainnet, addrbytes);
+                    let network = PoxAddress::network_type_from_mainnet_fallback(mainnet);
+                    let btc_addr = SegwitBitcoinAddress::P2WSH(network, addrbytes);
                     btc_addr.to_bech32()
                 }
                 PoxAddressType32::P2TR => {
-                    let btc_addr = SegwitBitcoinAddress::P2TR(mainnet, addrbytes);
+                    let network = PoxAddress::network_type_from_mainnet_fallback(mainnet);
+                    let btc_addr = SegwitBitcoinAddress::P2TR(network, addrbytes);
                     btc_addr.to_bech32()
                 }
             },
@@ -409,7 +423,7 @@ impl PoxAddress {
 
     /// Convert this PoxAddress into a Bitcoin tx output
     pub fn to_bitcoin_tx_out(&self, value: u64) -> TxOut {
-        match *self {
+        match self {
             PoxAddress::Standard(addr, _) => {
                 // legacy Bitcoin address
                 let btc_version = to_b58_version_byte(addr.version()).expect(
@@ -447,14 +461,14 @@ impl PoxAddress {
                 let pox_addr = PoxAddress::Standard(addr, None);
                 Some(pox_addr)
             }
-            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(is_mainnet, bytes_20)) => Some(
-                PoxAddress::Addr20(*is_mainnet, PoxAddressType20::P2WPKH, *bytes_20),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(network, bytes_20)) => Some(
+                PoxAddress::Addr20(network.is_mainnet(), PoxAddressType20::P2WPKH, *bytes_20),
             ),
-            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(is_mainnet, bytes_32)) => Some(
-                PoxAddress::Addr32(*is_mainnet, PoxAddressType32::P2WSH, *bytes_32),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(network, bytes_32)) => Some(
+                PoxAddress::Addr32(network.is_mainnet(), PoxAddressType32::P2WSH, *bytes_32),
             ),
-            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(is_mainnet, bytes_32)) => Some(
-                PoxAddress::Addr32(*is_mainnet, PoxAddressType32::P2TR, *bytes_32),
+            BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(network, bytes_32)) => Some(
+                PoxAddress::Addr32(network.is_mainnet(), PoxAddressType32::P2TR, *bytes_32),
             ),
         }
     }

@@ -17,7 +17,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, InterpreterError,
-    InterpreterResult as Result,
+    InterpreterResult as Result, SyntaxBindingErrorType,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TupleData, TypeSignature, Value};
@@ -34,7 +34,7 @@ pub fn tuple_cons(
 
     check_arguments_at_least(1, args)?;
 
-    let bindings = parse_eval_bindings(args, env, context)?;
+    let bindings = parse_eval_bindings(args, SyntaxBindingErrorType::TupleCons, env, context)?;
     runtime_cost(ClarityCostFunction::TupleCons, env, bindings.len())?;
 
     TupleData::from_data(bindings).map(Value::from)
@@ -65,7 +65,10 @@ pub fn tuple_get(
                             )
                         })?)
                     } else {
-                        Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&data)?).into())
+                        Err(
+                            CheckErrors::ExpectedTuple(Box::new(TypeSignature::type_of(&data)?))
+                                .into(),
+                        )
                     }
                 }
                 None => Ok(Value::none()), // just pass through none-types.
@@ -75,19 +78,23 @@ pub fn tuple_get(
             runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
             tuple_data.get_owned(arg_name)
         }
-        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&value)?).into()),
+        _ => Err(CheckErrors::ExpectedTuple(Box::new(TypeSignature::type_of(&value)?)).into()),
     }
 }
 
 pub fn tuple_merge(base: Value, update: Value) -> Result<Value> {
     let initial_values = match base {
         Value::Tuple(initial_values) => Ok(initial_values),
-        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&base)?)),
+        _ => Err(CheckErrors::ExpectedTuple(Box::new(
+            TypeSignature::type_of(&base)?,
+        ))),
     }?;
 
     let new_values = match update {
         Value::Tuple(new_values) => Ok(new_values),
-        _ => Err(CheckErrors::ExpectedTuple(TypeSignature::type_of(&update)?)),
+        _ => Err(CheckErrors::ExpectedTuple(Box::new(
+            TypeSignature::type_of(&update)?,
+        ))),
     }?;
 
     let combined = TupleData::shallow_merge(initial_values, new_values)?;

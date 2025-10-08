@@ -28,7 +28,7 @@ use percent_encoding::percent_decode_str;
 use regex::{Captures, Regex};
 use stacks_common::codec::{read_next, Error as CodecError, StacksMessageCodec, MAX_MESSAGE_LEN};
 use stacks_common::types::chainstate::{
-    ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
+    BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPublicKey,
 };
 use stacks_common::types::net::PeerHost;
 use stacks_common::types::Address;
@@ -106,18 +106,18 @@ impl From<&str> for TipRequest {
 /// Extension to HttpRequestPreamble to give it awareness of Stacks-specific fields
 pub trait HttpPreambleExtensions {
     /// Set the node's canonical Stacks chain tip
-    fn set_canonical_stacks_tip_height(&mut self, height: Option<u32>);
+    fn set_canonical_stacks_tip_height(&mut self, height: Option<u64>);
     /// Set the node's request ID
     fn set_request_id(&mut self, req_id: u32);
     /// Get the canonical stacks chain tip
-    fn get_canonical_stacks_tip_height(&self) -> Option<u32>;
+    fn get_canonical_stacks_tip_height(&self) -> Option<u64>;
     /// Get the request ID
     fn get_request_id(&self) -> Option<u32>;
 }
 
 impl HttpPreambleExtensions for HttpRequestPreamble {
     /// Set the canonical Stacks chain tip height
-    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u32>) {
+    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u64>) {
         if let Some(height) = height_opt {
             self.add_header(
                 "X-Canonical-Stacks-Tip-Height".into(),
@@ -134,9 +134,9 @@ impl HttpPreambleExtensions for HttpRequestPreamble {
     }
 
     /// Get the canonical Stacks chain tip
-    fn get_canonical_stacks_tip_height(&self) -> Option<u32> {
+    fn get_canonical_stacks_tip_height(&self) -> Option<u64> {
         self.get_header("X-Canonical-Stacks-Tip-Height".to_string())
-            .and_then(|hdr| hdr.parse::<u32>().ok())
+            .and_then(|hdr| hdr.parse::<u64>().ok())
     }
 
     /// Get the request ID
@@ -148,7 +148,7 @@ impl HttpPreambleExtensions for HttpRequestPreamble {
 
 impl HttpPreambleExtensions for HttpResponsePreamble {
     /// Set the canonical Stacks chain tip height
-    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u32>) {
+    fn set_canonical_stacks_tip_height(&mut self, height_opt: Option<u64>) {
         if let Some(height) = height_opt {
             self.add_header(
                 "X-Canonical-Stacks-Tip-Height".into(),
@@ -165,9 +165,9 @@ impl HttpPreambleExtensions for HttpResponsePreamble {
     }
 
     /// Get the canonical Stacks chain tip
-    fn get_canonical_stacks_tip_height(&self) -> Option<u32> {
+    fn get_canonical_stacks_tip_height(&self) -> Option<u64> {
         self.get_header("X-Canonical-Stacks-Tip-Height".to_string())
-            .and_then(|hdr| hdr.parse::<u32>().ok())
+            .and_then(|hdr| hdr.parse::<u64>().ok())
     }
 
     /// Get the request ID
@@ -280,10 +280,43 @@ pub mod request {
         Ok(ch)
     }
 
+    /// Get and parse a BurnchainHeaderHash from a path's captures, given the name of the regex field.
+    pub fn get_burnchain_header_hash(
+        captures: &Captures,
+        key: &str,
+    ) -> Result<BurnchainHeaderHash, HttpError> {
+        let ch = if let Some(ch_str) = captures.name(key) {
+            match BurnchainHeaderHash::from_hex(ch_str.as_str()) {
+                Ok(ch) => ch,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(ch)
+    }
+
     /// Get and parse a u32 from a path's captures, given the name of the regex field.
     pub fn get_u32(captures: &Captures, key: &str) -> Result<u32, HttpError> {
         let u = if let Some(u32_str) = captures.name(key) {
             match u32_str.as_str().parse::<u32>() {
+                Ok(x) => x,
+                Err(_e) => {
+                    return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
+                }
+            }
+        } else {
+            return Err(HttpError::Http(404, format!("Missing `{}`", key)));
+        };
+        Ok(u)
+    }
+
+    /// Get and parse a u64 from a path's captures, given the name of the regex field.
+    pub fn get_u64(captures: &Captures, key: &str) -> Result<u64, HttpError> {
+        let u = if let Some(u64_str) = captures.name(key) {
+            match u64_str.as_str().parse::<u64>() {
                 Ok(x) => x,
                 Err(_e) => {
                     return Err(HttpError::Http(400, format!("Failed to decode `{}`", key)));
@@ -1740,7 +1773,7 @@ impl PeerNetwork {
                     network_state,
                     network,
                     data_url.clone(),
-                    addr.clone(),
+                    addr,
                     Some(request.clone()),
                 ) {
                     Ok(event_id) => Ok(event_id),
@@ -1752,13 +1785,13 @@ impl PeerNetwork {
                             HttpPeer::saturate_http_socket(socket, convo)?;
                             Ok(event_id)
                         } else {
-                            debug!("HTTP failed to connect to {:?}, {:?}", &data_url, &addr);
-                            Err(NetError::PeerNotConnected)
+                            debug!("HTTP failed to connect to {data_url}, {addr:?}");
+                            Err(NetError::PeerNotConnected(format!(
+                                "HTTP failed to connect to {data_url}, {addr:?}",
+                            )))
                         }
                     }
-                    Err(e) => {
-                        return Err(e);
-                    }
+                    Err(e) => Err(e),
                 }
             })
         })

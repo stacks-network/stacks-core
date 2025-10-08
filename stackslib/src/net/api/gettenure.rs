@@ -223,7 +223,7 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
                 };
                 NakamotoTenureStream::new(
                     chainstate,
-                    block_id,
+                    block_id.clone(),
                     nakamoto_header.consensus_hash.clone(),
                     nakamoto_header.parent_block_id.clone(),
                     self.last_block_id.clone(),
@@ -236,15 +236,15 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
             Err(ChainError::NoSuchBlockError) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
-                    &HttpNotFound::new(format!("No such block {:?}\n", &block_id)),
+                    &HttpNotFound::new(format!("No such block {block_id:?}\n")),
                 )
                 .try_into_contents()
                 .map_err(NetError::from)
             }
             Err(e) => {
                 // nope -- error trying to check
-                let msg = format!("Failed to load block {}: {:?}\n", &block_id, &e);
-                warn!("{}", &msg);
+                let msg = format!("Failed to load block {block_id}: {e:?}\n");
+                warn!("{msg}");
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
                     .try_into_contents()
                     .map_err(NetError::from);
@@ -258,7 +258,6 @@ impl RPCRequestHandler for RPCNakamotoTenureRequestHandler {
             None,
             HttpContentType::Bytes,
         );
-
         Ok((
             resp_preamble,
             HttpResponseContents::from_stream(Box::new(stream)),

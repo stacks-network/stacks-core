@@ -40,7 +40,7 @@ use stacks_common::function_name;
 use crate::chainstate::{ProposalEvalConfig, SortitionData};
 use crate::client::tests::{build_get_tenure_tip_response, MockServerClient};
 use crate::client::StacksClient;
-use crate::config::GlobalConfig;
+use crate::config::{GlobalConfig, DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS};
 use crate::signerdb::tests::{create_block_override, tmp_db_path};
 use crate::signerdb::SignerDb;
 use crate::v0::signer_state::{LocalStateMachine, NewBurnBlock, StateMachineUpdate};
@@ -54,7 +54,7 @@ fn check_capitulate_miner_view() {
     } = MockServerClient::new();
 
     let mut address_weights = HashMap::new();
-    address_weights.insert(*client.get_signer_address(), 10);
+    address_weights.insert(client.get_signer_address().clone(), 10);
     for _ in 1..10 {
         let stacks_address = StacksAddress::p2pkh(false, &StacksPublicKey::new());
         address_weights.insert(stacks_address, 10);
@@ -74,9 +74,9 @@ fn check_capitulate_miner_view() {
 
     let old_miner = StateMachineUpdateMinerState::ActiveMiner {
         current_miner_pkh: Hash160([0xab; 20]),
-        tenure_id: old_miner_tenure_id,
-        parent_tenure_id,
-        parent_tenure_last_block,
+        tenure_id: old_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: parent_tenure_last_block.clone(),
         parent_tenure_last_block_height,
     };
     // Make sure the old update still has the newer burn block height
@@ -93,13 +93,13 @@ fn check_capitulate_miner_view() {
 
     let mut address_updates = HashMap::new();
     for address in address_weights.keys() {
-        address_updates.insert(*address, old_update.clone());
+        address_updates.insert(address.clone(), old_update.clone());
     }
     let mut global_eval = GlobalStateEvaluator::new(address_updates, address_weights);
 
     let addresses: Vec<_> = global_eval.address_weights.keys().cloned().collect();
     // Let's say we are the very first signer in the list
-    let local_address = addresses[0];
+    let local_address = addresses[0].clone();
     let local_update = global_eval
         .address_updates
         .get(&local_address)
@@ -122,16 +122,16 @@ fn check_capitulate_miner_view() {
     // Let's create a new miner view
     let new_miner = StateMachineUpdateMinerState::ActiveMiner {
         current_miner_pkh: Hash160([0x00; 20]),
-        tenure_id: new_miner_tenure_id,
-        parent_tenure_id,
-        parent_tenure_last_block,
+        tenure_id: new_miner_tenure_id.clone(),
+        parent_tenure_id: parent_tenure_id.clone(),
+        parent_tenure_last_block: parent_tenure_last_block.clone(),
         parent_tenure_last_block_height,
     };
     let new_update = StateMachineUpdateMessage::new(
         active_signer_protocol_version,
         local_supported_signer_protocol_version,
         StateMachineUpdateContent::V0 {
-            burn_block,
+            burn_block: burn_block.clone(),
             burn_block_height,
             current_miner: new_miner.clone(),
         },
@@ -178,7 +178,7 @@ fn check_capitulate_miner_view() {
     let signer_state_machine = SignerStateMachine {
         burn_block,
         burn_block_height,
-        current_miner: (&new_miner).into(),
+        current_miner: new_miner.clone().into(),
         tx_replay_set: ReplayTransactionSet::none(),
         active_signer_protocol_version,
     };
@@ -284,6 +284,7 @@ fn check_miner_inactivity_timeout() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
+        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
     };
 
     let block_sk = StacksPrivateKey::from_seed(&[0, 1]);
@@ -291,7 +292,7 @@ fn check_miner_inactivity_timeout() {
     let block_pkh = Hash160::from_node_public_key(&block_pk);
 
     let cur_sortition = SortitionData {
-        miner_pkh: block_pkh,
+        miner_pkh: block_pkh.clone(),
         miner_pubkey: None,
         prior_sortition: ConsensusHash([0; 20]),
         parent_tenure_id: ConsensusHash([0; 20]),
@@ -300,7 +301,7 @@ fn check_miner_inactivity_timeout() {
         burn_block_hash: BurnchainHeaderHash([1; 32]),
     };
     let last_sortition = SortitionData {
-        miner_pkh: block_pkh,
+        miner_pkh: block_pkh.clone(),
         miner_pubkey: None,
         prior_sortition: ConsensusHash([128; 20]),
         parent_tenure_id: ConsensusHash([128; 20]),
@@ -310,8 +311,8 @@ fn check_miner_inactivity_timeout() {
     };
 
     // Ensure we have a burn height to compare against
-    let burn_hash = cur_sortition.burn_block_hash;
-    let consensus_hash = cur_sortition.consensus_hash;
+    let burn_hash = cur_sortition.burn_block_hash.clone();
+    let consensus_hash = cur_sortition.consensus_hash.clone();
     let burn_height = 1;
     let received_time = SystemTime::now();
     signer_db
@@ -325,38 +326,38 @@ fn check_miner_inactivity_timeout() {
         .unwrap();
 
     let cur = SortitionInfo {
-        burn_block_hash: cur_sortition.burn_block_hash,
+        burn_block_hash: cur_sortition.burn_block_hash.clone(),
         burn_block_height: burn_height,
         burn_header_timestamp: cur_sortition.burn_header_timestamp,
         sortition_id: SortitionId([1u8; 32]),
         parent_sortition_id: SortitionId([3u8; 32]),
-        consensus_hash: cur_sortition.consensus_hash,
+        consensus_hash: cur_sortition.consensus_hash.clone(),
         was_sortition: true,
-        miner_pk_hash160: Some(block_pkh),
-        last_sortition_ch: Some(last_sortition.consensus_hash),
+        miner_pk_hash160: Some(block_pkh.clone()),
+        last_sortition_ch: Some(last_sortition.consensus_hash.clone()),
         committed_block_hash: None,
         vrf_seed: None,
-        stacks_parent_ch: Some(last_sortition.parent_tenure_id),
+        stacks_parent_ch: Some(last_sortition.parent_tenure_id.clone()),
     };
     let last = SortitionInfo {
-        burn_block_hash: last_sortition.burn_block_hash,
+        burn_block_hash: last_sortition.burn_block_hash.clone(),
         burn_block_height: 0,
         burn_header_timestamp: last_sortition.burn_header_timestamp,
         sortition_id: SortitionId([0u8; 32]),
         parent_sortition_id: SortitionId([4u8; 32]),
-        consensus_hash: last_sortition.consensus_hash,
+        consensus_hash: last_sortition.consensus_hash.clone(),
         was_sortition: true,
         miner_pk_hash160: Some(block_pkh),
         last_sortition_ch: Some(ConsensusHash([9u8; 20])),
         committed_block_hash: None,
         vrf_seed: None,
-        stacks_parent_ch: Some(cur_sortition.parent_tenure_id),
+        stacks_parent_ch: Some(cur_sortition.parent_tenure_id.clone()),
     };
 
     let active_miner = MinerState::ActiveMiner {
         current_miner_pkh: cur_sortition.miner_pkh,
-        tenure_id: cur_sortition.consensus_hash,
-        parent_tenure_id: cur_sortition.parent_tenure_id,
+        tenure_id: cur_sortition.consensus_hash.clone(),
+        parent_tenure_id: cur_sortition.parent_tenure_id.clone(),
         parent_tenure_last_block: StacksBlockId([1; 32]),
         parent_tenure_last_block_height: 1,
     };
@@ -366,15 +367,15 @@ fn check_miner_inactivity_timeout() {
     let genesis_block = NakamotoBlockHeader::genesis();
     let reassigned_miner = MinerState::ActiveMiner {
         current_miner_pkh: last_sortition.miner_pkh,
-        tenure_id: last_sortition.consensus_hash,
-        parent_tenure_id: genesis_block.consensus_hash,
+        tenure_id: last_sortition.consensus_hash.clone(),
+        parent_tenure_id: genesis_block.consensus_hash.clone(),
         parent_tenure_last_block: genesis_block.block_id(),
         parent_tenure_last_block_height: 0,
     };
 
     let mut address_weights = HashMap::new();
-    let address = *stacks_client.get_signer_address();
-    address_weights.insert(address, 10_u32);
+    let address = stacks_client.get_signer_address();
+    address_weights.insert(address.clone(), 10_u32);
 
     let eval = GlobalStateEvaluator::new(HashMap::new(), address_weights);
     // This local state machine should not change as an uninitialized local state cannot be modified
@@ -386,7 +387,7 @@ fn check_miner_inactivity_timeout() {
 
     // Nothing should happen for a Inactive Miner
     let mut signer_state = SignerStateMachine {
-        burn_block: cur_sortition.consensus_hash,
+        burn_block: cur_sortition.consensus_hash.clone(),
         burn_block_height: 1,
         current_miner: inactive_miner,
         active_signer_protocol_version: 0,
@@ -445,11 +446,11 @@ fn check_miner_inactivity_timeout() {
     // and that it has chosen a good parent
     let expected_result = vec![
         TenureForkingInfo {
-            burn_block_hash: last_sortition.burn_block_hash,
+            burn_block_hash: last_sortition.burn_block_hash.clone(),
             burn_block_height: 2,
             sortition_id: SortitionId([2; 32]),
             parent_sortition_id: SortitionId([1; 32]),
-            consensus_hash: last_sortition.consensus_hash,
+            consensus_hash: last_sortition.consensus_hash.clone(),
             was_sortition: true,
             first_block_mined: Some(StacksBlockId([1; 32])),
             nakamoto_blocks: None,
@@ -459,7 +460,7 @@ fn check_miner_inactivity_timeout() {
             burn_block_height: 1,
             sortition_id: SortitionId([1; 32]),
             parent_sortition_id: SortitionId([0; 32]),
-            consensus_hash: cur_sortition.parent_tenure_id,
+            consensus_hash: cur_sortition.parent_tenure_id.clone(),
             was_sortition: true,
             first_block_mined: Some(StacksBlockId([2; 32])),
             nakamoto_blocks: None,

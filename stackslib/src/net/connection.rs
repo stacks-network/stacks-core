@@ -627,14 +627,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
 
     /// Fill up the preamble buffer, up to P::preamble_size_hint().
     /// Return the number of bytes consumed.
-    fn buffer_preamble_bytes(
-        &mut self,
-        protocol: &mut P,
-        bytes: &[u8],
-    ) -> Result<usize, net_error> {
+    fn buffer_preamble_bytes(&mut self, protocol: &mut P, bytes: &[u8]) -> usize {
         let max_preamble_len = protocol.preamble_size_hint();
         let Some(preamble_remaining) = max_preamble_len.checked_sub(self.buf.len()) else {
-            return Ok(0);
+            return 0;
         };
 
         let to_consume = bytes.len().min(preamble_remaining);
@@ -647,13 +643,10 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         );
 
         trace!(
-            "Buffer {} bytes out of max {} for preamble (buf went from {} to {} bytes)",
-            to_consume,
-            max_preamble_len,
-            _len,
+            "Buffer {to_consume} bytes out of max {max_preamble_len} for preamble (buf went from {_len} to {} bytes)",
             self.buf.len()
         );
-        Ok(to_consume)
+        to_consume
     }
 
     /// try to consume buffered data to form a message preamble.
@@ -664,7 +657,7 @@ impl<P: ProtocolFamily> ConnectionInbox<P> {
         protocol: &mut P,
         bytes: &[u8],
     ) -> Result<(Option<P::Preamble>, usize), net_error> {
-        let bytes_consumed = self.buffer_preamble_bytes(protocol, bytes)?;
+        let bytes_consumed = self.buffer_preamble_bytes(protocol, bytes);
         let preamble_opt = match protocol.read_preamble(&self.buf) {
             Ok((preamble, preamble_len)) => {
                 assert!((preamble_len as u32) < MAX_MESSAGE_LEN); // enforced by protocol family
@@ -1318,7 +1311,9 @@ impl<P: ProtocolFamily> ConnectionOutbox<P> {
         );
 
         if total_sent == 0 && disconnected && !blocked {
-            return Err(net_error::PeerNotConnected);
+            return Err(net_error::PeerNotConnected(format!(
+                "Failed to send bytes: total_sent = {total_sent}, disconnected = {disconnected}, blocked = {blocked}"
+            )));
         }
         update_outbound_bandwidth(total_sent as i64);
         Ok(total_sent)
@@ -1513,10 +1508,7 @@ impl<P: ProtocolFamily + Clone> NetworkConnection<P> {
 
     /// Get a copy of the public key
     pub fn get_public_key(&self) -> Option<Secp256k1PublicKey> {
-        match self.inbox.public_key {
-            Some(pubk) => Some(pubk.clone()),
-            None => None,
-        }
+        self.inbox.public_key.clone()
     }
 
     /// Get a copy of the public key

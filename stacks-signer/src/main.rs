@@ -30,7 +30,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use clarity::types::chainstate::StacksPublicKey;
 use clarity::util::sleep_ms;
 use libsigner::{SignerSession, VERSION_STRING};
@@ -128,7 +128,7 @@ fn handle_generate_stacking_signature(
 ) -> MessageSignature {
     let config = GlobalConfig::try_from(&args.config).unwrap();
 
-    let private_key = config.stacks_private_key;
+    let private_key = config.stacks_private_key.clone();
     let public_key = StacksPublicKey::from_private(&private_key);
     let pk_hex = to_hex(&public_key.to_bytes_compressed());
 
@@ -215,6 +215,15 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
 }
 
 fn main() {
+    // If no args were passed, exit 0.
+    // This differs from the default behavior, which exits with code 2.
+    if std::env::args_os().len() == 1 {
+        let mut cmd = Cli::command();
+        cmd.print_help().ok();
+        println!();
+        std::process::exit(0);
+    }
+
     let cli = Cli::parse();
 
     tracing_subscriber::registry()
@@ -413,7 +422,7 @@ pub mod tests {
         let public_key = StacksPublicKey::from_private(&private_key);
         let args = GenerateVoteArgs {
             config: config_file.into(),
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let message_signature = handle_generate_vote(args, false);
         assert!(
@@ -438,9 +447,9 @@ pub mod tests {
         };
 
         let args = VerifyVoteArgs {
-            public_key,
+            public_key: public_key.clone(),
             signature: vote_info.sign(&private_key).unwrap(),
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let valid = handle_verify_vote(args, false);
         assert!(valid, "Vote should be valid");
@@ -448,13 +457,13 @@ pub mod tests {
         let args = VerifyVoteArgs {
             public_key: invalid_public_key,
             signature: vote_info.sign(&private_key).unwrap(), // Invalid corresponding public key
-            vote_info,
+            vote_info: vote_info.clone(),
         };
         let valid = handle_verify_vote(args, false);
         assert!(!valid, "Vote should be invalid");
 
         let args = VerifyVoteArgs {
-            public_key,
+            public_key: public_key.clone(),
             signature: vote_info.sign(&private_key).unwrap(),
             vote_info: VoteInfo {
                 vote: Vote::Yes, // Invalid vote

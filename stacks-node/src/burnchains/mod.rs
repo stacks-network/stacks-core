@@ -1,5 +1,7 @@
+pub mod bitcoin;
 pub mod bitcoin_regtest_controller;
 pub mod mocknet_controller;
+pub mod rpc;
 
 use std::time::Instant;
 
@@ -84,12 +86,12 @@ pub struct BurnchainTip {
 
 impl BurnchainTip {
     pub fn get_winning_tx_index(&self) -> Option<u32> {
-        let winning_tx_id = self.block_snapshot.winning_block_txid;
+        let winning_tx_id = &self.block_snapshot.winning_block_txid;
         let mut winning_tx_vtindex = None;
 
         for op in self.state_transition.accepted_ops.iter() {
             if let BlockstackOperationType::LeaderBlockCommit(op) = op {
-                if op.txid == winning_tx_id {
+                if &op.txid == winning_tx_id {
                     winning_tx_vtindex = Some(op.vtxindex)
                 }
             }

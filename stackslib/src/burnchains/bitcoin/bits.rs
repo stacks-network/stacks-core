@@ -526,7 +526,7 @@ fn to_txid(txin: &BtcTxIn) -> (Txid, u32) {
     // bitcoin-rs library (which stacks_common::deps_common::bitcoin is based on)
     //   operates in a different endian-ness for txids than the rest of
     //   the codebase. so this method reverses the txid bits.
-    let mut bits = txin.previous_output.txid.0.clone();
+    let mut bits = txin.previous_output.txid.0;
     bits.reverse();
     (Txid(bits), txin.previous_output.vout)
 }
@@ -1112,7 +1112,7 @@ mod tests {
                 ],
                 vec![
                     BitcoinTxOutput {
-                        address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(true, [0x17, 0x3f, 0xd3, 0x10, 0xe9, 0xdb, 0x2c, 0x7e, 0x95, 0x50, 0xce, 0x0f, 0x03, 0xf1, 0xe6, 0xc0, 0x1d, 0x83, 0x3a, 0xa9])),
+                        address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(BitcoinNetworkType::Mainnet, [0x17, 0x3f, 0xd3, 0x10, 0xe9, 0xdb, 0x2c, 0x7e, 0x95, 0x50, 0xce, 0x0f, 0x03, 0xf1, 0xe6, 0xc0, 0x1d, 0x83, 0x3a, 0xa9])),
                         units: 965300
                     }
                 ]
@@ -1405,7 +1405,7 @@ mod tests {
                 .into_script(),
                 result: Some(BitcoinTxOutput {
                     address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WPKH(
-                        true,
+                        BitcoinNetworkType::Mainnet,
                         [
                             0x75, 0x1e, 0x76, 0xe8, 0x19, 0x91, 0x96, 0xd4, 0x54, 0x94, 0x1c, 0x45,
                             0xd1, 0xb3, 0xa3, 0x23, 0xf1, 0x43, 0x3b, 0xd6,
@@ -1425,7 +1425,7 @@ mod tests {
                 .into_script(),
                 result: Some(BitcoinTxOutput {
                     address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2WSH(
-                        true,
+                        BitcoinNetworkType::Mainnet,
                         [
                             0x18, 0x63, 0x14, 0x3c, 0x14, 0xc5, 0x16, 0x68, 0x04, 0xbd, 0x19, 0x20,
                             0x33, 0x56, 0xda, 0x13, 0x6c, 0x98, 0x56, 0x78, 0xcd, 0x4d, 0x27, 0xa1,
@@ -1446,7 +1446,7 @@ mod tests {
                 .into_script(),
                 result: Some(BitcoinTxOutput {
                     address: BitcoinAddress::Segwit(SegwitBitcoinAddress::P2TR(
-                        true,
+                        BitcoinNetworkType::Mainnet,
                         [
                             0x33, 0x9c, 0xe7, 0xe1, 0x65, 0xe6, 0x7d, 0x93, 0xad, 0xb3, 0xfe, 0xf8,
                             0x8a, 0x6d, 0x4b, 0xee, 0xd3, 0x3f, 0x01, 0xfa, 0x87, 0x6f, 0x05, 0xa2,

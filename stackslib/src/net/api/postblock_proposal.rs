@@ -23,7 +23,6 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::time::Instant;
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
 use serde::Deserialize;
@@ -53,7 +52,7 @@ use crate::net::http::{
     HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
     HttpResponsePreamble,
 };
-use crate::net::httpcore::{HttpPreambleExtensions, RPCRequestHandler};
+use crate::net::httpcore::RPCRequestHandler;
 use crate::net::{Error as NetError, StacksNodeState};
 
 #[cfg(any(test, feature = "testing"))]
@@ -67,6 +66,10 @@ pub static TEST_VALIDATE_DELAY_DURATION_SECS: LazyLock<TestFlag<u64>> =
 pub static TEST_REPLAY_TRANSACTIONS: LazyLock<
     TestFlag<std::collections::VecDeque<StacksTransaction>>,
 > = LazyLock::new(TestFlag::default);
+
+#[cfg(any(test, feature = "testing"))]
+/// Whether to reject any transaction while we're in a replay set.
+pub static TEST_REJECT_REPLAY_TXS: LazyLock<TestFlag<bool>> = LazyLock::new(TestFlag::default);
 
 // This enum is used to supply a `reason_code` for validation
 //  rejection responses. This is serialized as an enum with string
@@ -182,10 +185,10 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
 
 impl BlockValidateResponse {
     /// Get the signer signature hash from the response
-    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+    pub fn signer_signature_hash(&self) -> &Sha512Trunc256Sum {
         match self {
-            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
-            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+            BlockValidateResponse::Ok(o) => &o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => &r.signer_signature_hash,
         }
     }
 }
@@ -199,6 +202,24 @@ fn fault_injection_validation_delay() {
 
 #[cfg(not(any(test, feature = "testing")))]
 fn fault_injection_validation_delay() {}
+
+#[cfg(any(test, feature = "testing"))]
+fn fault_injection_reject_replay_txs() -> Result<(), BlockValidateRejectReason> {
+    let reject = TEST_REJECT_REPLAY_TXS.get();
+    if reject {
+        Err(BlockValidateRejectReason {
+            reason_code: ValidateRejectCode::InvalidTransactionReplay,
+            reason: "Rejected by test flag".into(),
+        })
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(test, feature = "testing")))]
+fn fault_injection_reject_replay_txs() -> Result<(), BlockValidateRejectReason> {
+    Ok(())
+}
 
 /// Represents a block proposed to the `v3/block_proposal` endpoint for validation
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -557,6 +578,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
 
         let mut miner_tenure_info =
@@ -572,7 +594,6 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             );
             let err = match tx_result {
@@ -703,6 +724,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
         let (mut replay_chainstate, _) =
             StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;
@@ -724,6 +746,7 @@ impl NakamotoBlockProposal {
                     // Allow this to happen, tenure extend checks happen elsewhere.
                     break;
                 }
+                fault_injection_reject_replay_txs()?;
                 let Some(replay_tx) = replay_txs.pop_front() else {
                     // During transaction replay, we expect that the block only
                     // contains transactions from the replay set. Thus, if we're here,
@@ -750,7 +773,6 @@ impl NakamotoBlockProposal {
                     &replay_tx,
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    ASTRules::PrecheckSize,
                     None,
                 );
                 match tx_result {
@@ -764,6 +786,7 @@ impl NakamotoBlockProposal {
                         match error {
                             ChainError::CostOverflowError(..)
                             | ChainError::BlockTooBigError
+                            | ChainError::BlockCostLimitError
                             | ChainError::ClarityError(ClarityError::CostError(..)) => {
                                 // block limit reached; add tx back to replay set.
                                 // BUT we know that the block should have ended at this point, so
@@ -814,7 +837,6 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             );
         }
@@ -829,7 +851,6 @@ impl NakamotoBlockProposal {
                     &tx,
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    ASTRules::PrecheckSize,
                     None,
                 );
                 match tx_result {
@@ -842,6 +863,7 @@ impl NakamotoBlockProposal {
                             ChainError::CostOverflowError(..)
                                 | ChainError::BlockTooBigError
                                 | ChainError::ClarityError(ClarityError::CostError(..))
+                                | ChainError::BlockCostLimitError
                         )
                     }
                     TransactionResult::Success(_) => {
@@ -1030,8 +1052,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
 
         match res {
             Ok(_) => {
-                let mut preamble = HttpResponsePreamble::accepted_json(&preamble);
-                preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+                let preamble = HttpResponsePreamble::accepted_json(&preamble);
                 let body = HttpResponseContents::try_from_json(&serde_json::json!({
                     "result": "Accepted",
                     "message": "Block proposal is processing, result will be returned via the event observer"
@@ -1039,8 +1060,7 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                 Ok((preamble, body))
             }
             Err((code, err)) => {
-                let mut preamble = HttpResponsePreamble::error_json(code, http_reason(code));
-                preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+                let preamble = HttpResponsePreamble::error_json(code, http_reason(code));
                 let body = HttpResponseContents::try_from_json(&serde_json::json!({
                     "result": "Error",
                     "message": format!("Could not process block proposal request: {err}")

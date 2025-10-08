@@ -17,7 +17,7 @@ mod commands;
 pub mod multiversion;
 pub mod v0;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,6 +35,7 @@ use libsigner::v0::messages::{
 use libsigner::v0::signer_state::MinerState;
 use libsigner::{BlockProposal, SignerEntries, SignerEventTrait};
 use serde::{Deserialize, Serialize};
+use stacks::burnchains::Txid;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::nakamoto::signer_set::NakamotoSigners;
 use stacks::chainstate::nakamoto::NakamotoBlock;
@@ -70,9 +71,10 @@ use super::nakamoto_integrations::{
 use super::neon_integrations::{
     copy_dir_all, get_account, get_sortition_info_ch, submit_tx_fallible, Account,
 };
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
+use crate::nakamoto_node::miner::TEST_MINE_SKIP;
 use crate::neon::Counters;
 use crate::run_loop::boot_nakamoto;
-use crate::tests::bitcoin_regtest::BitcoinCoreController;
 use crate::tests::nakamoto_integrations::{
     naka_neon_integration_conf, next_block_and_wait_for_commits, POX_4_DEFAULT_STACKER_BALANCE,
 };
@@ -80,6 +82,7 @@ use crate::tests::neon_integrations::{
     get_chain_info, next_block_and_wait, run_until_burnchain_height, test_observer,
     wait_for_runloop,
 };
+use crate::tests::signer::v0::wait_for_state_machine_update_by_miner_tenure_id;
 use crate::tests::to_addr;
 use crate::BitcoinRegtestController;
 
@@ -239,11 +242,15 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let (mut naka_conf, _miner_account) =
             naka_neon_integration_conf(snapshot_name.map(|n| n.as_bytes()));
 
+        naka_conf.miner.activated_vrf_key_path =
+            Some(format!("{}/vrf_key", naka_conf.node.working_dir));
+
         node_config_modifier(&mut naka_conf);
 
         // Add initial balances to the config
         for (address, amount) in initial_balances.iter() {
-            naka_conf.add_initial_balance(PrincipalData::from(*address).to_string(), *amount);
+            naka_conf
+                .add_initial_balance(PrincipalData::from(address.clone()).to_string(), *amount);
         }
 
         // So the combination is... one, two, three, four, five? That's the stupidest combination I've ever heard in my life!
@@ -332,7 +339,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             return false;
         };
 
-        !std::fs::metadata(snapshot_path).is_ok()
+        std::fs::metadata(snapshot_path).is_err()
     }
 
     /// Setup a snapshot by copying the snapshot directory to the working directory.
@@ -364,7 +371,11 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             let metadata_path = snapshot_path.join("metadata.json");
             if !metadata_path.clone().exists() {
                 warn!("Snapshot metadata file does not exist, not restoring snapshot");
-                return SetupSnapshotResult::NoSnapshot;
+                std::fs::remove_dir_all(snapshot_path.clone()).unwrap();
+                return SetupSnapshotResult::WithSnapshot(SnapshotSetupInfo {
+                    snapshot_path: snapshot_path.clone(),
+                    snapshot_exists: false,
+                });
             }
             let Ok(metadata) = serde_json::from_reader::<_, SnapshotMetadata>(
                 File::open(metadata_path.clone()).unwrap(),
@@ -535,11 +546,16 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
     }
 
     pub fn mine_bitcoin_block(&self) {
+        let mined_btc_block_time = Instant::now();
         let info = self.get_peer_info();
         next_block_and(&self.running_nodes.btc_regtest_controller, 60, || {
             Ok(get_chain_info(&self.running_nodes.conf).burn_block_height > info.burn_block_height)
         })
         .unwrap();
+        info!(
+            "Bitcoin block mine time elapsed: {:?}",
+            mined_btc_block_time.elapsed()
+        );
     }
 
     /// Fetch the local signer state machine for all the signers,
@@ -1066,6 +1082,20 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         })
     }
 
+    pub fn wait_for_replay_set_eq(&self, timeout: u64, expected_txids: Vec<String>) {
+        self.wait_for_signer_state_check(timeout, |state| {
+            let Some(replay_set) = state.get_tx_replay_set() else {
+                return Ok(false);
+            };
+            let txids = replay_set
+                .iter()
+                .map(|tx| tx.txid().to_hex())
+                .collect::<Vec<_>>();
+            Ok(txids == expected_txids)
+        })
+        .expect("Timed out waiting for replay set to be equal to expected txids");
+    }
+
     /// Replace the test's configured signer st
     pub fn replace_signers(
         &mut self,
@@ -1098,26 +1128,63 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         output
     }
 
-    /// Mine a BTC block and wait for a new Stacks block to be mined
+    /// Mine a BTC block and wait for a new Stacks block to be mined, but do not wait for a commit
+    /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
+    fn mine_nakamoto_block_without_commit(
+        &self,
+        timeout: Duration,
+        use_nakamoto_blocks_mined: bool,
+    ) {
+        let info_before = get_chain_info(&self.running_nodes.conf);
+        info!("Pausing stacks block mining");
+        TEST_MINE_SKIP.set(true);
+        let mined_blocks = self.running_nodes.counters.naka_mined_blocks.clone();
+        let mined_before = mined_blocks.get();
+        self.mine_bitcoin_block();
+        wait_for_state_machine_update_by_miner_tenure_id(
+            timeout.as_secs(),
+            &get_chain_info(&self.running_nodes.conf).pox_consensus,
+            &self.signer_addresses_versions_majority(),
+        )
+        .expect("Failed to update signer state machine");
+
+        info!("Unpausing stacks block mining");
+        let mined_block_time = Instant::now();
+        TEST_MINE_SKIP.set(false);
+        // Do these wait for's in two steps not only for increased timeout but for easier debugging.
+        // Ensure that the tenure change transaction is mined
+        wait_for(timeout.as_secs(), || {
+            Ok(get_chain_info(&self.running_nodes.conf).stacks_tip_height
+                > info_before.stacks_tip_height
+                && (!use_nakamoto_blocks_mined || mined_blocks.get() > mined_before))
+        })
+        .expect("Failed to mine Tenure Change block");
+        info!(
+            "Nakamoto block mine time elapsed: {:?}",
+            mined_block_time.elapsed()
+        );
+    }
+
+    /// Mine a BTC block and wait for a new Stacks block to be mined and commit to be submitted
     /// Note: do not use nakamoto blocks mined heuristic if running a test with multiple miners
     fn mine_nakamoto_block(&self, timeout: Duration, use_nakamoto_blocks_mined: bool) {
-        let mined_block_time = Instant::now();
-        let mined_before = self.running_nodes.counters.naka_mined_blocks.get();
-        let info_before = self.get_peer_info();
-
-        next_block_and(
-            &self.running_nodes.btc_regtest_controller,
-            timeout.as_secs(),
-            || {
-                let info_after = self.get_peer_info();
-                let blocks_mined = self.running_nodes.counters.naka_mined_blocks.get();
-                Ok(info_after.stacks_tip_height > info_before.stacks_tip_height
-                    && (!use_nakamoto_blocks_mined || blocks_mined > mined_before))
-            },
-        )
-        .unwrap();
-        let mined_block_elapsed_time = mined_block_time.elapsed();
-        info!("Nakamoto block mine time elapsed: {mined_block_elapsed_time:?}");
+        let Counters {
+            naka_submitted_commits: commits_submitted,
+            naka_submitted_commit_last_burn_height: commits_last_burn_height,
+            naka_submitted_commit_last_stacks_tip: commits_last_stacks_tip,
+            ..
+        } = self.running_nodes.counters.clone();
+        let commits_before = commits_submitted.get();
+        let commit_burn_height_before = commits_last_burn_height.get();
+        self.mine_nakamoto_block_without_commit(timeout, use_nakamoto_blocks_mined);
+        // Ensure the subsequent block commit confirms the previous Tenure Change block
+        let stacks_tip_height = get_chain_info(&self.running_nodes.conf).stacks_tip_height;
+        wait_for(timeout.as_secs(), || {
+            Ok(commits_submitted.get() > commits_before
+                && commits_last_burn_height.get() > commit_burn_height_before
+                && commits_last_stacks_tip.get() >= stacks_tip_height)
+        })
+        .expect("Failed to update Block Commit");
     }
 
     fn mine_block_wait_on_processing(
@@ -1218,48 +1285,46 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         panic!("Timed out while waiting for confirmation of block with signer sighash = {block_signer_sighash}")
     }
 
-    fn wait_for_validate_ok_response(&self, timeout: Duration) -> BlockValidateOk {
+    fn wait_for_validate_ok_response(&self, timeout_secs: u64) -> BlockValidateOk {
         // Wait for the block to show up in the test observer
-        let t_start = Instant::now();
-        loop {
+        let mut validate = None;
+        wait_for(timeout_secs, || {
             let responses = test_observer::get_proposal_responses();
             for response in responses {
                 let BlockValidateResponse::Ok(validation) = response else {
                     continue;
                 };
-                return validation;
+                validate = Some(validation);
+                return Ok(true);
             }
-            assert!(
-                t_start.elapsed() < timeout,
-                "Timed out while waiting for block proposal ok event"
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+            Ok(false)
+        })
+        .expect("Failed to find validate ok response");
+        validate.unwrap()
     }
 
     fn wait_for_validate_reject_response(
         &self,
-        timeout: Duration,
-        signer_signature_hash: Sha512Trunc256Sum,
+        timeout_secs: u64,
+        signer_signature_hash: &Sha512Trunc256Sum,
     ) -> BlockValidateReject {
         // Wait for the block to show up in the test observer
-        let t_start = Instant::now();
-        loop {
+        let mut reject = None;
+        wait_for(timeout_secs, || {
             let responses = test_observer::get_proposal_responses();
             for response in responses {
                 let BlockValidateResponse::Reject(rejection) = response else {
                     continue;
                 };
-                if rejection.signer_signature_hash == signer_signature_hash {
-                    return rejection;
+                if &rejection.signer_signature_hash == signer_signature_hash {
+                    reject = Some(rejection);
+                    return Ok(true);
                 }
             }
-            assert!(
-                t_start.elapsed() < timeout,
-                "Timed out while waiting for block proposal reject event"
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+            Ok(false)
+        })
+        .expect("Failed to find a block validate reject response");
+        reject.unwrap()
     }
 
     // Must be called AFTER booting the chainstate
@@ -1343,7 +1408,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
             .collect()
     }
 
-    /// Get the signer addresses and corresponding versions
+    /// Get the signer addresses and corresponding versions configured versions
     pub fn signer_addresses_versions(&self) -> Vec<(StacksAddress, u64)> {
         self.signer_stacks_private_keys
             .iter()
@@ -1355,6 +1420,33 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
                 )
             })
             .collect()
+    }
+
+    /// Get the signer addresses and corresponding majority versions
+    pub fn signer_addresses_versions_majority(&self) -> Vec<(StacksAddress, u64)> {
+        let mut signer_address_versions = self.signer_addresses_versions();
+        let majority = (signer_address_versions.len() * 7 / 10) as u64;
+        let mut protocol_versions = HashMap::new();
+        for (_, version) in &self.signer_addresses_versions() {
+            let entry = protocol_versions.entry(*version).or_insert_with(|| 0);
+            *entry += 1;
+        }
+
+        // find the highest version number supported by a threshold number of signers
+        let mut protocol_versions: Vec<_> = protocol_versions.into_iter().collect();
+        protocol_versions.sort_by_key(|(version, _)| *version);
+        let mut total_weight_support = 0;
+        for (version, weight_support) in protocol_versions.into_iter().rev() {
+            total_weight_support += weight_support;
+            if total_weight_support > majority {
+                // We need to actually overwrite the versions passed in since the signers will go with the majority value if they can
+                signer_address_versions
+                    .iter_mut()
+                    .for_each(|(_, v)| *v = version);
+                break;
+            }
+        }
+        signer_address_versions
     }
 
     /// Get the signer public keys for the given reward cycle
@@ -1535,7 +1627,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         &self,
         stackerdb: &mut StackerDB<MessageSlotID>,
         reward_cycle: u64,
-        hash: Sha512Trunc256Sum,
+        hash: &Sha512Trunc256Sum,
     ) {
         let slot_ids: Vec<_> = self
             .get_signer_indices(reward_cycle)
@@ -1586,6 +1678,31 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         stackerdb
             .send_message_with_retry::<SignerMessage>(accepted.into())
             .expect("Failed to send accept signature");
+    }
+
+    /// Get the txid of the parent block commit transaction for the given miner
+    pub fn get_parent_block_commit_txid(&self, miner_pk: &StacksPublicKey) -> Option<Txid> {
+        let Some(confirmed_utxo) = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_all_utxos(&miner_pk)
+            .into_iter()
+            .find(|utxo| utxo.confirmations == 0)
+        else {
+            return None;
+        };
+        let unconfirmed_txid = Txid::from_bitcoin_tx_hash(&confirmed_utxo.txid);
+        let unconfirmed_tx = self
+            .running_nodes
+            .btc_regtest_controller
+            .get_raw_transaction(&unconfirmed_txid);
+        let parent_txid = &unconfirmed_tx
+            .input
+            .get(0)
+            .expect("First input should exist")
+            .previous_output
+            .txid;
+        Some(Txid::from_bitcoin_tx_hash(parent_txid))
     }
 }
 
@@ -1652,7 +1769,7 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     node_config_modifier(&mut naka_conf);
 
     info!("Make new BitcoinCoreController");
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .map_err(|_e| ())
@@ -1661,18 +1778,15 @@ fn setup_stx_btc_node<G: FnMut(&mut NeonConfig)>(
     info!("Make new BitcoinRegtestController");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
 
-    let epoch_2_5_start = usize::try_from(
-        naka_conf
-            .burnchain
-            .epochs
-            .as_ref()
-            .unwrap()
-            .iter()
-            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
-            .unwrap()
-            .start_height,
-    )
-    .expect("Failed to get epoch 2.5 start height");
+    let epoch_2_5_start = naka_conf
+        .burnchain
+        .epochs
+        .as_ref()
+        .unwrap()
+        .iter()
+        .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
+        .unwrap()
+        .start_height;
     let bootstrap_block = epoch_2_5_start - 6;
 
     if !snapshot_exists {

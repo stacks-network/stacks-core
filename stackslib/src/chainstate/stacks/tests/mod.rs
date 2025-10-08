@@ -1105,15 +1105,15 @@ pub fn make_token_transfer(
     miner: &mut TestMiner,
     burnchain_height: usize,
     nonce: Option<u64>,
-    recipient: &StacksAddress,
+    recipient: StacksAddress,
     amount: u64,
-    memo: &TokenTransferMemo,
+    memo: TokenTransferMemo,
 ) -> StacksTransaction {
     let addr = miner.origin_address().unwrap();
     let mut tx_stx_transfer = StacksTransaction::new(
         TransactionVersion::Testnet,
         miner.as_transaction_auth().unwrap(),
-        TransactionPayload::TokenTransfer((*recipient).clone().into(), amount, (*memo).clone()),
+        TransactionPayload::TokenTransfer(recipient.into(), amount, memo),
     );
 
     tx_stx_transfer.chain_id = miner.chain_id;

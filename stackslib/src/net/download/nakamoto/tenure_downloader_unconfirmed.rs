@@ -142,7 +142,7 @@ impl NakamotoUnconfirmedTenureDownloader {
     /// * tenure_tip.parent_tenure_start_block_id
     ///     This is the tenure start block for the highest complete tenure.  It should be equal to
     ///     the winning Stacks block hash of the snapshot for the ongoing tenure.
-    ///  
+    ///
     /// We may already have the tenure-start block for the unconfirmed tenure. If so, then don't go
     /// fetch it again; just get the new unconfirmed blocks.
     pub fn try_accept_tenure_info(
@@ -406,7 +406,7 @@ impl NakamotoUnconfirmedTenureDownloader {
 
         // block has to match the expected hash
         if tenure_start_block_id != &unconfirmed_tenure_start_block.header.block_id() {
-            warn!("Invalid tenure-start block"; 
+            warn!("Invalid tenure-start block";
                   "tenure_id_start_block" => %tenure_start_block_id,
                   "unconfirmed_tenure_start_block.header.consensus_hash" => %unconfirmed_tenure_start_block.header.consensus_hash,
                   "unconfirmed_tenure_start_block ID" => %unconfirmed_tenure_start_block.header.block_id(),
@@ -764,7 +764,7 @@ impl NakamotoUnconfirmedTenureDownloader {
         chainstate: &StacksChainState,
     ) -> Result<(), NetError> {
         loop {
-            match self.state {
+            match &self.state {
                 NakamotoUnconfirmedDownloadState::GetTenureInfo => {
                     // gotta send that request
                     break;
@@ -773,7 +773,7 @@ impl NakamotoUnconfirmedTenureDownloader {
                     // if we have this, then load it up
                     let Some((tenure_start_block, _sz)) = chainstate
                         .nakamoto_blocks_db()
-                        .get_nakamoto_block(&start_block_id)?
+                        .get_nakamoto_block(start_block_id)?
                     else {
                         break;
                     };
@@ -810,7 +810,7 @@ impl NakamotoUnconfirmedTenureDownloader {
             return Ok(());
         }
         if neighbor_rpc.is_dead_or_broken(network, &self.naddr) {
-            return Err(NetError::PeerNotConnected);
+            return Err(NetError::PeerNotConnected(format!("Failed to send next unconfirmed download request to {:?}: connection is dead or broken", &self.naddr)));
         }
 
         let Some(peerhost) = NeighborRPC::get_peer_host(network, &self.naddr) else {
@@ -821,7 +821,10 @@ impl NakamotoUnconfirmedTenureDownloader {
                 DropReason::DeadConnection("No authenticated connection open".into()),
                 DropSource::NakamotoUnconfirmedTenureDownloader,
             );
-            return Err(NetError::PeerNotConnected);
+            return Err(NetError::PeerNotConnected(format!(
+                "No authenticated connection open to {:?} for unconfirmed tenure download",
+                &self.naddr
+            )));
         };
 
         let Some(request) = self.make_next_download_request(peerhost) else {

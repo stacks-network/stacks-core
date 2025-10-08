@@ -125,6 +125,15 @@ to the same contract principal.",
     example: "(print contract-caller) ;; Will print out a Stacks address of the transaction sender",
 };
 
+const CURRENT_CONTRACT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "current-contract",
+    snippet: "current-contract",
+    output_type: "principal",
+    description: "Returns the principal of the current contract.",
+    example:
+        "(print current-contract) ;; Will print out the Stacks address of the current contract",
+};
+
 const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     name: "stacks-block-height",
     snippet: "stacks-block-height",
@@ -142,6 +151,16 @@ const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
 At the start of epoch 3.0, `tenure-height` will return the same value as `block-height`, then it will continue to increase as each tenures passes.",
     example:
         "(< tenure-height u140000) ;; returns true if the current tenure-height has passed 140,000 blocks.",
+};
+
+const BLOCK_TIME_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
+    name: "block-time",
+    snippet: "block-time",
+    output_type: "uint",
+    description: "Returns the Unix timestamp (in seconds) of the current Stacks block. Introduced
+in Clarity 4. Provides access to the timestamp of the current block, which is
+not available with `get-stacks-block-info?`.",
+    example: "(>= block-time u1755820800) ;; returns true if current block timestamp is at or after 2025-07-22.",
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -511,8 +530,7 @@ const SQRTI_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "sqrti ${1:expr-1}",
     signature: "(sqrti n)",
-    description:
-        "Returns the largest integer that is less than or equal to the square root of `n`.  
+    description: "Returns the largest integer that is less than or equal to the square root of `n`.
 Fails on a negative numbers.
 ",
     example: "(sqrti u11) ;; Returns u3
@@ -527,7 +545,7 @@ const LOG2_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "log2 ${1:expr-1}",
     signature: "(log2 n)",
     description:
-        "Returns the power to which the number 2 must be raised to obtain the value `n`, rounded 
+        "Returns the power to which the number 2 must be raised to obtain the value `n`, rounded
 down to the nearest integer. Fails on a negative numbers.
 ",
     example: "(log2 u8) ;; Returns u3
@@ -605,7 +623,7 @@ const BITWISE_LEFT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-shift-left ${1:expr-1} ${2:expr-2}",
     signature: "(bit-shift-left i1 shamt)",
-    description: "Shifts all the bits in `i1` to the left by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
+    description: "Shifts all the bits in `i1` to the left by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers).
 
 Note that there is a deliberate choice made to ignore arithmetic overflow for this operation.  In use cases where overflow should be detected, developers
 should use `*`, `/`, and `pow` instead of the shift operators.
@@ -625,7 +643,7 @@ const BITWISE_RIGHT_SHIFT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "bit-shift-right ${1:expr-1} ${2:expr-2}",
     signature: "(bit-shift-right i1 shamt)",
-    description: "Shifts all the bits in `i1` to the right by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers). 
+    description: "Shifts all the bits in `i1` to the right by the number of places specified in `shamt` modulo 128 (the bit width of Clarity integers).
 When `i1` is a `uint` (unsigned), new bits are filled with zeros. When `i1` is an `int` (signed), the sign is preserved, meaning that new bits are filled with the value of the previous sign-bit.
 
 Note that there is a deliberate choice made to ignore arithmetic overflow for this operation. In use cases where overflow should be detected, developers should use `*`, `/`, and `pow` instead of the shift operators.
@@ -647,8 +665,8 @@ const AND_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "and ${1:expr-1} ${2:expr-2}",
     signature: "(and b1 b2 ...)",
-    description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are 
-evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function 
+    description: "Returns `true` if all boolean inputs are `true`. Importantly, the supplied arguments are
+evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `false`, the function
 short-circuits, and no subsequent arguments are evaluated.
 ",
     example: "(and true false) ;; Returns false
@@ -661,8 +679,8 @@ const OR_API: SimpleFunctionAPI = SimpleFunctionAPI {
     name: None,
     snippet: "or ${1:expr-1} ${2:expr-2}",
     signature: "(or b1 b2 ...)",
-    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are 
-evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function 
+    description: "Returns `true` if any boolean inputs are `true`. Importantly, the supplied arguments are
+evaluated in-order and lazily. Lazy evaluation means that if one of the arguments returns `true`, the function
 short-circuits, and no subsequent arguments are evaluated.",
     example: "(or true false) ;; Returns true
 (or (is-eq (+ 1 2) 1) (is-eq 4 4)) ;; Returns true
@@ -882,7 +900,7 @@ const EQUALS_API: SpecialAPI = SpecialAPI {
     snippet: "is-eq ${1:expr-1} ${2:expr-2}",
     output_type: "bool",
     signature: "(is-eq v1 v2...)",
-    description: "Compares the inputted values, returning `true` if they are all equal. Note that 
+    description: "Compares the inputted values, returning `true` if they are all equal. Note that
 _unlike_ the `(and ...)` function, `(is-eq ...)` will _not_ short-circuit. All values supplied to
 is-eq _must_ be the same type.",
     example: "(is-eq 1 1) ;; Returns true
@@ -1012,7 +1030,7 @@ The `func` argument must be a literal function name.
 (fold * (list 2 2 2) 1) ;; Returns 8
 (fold * (list 2 2 2) 0) ;; Returns 0
 ;; calculates (- 11 (- 7 (- 3 2)))
-(fold - (list 3 7 11) 2) ;; Returns 5 
+(fold - (list 3 7 11) 2) ;; Returns 5
 (define-private (concat-string (a (string-ascii 20)) (b (string-ascii 20))) (unwrap-panic (as-max-len? (concat a b) u20)))
 (fold concat-string "cdef" "ab")   ;; Returns "fedcab"
 (fold concat-string (list "cd" "ef") "ab")   ;; Returns "efcdab"
@@ -1725,7 +1743,7 @@ value and type returned are determined by the specified `BlockInfoPropertyName`.
 not correspond to an existing block prior to the current block, the function returns `none`. The currently available property names
 are as follows:
 
-- `burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the 
+- `burnchain-header-hash`: This property returns a `(buff 32)` value containing the header hash of the burnchain (Bitcoin) block that selected the
 Stacks block at the given Stacks chain height.
 
 - `id-header-hash`: This property returns a `(buff 32)` value containing the _index block hash_ of a Stacks block.   This hash is globally unique, and is derived
@@ -1734,7 +1752,7 @@ from the block hash and the history of accepted PoX operations.  This is also th
 - `header-hash`: This property returns a `(buff 32)` value containing the header hash of a Stacks block, given a Stacks chain height.  **WARNING* this hash is
 not guaranteed to be globally unique, since the same Stacks block can be mined in different PoX forks.  If you need global uniqueness, you should use `id-header-hash`.
 
-- `miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to 
+- `miner-address`: This property returns a `principal` value corresponding to the miner of the given block.  **WARNING** In Stacks 2.1, this is not guaranteed to
 be the same `principal` that received the block reward, since Stacks 2.1 supports coinbase transactions that pay the reward to a contract address.  This is merely
 the address of the `principal` that produced the block.
 
@@ -1745,9 +1763,9 @@ For blocks mined after epoch 3.0, all Stacks blocks in one tenure will share the
 
 - `vrf-seed`: This property returns a `(buff 32)` value of the VRF seed for the corresponding block.
 
-- `block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for 
+- `block-reward`: This property returns a `uint` value for the total block reward of the indicated Stacks block.  This value is only available once the reward for
 the block matures.  That is, the latest `block-reward` value available is at least 101 Stacks blocks in the past (on mainnet).  The reward includes the coinbase,
-the anchored block's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may 
+the anchored block's transaction fees, and the shares of the confirmed and produced microblock transaction fees earned by this block's miner.  Note that this value may
 be smaller than the Stacks coinbase at this height, because the miner may have been punished with a valid `PoisonMicroblock` transaction in the event that the miner
 published two or more microblock stream forks. Added in Clarity 2.
 
@@ -1881,14 +1899,14 @@ The latter, a _contract principal_, is encoded as a standard principal concatena
 a `(string-ascii 40)` *contract name* that identifies the code body.
 
 The `principal-construct?` function allows users to create either standard or contract principals,
-depending on which form is used.  To create a standard principal, 
+depending on which form is used.  To create a standard principal,
 `principal-construct?` would be called with two arguments: it
 takes as input a `(buff 1)` which encodes the principal address's
 `version-byte`, a `(buff 20)` which encodes the principal address's `hash-bytes`.
 To create a contract principal, `principal-construct?` would be called with
 three arguments: the `(buff 1)` and `(buff 20)` to represent the standard principal
 that created the contract, and a `(string-ascii 40)` which encodes the contract's name.
-On success, this function returns either a standard principal or contract principal, 
+On success, this function returns either a standard principal or contract principal,
 depending on whether or not the third `(string-ascii 40)` argument is given.
 
 This function returns a `Response`. On success, the `ok` value is a `Principal`.
@@ -1896,7 +1914,7 @@ The `err` value is a value tuple with the form `{ error_code: uint, value: (opti
 
 If the single-byte `version-byte` is in the valid range `0x00` to `0x1f`, but is not an appropriate
 version byte for the current network, then the error will be `u0`, and `value` will contain
-`(some principal)`, where the wrapped value is the principal.  If the `version-byte` is not in this range, 
+`(some principal)`, where the wrapped value is the principal.  If the `version-byte` is not in this range,
 however, then the `value` will be `none`.
 
 If the `version-byte` is a `buff` of length 0, if the single-byte `version-byte` is a
@@ -2175,10 +2193,10 @@ const MINT_TOKEN: SpecialAPI = SpecialAPI {
     signature: "(ft-mint? token-name amount recipient)",
     description: "`ft-mint?` is used to increase the token balance for the `recipient` principal for a token
 type defined using `define-fungible-token`. The increased token balance is _not_ transfered from another principal, but
-rather minted.  
+rather minted.
 
 If a non-positive amount is provided to mint, this function returns `(err 1)`. Otherwise, on successfully mint, it
-returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in 
+returns `(ok true)`. If this call would result in more supplied tokens than defined by the total supply in
 `define-fungible-token`, then a `SupplyOverflow` runtime error is thrown.
 ",
     example: "
@@ -2242,7 +2260,7 @@ const TOKEN_TRANSFER: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(ft-transfer? token-name amount sender recipient)",
     description: "`ft-transfer?` is used to increase the token balance for the `recipient` principal for a token
-type defined using `define-fungible-token` by debiting the `sender` principal. In contrast to `stx-transfer?`, 
+type defined using `define-fungible-token` by debiting the `sender` principal. In contrast to `stx-transfer?`,
 any user can transfer the assets. When used, relevant guards need to be added.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
@@ -2267,7 +2285,7 @@ const ASSET_TRANSFER: SpecialAPI = SpecialAPI {
     signature: "(nft-transfer? asset-class asset-identifier sender recipient)",
     description: "`nft-transfer?` is used to change the owner of an asset identified by `asset-identifier`
 from `sender` to `recipient`. The `asset-class` must have been defined by `define-non-fungible-token` and `asset-identifier`
-must be of the type specified in that definition. In contrast to `stx-transfer?`, any user can transfer the asset. 
+must be of the type specified in that definition. In contrast to `stx-transfer?`, any user can transfer the asset.
 When used, relevant guards need to be added.
 
 This function returns (ok true) if the transfer is successful. In the event of an unsuccessful transfer it returns
@@ -2307,7 +2325,7 @@ const BURN_TOKEN: SpecialAPI = SpecialAPI {
     signature: "(ft-burn? token-name amount sender)",
     description: "`ft-burn?` is used to decrease the token balance for the `sender` principal for a token
 type defined using `define-fungible-token`. The decreased token balance is _not_ transfered to another principal, but
-rather destroyed, reducing the circulating supply.  
+rather destroyed, reducing the circulating supply.
 
 On a successful burn, it returns `(ok true)`. The burn may fail with error code:
 
@@ -2326,7 +2344,7 @@ const BURN_ASSET: SpecialAPI = SpecialAPI {
     output_type: "(response bool uint)",
     signature: "(nft-burn? asset-class asset-identifier sender)",
     description: "`nft-burn?` is used to burn an asset that the `sender` principal owns.
-The asset must have been defined using `define-non-fungible-token`, and the supplied 
+The asset must have been defined using `define-non-fungible-token`, and the supplied
 `asset-identifier` must be of the same type specified in that definition.
 
 On a successful burn, it returns `(ok true)`. In the event of an unsuccessful burn it
@@ -2349,7 +2367,7 @@ const STX_GET_BALANCE: SimpleFunctionAPI = SimpleFunctionAPI {
     description: "`stx-get-balance` is used to query the STX balance of the `owner` principal.
 
 This function returns the (unlocked) STX balance, in microstacks (1 STX = 1,000,000 microstacks), of the
-`owner` principal. The result is the same as `(get unlocked (stx-account user))`. 
+`owner` principal. The result is the same as `(get unlocked (stx-account user))`.
 In the event that the `owner` principal isn't materialized, it returns 0.
 ",
     example: "
@@ -2406,7 +2424,7 @@ const STX_TRANSFER_MEMO: SpecialAPI = SpecialAPI {
     snippet: "stx-transfer-memo? ${1:amount} ${2:sender} ${3:recipient} ${4:memo}",
     output_type: "(response bool uint)",
     signature: "(stx-transfer-memo? amount sender recipient memo)",
-    description: "`stx-transfer-memo?` is similar to `stx-transfer?`, except that it adds a `memo` field. 
+    description: "`stx-transfer-memo?` is similar to `stx-transfer?`, except that it adds a `memo` field.
 
 This function returns (ok true) if the transfer is successful, or, on an error, returns the same codes as `stx-transfer?`.
 ",
@@ -2496,8 +2514,8 @@ const REPLACE_AT: SpecialAPI = SpecialAPI {
     snippet: "replace-at? ${1:sequence} ${2:index} ${3:element}",
     signature: "(replace-at? sequence index element)",
     description: "The `replace-at?` function takes in a sequence, an index, and an element,
-and returns a new sequence with the data at the index position replaced with the given element. 
-The given element's type must match the type of the sequence, and must correspond to a single 
+and returns a new sequence with the data at the index position replaced with the given element.
+The given element's type must match the type of the sequence, and must correspond to a single
 index of the input sequence. The return type on success is the same type as the input sequence.
 
 If the provided index is out of bounds, this functions returns `none`.
@@ -2509,6 +2527,42 @@ If the provided index is out of bounds, this functions returns `none`.
 (replace-at? (list 1) u0 10) ;; Returns (some (10))
 (replace-at? (list (list 1) (list 2)) u0 (list 33)) ;; Returns (some ((33) (2)))
 (replace-at? (list 1 2) u3 4) ;; Returns none
+"#,
+};
+
+const CONTRACT_HASH: SimpleFunctionAPI = SimpleFunctionAPI {
+    name: None,
+    snippet: "contract-hash? ${1:principal}",
+    signature: "(contract-hash? contract)",
+    description: "Returns the hash of the specified contract, or an error if the principal
+is not a contract or the specified contract does not exist. Returns:
+* `(ok 0x<hash>)` on success, where `<hash>` is the SHA-512/256 hash of the code body
+* `(err u1)` if the principal is not a contract principal.
+* `(err u2)` if the specified contract does not exist.",
+    example: r#"
+;; instantiate the sample/contracts/tokens.clar contract first!
+(contract-hash? .tokens) ;; Returns (ok 0x90b4a559286ba8ec3801fe8ef49d5e646043861f29376771918d1afb8ff68af7)
+(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM) ;; Returns (err u1)
+(contract-hash? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.does-not-exist) ;; Returns (err u2)
+"#,
+};
+
+const TO_ASCII: SpecialAPI = SpecialAPI {
+    input_type: "int|uint|bool|principal|(buff 524284)|(string-utf8 1048571)",
+    snippet: "to-ascii? ${1:value}",
+    output_type: "(response (string-ascii 1048571) uint)",
+    signature: "(to-ascii? value)",
+    description: "The `to-ascii?` function converts the input value to its ASCII representation.
+If the input is a `string-utf8`, it will fail with `(err u1)` if the string contains non-ASCII
+characters.",
+    example: r#"
+(to-ascii? 123) ;; Returns (ok "123")
+(to-ascii? u456) ;; Returns (ok "u456")
+(to-ascii? false) ;; Returns (ok "false")
+(to-ascii? 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4) ;; Returns (ok "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4")
+(to-ascii? 0x00112233) ;; Returns (ok "0x00112233")
+(to-ascii? u"An ASCII smiley face: :)") ;; Returns (ok "An ASCII smiley face: :)")
+(to-ascii? u"A smiley face emoji: \u{1F600}") ;; Returns (err u1)
 "#,
 };
 
@@ -2624,6 +2678,8 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseNot => make_for_simple_native(&BITWISE_NOT_API, function, name),
         BitwiseLShift => make_for_simple_native(&BITWISE_LEFT_SHIFT_API, function, name),
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
+        ContractHash => make_for_simple_native(&CONTRACT_HASH, function, name),
+        ToAscii => make_for_special(&TO_ASCII, function),
     }
 }
 
@@ -2643,6 +2699,8 @@ pub fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> 
         NativeVariables::Mainnet => MAINNET_KEYWORD.clone(),
         NativeVariables::ChainId => CHAINID_KEYWORD.clone(),
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
+        NativeVariables::CurrentContract => CURRENT_CONTRACT_KEYWORD.clone(),
+        NativeVariables::BlockTime => BLOCK_TIME_KEYWORD.clone(),
     };
     Some(KeywordAPI {
         name: keyword.name,
@@ -2742,14 +2800,13 @@ mod test {
 
     use super::{get_input_type_string, make_all_api_reference, make_json_api_reference};
     use crate::vm::analysis::type_check;
-    use crate::vm::ast::ASTRules;
     use crate::vm::contexts::OwnedEnvironment;
     use crate::vm::costs::ExecutionCost;
     use crate::vm::database::{
         BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
     };
     use crate::vm::docs::get_output_type_string;
-    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
+    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
     use crate::vm::types::{
         FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     };
@@ -2938,9 +2995,6 @@ mod test {
         }
         fn get_stacks_epoch_by_epoch_id(&self, epoch_id: &StacksEpochId) -> Option<StacksEpoch> {
             self.get_stacks_epoch(0)
-        }
-        fn get_ast_rules(&self, height: u32) -> ASTRules {
-            ASTRules::PrecheckSize
         }
         fn get_pox_payout_addrs(
             &self,
@@ -3215,21 +3269,11 @@ mod test {
                 )
                 .unwrap();
 
-                env.initialize_contract(
-                    contract_id,
-                    token_contract_content,
-                    None,
-                    ASTRules::PrecheckSize,
-                )
-                .unwrap();
+                env.initialize_contract(contract_id, token_contract_content, None)
+                    .unwrap();
 
-                env.initialize_contract(
-                    trait_def_id,
-                    super::DEFINE_TRAIT_API.example,
-                    None,
-                    ASTRules::PrecheckSize,
-                )
-                .unwrap();
+                env.initialize_contract(trait_def_id, super::DEFINE_TRAIT_API.example, None)
+                    .unwrap();
             }
 
             let example = &func_api.example;
@@ -3286,7 +3330,10 @@ mod test {
 
         function_type = FunctionType::Binary(
             FunctionArgSignature::Single(TypeSignature::IntType),
-            FunctionArgSignature::Union(vec![ASCII_40, TypeSignature::IntType]),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::STRING_ASCII_40,
+                TypeSignature::IntType,
+            ]),
             ret.clone(),
         );
         result = get_input_type_string(&function_type);
@@ -3430,7 +3477,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
                 TypeSignature::PrincipalType,
-                ASCII_40,
+                TypeSignature::STRING_ASCII_40,
             ]),
             FunctionReturnsSignature::TypeOfArgAtPosition(1),
         );

@@ -33,7 +33,7 @@ pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
-#[derive(Default)]
+#[derive(Default, Copy)]
 pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
 impl_array_hexstring_fmt!(TrieHash);
@@ -226,7 +226,7 @@ impl PoxId {
                 break;
             }
             let i = bit - start;
-            if i > 0 && i % 8 == 0 {
+            if i > 0 && i.is_multiple_of(8) {
                 ret.push(0x00);
             }
 
@@ -286,7 +286,7 @@ impl fmt::Display for PoxId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct StacksAddress {
     version: u8,
     bytes: Hash160,

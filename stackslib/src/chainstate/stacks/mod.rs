@@ -92,6 +92,7 @@ pub enum Error {
     NotInSameFork,
     InvalidChainstateDB,
     BlockTooBigError,
+    BlockCostLimitError,
     TransactionTooBigError(Option<ExecutionCost>),
     BlockCostExceeded,
     NoTransactionsToMine,
@@ -156,6 +157,7 @@ impl fmt::Display for Error {
             Error::NoSuchBlockError => write!(f, "No such Stacks block"),
             Error::InvalidChainstateDB => write!(f, "Invalid chainstate database"),
             Error::BlockTooBigError => write!(f, "Too much data in block"),
+            Error::BlockCostLimitError => write!(f, "Block cost limit exceeded"),
             Error::TransactionTooBigError(ref c) => {
                 write!(f, "Too much data in transaction: measured_cost={c:?}")
             }
@@ -236,6 +238,7 @@ impl error::Error for Error {
             Error::NoSuchBlockError => None,
             Error::InvalidChainstateDB => None,
             Error::BlockTooBigError => None,
+            Error::BlockCostLimitError => None,
             Error::TransactionTooBigError(..) => None,
             Error::BlockCostExceeded => None,
             Error::MicroblockStreamTooLongError => None,
@@ -281,6 +284,7 @@ impl Error {
             Error::NoSuchBlockError => "NoSuchBlockError",
             Error::InvalidChainstateDB => "InvalidChainstateDB",
             Error::BlockTooBigError => "BlockTooBigError",
+            Error::BlockCostLimitError => "BlockCostLimitError",
             Error::TransactionTooBigError(..) => "TransactionTooBigError",
             Error::BlockCostExceeded => "BlockCostExceeded",
             Error::MicroblockStreamTooLongError => "MicroblockStreamTooLongError",
@@ -377,12 +381,21 @@ impl Txid {
         Txid::from_stacks_tx(txdata)
     }
 
-    /// Create a Txid from the tx hash bytes used in bitcoin.
+    /// Create a [`Txid`] from the tx hash bytes used in bitcoin.
     /// This just reverses the inner bytes of the input.
     pub fn from_bitcoin_tx_hash(tx_hash: &Sha256dHash) -> Txid {
-        let mut txid_bytes = tx_hash.0.clone();
+        let mut txid_bytes = tx_hash.0;
         txid_bytes.reverse();
         Self(txid_bytes)
+    }
+
+    /// Create a [`Sha256dHash`] from a [`Txid`]
+    /// This assumes the inner bytes are stored in "big-endian" (following the hex bitcoin string),
+    /// so just reverse them to properly create a tx hash.
+    pub fn to_bitcoin_tx_hash(txid: &Txid) -> Sha256dHash {
+        let mut txid_bytes = txid.0;
+        txid_bytes.reverse();
+        Sha256dHash(txid_bytes)
     }
 }
 
@@ -465,9 +478,7 @@ impl TransactionAuthField {
 
     pub fn as_signature(&self) -> Option<(TransactionPublicKeyEncoding, MessageSignature)> {
         match *self {
-            TransactionAuthField::Signature(ref key_fmt, ref sig) => {
-                Some((key_fmt.clone(), sig.clone()))
-            }
+            TransactionAuthField::Signature(ref key_fmt, ref sig) => Some((*key_fmt, sig.clone())),
             _ => None,
         }
     }
@@ -479,11 +490,7 @@ impl TransactionAuthField {
             TransactionAuthField::Signature(ref key_fmt, ref sig) => {
                 let mut pubk = StacksPublicKey::recover_to_pubkey(sighash_bytes, sig)
                     .map_err(|e| net_error::VerifyingError(e.to_string()))?;
-                pubk.set_compressed(if *key_fmt == TransactionPublicKeyEncoding::Compressed {
-                    true
-                } else {
-                    false
-                });
+                pubk.set_compressed(*key_fmt == TransactionPublicKeyEncoding::Compressed);
                 Ok(pubk)
             }
         }
@@ -1374,7 +1381,7 @@ pub mod test {
         let proof = VRFProof::from_bytes(&proof_bytes[..]).unwrap();
         let mut tx_payloads = vec![
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([0u8; 34]),
             ),
@@ -1490,11 +1497,11 @@ pub mod test {
                     let auth = tx_auth.clone();
 
                     let tx = StacksTransaction {
-                        version: (*version).clone(),
+                        version: *version,
                         chain_id,
                         auth,
-                        anchor_mode: (*anchor_mode).clone(),
-                        post_condition_mode: (*post_condition_mode).clone(),
+                        anchor_mode: *anchor_mode,
+                        post_condition_mode: *post_condition_mode,
                         post_conditions: tx_post_condition.clone(),
                         payload: tx_payload.clone(),
                     };

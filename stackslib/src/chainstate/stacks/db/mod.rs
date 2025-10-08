@@ -22,7 +22,6 @@ use std::path::PathBuf;
 use std::{fs, io};
 
 use clarity::vm::analysis::analysis_db::AnalysisDatabase;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::{
@@ -283,16 +282,17 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => version_u32 >= 1 && version_u32 <= 10,
-            StacksEpochId::Epoch2_05 => version_u32 >= 2 && version_u32 <= 10,
-            StacksEpochId::Epoch21 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch22 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch23 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch24 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch25 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch30 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch31 => version_u32 >= 3 && version_u32 <= 10,
-            StacksEpochId::Epoch32 => version_u32 >= 3 && version_u32 <= 10,
+            StacksEpochId::Epoch20 => (1..=11).contains(&version_u32),
+            StacksEpochId::Epoch2_05 => (2..=11).contains(&version_u32),
+            StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => (3..=11).contains(&version_u32),
         }
     }
 }
@@ -394,6 +394,13 @@ impl StacksHeaderInfo {
 
     pub fn is_nakamoto_block(&self) -> bool {
         matches!(self.anchored_header, StacksBlockHeaderTypes::Nakamoto(_))
+    }
+
+    pub fn header_type_name(&self) -> &str {
+        match self.anchored_header {
+            StacksBlockHeaderTypes::Epoch2(_) => "epoch2",
+            StacksBlockHeaderTypes::Nakamoto(_) => "nakamoto",
+        }
     }
 }
 
@@ -644,7 +651,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "10";
+pub const CHAINSTATE_VERSION: &str = "11";
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -661,9 +668,9 @@ const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
         tx_merkle_root TEXT NOT NULL,
         state_index_root TEXT NOT NULL,
         microblock_pubkey_hash TEXT NOT NULL,
-        
+
         block_hash TEXT NOT NULL,                   -- NOTE: this is *not* unique, since two burn chain forks can commit to the same Stacks block.
-        index_block_hash TEXT UNIQUE NOT NULL,      -- NOTE: this is the hash of the block hash and consensus hash of the burn block that selected it, 
+        index_block_hash TEXT UNIQUE NOT NULL,      -- NOTE: this is the hash of the block hash and consensus hash of the burn block that selected it,
                                                     -- and is guaranteed to be globally unique (across all Stacks forks and across all PoX forks).
                                                     -- index_block_hash is the block hash fed into the MARF index.
 
@@ -698,7 +705,7 @@ const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
         burnchain_commit_burn INT NOT NULL,
         burnchain_sortition_burn INT NOT NULL,
         miner INT NOT NULL,
-        
+
         -- internal use
         stacks_block_height INTEGER NOT NULL,
         index_block_hash TEXT NOT NULL,     -- NOTE: can't enforce UNIQUE here, because there will be multiple entries per block
@@ -799,7 +806,7 @@ const CHAINSTATE_SCHEMA_3: &[&str] = &[
     -- * one that records the coinbase, anchored tx fee, and confirmed streamed tx fees, and
     -- * one that records only the produced streamed tx fees.
     -- The latter is determined once this block's stream gets subsequently confirmed.
-    -- You query this table by passing both the parent and the child block hashes, since both the 
+    -- You query this table by passing both the parent and the child block hashes, since both the
     -- parent and child blocks determine the full reward for the parent block.
     CREATE TABLE matured_rewards(
         address TEXT NOT NULL,      -- address of the miner who produced the block
@@ -810,7 +817,7 @@ const CHAINSTATE_SCHEMA_3: &[&str] = &[
         tx_fees_streamed_confirmed TEXT NOT NULL,
         tx_fees_streamed_produced TEXT NOT NULL,
 
-        -- fork identifier 
+        -- fork identifier
         child_index_block_hash TEXT NOT NULL,
         parent_index_block_hash TEXT NOT NULL,
 
@@ -852,6 +859,17 @@ const CHAINSTATE_SCHEMA_4: &[&str] = &[
     "#,
 ];
 
+pub static CHAINSTATE_SCHEMA_5: &[&str] = &[
+    // Schema change: drop the affirmation_weight column from pre_nakamoto block_headers and any indexes that reference it
+    // but leave everything else the same
+    r#"
+    DROP INDEX IF EXISTS index_block_header_by_affirmation_weight;
+    DROP INDEX IF EXISTS index_block_header_by_height_and_affirmation_weight;
+    ALTER TABLE block_headers DROP COLUMN affirmation_weight;
+    "#,
+    r#"UPDATE db_config SET version = "11";"#,
+];
+
 const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS index_block_hash_to_primary_key ON block_headers(index_block_hash,consensus_hash,block_hash);",
     "CREATE INDEX IF NOT EXISTS block_headers_hash_index ON block_headers(block_hash,block_height);",
@@ -873,8 +891,6 @@ const CHAINSTATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS height_stacks_blocks ON staging_blocks(height);",
     "CREATE INDEX IF NOT EXISTS txid_tx_index ON transactions(txid);",
     "CREATE INDEX IF NOT EXISTS index_block_hash_tx_index ON transactions(index_block_hash);",
-    "CREATE INDEX IF NOT EXISTS index_block_header_by_affirmation_weight ON block_headers(affirmation_weight);",
-    "CREATE INDEX IF NOT EXISTS index_block_header_by_height_and_affirmation_weight ON block_headers(block_height,affirmation_weight);",
     "CREATE INDEX IF NOT EXISTS index_headers_by_consensus_hash ON block_headers(consensus_hash);",
     "CREATE INDEX IF NOT EXISTS processable_block ON staging_blocks(processed, orphaned, attachable);",
 ];
@@ -1120,6 +1136,14 @@ impl StacksChainState {
                         tx.execute_batch(cmd)?;
                     }
                 }
+                "10" => {
+                    info!(
+                        "Migrating chainstate schema from version 10 to 11: drop affirmation_weight from block_headers"
+                    );
+                    for cmd in CHAINSTATE_SCHEMA_5.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
                 _ => {
                     error!(
                         "Invalid chain state database: expected version = {}, got {}",
@@ -1268,9 +1292,9 @@ impl StacksChainState {
 
         let boot_code_address = boot_code_addr(mainnet);
 
-        let boot_code_auth = boot_code_tx_auth(boot_code_address);
+        let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-        let mut boot_code_account = boot_code_acc(boot_code_address, 0);
+        let mut boot_code_account = boot_code_acc(boot_code_address.clone(), 0);
 
         let mut initial_liquid_ustx = 0u128;
         let mut receipts = vec![];
@@ -1305,18 +1329,14 @@ impl StacksChainState {
                     None,
                 );
 
-                let boot_code_smart_contract = StacksTransaction::new(
-                    tx_version.clone(),
-                    boot_code_auth.clone(),
-                    smart_contract,
-                );
+                let boot_code_smart_contract =
+                    StacksTransaction::new(tx_version, boot_code_auth.clone(), smart_contract);
 
                 let tx_receipt = clarity_tx.connection().as_transaction(|clarity| {
                     StacksChainState::process_transaction_payload(
                         clarity,
                         &boot_code_smart_contract,
                         &boot_code_account,
-                        ASTRules::PrecheckSize,
                         None,
                     )
                 })?;
@@ -1603,7 +1623,7 @@ impl StacksChainState {
             });
 
             let allocations_tx = StacksTransaction::new(
-                tx_version.clone(),
+                tx_version,
                 boot_code_auth,
                 TransactionPayload::TokenTransfer(
                     PrincipalData::Standard(boot_code_address.into()),
@@ -1717,7 +1737,6 @@ impl StacksChainState {
                 &parent_hash,
                 &first_tip_info,
                 &ExecutionCost::ZERO,
-                0,
             )?;
             tx.commit()?;
         }
@@ -1944,7 +1963,6 @@ impl StacksChainState {
             burn_dbconn,
             contract,
             code,
-            ASTRules::PrecheckSize,
         );
         result.unwrap()
     }
@@ -1963,7 +1981,6 @@ impl StacksChainState {
             burn_dbconn,
             contract,
             code,
-            ASTRules::PrecheckSize,
         )
     }
 
@@ -1993,7 +2010,6 @@ impl StacksChainState {
         let result = conn.with_readonly_clarity_env(
             self.mainnet,
             self.chain_id,
-            ClarityVersion::latest(),
             contract.clone().into(),
             None,
             LimitedCostTracker::Free,
@@ -2037,6 +2053,30 @@ impl StacksChainState {
         )
     }
 
+    /// Begin processing an epoch's transactions within the context of a chainstate transaction,
+    /// but do so in a way that will not cause them to be persisted.  Used for replaying blocks.
+    pub fn chainstate_ephemeral_block_begin<'a, 'b>(
+        chainstate_tx: &'b ChainstateTx<'b>,
+        clarity_instance: &'a mut ClarityInstance,
+        burn_dbconn: &'b dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'b> {
+        let conf = chainstate_tx.config.clone();
+        StacksChainState::inner_ephemeral_clarity_tx_begin(
+            conf,
+            chainstate_tx,
+            clarity_instance,
+            burn_dbconn,
+            parent_consensus_hash,
+            parent_block,
+            new_consensus_hash,
+            new_block,
+        )
+    }
+
     /// Begin a transaction against the Clarity VM, _outside of_ the context of a chainstate
     /// transaction.  Used by the miner for producing blocks.
     pub fn block_begin<'a>(
@@ -2049,6 +2089,30 @@ impl StacksChainState {
     ) -> ClarityTx<'a, 'a> {
         let conf = self.config();
         StacksChainState::inner_clarity_tx_begin(
+            conf,
+            &self.state_index,
+            &mut self.clarity_state,
+            burn_dbconn,
+            parent_consensus_hash,
+            parent_block,
+            new_consensus_hash,
+            new_block,
+        )
+    }
+
+    /// Begin an ephemeral transaction against the Clarity VM, _outside of_ the context of a chainstate
+    /// transaction.  The block will not be stored to disk, even if it is committed.
+    /// Used by code paths which need to replay blocks.
+    pub fn ephemeral_block_begin<'a>(
+        &'a mut self,
+        burn_dbconn: &'a dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'a> {
+        let conf = self.config();
+        StacksChainState::inner_ephemeral_clarity_tx_begin(
             conf,
             &self.state_index,
             &mut self.clarity_state,
@@ -2322,6 +2386,59 @@ impl StacksChainState {
         );
 
         test_debug!("Got clarity TX!");
+        ClarityTx {
+            block: inner_clarity_tx,
+            config: conf,
+        }
+    }
+
+    /// Create an ephemeral Clarity VM database transaction.
+    /// The child block, identified by `new_consensus_hash` and `new_block`, will be treated as
+    /// ephemeral.
+    fn inner_ephemeral_clarity_tx_begin<'a, 'b>(
+        conf: DBConfig,
+        headers_db: &'b dyn HeadersDB,
+        clarity_instance: &'a mut ClarityInstance,
+        burn_dbconn: &'b dyn BurnStateDB,
+        parent_consensus_hash: &ConsensusHash,
+        parent_block: &BlockHeaderHash,
+        new_consensus_hash: &ConsensusHash,
+        new_block: &BlockHeaderHash,
+    ) -> ClarityTx<'a, 'b> {
+        // mix consensus hash and stacks block header hash together, since the stacks block hash
+        // it not guaranteed to be globally unique (but the pair is)
+        let parent_index_block =
+            StacksChainState::get_parent_index_block(parent_consensus_hash, parent_block);
+
+        let new_index_block =
+            StacksBlockHeader::make_index_block_hash(new_consensus_hash, new_block);
+
+        test_debug!(
+            "Begin processing ephemeral Stacks block off of {}/{}",
+            parent_consensus_hash,
+            parent_block
+        );
+        test_debug!(
+            "Child ephemeral MARF index root:  {} = {} + {}",
+            new_index_block,
+            new_consensus_hash,
+            new_block
+        );
+        test_debug!(
+            "Parent ephemeral MARF index root: {} = {} + {}",
+            parent_index_block,
+            parent_consensus_hash,
+            parent_block
+        );
+
+        let inner_clarity_tx = clarity_instance.begin_ephemeral(
+            &parent_index_block,
+            &new_index_block,
+            headers_db,
+            burn_dbconn,
+        );
+
+        test_debug!("Got ephemeral clarity TX!");
         ClarityTx {
             block: inner_clarity_tx,
             config: conf,
@@ -2603,7 +2720,6 @@ impl StacksChainState {
         burn_transfer_stx_ops: Vec<TransferStxOp>,
         burn_delegate_stx_ops: Vec<DelegateStxOp>,
         burn_vote_for_aggregate_key_ops: Vec<VoteForAggregateKeyOp>,
-        affirmation_weight: u64,
     ) -> Result<StacksHeaderInfo, Error> {
         if new_tip.parent_block != FIRST_STACKS_BLOCK_HASH {
             // not the first-ever block, so linkage must occur
@@ -2659,7 +2775,6 @@ impl StacksChainState {
             &parent_hash,
             &new_tip_info,
             anchor_block_cost,
-            affirmation_weight,
         )?;
         StacksChainState::insert_miner_payment_schedule(headers_tx.deref_mut(), block_reward)?;
         StacksChainState::store_burnchain_txids(
@@ -2992,5 +3107,172 @@ pub mod test {
             query_row(chainstate.db(), "SELECT sqlite_version()", NO_PARAMS).unwrap(),
             Some("3.45.0".to_string())
         );
+    }
+
+    pub fn tmp_db_path() -> PathBuf {
+        std::env::temp_dir().join(format!("chainstate-test-{}.sqlite", rand::random::<u64>()))
+    }
+
+    #[test]
+    fn chainstate_migration_v10_to_v11() -> Result<(), Error> {
+        let test_name = "test_chainstate_migration_v10_to_v11";
+        // Create an in-memory database
+        let tmp_path = tmp_db_path();
+        let conn = Connection::open(tmp_path.clone())?;
+
+        // Simulate schema version 10 by applying all schemas up to NAKAMOTO_CHAINSTATE_SCHEMA_6
+        for schema in CHAINSTATE_INITIAL_SCHEMA.iter() {
+            conn.execute_batch(schema)?;
+        }
+        // Manually insert a version since chainstate initial schema just creates but doesn't insert anything
+        // required for subsequent "updates" to be successful
+        conn.execute(
+            "INSERT INTO db_config (version, mainnet, chain_id) VALUES (?, ?, ?)",
+            params!["1", 1, 1], // initial version 1
+        )?;
+        for schema in CHAINSTATE_SCHEMA_2.iter() {
+            conn.execute_batch(schema)?;
+        }
+        for schema in CHAINSTATE_SCHEMA_3.iter() {
+            conn.execute_batch(schema)?;
+        }
+        for schema in NAKAMOTO_CHAINSTATE_SCHEMA_1.iter() {
+            conn.execute_batch(schema)?;
+        }
+        for schema in NAKAMOTO_CHAINSTATE_SCHEMA_2.iter() {
+            conn.execute_batch(schema)?;
+        }
+        for schema in NAKAMOTO_CHAINSTATE_SCHEMA_3.iter() {
+            conn.execute_batch(schema)?;
+        }
+        for schema in NAKAMOTO_CHAINSTATE_SCHEMA_4.iter() {
+            conn.execute_batch(schema)?;
+        }
+        for schema in NAKAMOTO_CHAINSTATE_SCHEMA_5.iter() {
+            conn.execute_batch(schema)?;
+        }
+        for schema in CHAINSTATE_SCHEMA_4.iter() {
+            conn.execute_batch(schema)?;
+        }
+        for schema in NAKAMOTO_CHAINSTATE_SCHEMA_6.iter() {
+            conn.execute_batch(schema)?;
+        }
+
+        // Insert dummy data into pre-nakamoto block_headers
+        let sample_block_hash = BlockHeaderHash([1u8; 32]);
+        let sample_consensus_hash = ConsensusHash([2u8; 20]);
+        let sample_burn_header_hash = BurnchainHeaderHash([3u8; 32]);
+        let sample_parent_block_id = StacksBlockId([0u8; 32]);
+        let sample_index_block_hash =
+            StacksBlockId::new(&sample_consensus_hash, &sample_block_hash);
+        conn.execute(
+            "INSERT INTO block_headers (
+                version, total_burn, total_work, proof, parent_block, parent_microblock,
+                parent_microblock_sequence, tx_merkle_root, state_index_root, microblock_pubkey_hash,
+                block_hash, index_block_hash, block_height, index_root, consensus_hash,
+                burn_header_hash, burn_header_height, burn_header_timestamp, parent_block_id,
+                cost, block_size, affirmation_weight
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                1,
+                "1000",
+                "1",
+                to_hex(&[0u8; 48]),
+                to_hex(&[0u8; 32]),
+                to_hex(&[0u8; 32]),
+                0,
+                to_hex(&[0u8; 32]),
+                to_hex(&[0u8; 32]),
+                to_hex(&[0u8; 20]),
+                &sample_block_hash,
+                &sample_index_block_hash,
+                1,
+                to_hex(&[0u8; 32]),
+                &sample_consensus_hash,
+                &sample_burn_header_hash,
+                100,
+                1234567890,
+                &sample_parent_block_id,
+                serde_json::to_string(&ExecutionCost::ZERO).unwrap(),
+                "1000",
+                10
+            ],
+        )?;
+
+        // Verify schema version is 10 before migration
+        let version: String = query_row(&conn, "SELECT version FROM db_config", NO_PARAMS)?
+            .expect("Expected db_config to have a version");
+        assert_eq!(
+            version, "10",
+            "Database version should be 10 before migration"
+        );
+
+        // Apply the simplified CHAINSTATE_SCHEMA_5 migration
+        for statement in CHAINSTATE_SCHEMA_5.iter() {
+            conn.execute_batch(statement)?;
+        }
+        // Verify schema version is updated to 11
+        let version: String = query_row(&conn, "SELECT version FROM db_config", NO_PARAMS)?
+            .expect("Expected db_config to have a version");
+        assert_eq!(
+            version, "11",
+            "Database version should be 11 after migration"
+        );
+
+        // Verify affirmation_weight column is dropped
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(block_headers)")?
+            .query_map([], |row| row.get(1))?
+            .collect::<Result<Vec<String>, _>>()?;
+        assert!(
+            !columns.contains(&"affirmation_weight".to_string()),
+            "affirmation_weight column should be dropped"
+        );
+
+        // Verify indexes are dropped
+        let indexes: Vec<String> = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'block_headers'")?
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        assert!(
+            !indexes.contains(&"index_block_header_by_affirmation_weight".to_string()),
+            "index_block_header_by_affirmation_weight should be dropped"
+        );
+        assert!(
+            !indexes.contains(&"index_block_header_by_height_and_affirmation_weight".to_string()),
+            "index_block_header_by_height_and_affirmation_weight should be dropped"
+        );
+
+        // Verify data integrity
+        let row: Option<(String, String, String)> = conn
+            .query_row(
+                "SELECT block_hash, consensus_hash, block_size
+            FROM block_headers WHERE index_block_hash = ?",
+                params![&sample_index_block_hash],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        assert!(row.is_some(), "Sample data should remain after migration");
+
+        let (block_hash, consensus_hash, block_size) = row.unwrap();
+        assert_eq!(
+            block_hash,
+            sample_block_hash.to_string(),
+            "Block hash should be preserved"
+        );
+        assert_eq!(
+            consensus_hash,
+            sample_consensus_hash.to_string(),
+            "Consensus hash should be preserved"
+        );
+        assert_eq!(block_size, "1000", "Block size should be preserved");
+
+        Ok(())
     }
 }

@@ -48,7 +48,7 @@
                 },
                 {
                     "name": "miner",
-                    "description": "Flag indicating whether this node should activate its mining logic and attempt to\nproduce Stacks blocks. Setting this to `true` typically requires providing\nnecessary private keys (either [`NodeConfig::seed`] or [`MinerConfig::mining_key`]).\nIt also influences default behavior for settings like\n[`NodeConfig::require_affirmed_anchor_blocks`].",
+                    "description": "Flag indicating whether this node should activate its mining logic and attempt to\nproduce Stacks blocks. Setting this to `true` typically requires providing\nnecessary private keys (either [`NodeConfig::seed`] or [`MinerConfig::mining_key`]).",
                     "default_value": "`false`",
                     "notes": null,
                     "deprecated": null,
@@ -74,7 +74,6 @@
     "referenced_constants": {
         "MinerConfig::mining_key": null,
         "NodeConfig::miner": null,
-        "NodeConfig::mine_microblocks": null,
-        "NodeConfig::require_affirmed_anchor_blocks": null
+        "NodeConfig::mine_microblocks": null
     }
 }

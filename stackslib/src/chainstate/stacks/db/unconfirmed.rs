@@ -212,10 +212,10 @@ impl UnconfirmedState {
         chainstate: &StacksChainState,
         burn_dbconn: &dyn BurnStateDB,
         mblocks: Vec<StacksMicroblock>,
-    ) -> Result<ProcessedUnconfirmedState, Error> {
+    ) -> ProcessedUnconfirmedState {
         if self.last_mblock_seq == u16::MAX {
             // drop them -- nothing to do
-            return Ok(Default::default());
+            return Default::default();
         }
 
         debug!(
@@ -235,8 +235,6 @@ impl UnconfirmedState {
         let burn_block_timestamp = headers_db
             .get_burn_block_time_for_block(&self.confirmed_chain_tip, None)
             .expect("BUG: unable to get burn block timestamp based on chain tip");
-
-        let ast_rules = burn_dbconn.get_ast_rules(burn_block_height);
 
         let mut last_mblock = self.last_mblock.take();
         let mut last_mblock_seq = self.last_mblock_seq;
@@ -295,7 +293,6 @@ impl UnconfirmedState {
                     match StacksChainState::process_microblocks_transactions(
                         &mut clarity_tx,
                         &[mblock.clone()],
-                        ast_rules,
                     ) {
                         Ok(x) => x,
                         Err((e, _)) => {
@@ -324,7 +321,7 @@ impl UnconfirmedState {
                 };
 
                 for tx in &mblock.txs {
-                    mined_txs.insert(tx.txid(), (tx.clone(), mblock_hash, seq));
+                    mined_txs.insert(tx.txid(), (tx.clone(), mblock_hash.clone(), seq));
                 }
             }
 
@@ -350,14 +347,14 @@ impl UnconfirmedState {
             self.bytes_so_far = 0;
         }
 
-        Ok(ProcessedUnconfirmedState {
+        ProcessedUnconfirmedState {
             total_fees,
             total_burns,
             receipts: all_receipts,
             burn_block_hash,
             burn_block_height,
             burn_block_timestamp,
-        })
+        }
     }
 
     /// Load up the Stacks microblock stream to process, composed of only the new microblocks
@@ -398,10 +395,11 @@ impl UnconfirmedState {
             return Ok(Default::default());
         }
 
-        match self.load_child_microblocks(chainstate)? {
+        let microblocks = match self.load_child_microblocks(chainstate)? {
             Some(microblocks) => self.append_microblocks(chainstate, burn_dbconn, microblocks),
-            None => Ok(Default::default()),
-        }
+            None => Default::default(),
+        };
+        Ok(microblocks)
     }
 
     /// Is there any state to read?
@@ -466,7 +464,7 @@ impl UnconfirmedState {
             };
 
             if trie_exists {
-                Ok(Some(self.unconfirmed_chain_tip))
+                Ok(Some(self.unconfirmed_chain_tip.clone()))
             } else {
                 Ok(None)
             }
@@ -509,12 +507,12 @@ impl StacksChainState {
         burn_dbconn: &dyn BurnStateDB,
         anchored_block_id: StacksBlockId,
     ) -> Result<(UnconfirmedState, ProcessedUnconfirmedState), Error> {
-        debug!("Make new unconfirmed state off of {}", &anchored_block_id);
-        let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id)?;
+        debug!("Make new unconfirmed state off of {anchored_block_id}");
+        let mut unconfirmed_state = UnconfirmedState::new(self, anchored_block_id.clone())?;
         let processed_unconfirmed_state = unconfirmed_state.refresh(self, burn_dbconn)?;
         debug!(
-            "Made new unconfirmed state off of {} (at {})",
-            &anchored_block_id, &unconfirmed_state.unconfirmed_chain_tip
+            "Made new unconfirmed state off of {anchored_block_id} (at {})",
+            &unconfirmed_state.unconfirmed_chain_tip
         );
         Ok((unconfirmed_state, processed_unconfirmed_state))
     }
@@ -561,7 +559,7 @@ impl StacksChainState {
         }
 
         let (new_unconfirmed_state, processed_unconfirmed_state) =
-            self.make_unconfirmed_state(burn_dbconn, canonical_tip)?;
+            self.make_unconfirmed_state(burn_dbconn, canonical_tip.clone())?;
 
         debug!(
             "Unconfirmed state off of {} reloaded (new unconfirmed tip is {})",
@@ -654,18 +652,20 @@ mod test {
 
         let initial_balance = 1000000000;
         let mut peer_config = TestPeerConfig::new(function_name!(), 7000, 7001);
-        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
-        let burnchain = peer_config.burnchain.clone();
+        peer_config.chain_config.initial_balances =
+            vec![(addr.to_account_principal(), initial_balance)];
+        let burnchain = peer_config.chain_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height
         };
 
@@ -676,9 +676,10 @@ mod test {
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -725,7 +726,7 @@ mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
 
@@ -756,7 +757,7 @@ mod test {
 
             // build 1-block microblock stream
             let microblocks = {
-                let sortdb = peer.sortdb.take().unwrap();
+                let sortdb = peer.chain.sortdb.take().unwrap();
                 let sort_iconn = sortdb
                     .index_handle_at_block(peer.chainstate(), &canonical_tip)
                     .unwrap();
@@ -815,7 +816,7 @@ mod test {
                     microblock
                 };
 
-                peer.sortdb = Some(sortdb);
+                peer.chain.sortdb = Some(sortdb);
                 vec![microblock]
             };
 
@@ -831,7 +832,7 @@ mod test {
             }
 
             // process microblock stream to generate unconfirmed state
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             let iconn = sortdb
                 .index_handle_at_block(peer.chainstate(), &canonical_tip)
                 .unwrap();
@@ -844,20 +845,20 @@ mod test {
                 .with_read_only_unconfirmed_clarity_tx(&iconn, |clarity_tx| {
                     clarity_tx.with_clarity_db_readonly(|clarity_db| {
                         clarity_db
-                            .get_account_stx_balance(&recv_addr.into())
+                            .get_account_stx_balance(&recv_addr.clone().into())
                             .unwrap()
                     })
                 })
                 .unwrap()
                 .unwrap();
-            peer.sortdb = Some(sortdb);
+            peer.chain.sortdb = Some(sortdb);
 
             // move 1 stx per round
             assert_eq!(recv_balance.amount_unlocked(), (tenure_id + 1) as u128);
             let (canonical_burn, canonical_block) =
                 SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             let iconn = sortdb
                 .index_handle_at_block(peer.chainstate(), &canonical_tip)
                 .unwrap();
@@ -871,7 +872,7 @@ mod test {
                     })
                 })
                 .unwrap();
-            peer.sortdb = Some(sortdb);
+            peer.chain.sortdb = Some(sortdb);
 
             assert_eq!(confirmed_recv_balance.amount_unlocked(), tenure_id as u128);
             eprintln!("\nrecv_balance: {}\nconfirmed_recv_balance: {}\nblock header {}: {:?}\ntip: {}/{}\n", recv_balance.amount_unlocked(), confirmed_recv_balance.amount_unlocked(), &stacks_block.block_hash(), &stacks_block.header, &canonical_burn, &canonical_block);
@@ -891,18 +892,20 @@ mod test {
 
         let initial_balance = 1000000000;
         let mut peer_config = TestPeerConfig::new(function_name!(), 7002, 7003);
-        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
-        let burnchain = peer_config.burnchain.clone();
+        peer_config.chain_config.initial_balances =
+            vec![(addr.to_account_principal(), initial_balance)];
+        let burnchain = peer_config.chain_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             tip.block_height
         };
 
@@ -913,9 +916,10 @@ mod test {
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -962,7 +966,7 @@ mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
 
@@ -992,7 +996,7 @@ mod test {
                 StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
             // build microblock stream iteratively, and test balances at each additional microblock
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             let microblocks = {
                 let sort_iconn = sortdb
                     .index_handle_at_block(peer.chainstate(), &canonical_tip)
@@ -1057,7 +1061,7 @@ mod test {
                 }
                 microblocks
             };
-            peer.sortdb = Some(sortdb);
+            peer.chain.sortdb = Some(sortdb);
 
             // store microblock stream
             for (i, mblock) in microblocks.into_iter().enumerate() {
@@ -1070,7 +1074,7 @@ mod test {
                     .unwrap();
 
                 // process microblock stream to generate unconfirmed state
-                let sortdb = peer.sortdb.take().unwrap();
+                let sortdb = peer.chain.sortdb.take().unwrap();
                 peer.chainstate()
                     .reload_unconfirmed_state(&sortdb.index_handle_at_tip(), canonical_tip.clone())
                     .unwrap();
@@ -1082,14 +1086,14 @@ mod test {
                         |clarity_tx| {
                             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                                 clarity_db
-                                    .get_account_stx_balance(&recv_addr.into())
+                                    .get_account_stx_balance(&recv_addr.clone().into())
                                     .unwrap()
                             })
                         },
                     )
                     .unwrap()
                     .unwrap();
-                peer.sortdb = Some(sortdb);
+                peer.chain.sortdb = Some(sortdb);
 
                 // move 100 ustx per round -- 10 per mblock
                 assert_eq!(
@@ -1099,7 +1103,7 @@ mod test {
                 let (canonical_burn, canonical_block) =
                     SortitionDB::get_canonical_stacks_chain_tip_hash(peer.sortdb().conn()).unwrap();
 
-                let sortdb = peer.sortdb.take().unwrap();
+                let sortdb = peer.chain.sortdb.take().unwrap();
                 let confirmed_recv_balance = peer
                     .chainstate()
                     .with_read_only_clarity_tx(
@@ -1108,13 +1112,13 @@ mod test {
                         |clarity_tx| {
                             clarity_tx.with_clarity_db_readonly(|clarity_db| {
                                 clarity_db
-                                    .get_account_stx_balance(&recv_addr.into())
+                                    .get_account_stx_balance(&recv_addr.clone().into())
                                     .unwrap()
                             })
                         },
                     )
                     .unwrap();
-                peer.sortdb = Some(sortdb);
+                peer.chain.sortdb = Some(sortdb);
 
                 assert_eq!(
                     confirmed_recv_balance.amount_unlocked(),
@@ -1138,25 +1142,27 @@ mod test {
 
         let initial_balance = 1000000000;
         let mut peer_config = TestPeerConfig::new(function_name!(), 7004, 7005);
-        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
-        peer_config.epochs = Some(EpochList::new(&[StacksEpoch {
+        peer_config.chain_config.initial_balances =
+            vec![(addr.to_account_principal(), initial_balance)];
+        peer_config.chain_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: (i64::MAX) as u64,
             block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         }]));
-        let burnchain = peer_config.burnchain.clone();
+        let burnchain = peer_config.chain_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let num_blocks = 5;
         let num_microblocks = 3;
         let first_stacks_block_height = {
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             tip.block_height
         };
 
@@ -1172,9 +1178,10 @@ mod test {
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
 
             // send transactions to the mempool
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -1221,7 +1228,7 @@ mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
 
@@ -1286,8 +1293,8 @@ mod test {
                 &stacks_block.block_hash(),
             );
 
-            let mut sortdb = peer.sortdb.take().unwrap();
-            let mut inner_node = peer.stacks_node.take().unwrap();
+            let mut sortdb = peer.chain.sortdb.take().unwrap();
+            let mut inner_node = peer.chain.stacks_node.take().unwrap();
 
             for i in 0..num_microblocks {
                 Relayer::refresh_unconfirmed(&mut inner_node.chainstate, &mut sortdb);
@@ -1370,8 +1377,8 @@ mod test {
                     .unwrap();
             }
 
-            peer.sortdb = Some(sortdb);
-            peer.stacks_node = Some(inner_node);
+            peer.chain.sortdb = Some(sortdb);
+            peer.chain.stacks_node = Some(inner_node);
         }
 
         let (consensus_hash, canonical_block) =
@@ -1380,7 +1387,7 @@ mod test {
             StacksBlockHeader::make_index_block_hash(&consensus_hash, &canonical_block);
 
         // process microblock stream to generate unconfirmed state
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let iconn = sortdb
             .index_handle_at_block(peer.chainstate(), &canonical_tip)
             .unwrap();
@@ -1399,7 +1406,7 @@ mod test {
             })
             .unwrap()
             .unwrap();
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         // all valid txs were processed
         assert_eq!(db_recv_balance.amount_unlocked(), recv_balance);

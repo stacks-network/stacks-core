@@ -13,6 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
@@ -52,7 +53,7 @@ impl GlobalStateEvaluator {
     }
 
     /// Determine what the maximum signer protocol version that a majority of signers can support
-    pub fn determine_latest_supported_signer_protocol_version(&mut self) -> Option<u64> {
+    pub fn determine_latest_supported_signer_protocol_version(&self) -> Option<u64> {
         let mut protocol_versions = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
@@ -77,7 +78,7 @@ impl GlobalStateEvaluator {
     }
 
     /// Determine what the global burn view is if there is one
-    pub fn determine_global_burn_view(&mut self) -> Option<(ConsensusHash, u64)> {
+    pub fn determine_global_burn_view(&self) -> Option<(&ConsensusHash, u64)> {
         let mut burn_blocks = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
@@ -90,14 +91,14 @@ impl GlobalStateEvaluator {
                 .or_insert_with(|| 0);
             *entry += weight;
             if self.reached_agreement(*entry) {
-                return Some((*burn_block, burn_block_height));
+                return Some((burn_block, burn_block_height));
             }
         }
         None
     }
 
     /// Check if there is an agreed upon global state
-    pub fn determine_global_state(&mut self) -> Option<SignerStateMachine> {
+    pub fn determine_global_state(&self) -> Option<SignerStateMachine> {
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version()?;
         let mut state_views = HashMap::new();
@@ -113,9 +114,9 @@ impl GlobalStateEvaluator {
             let tx_replay_set = update.content.tx_replay_set();
 
             let state_machine = SignerStateMachine {
-                burn_block: *burn_block,
+                burn_block: burn_block.clone(),
                 burn_block_height,
-                current_miner: current_miner.into(),
+                current_miner: current_miner.clone().into(),
                 active_signer_protocol_version,
                 // We need to calculate the threshold for the tx_replay_set separately
                 tx_replay_set: ReplayTransactionSet::none(),
@@ -140,10 +141,17 @@ impl GlobalStateEvaluator {
                 break;
             }
         }
-        if let Some(tx_replay_set) = found_replay_set {
-            if let Some(state_view) = found_state_view.as_mut() {
-                state_view.tx_replay_set = tx_replay_set;
-            }
+        // Try to find agreed replay set, or find longest common prefix if no exact agreement
+        let final_replay_set = if let Some(tx_replay_set) = found_replay_set {
+            tx_replay_set
+        } else {
+            // No exact agreement found, try finding longest common prefix with majority support
+            self.find_majority_prefix_replay_set(&tx_replay_sets)
+                .unwrap_or_else(ReplayTransactionSet::none)
+        };
+
+        if let Some(state_view) = found_state_view.as_mut() {
+            state_view.tx_replay_set = final_replay_set;
         }
         found_state_view
     }
@@ -168,6 +176,91 @@ impl GlobalStateEvaluator {
     pub fn get_global_tx_replay_set(&mut self) -> Option<ReplayTransactionSet> {
         let global_state = self.determine_global_state()?;
         Some(global_state.tx_replay_set)
+    }
+
+    /// Find the longest common prefix of replay sets that has majority support.
+    /// This implements the longest common prefix (LCP) strategy where if one signer's replay set
+    /// is [A,B,C] and another is [A,B], we should use [A,B] as the replay set.
+    /// Order matters for transaction replay - [A,B] and [B,A] have no common prefix.
+    fn find_majority_prefix_replay_set(
+        &self,
+        tx_replay_sets: &HashMap<ReplayTransactionSet, u32>,
+    ) -> Option<ReplayTransactionSet> {
+        if tx_replay_sets.is_empty() {
+            return None;
+        }
+
+        // First, try to find an exact match that reaches agreement
+        for (replay_set, weight) in tx_replay_sets {
+            if self.reached_agreement(*weight) {
+                return Some(replay_set.clone());
+            }
+        }
+
+        // No exact agreement found, find longest common prefix with majority support
+
+        // Sort replay sets by weight (descending), then deterministically by length and content
+        let mut sorted_sets: Vec<_> = tx_replay_sets.iter().collect();
+        sorted_sets.sort_by(|(set_a, weight_a), (set_b, weight_b)| {
+            // Primary: weight descending
+            let weight_cmp = weight_b.cmp(weight_a);
+            if weight_cmp != Ordering::Equal {
+                return weight_cmp;
+            }
+            // Secondary: length descending (longer sequences first)
+            let len_cmp = set_b.0.len().cmp(&set_a.0.len());
+            if len_cmp != Ordering::Equal {
+                return len_cmp;
+            }
+            // Tertiary: compare transaction IDs for determinism
+            for (lhs, rhs) in set_a.0.iter().zip(&set_b.0) {
+                let ord = lhs.txid().cmp(&rhs.txid());
+                if ord != Ordering::Equal {
+                    return ord;
+                }
+            }
+            Ordering::Equal
+        });
+
+        // Start with the most supported replay set as initial candidate
+        if let Some((initial_set, _)) = sorted_sets.first() {
+            let mut candidate_prefix = initial_set.0.clone();
+            let mut total_supporting_weight = 0u32;
+
+            // Find all sets that support the current candidate prefix
+            for (replay_set, weight) in tx_replay_sets {
+                if replay_set.0.starts_with(&candidate_prefix) {
+                    total_supporting_weight = total_supporting_weight.saturating_add(*weight);
+                }
+            }
+
+            // If the initial candidate already has majority support, return it
+            if self.reached_agreement(total_supporting_weight) {
+                return Some(ReplayTransactionSet::new(candidate_prefix));
+            }
+
+            // Otherwise, iteratively truncate the prefix until we find majority support
+            while !candidate_prefix.is_empty() {
+                // Remove the last transaction from the prefix
+                candidate_prefix.pop();
+
+                // Recalculate supporting weight for the shorter prefix
+                total_supporting_weight = 0u32;
+                for (replay_set, weight) in tx_replay_sets {
+                    if replay_set.0.starts_with(&candidate_prefix) {
+                        total_supporting_weight = total_supporting_weight.saturating_add(*weight);
+                    }
+                }
+
+                // If this prefix has majority support, return it
+                if self.reached_agreement(total_supporting_weight) {
+                    return Some(ReplayTransactionSet::new(candidate_prefix));
+                }
+            }
+        }
+
+        // If no common prefix with majority support is found, return None
+        None
     }
 }
 
@@ -303,9 +396,9 @@ pub enum MinerState {
     NoValidMiner,
 }
 
-impl From<&StateMachineUpdateMinerState> for MinerState {
-    fn from(val: &StateMachineUpdateMinerState) -> Self {
-        match *val {
+impl From<StateMachineUpdateMinerState> for MinerState {
+    fn from(val: StateMachineUpdateMinerState) -> Self {
+        match val {
             StateMachineUpdateMinerState::NoValidMiner => MinerState::NoValidMiner,
             StateMachineUpdateMinerState::ActiveMiner {
                 current_miner_pkh,

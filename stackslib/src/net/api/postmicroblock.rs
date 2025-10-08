@@ -29,8 +29,7 @@ use crate::net::http::{
     HttpResponsePayload, HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttpRequest,
-    StacksHttpResponse,
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttpRequest, StacksHttpResponse,
 };
 use crate::net::relay::Relayer;
 use crate::net::{
@@ -163,16 +162,12 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
             let parent_block_snapshot = Relayer::get_parent_stacks_block_snapshot(&sort_handle, consensus_hash, block_hash)
                 .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load parent block for Stacks tip: {:?}", &e))))?;
 
-            let ast_rules = SortitionDB::get_ast_rules(&sort_handle, parent_block_snapshot.block_height)
-                .map_err(|e| StacksHttpResponse::new_error(&preamble, &HttpServerError::new(format!("Failed to load AST rules for Bitcoin block height {}: {:?}", parent_block_snapshot.block_height, &e))))?;
-
             let epoch_id = self.get_stacks_epoch(&preamble, sortdb, parent_block_snapshot.block_height)?.epoch_id;
 
             if !Relayer::static_check_problematic_relayed_microblock(
                 chainstate.mainnet,
                 epoch_id,
-                &microblock,
-                ast_rules,
+                &microblock
             ) {
                 info!("Microblock {} from {}/{} is problematic; will not store or relay it, nor its descendants", &microblock.block_hash(), consensus_hash, &block_hash);
 
@@ -182,17 +177,15 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
 
             match chainstate.preprocess_streamed_microblock(consensus_hash, block_hash, &microblock) {
                 Ok(accepted) => {
-                    debug!("{} uploaded microblock {}/{}-{}",
+                    debug!("{} uploaded microblock {consensus_hash}/{block_hash}-{}",
                            if accepted { "Accepted" } else { "Did not accept" },
-                           consensus_hash,
-                           block_hash,
                            &microblock.block_hash()
                     );
-                    return Ok((accepted, StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash)));
+                    Ok((accepted, StacksBlockHeader::make_index_block_hash(consensus_hash, block_hash)))
                 },
                 Err(e) => {
                     debug!("Failed to process microblock {}/{}-{}: {:?}", &consensus_hash, &block_hash, &microblock.block_hash(), &e);
-                    return Err(StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new_json(e.into_json())));
+                    Err(StacksHttpResponse::new_error(&preamble, &HttpBadRequest::new_json(e.into_json())))
                 }
             }
         });
@@ -212,8 +205,7 @@ impl RPCRequestHandler for RPCPostMicroblockRequestHandler {
             }));
         }
 
-        let mut preamble = HttpResponsePreamble::ok_json(&preamble);
-        preamble.set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        let preamble = HttpResponsePreamble::ok_json(&preamble);
         let body = HttpResponseContents::try_from_json(&data_resp)?;
         Ok((preamble, body))
     }

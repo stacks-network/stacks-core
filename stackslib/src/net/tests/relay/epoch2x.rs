@@ -17,7 +17,6 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::{ClarityVersion, MAX_CALL_STACK_DEPTH};
@@ -565,12 +564,11 @@ fn test_get_blocks_and_microblocks_3_peers_push_available() {
                 peer_configs[2].add_neighbor(&peer_1);
             },
             |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 let this_reward_cycle = peers[0]
                     .config
+                    .chain_config
                     .burnchain
                     .block_height_to_reward_cycle(tip.block_height)
                     .unwrap();
@@ -582,12 +580,12 @@ fn test_get_blocks_and_microblocks_3_peers_push_available() {
                     // cycle, since pushing block/microblock
                     // announcements in reward cycles the remote
                     // peer doesn't know about won't work.
-                    let tip = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let tip =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     if peers[0]
                         .config
+                        .chain_config
                         .burnchain
                         .block_height_to_reward_cycle(tip.block_height)
                         .unwrap()
@@ -608,10 +606,9 @@ fn test_get_blocks_and_microblocks_3_peers_push_available() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
                     }
 
-                    let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let sn =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     block_data.push((
                         sn.consensus_hash.clone(),
                         Some(stacks_block),
@@ -629,7 +626,7 @@ fn test_get_blocks_and_microblocks_3_peers_push_available() {
                 // work, and for (Micro)BlocksAvailable messages to be accepted
                 let peer_1_nk = peers[1].to_neighbor().addr;
                 let peer_2_nk = peers[2].to_neighbor().addr;
-                let bc = peers[1].config.burnchain.clone();
+                let bc = peers[1].config.chain_config.burnchain.clone();
                 match peers[2].network.inv_state {
                     Some(ref mut inv_state) => {
                         if inv_state.get_stats(&peer_1_nk).is_none() {
@@ -657,12 +654,11 @@ fn test_get_blocks_and_microblocks_3_peers_push_available() {
                     }
                 }
 
-                let tip = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 let this_reward_cycle = peers[0]
                     .config
+                    .chain_config
                     .burnchain
                     .block_height_to_reward_cycle(tip.block_height)
                     .unwrap();
@@ -861,12 +857,9 @@ fn push_block(
         dest
     );
 
-    let sn = SortitionDB::get_block_snapshot_consensus(
-        peer.sortdb.as_ref().unwrap().conn(),
-        &consensus_hash,
-    )
-    .unwrap()
-    .unwrap();
+    let sn = SortitionDB::get_block_snapshot_consensus(peer.sortdb_ref().conn(), &consensus_hash)
+        .unwrap()
+        .unwrap();
     let consensus_hash = sn.consensus_hash;
 
     let msg = StacksMessageType::Blocks(BlocksData {
@@ -888,12 +881,9 @@ fn broadcast_block(
         block.block_hash(),
     );
 
-    let sn = SortitionDB::get_block_snapshot_consensus(
-        peer.sortdb.as_ref().unwrap().conn(),
-        &consensus_hash,
-    )
-    .unwrap()
-    .unwrap();
+    let sn = SortitionDB::get_block_snapshot_consensus(peer.sortdb_ref().conn(), &consensus_hash)
+        .unwrap()
+        .unwrap();
     let consensus_hash = sn.consensus_hash;
 
     let msg = StacksMessageType::Blocks(BlocksData {
@@ -1092,12 +1082,11 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 }
             },
             |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 let this_reward_cycle = peers[0]
                     .config
+                    .chain_config
                     .burnchain
                     .block_height_to_reward_cycle(tip.block_height)
                     .unwrap();
@@ -1105,12 +1094,12 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                 // build up block data to replicate
                 let mut block_data = vec![];
                 for _ in 0..num_blocks {
-                    let tip = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let tip =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     if peers[0]
                         .config
+                        .chain_config
                         .burnchain
                         .block_height_to_reward_cycle(tip.block_height)
                         .unwrap()
@@ -1130,10 +1119,9 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
                     }
 
-                    let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let sn =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     block_data.push((
                         sn.consensus_hash.clone(),
                         Some(stacks_block),
@@ -1204,8 +1192,7 @@ fn test_get_blocks_and_microblocks_2_peers_push_blocks_and_microblocks(
 
                     if let Some((consensus_hash, block, microblocks)) = data_to_push {
                         test_debug!(
-                            "Push block {}/{} and microblocks",
-                            &consensus_hash,
+                            "Push block {consensus_hash}/{} and microblocks",
                             block.block_hash()
                         );
 
@@ -1400,12 +1387,11 @@ fn test_get_blocks_and_microblocks_upload_blocks_http() {
                 let peer_1 = peer_configs[1].to_neighbor();
             },
             |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 let this_reward_cycle = peers[0]
                     .config
+                    .chain_config
                     .burnchain
                     .block_height_to_reward_cycle(tip.block_height)
                     .unwrap();
@@ -1417,12 +1403,12 @@ fn test_get_blocks_and_microblocks_upload_blocks_http() {
                     // cycle, since pushing block/microblock
                     // announcements in reward cycles the remote
                     // peer doesn't know about won't work.
-                    let tip = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let tip =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     if peers[0]
                         .config
+                        .chain_config
                         .burnchain
                         .block_height_to_reward_cycle(tip.block_height)
                         .unwrap()
@@ -1443,10 +1429,9 @@ fn test_get_blocks_and_microblocks_upload_blocks_http() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
                     }
 
-                    let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let sn =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     block_data.push((
                         sn.consensus_hash.clone(),
                         Some(stacks_block),
@@ -1596,20 +1581,28 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                 let initial_balances = vec![
                     (
                         PrincipalData::from(
-                            peer_configs[0].spending_account.origin_address().unwrap(),
+                            peer_configs[0]
+                                .chain_config
+                                .spending_account
+                                .origin_address()
+                                .unwrap(),
                         ),
                         1000000,
                     ),
                     (
                         PrincipalData::from(
-                            peer_configs[1].spending_account.origin_address().unwrap(),
+                            peer_configs[1]
+                                .chain_config
+                                .spending_account
+                                .origin_address()
+                                .unwrap(),
                         ),
                         1000000,
                     ),
                 ];
 
-                peer_configs[0].initial_balances = initial_balances.clone();
-                peer_configs[1].initial_balances = initial_balances;
+                peer_configs[0].chain_config.initial_balances = initial_balances.clone();
+                peer_configs[1].chain_config.initial_balances = initial_balances;
 
                 let peer_0 = peer_configs[0].to_neighbor();
                 let peer_1 = peer_configs[1].to_neighbor();
@@ -1618,12 +1611,11 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                 peer_configs[1].add_neighbor(&peer_0);
             },
             |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 let this_reward_cycle = peers[0]
                     .config
+                    .chain_config
                     .burnchain
                     .block_height_to_reward_cycle(tip.block_height)
                     .unwrap();
@@ -1631,12 +1623,12 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                 // build up block data to replicate
                 let mut block_data = vec![];
                 for b in 0..num_blocks {
-                    let tip = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let tip =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     if peers[0]
                         .config
+                        .chain_config
                         .burnchain
                         .block_height_to_reward_cycle(tip.block_height)
                         .unwrap()
@@ -1660,10 +1652,9 @@ fn test_get_blocks_and_microblocks_2_peers_push_transactions() {
                         }
                     }
 
-                    let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let sn =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     block_data.push((
                         sn.consensus_hash.clone(),
                         Some(stacks_block),
@@ -1972,12 +1963,18 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                 }
 
                 let initial_balances = vec![(
-                    PrincipalData::from(peer_configs[0].spending_account.origin_address().unwrap()),
+                    PrincipalData::from(
+                        peer_configs[0]
+                            .chain_config
+                            .spending_account
+                            .origin_address()
+                            .unwrap(),
+                    ),
                     1000000,
                 )];
 
                 for i in 0..peer_configs.len() {
-                    peer_configs[i].initial_balances = initial_balances.clone();
+                    peer_configs[i].chain_config.initial_balances = initial_balances.clone();
                 }
 
                 // connectivity
@@ -1989,12 +1986,11 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                 }
             },
             |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 let this_reward_cycle = peers[0]
                     .config
+                    .chain_config
                     .burnchain
                     .block_height_to_reward_cycle(tip.block_height)
                     .unwrap();
@@ -2002,12 +1998,12 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                 // build up block data to replicate
                 let mut block_data = vec![];
                 for _ in 0..num_blocks {
-                    let tip = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let tip =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     if peers[0]
                         .config
+                        .chain_config
                         .burnchain
                         .block_height_to_reward_cycle(tip.block_height)
                         .unwrap()
@@ -2027,10 +2023,9 @@ fn test_get_blocks_and_microblocks_peers_broadcast() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
                     }
 
-                    let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let sn =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
 
                     block_data.push((
                         sn.consensus_hash.clone(),
@@ -2301,12 +2296,11 @@ fn test_get_blocks_and_microblocks_2_peers_antientropy() {
                 peer_configs[1].add_neighbor(&peer_0);
             },
             |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 let this_reward_cycle = peers[0]
                     .config
+                    .chain_config
                     .burnchain
                     .block_height_to_reward_cycle(tip.block_height)
                     .unwrap();
@@ -2314,12 +2308,12 @@ fn test_get_blocks_and_microblocks_2_peers_antientropy() {
                 // build up block data to replicate
                 let mut block_data = vec![];
                 for _ in 0..num_blocks {
-                    let tip = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let tip =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     if peers[0]
                         .config
+                        .chain_config
                         .burnchain
                         .block_height_to_reward_cycle(tip.block_height)
                         .unwrap()
@@ -2339,10 +2333,9 @@ fn test_get_blocks_and_microblocks_2_peers_antientropy() {
                         peers[i].next_burnchain_block_raw(burn_ops.clone());
                     }
 
-                    let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let sn =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     block_data.push((
                         sn.consensus_hash.clone(),
                         Some(stacks_block),
@@ -2356,10 +2349,8 @@ fn test_get_blocks_and_microblocks_2_peers_antientropy() {
                 for i in 1..peers.len() {
                     peers[i].next_burnchain_block_raw(vec![]);
                 }
-                let sn = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let sn = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 block_data.push((sn.consensus_hash.clone(), None, None));
 
                 block_data
@@ -2433,12 +2424,11 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                 peer_configs[1].add_neighbor(&peer_0);
             },
             |num_blocks, ref mut peers| {
-                let tip = SortitionDB::get_canonical_burn_chain_tip(
-                    peers[0].sortdb.as_ref().unwrap().conn(),
-                )
-                .unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                    .unwrap();
                 let this_reward_cycle = peers[0]
                     .config
+                    .chain_config
                     .burnchain
                     .block_height_to_reward_cycle(tip.block_height)
                     .unwrap();
@@ -2446,10 +2436,9 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                 // build up block data to replicate
                 let mut block_data = vec![];
                 for block_num in 0..num_blocks {
-                    let tip = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let tip =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     let (mut burn_ops, stacks_block, microblocks) = peers[0].make_default_tenure();
 
                     let (_, burn_header_hash, consensus_hash) =
@@ -2468,10 +2457,9 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         all_sortitions.push(burn_ops.clone());
                     }
 
-                    let sn = SortitionDB::get_canonical_burn_chain_tip(
-                        peers[0].sortdb.as_ref().unwrap().conn(),
-                    )
-                    .unwrap();
+                    let sn =
+                        SortitionDB::get_canonical_burn_chain_tip(peers[0].sortdb_ref().conn())
+                            .unwrap();
                     block_data.push((
                         sn.consensus_hash.clone(),
                         Some(stacks_block),
@@ -2516,12 +2504,12 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                     debug!(
                         "Push at {}, need {}",
                         tip.anchored_header.height()
-                            - peers[1].config.burnchain.first_block_height
+                            - peers[1].config.chain_config.burnchain.first_block_height
                             - 1,
                         *pushed_i
                     );
                     if tip.anchored_header.height()
-                        - peers[1].config.burnchain.first_block_height
+                        - peers[1].config.chain_config.burnchain.first_block_height
                         - 1
                         == *pushed_i as u64
                     {
@@ -2544,14 +2532,13 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         *pushed_i += 1;
                     }
                     debug!(
-                        "Sortition at {}, need {}",
+                        "Sortition at {}, need {i}",
                         tip.anchored_header.height()
-                            - peers[1].config.burnchain.first_block_height
-                            - 1,
-                        *i
+                            - peers[1].config.chain_config.burnchain.first_block_height
+                            - 1
                     );
                     if tip.anchored_header.height()
-                        - peers[1].config.burnchain.first_block_height
+                        - peers[1].config.chain_config.burnchain.first_block_height
                         - 1
                         == *i as u64
                     {
@@ -2570,7 +2557,7 @@ fn test_get_blocks_and_microblocks_2_peers_buffered_messages() {
                         for ((event_id, _neighbor_key), pending) in
                             peers[1].network.pending_messages.iter()
                         {
-                            debug!("Pending at {} is ({}, {})", *i, event_id, pending.len());
+                            debug!("Pending at {i} is ({event_id}, {})", pending.len());
                             if !pending.is_empty() {
                                 update_sortition = true;
                             }
@@ -2620,12 +2607,16 @@ pub fn make_contract_tx(
     let mut tx_signer = StacksTransactionSigner::new(&tx_contract);
     tx_signer.sign_origin(sender).unwrap();
 
-    let tx_contract_signed = tx_signer.get_tx().unwrap();
-    tx_contract_signed
+    tx_signer.get_tx().unwrap()
 }
 
-#[test]
-fn test_static_problematic_tests() {
+struct DeepTransactions {
+    pub tx_high: StacksTransaction,
+    pub tx_edge: StacksTransaction,
+    pub tx_exceeds: StacksTransaction,
+}
+
+fn setup_deep_txs() -> DeepTransactions {
     let spender_sk_1 = StacksPrivateKey::random();
     let spender_sk_2 = StacksPrivateKey::random();
     let spender_sk_3 = StacksPrivateKey::random();
@@ -2633,7 +2624,7 @@ fn test_static_problematic_tests() {
     let edge_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
     let tx_edge_body_start = "{ a : ".repeat(edge_repeat_factor as usize);
     let tx_edge_body_end = "} ".repeat(edge_repeat_factor as usize);
-    let tx_edge_body = format!("{}u1 {}", tx_edge_body_start, tx_edge_body_end);
+    let tx_edge_body = format!("{tx_edge_body_start}u1 {tx_edge_body_end}");
 
     let tx_edge = make_contract_tx(
         &spender_sk_1,
@@ -2647,7 +2638,7 @@ fn test_static_problematic_tests() {
     let exceeds_repeat_factor = edge_repeat_factor + 1;
     let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
     let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-    let tx_exceeds_body = format!("{}u1 {}", tx_exceeds_body_start, tx_exceeds_body_end);
+    let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");
 
     let tx_exceeds = make_contract_tx(
         &spender_sk_2,
@@ -2661,7 +2652,7 @@ fn test_static_problematic_tests() {
     let high_repeat_factor = 128 * 1024;
     let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
     let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
-    let tx_high_body = format!("{}u1 {}", tx_high_body_start, tx_high_body_end);
+    let tx_high_body = format!("{tx_high_body_start}u1 {tx_high_body_end}");
 
     let tx_high = make_contract_tx(
         &spender_sk_3,
@@ -2670,49 +2661,46 @@ fn test_static_problematic_tests() {
         "test-high",
         &tx_high_body,
     );
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_edge,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_exceeds,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_high,
-        ASTRules::Typical
-    )
-    .is_ok());
+    DeepTransactions {
+        tx_high,
+        tx_edge,
+        tx_exceeds,
+    }
+}
 
-    assert!(Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_edge,
-        ASTRules::Typical
-    )
-    .is_ok());
-    assert!(!Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_exceeds,
-        ASTRules::PrecheckSize
-    )
-    .is_ok());
-    assert!(!Relayer::static_check_problematic_relayed_tx(
-        false,
-        StacksEpochId::Epoch2_05,
-        &tx_high,
-        ASTRules::PrecheckSize
-    )
-    .is_ok());
+#[rstest]
+#[case::epoch20(StacksEpochId::Epoch20)]
+#[case::epoch2_05(StacksEpochId::Epoch2_05)]
+fn static_problematic_txs_pre_epoch21(#[case] epoch_id: StacksEpochId) {
+    let DeepTransactions {
+        tx_high,
+        tx_edge,
+        tx_exceeds,
+    } = setup_deep_txs();
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_edge).is_ok());
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_exceeds).is_err());
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_high).is_err());
+}
+
+#[rstest]
+#[case::epoch_21(StacksEpochId::Epoch21)]
+#[case::epoch_22(StacksEpochId::Epoch22)]
+#[case::epoch_23(StacksEpochId::Epoch23)]
+#[case::epoch_24(StacksEpochId::Epoch24)]
+#[case::epoch_25(StacksEpochId::Epoch25)]
+#[case::epoch_30(StacksEpochId::Epoch30)]
+#[case::epoch_31(StacksEpochId::Epoch31)]
+#[case::epoch_32(StacksEpochId::Epoch32)]
+#[case::epoch_33(StacksEpochId::Epoch33)]
+fn static_problematic_txs_post_epoch21(#[case] epoch_id: StacksEpochId) {
+    let DeepTransactions {
+        tx_high,
+        tx_edge,
+        tx_exceeds,
+    } = setup_deep_txs();
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_edge).is_err());
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_exceeds).is_err());
+    assert!(Relayer::static_check_problematic_relayed_tx(false, epoch_id, &tx_high).is_err());
 }
 
 #[test]
@@ -2732,8 +2720,8 @@ fn process_new_blocks_rejects_problematic_asts() {
     let initial_balances = vec![(addr.to_account_principal(), 100000000000)];
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 32019, 32020);
-    peer_config.initial_balances = initial_balances;
-    peer_config.epochs = Some(EpochList::new(&[
+    peer_config.chain_config.initial_balances = initial_balances;
+    peer_config.chain_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -2749,54 +2737,32 @@ fn process_new_blocks_rejects_problematic_asts() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]));
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     // activate new AST rules right away
     let mut peer = TestPeer::new(peer_config);
-    let mut sortdb = peer.sortdb.take().unwrap();
-    {
-        let mut tx = sortdb
-            .tx_begin()
-            .expect("FATAL: failed to begin tx on sortition DB");
-        SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 1)
-            .expect("FATAL: failed to override AST PrecheckSize rule height");
-        tx.commit()
-            .expect("FATAL: failed to commit sortition DB transaction");
-    }
-    peer.sortdb = Some(sortdb);
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    peer.chain.sortdb = Some(sortdb);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb_ref().conn()).unwrap();
         sn.block_height
     };
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let high_repeat_factor = 128 * 1024;
-    let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
-    let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
-    let tx_high_body = format!("{}u1 {}", tx_high_body_start, tx_high_body_end);
-
-    let bad_tx = make_contract_tx(
-        &privk,
-        0,
-        (tx_high_body.len() * 100) as u64,
-        "test-high",
-        &tx_high_body,
-    );
-    let bad_txid = bad_tx.txid();
-    let bad_tx_len = {
+    let DeepTransactions { tx_high, .. } = setup_deep_txs();
+    let tx_high_txid = tx_high.txid();
+    let tx_high_len = {
         let mut bytes = vec![];
-        bad_tx.consensus_serialize(&mut bytes).unwrap();
+        tx_high.consensus_serialize(&mut bytes).unwrap();
         bytes.len() as u64
     };
 
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb_ref().conn()).unwrap();
 
     let mblock_privk = StacksPrivateKey::random();
 
@@ -2838,7 +2804,7 @@ fn process_new_blocks_rejects_problematic_asts() {
                 &parent_tip,
                 vrf_proof,
                 tip.total_burn,
-                Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                &Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
             )
             .unwrap();
 
@@ -2858,8 +2824,7 @@ fn process_new_blocks_rejects_problematic_asts() {
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
     peer.process_stacks_epoch(&block, &consensus_hash, &[]);
 
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb_ref().conn()).unwrap();
 
     let (burn_ops, bad_block, mut microblocks) = peer.make_tenure(
         |ref mut miner,
@@ -2901,9 +2866,9 @@ fn process_new_blocks_rejects_problematic_asts() {
             let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                 &burnchain,
                 &parent_tip,
-                vrf_proof.clone(),
+                vrf_proof,
                 tip.total_burn,
-                Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                &Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
             )
             .unwrap();
 
@@ -2913,10 +2878,10 @@ fn process_new_blocks_rejects_problematic_asts() {
                     block_builder,
                     chainstate,
                     &sortdb.index_handle(&tip.sortition_id),
-                    vec![coinbase_tx.clone(), bad_tx.clone()],
+                    vec![coinbase_tx.clone(), tx_high.clone()],
                 )
             {
-                assert_eq!(txid, bad_txid);
+                assert_eq!(txid, tx_high_txid);
             } else {
                 panic!("Did not get Error::ProblematicTransaction");
             }
@@ -2928,7 +2893,7 @@ fn process_new_blocks_rejects_problematic_asts() {
                 &parent_tip,
                 vrf_proof,
                 tip.total_burn,
-                Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
+                &Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privk)),
             )
             .unwrap();
             let bad_block = StacksBlockBuilder::make_anchored_block_from_txs(
@@ -2940,7 +2905,7 @@ fn process_new_blocks_rejects_problematic_asts() {
             .unwrap();
 
             let mut bad_block = bad_block.0;
-            bad_block.txs.push(bad_tx.clone());
+            bad_block.txs.push(tx_high.clone());
 
             let txid_vecs: Vec<_> = bad_block
                 .txs
@@ -2971,7 +2936,7 @@ fn process_new_blocks_rejects_problematic_asts() {
 
             // miner should fail with just the bad tx, since it's problematic
             let mblock_err = microblock_builder
-                .mine_next_microblock_from_txs(vec![(bad_tx.clone(), bad_tx_len)], &mblock_privk)
+                .mine_next_microblock_from_txs(vec![(tx_high.clone(), tx_high_len)], &mblock_privk)
                 .unwrap_err();
             if let ChainstateError::NoTransactionsToMine = mblock_err {
             } else {
@@ -2988,14 +2953,14 @@ fn process_new_blocks_rejects_problematic_asts() {
 
             let mut bad_mblock = microblock_builder
                 .mine_next_microblock_from_txs(
-                    vec![(token_transfer, tt_len), (bad_tx.clone(), bad_tx_len)],
+                    vec![(token_transfer, tt_len), (tx_high.clone(), tx_high_len)],
                     &mblock_privk,
                 )
                 .unwrap();
 
             // miner shouldn't include the bad tx, since it's problematic
             assert_eq!(bad_mblock.txs.len(), 1);
-            bad_mblock.txs.push(bad_tx.clone());
+            bad_mblock.txs.push(tx_high.clone());
 
             // force it in anyway
             let txid_vecs: Vec<_> = bad_mblock
@@ -3058,7 +3023,7 @@ fn process_new_blocks_rejects_problematic_asts() {
         StacksMessage {
             preamble,
             relayers: vec![],
-            payload: StacksMessageType::Transaction(bad_tx.clone()),
+            payload: StacksMessageType::Transaction(tx_high.clone()),
         },
     ];
     let mut unsolicited = HashMap::new();
@@ -3107,12 +3072,12 @@ fn process_new_blocks_rejects_problematic_asts() {
         .confirmed_microblocks
         .push((new_consensus_hash.clone(), vec![bad_mblock], 234));
 
-    let mut sortdb = peer.sortdb.take().unwrap();
+    let mut sortdb = peer.chain.sortdb.take().unwrap();
     let (processed_blocks, processed_mblocks, relay_mblocks, bad_neighbors) =
         Relayer::process_new_blocks(
             &mut network_result,
             &mut sortdb,
-            &mut peer.stacks_node.as_mut().unwrap().chainstate,
+            &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
             None,
         )
         .unwrap();
@@ -3127,7 +3092,7 @@ fn process_new_blocks_rejects_problematic_asts() {
     let txs_relayed = Relayer::process_transactions(
         &mut network_result,
         &sortdb,
-        &mut peer.stacks_node.as_mut().unwrap().chainstate,
+        &mut peer.chain.stacks_node.as_mut().unwrap().chainstate,
         peer.mempool.as_mut().unwrap(),
         None,
     )
@@ -3168,8 +3133,8 @@ fn test_block_pay_to_contract_gated_at_v210() {
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
-    peer_config.epochs = Some(epochs);
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.epochs = Some(epochs);
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -3177,7 +3142,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
          chainstate: &mut StacksChainState,
-         vrfproof: VRFProof,
+         vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3231,7 +3196,7 @@ fn test_block_pay_to_contract_gated_at_v210() {
                 &parent_tip,
                 vrfproof,
                 tip.total_burn,
-                Hash160(mblock_pubkey_hash_bytes),
+                &Hash160(mblock_pubkey_hash_bytes),
             )
             .unwrap();
 
@@ -3253,8 +3218,8 @@ fn test_block_pay_to_contract_gated_at_v210() {
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-        let sortdb = peer.sortdb.take().unwrap();
-        let mut node = peer.stacks_node.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
+        let mut node = peer.chain.stacks_node.take().unwrap();
         match Relayer::process_new_anchored_block(
             &sortdb.index_conn(),
             &mut node.chainstate,
@@ -3267,11 +3232,11 @@ fn test_block_pay_to_contract_gated_at_v210() {
             }
             Err(chainstate_error::InvalidStacksBlock(_)) => {}
             Err(e) => {
-                panic!("Got unexpected error {:?}", &e);
+                panic!("Got unexpected error {e:?}");
             }
         };
-        peer.sortdb = Some(sortdb);
-        peer.stacks_node = Some(node);
+        peer.chain.sortdb = Some(sortdb);
+        peer.chain.stacks_node = Some(node);
     }
 
     // *now* it should succeed, since tenure 28 was in epoch 2.1
@@ -3279,8 +3244,8 @@ fn test_block_pay_to_contract_gated_at_v210() {
 
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
 
-    let sortdb = peer.sortdb.take().unwrap();
-    let mut node = peer.stacks_node.take().unwrap();
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut node = peer.chain.stacks_node.take().unwrap();
     match Relayer::process_new_anchored_block(
         &sortdb.index_conn(),
         &mut node.chainstate,
@@ -3299,8 +3264,8 @@ fn test_block_pay_to_contract_gated_at_v210() {
             panic!("Got unexpected error {:?}", &e);
         }
     };
-    peer.sortdb = Some(sortdb);
-    peer.stacks_node = Some(node);
+    peer.chain.sortdb = Some(sortdb);
+    peer.chain.stacks_node = Some(node);
 }
 
 #[test]
@@ -3308,7 +3273,13 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
     let mut peer_config = TestPeerConfig::new(function_name!(), 4248, 4249);
 
     let initial_balances = vec![(
-        PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
+        PrincipalData::from(
+            peer_config
+                .chain_config
+                .spending_account
+                .origin_address()
+                .unwrap(),
+        ),
         1000000,
     )];
 
@@ -3343,9 +3314,9 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
         },
     ]);
 
-    peer_config.epochs = Some(epochs);
-    peer_config.initial_balances = initial_balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.epochs = Some(epochs);
+    peer_config.chain_config.initial_balances = initial_balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
@@ -3353,7 +3324,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
          chainstate: &mut StacksChainState,
-         vrfproof: VRFProof,
+         vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3409,7 +3380,7 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
                 &parent_tip,
                 vrfproof,
                 tip.total_burn,
-                Hash160(mblock_pubkey_hash_bytes),
+                &Hash160(mblock_pubkey_hash_bytes),
             )
             .unwrap();
 
@@ -3432,8 +3403,8 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-        let sortdb = peer.sortdb.take().unwrap();
-        let mut node = peer.stacks_node.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
+        let mut node = peer.chain.stacks_node.take().unwrap();
         match Relayer::process_new_anchored_block(
             &sortdb.index_conn(),
             &mut node.chainstate,
@@ -3442,16 +3413,16 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
             123,
         ) {
             Ok(x) => {
-                eprintln!("{:?}", &stacks_block);
+                eprintln!("{stacks_block:?}");
                 panic!("Stored pay-to-contract stacks block before epoch 2.1");
             }
             Err(chainstate_error::InvalidStacksBlock(_)) => {}
             Err(e) => {
-                panic!("Got unexpected error {:?}", &e);
+                panic!("Got unexpected error {e:?}");
             }
         };
-        peer.sortdb = Some(sortdb);
-        peer.stacks_node = Some(node);
+        peer.chain.sortdb = Some(sortdb);
+        peer.chain.stacks_node = Some(node);
     }
 
     // *now* it should succeed, since tenure 28 was in epoch 2.1
@@ -3459,28 +3430,23 @@ fn test_block_versioned_smart_contract_gated_at_v210() {
 
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
 
-    let sortdb = peer.sortdb.take().unwrap();
-    let mut node = peer.stacks_node.take().unwrap();
-    match Relayer::process_new_anchored_block(
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut node = peer.chain.stacks_node.take().unwrap();
+    let x = Relayer::process_new_anchored_block(
         &sortdb.index_conn(),
         &mut node.chainstate,
         &consensus_hash,
         &stacks_block,
         123,
-    ) {
-        Ok(x) => {
-            assert_eq!(
-                x,
-                BlockAcceptResponse::Accepted,
-                "Failed to process valid versioned smart contract block"
-            );
-        }
-        Err(e) => {
-            panic!("Got unexpected error {:?}", &e);
-        }
-    };
-    peer.sortdb = Some(sortdb);
-    peer.stacks_node = Some(node);
+    )
+    .unwrap_or_else(|e| panic!("Got unexpected error {e:?}"));
+    assert_eq!(
+        x,
+        BlockAcceptResponse::Accepted,
+        "Failed to process valid versioned smart contract block"
+    );
+    peer.chain.sortdb = Some(sortdb);
+    peer.chain.stacks_node = Some(node);
 }
 
 #[test]
@@ -3488,7 +3454,13 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
     let mut peer_config = TestPeerConfig::new(function_name!(), 4250, 4251);
 
     let initial_balances = vec![(
-        PrincipalData::from(peer_config.spending_account.origin_address().unwrap()),
+        PrincipalData::from(
+            peer_config
+                .chain_config
+                .spending_account
+                .origin_address()
+                .unwrap(),
+        ),
         1000000,
     )];
 
@@ -3523,9 +3495,9 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         },
     ]);
 
-    peer_config.epochs = Some(epochs);
-    peer_config.initial_balances = initial_balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.epochs = Some(epochs);
+    peer_config.chain_config.initial_balances = initial_balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
     let versioned_contract_opt: RefCell<Option<StacksTransaction>> = RefCell::new(None);
@@ -3535,7 +3507,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         |miner: &mut TestMiner,
          sortdb: &mut SortitionDB,
          chainstate: &mut StacksChainState,
-         vrfproof: VRFProof,
+         vrfproof: &VRFProof,
          parent_opt: Option<&StacksBlock>,
          microblock_parent_opt: Option<&StacksMicroblockHeader>| {
             let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
@@ -3599,7 +3571,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
                 &parent_tip,
                 vrfproof,
                 tip.total_burn,
-                Hash160(mblock_pubkey_hash_bytes),
+                &Hash160(mblock_pubkey_hash_bytes),
             )
             .unwrap();
 
@@ -3619,8 +3591,8 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
         let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
 
-        let sortdb = peer.sortdb.take().unwrap();
-        let mut node = peer.stacks_node.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
+        let mut node = peer.chain.stacks_node.take().unwrap();
 
         // the empty block should be accepted
         match Relayer::process_new_anchored_block(
@@ -3643,7 +3615,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         };
 
         // process it
-        peer.coord.handle_new_stacks_block().unwrap();
+        peer.chain.coord.handle_new_stacks_block().unwrap();
 
         // the mempool would reject a versioned contract transaction, since we're not yet at
         // tenure 28
@@ -3668,16 +3640,16 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
             }
         };
 
-        peer.sortdb = Some(sortdb);
-        peer.stacks_node = Some(node);
+        peer.chain.sortdb = Some(sortdb);
+        peer.chain.stacks_node = Some(node);
     }
 
     // *now* it should succeed, since tenure 28 was in epoch 2.1
     let (burn_ops, stacks_block, microblocks) = peer.make_tenure(&mut make_tenure);
     let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops);
 
-    let sortdb = peer.sortdb.take().unwrap();
-    let mut node = peer.stacks_node.take().unwrap();
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut node = peer.chain.stacks_node.take().unwrap();
 
     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
     match Relayer::process_new_anchored_block(
@@ -3700,7 +3672,7 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
     };
 
     // process it
-    peer.coord.handle_new_stacks_block().unwrap();
+    peer.chain.coord.handle_new_stacks_block().unwrap();
 
     // the mempool would accept a versioned contract transaction, since we're not yet at
     // tenure 28
@@ -3716,8 +3688,8 @@ fn test_block_versioned_smart_contract_mempool_rejection_until_v210() {
         panic!("will_admit_mempool_tx {:?}", &e);
     };
 
-    peer.sortdb = Some(sortdb);
-    peer.stacks_node = Some(node);
+    peer.chain.sortdb = Some(sortdb);
+    peer.chain.stacks_node = Some(node);
 }
 
 // TODO: process bans

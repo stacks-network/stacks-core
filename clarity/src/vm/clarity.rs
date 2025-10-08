@@ -4,7 +4,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
 use crate::vm::ast::errors::{ParseError, ParseErrors};
-use crate::vm::ast::{ASTRules, ContractAST};
+use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
@@ -23,9 +23,9 @@ pub enum Error {
     AbortedByCallback {
         /// What the output value of the transaction would have been.
         /// This will be a Some for contract-calls, and None for contract initialization txs.
-        output: Option<Value>,
+        output: Option<Box<Value>>,
         /// The asset map which was evaluated by the abort callback
-        assets_modified: AssetMap,
+        assets_modified: Box<AssetMap>,
         /// The events from the transaction processing
         tx_events: Vec<StacksTransactionEvent>,
         /// A human-readable explanation for aborting the transaction
@@ -65,7 +65,7 @@ impl std::error::Error for Error {
 
 impl From<CheckError> for Error {
     fn from(e: CheckError) -> Self {
-        match e.err {
+        match *e.err {
             CheckErrors::CostOverflow => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
@@ -100,7 +100,7 @@ impl From<InterpreterError> for Error {
 
 impl From<ParseError> for Error {
     fn from(e: ParseError) -> Self {
-        match e.err {
+        match *e.err {
             ParseErrors::CostOverflow => {
                 Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
@@ -139,7 +139,6 @@ pub trait ClarityConnection {
         &mut self,
         mainnet: bool,
         chain_id: u32,
-        clarity_version: ClarityVersion,
         sender: PrincipalData,
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
@@ -149,6 +148,7 @@ pub trait ClarityConnection {
         F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
     {
         let epoch_id = self.get_epoch();
+        let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
         self.with_clarity_db_readonly_owned(|clarity_db| {
             let initial_context =
                 ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
@@ -209,18 +209,16 @@ pub trait TransactionConnection: ClarityConnection {
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_content: &str,
-        ast_rules: ASTRules,
     ) -> Result<(ContractAST, ContractAnalysis), Error> {
         let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
-            let ast_result = ast::build_ast_with_rules(
+            let ast_result = ast::build_ast(
                 identifier,
                 contract_content,
                 &mut cost_track,
                 clarity_version,
                 epoch_id,
-                ast_rules,
             );
 
             let contract_ast = match ast_result {
@@ -244,7 +242,7 @@ pub trait TransactionConnection: ClarityConnection {
                     let cost_track = contract_analysis.take_contract_cost_tracker();
                     (cost_track, Ok((contract_ast, contract_analysis)))
                 }
-                Err((e, cost_track)) => (cost_track, Err(e.into())),
+                Err(e) => (e.1, Err(e.0.into())),
             }
         })
     }
@@ -347,8 +345,8 @@ pub trait TransactionConnection: ClarityConnection {
         .and_then(|(value, assets_modified, tx_events, reason)| {
             if let Some(reason) = reason {
                 Err(Error::AbortedByCallback {
-                    output: Some(value),
-                    assets_modified,
+                    output: Some(Box::new(value)),
+                    assets_modified: Box::new(assets_modified),
                     tx_events,
                     reason,
                 })
@@ -399,7 +397,7 @@ pub trait TransactionConnection: ClarityConnection {
         if let Some(reason) = reason {
             Err(Error::AbortedByCallback {
                 output: None,
-                assets_modified,
+                assets_modified: Box::new(assets_modified),
                 tx_events,
                 reason,
             })

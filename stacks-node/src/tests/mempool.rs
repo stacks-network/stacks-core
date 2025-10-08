@@ -107,7 +107,7 @@ fn mempool_setup_chainstate() {
             let mut chainstate_copy = tenure.open_chainstate();
             let contract_sk = StacksPrivateKey::from_hex(SK_1).unwrap();
             let header_hash = chain_tip.block.block_hash();
-            let consensus_hash = chain_tip.metadata.consensus_hash;
+            let consensus_hash = &chain_tip.metadata.consensus_hash;
             let sortdb = tenure.open_fake_sortdb();
 
             if round == 1 {
@@ -126,7 +126,7 @@ fn mempool_setup_chainstate() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx1,
                         &ExecutionCost::max_value(),
@@ -147,7 +147,7 @@ fn mempool_setup_chainstate() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx2,
                         &ExecutionCost::max_value(),
@@ -168,7 +168,7 @@ fn mempool_setup_chainstate() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx3,
                         &ExecutionCost::max_value(),
@@ -189,7 +189,7 @@ fn mempool_setup_chainstate() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx4,
                         &ExecutionCost::max_value(),
@@ -210,7 +210,7 @@ fn mempool_setup_chainstate() {
                     .submit_raw(
                         &mut chainstate_copy,
                         &sortdb,
-                        &consensus_hash,
+                        consensus_hash,
                         &header_hash,
                         publish_tx4,
                         &ExecutionCost::max_value(),
@@ -467,7 +467,7 @@ fn mempool_setup_chainstate() {
                 assert!(matches!(e, MemPoolRejection::NotEnoughFunds(111000, 99500)));
 
                 // sender == recipient
-                let contract_princ = PrincipalData::from(contract_addr);
+                let contract_princ = PrincipalData::from(contract_addr.clone());
                 let tx_bytes = make_stacks_transfer_serialized(
                     &contract_sk,
                     5,
@@ -525,7 +525,7 @@ fn mempool_setup_chainstate() {
                 assert!(matches!(e, MemPoolRejection::BadAddressVersionByte));
 
                 // tx version must be testnet
-                let contract_princ = PrincipalData::from(contract_addr);
+                let contract_princ = PrincipalData::from(contract_addr.clone());
                 let payload = TransactionPayload::TokenTransfer(
                     contract_princ,
                     1000,
@@ -757,7 +757,7 @@ fn mempool_setup_chainstate() {
                 let microblock_1 = StacksMicroblockHeader {
                     version: 0,
                     sequence: 0,
-                    prev_block: *block_hash,
+                    prev_block: block_hash.clone(),
                     tx_merkle_root: Sha512Trunc256Sum::from_data(&[]),
                     signature: MessageSignature([0; 65]),
                 };
@@ -765,7 +765,7 @@ fn mempool_setup_chainstate() {
                 let microblock_2 = StacksMicroblockHeader {
                     version: 0,
                     sequence: 0,
-                    prev_block: *block_hash,
+                    prev_block: block_hash.clone(),
                     tx_merkle_root: Sha512Trunc256Sum::from_data(&[1, 2, 3]),
                     signature: MessageSignature([0; 65]),
                 };
@@ -910,7 +910,7 @@ fn mempool_setup_chainstate() {
                 assert!(matches!(e, MemPoolRejection::Other(_)));
 
                 let contract_id = QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(contract_addr),
+                    StandardPrincipalData::from(contract_addr.clone()),
                     ContractName::from("implement-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id);
@@ -938,7 +938,7 @@ fn mempool_setup_chainstate() {
                     .unwrap();
 
                 let contract_id = QualifiedContractIdentifier::new(
-                    StandardPrincipalData::from(contract_addr),
+                    StandardPrincipalData::from(contract_addr.clone()),
                     ContractName::from("bad-trait-contract"),
                 );
                 let contract_principal = PrincipalData::Contract(contract_id);

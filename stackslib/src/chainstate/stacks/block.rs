@@ -156,7 +156,7 @@ impl StacksBlockHeader {
             parent_microblock,
             parent_microblock_sequence,
             tx_merkle_root: tx_merkle_root.clone(),
-            state_index_root: state_index_root.clone(),
+            state_index_root: *state_index_root,
             microblock_pubkey_hash: microblock_pubkey_hash.clone(),
         }
     }
@@ -1723,8 +1723,7 @@ mod test {
 
             if *epoch_id < activation_epoch_id {
                 assert!(!StacksBlock::validate_transactions_static_epoch(
-                    txs,
-                    epoch_id.clone(),
+                    txs, *epoch_id,
                 ));
             } else if deactivation_epoch_id.is_none() || deactivation_epoch_id.unwrap() > *epoch_id
             {
@@ -1825,7 +1824,7 @@ mod test {
             TransactionVersion::Mainnet,
             order_independent_origin_auth_p2sh,
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1835,7 +1834,7 @@ mod test {
             TransactionVersion::Mainnet,
             order_independent_origin_auth_p2wsh,
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1845,7 +1844,7 @@ mod test {
             TransactionVersion::Mainnet,
             order_independent_sponsored_auth_p2sh,
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1928,7 +1927,7 @@ mod test {
             TransactionVersion::Testnet,
             origin_auth.clone(),
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1937,7 +1936,7 @@ mod test {
             TransactionVersion::Mainnet,
             origin_auth.clone(),
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),
@@ -1946,7 +1945,7 @@ mod test {
             TransactionVersion::Testnet,
             origin_auth.clone(),
             TransactionPayload::TokenTransfer(
-                stx_address.into(),
+                stx_address.clone().into(),
                 123,
                 TokenTransferMemo([1u8; 34]),
             ),

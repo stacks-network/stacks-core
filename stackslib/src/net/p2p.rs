@@ -20,7 +20,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::JoinHandle;
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::types::QualifiedContractIdentifier;
 use mio::net as mio_net;
 use rand::prelude::*;
@@ -38,10 +37,7 @@ use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::{Burnchain, BurnchainView};
 use crate::chainstate::burn::db::sortdb::{get_ancestor_sort_id, BlockHeaderCache, SortitionDB};
 use crate::chainstate::burn::BlockSnapshot;
-use crate::chainstate::coordinator::{
-    static_get_canonical_affirmation_map, static_get_heaviest_affirmation_map,
-    static_get_stacks_tip_affirmation_map, OnChainRewardSetProvider, RewardCycleInfo,
-};
+use crate::chainstate::coordinator::{OnChainRewardSetProvider, RewardCycleInfo};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
 use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState};
@@ -451,9 +447,9 @@ impl From<&DropNeighbor> for DropPeer {
     fn from(drop_neighbor: &DropNeighbor) -> Self {
         DropPeer {
             reason: drop_neighbor.reason.clone(),
-            address: drop_neighbor.key.addrbytes,
+            address: drop_neighbor.key.addrbytes.clone(),
             port: drop_neighbor.key.port,
-            source: drop_neighbor.source.clone(),
+            source: drop_neighbor.source,
         }
     }
 }
@@ -470,7 +466,6 @@ pub struct PeerNetwork {
     pub chain_view: BurnchainView,
     pub burnchain_tip: BlockSnapshot,
     pub chain_view_stable_consensus_hash: ConsensusHash,
-    pub ast_rules: ASTRules,
 
     /// Current Stacks tip -- the highest block's consensus hash, block hash, and height
     pub stacks_tip: StacksTipInfo,
@@ -487,10 +482,6 @@ pub struct PeerNetwork {
     pub current_reward_sets: BTreeMap<u64, CurrentRewardSet>,
 
     // information about the state of the network's anchor blocks
-    pub heaviest_affirmation_map: AffirmationMap,
-    pub stacks_tip_affirmation_map: AffirmationMap,
-    pub sortition_tip_affirmation_map: AffirmationMap,
-    pub tentative_best_affirmation_map: AffirmationMap,
     pub last_anchor_block_hash: BlockHeaderHash,
     pub last_anchor_block_txid: Txid,
 
@@ -638,6 +629,10 @@ pub struct PeerNetwork {
 
     /// Thread handle for the async block proposal endpoint.
     block_proposal_thread: Option<JoinHandle<()>>,
+
+    /// Address and height of the neighbor that reported the highest Stacks block height
+    /// via RPC responses
+    pub highest_stacks_neighbor: Option<(SocketAddr, u64)>,
 }
 
 impl PeerNetwork {
@@ -691,11 +686,6 @@ impl PeerNetwork {
             local_peer,
             chain_view,
             chain_view_stable_consensus_hash: ConsensusHash([0u8; 20]),
-            ast_rules: ASTRules::Typical,
-            heaviest_affirmation_map: AffirmationMap::empty(),
-            stacks_tip_affirmation_map: AffirmationMap::empty(),
-            sortition_tip_affirmation_map: AffirmationMap::empty(),
-            tentative_best_affirmation_map: AffirmationMap::empty(),
             last_anchor_block_hash: BlockHeaderHash([0x00; 32]),
             last_anchor_block_txid: Txid([0x00; 32]),
             burnchain_tip: BlockSnapshot::initial(
@@ -799,6 +789,8 @@ impl PeerNetwork {
             nakamoto_inv_generator: InvGenerator::new(),
 
             block_proposal_thread: None,
+
+            highest_stacks_neighbor: None,
         };
 
         network.init_block_downloader();
@@ -1162,8 +1154,10 @@ impl PeerNetwork {
             self.saturate_p2p_socket(event_id, &mut rh)?;
             return Ok(rh);
         }
-        info!("No ongoing conversation for event {}", event_id);
-        return Err(net_error::PeerNotConnected);
+        info!("No ongoing conversation for event {event_id}");
+        return Err(net_error::PeerNotConnected(format!(
+            "No ongoing conversation for event {event_id}",
+        )));
     }
 
     /// Send a message to a peer.
@@ -1733,7 +1727,7 @@ impl PeerNetwork {
             };
 
             disconnect.push(DropPeer {
-                address: neighbor_key.addrbytes,
+                address: neighbor_key.addrbytes.clone(),
                 port: neighbor_key.port,
                 reason: DropReason::BannedConnection,
                 source: DropSource::PeerNetwork,
@@ -1939,9 +1933,11 @@ impl PeerNetwork {
                     if let Some(convo) = self.peers.get(&event_id) {
                         // only care if we're trying to connect in the same direction
                         if outbound == convo.is_outbound() {
-                            let nk = self
-                                .get_event_neighbor_key(event_id)
-                                .ok_or(net_error::PeerNotConnected)?;
+                            let nk = self.get_event_neighbor_key(event_id).ok_or(
+                                net_error::PeerNotConnected(format!(
+                                    "No neighbor for event {event_id}",
+                                )),
+                            )?;
                             return Err(net_error::AlreadyConnected(event_id, nk));
                         }
                     }
@@ -2161,7 +2157,7 @@ impl PeerNetwork {
         };
         self.deregister_peer(DropPeer {
             reason,
-            address: neighbor.addrbytes,
+            address: neighbor.addrbytes.clone(),
             source,
             port: neighbor.port,
         });
@@ -2183,7 +2179,7 @@ impl PeerNetwork {
         if event_id.is_some() {
             self.deregister_peer(DropPeer {
                 reason,
-                address: neighbor.addrbytes,
+                address: neighbor.addrbytes.clone(),
                 source,
                 port: neighbor.port,
             });
@@ -2200,8 +2196,10 @@ impl PeerNetwork {
         match self.events.get(peer_key) {
             None => {
                 // not connected
-                debug!("Could not sign for peer {:?}: not connected", peer_key);
-                Err(net_error::PeerNotConnected)
+                debug!("Could not sign for peer {peer_key}: not connected");
+                Err(net_error::PeerNotConnected(format!(
+                    "Could not sign for neighbor {peer_key}: not connected",
+                )))
             }
             Some(event_id) => self.sign_for_p2p(*event_id, message_payload),
         }
@@ -2220,8 +2218,10 @@ impl PeerNetwork {
                 message_payload,
             );
         }
-        debug!("Could not sign for peer {}: not connected", event_id);
-        Err(net_error::PeerNotConnected)
+        debug!("Could not sign for peer {event_id}: not connected");
+        Err(net_error::PeerNotConnected(format!(
+            "Could not sign for peer on event {event_id}: not connected",
+        )))
     }
 
     /// Sign a p2p message to be sent on a particular ongoing conversation,
@@ -2241,8 +2241,10 @@ impl PeerNetwork {
                 message_payload,
             );
         }
-        debug!("Could not sign for peer {}: not connected", event_id);
-        Err(net_error::PeerNotConnected)
+        debug!("Could not sign for peer {event_id}: not connected");
+        Err(net_error::PeerNotConnected(format!(
+            "Could not sign reply for peer on event {event_id}: not connected",
+        )))
     }
 
     /// Process new inbound TCP connections we just accepted.
@@ -2317,19 +2319,25 @@ impl PeerNetwork {
                 (Some(convo), None) => {
                     debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
                     self.peers.insert(event_id, convo);
-                    return Err(net_error::PeerNotConnected);
+                    return Err(net_error::PeerNotConnected(format!(
+                        "Rogue socket event {}",
+                        event_id
+                    )));
                 }
                 (None, Some(sock)) => {
                     warn!(
                         "{:?}: Rogue event {} for socket {:?}",
                         &self.local_peer, event_id, &sock
                     );
+                    let errmsg = format!("Rogue event {} for socket {:?}", event_id, &sock);
                     self.sockets.insert(event_id, sock);
-                    return Err(net_error::PeerNotConnected);
+                    return Err(net_error::PeerNotConnected(errmsg));
                 }
                 (None, None) => {
                     debug!("{:?}: Rogue socket event {}", &self.local_peer, event_id);
-                    return Err(net_error::PeerNotConnected);
+                    return Err(net_error::PeerNotConnected(format!(
+                        "Rogue socket event {event_id}",
+                    )));
                 }
             };
 
@@ -2360,7 +2368,7 @@ impl PeerNetwork {
                     net_error::PermanentlyDrained => {
                         // socket got closed, but we might still have pending unsolicited messages
                         debug!(
-                            "{:?}: Remote peer disconnected event {} (socket {:?})",
+                            "{:?}: Remote peer disconnected event {} (socket {:?}): PermanentlyDrained",
                             &network.get_local_peer(),
                             event_id,
                             &client_sock
@@ -2464,7 +2472,7 @@ impl PeerNetwork {
                     );
                     if let Some(convo) = convo {
                         to_remove.push(DropPeer {
-                            address: convo.peer_addrbytes,
+                            address: convo.peer_addrbytes.clone(),
                             port: convo.peer_port,
                             reason: DropReason::BrokenConnection(format!("Connection failed: {e}")),
                             source: if ibd {
@@ -2486,7 +2494,7 @@ impl PeerNetwork {
                 );
                 if let Some(convo) = convo {
                     to_remove.push(DropPeer {
-                        address: convo.peer_addrbytes,
+                        address: convo.peer_addrbytes.clone(),
                         port: convo.peer_port,
                         reason: DropReason::DeadConnection("Connection is no longer alive".into()),
                         source: if ibd {
@@ -2598,7 +2606,7 @@ impl PeerNetwork {
                     now
                 );
                 to_remove.push(DropPeer {
-                    address: peer.nk.addrbytes,
+                    address: peer.nk.addrbytes.clone(),
                     port: peer.nk.port,
                     reason: DropReason::Unresponsive {
                         timeout: self.connection_opts.timeout,
@@ -2630,7 +2638,7 @@ impl PeerNetwork {
                     );
 
                     to_remove.push(DropPeer {
-                        address: convo.peer_addrbytes,
+                        address: convo.peer_addrbytes.clone(),
                         port: convo.peer_port,
                         reason: DropReason::Unresponsive {
                             timeout: self.connection_opts.timeout,
@@ -2653,7 +2661,7 @@ impl PeerNetwork {
                     );
 
                     to_remove.push(DropPeer {
-                        address: convo.peer_addrbytes,
+                        address: convo.peer_addrbytes.clone(),
                         port: convo.peer_port,
                         reason: DropReason::Unresponsive {
                             timeout: self.connection_opts.timeout,
@@ -2828,18 +2836,21 @@ impl PeerNetwork {
                             match PeerNetwork::do_saturate_p2p_socket(convo, client_sock, handle) {
                                 Ok(x) => x,
                                 Err(e) => {
-                                    info!("Broken connection on event {}: {:?}", event_id, &e);
-                                    return Err(net_error::PeerNotConnected);
+                                    info!("Broken connection on event {event_id}: {e:?}");
+                                    return Err(net_error::PeerNotConnected(format!(
+                                        "Failed to saturate p2p socket on event {event_id}: {e:?}",
+                                    )));
                                 }
                             };
 
                         debug!(
-                            "Flushed relay handle to {:?} ({:?}): sent={}, flushed={}",
-                            client_sock, convo, num_sent, flushed
+                            "Flushed relay handle to {client_sock:?} ({convo:?}): sent={num_sent}, flushed={flushed}",
                         );
                         return Ok((num_sent, flushed));
                     }
-                    return Err(net_error::PeerNotConnected);
+                    return Err(net_error::PeerNotConnected(format!(
+                        "No relay handles for event {event_id}",
+                    )));
                 });
 
                 let (num_sent, flushed) = match res {
@@ -2849,7 +2860,7 @@ impl PeerNetwork {
                         debug!("Relay handle broken to event {event_id}");
                         if let Some(peer) = self.peers.get(event_id) {
                             broken.push(DropPeer {
-                                address: peer.peer_addrbytes,
+                                address: peer.peer_addrbytes.clone(),
                                 port: peer.peer_port,
                                 reason: DropReason::BrokenConnection(format!(
                                     "Relay handle broken: {e}"
@@ -2984,7 +2995,7 @@ impl PeerNetwork {
                 &self.local_peer
             );
         }
-        return Ok(true);
+        Ok(true)
     }
 
     /// Disconnect from all peers
@@ -2992,14 +3003,14 @@ impl PeerNetwork {
         let address_port_pairs: Vec<_> = self
             .peers
             .values()
-            .map(|convo| (convo.peer_addrbytes, convo.peer_port))
+            .map(|convo| (convo.peer_addrbytes.clone(), convo.peer_port))
             .collect();
         for (address, port) in address_port_pairs {
             self.deregister_peer(DropPeer {
                 address,
                 port,
                 reason: reason.clone(),
-                source: source.clone(),
+                source,
             });
         }
     }
@@ -3270,7 +3281,7 @@ impl PeerNetwork {
         let _ = PeerNetwork::with_network_state(self, |ref mut network, ref mut network_state| {
             for dead_event in broken_http_peers.into_iter() {
                 debug!(
-                    "{:?}: De-register dead/broken HTTP connection {}",
+                    "{:?}: De-register dead/broken HTTP connection {} from epoch2x block download",
                     &network.local_peer, dead_event
                 );
                 PeerNetwork::with_http(network, |_, http| {
@@ -3281,8 +3292,8 @@ impl PeerNetwork {
         });
 
         for broken_neighbor in broken_p2p_peers.into_iter() {
-            debug!(
-                "{:?}: De-register dead/broken neighbor {:?}",
+            info!(
+                "{:?}: De-register and ban dead/broken neighbor {:?} from epoch2x block download",
                 &self.local_peer, &broken_neighbor
             );
             self.deregister_and_ban_neighbor(
@@ -3701,7 +3712,7 @@ impl PeerNetwork {
                                         }
                                     } else {
                                         let mut pushed = HashMap::new();
-                                        pushed.insert(index_block_hash, get_epoch_time_secs());
+                                        pushed.insert(index_block_hash.clone(), get_epoch_time_secs());
                                         network.antientropy_microblocks.insert(nk.clone(), pushed);
                                     }
 
@@ -3720,8 +3731,8 @@ impl PeerNetwork {
                     },
                 ) {
                     Ok(x) => x,
-                    Err(net_error::PeerNotConnected) => {
-                        debug!("{:?}: AntiEntropy: not connected: {:?}", &self.local_peer, &nk);
+                    Err(net_error::PeerNotConnected(ref msg)) => {
+                        debug!("{:?}: AntiEntropy: not connected: {:?} (reason: {})", &self.local_peer, &nk, msg);
                         continue;
                     }
                     Err(e) => {
@@ -3852,8 +3863,7 @@ impl PeerNetwork {
     /// higher AND the Stacks tip is not yet a Nakamoto block.  This latter condition indicates
     /// that the epoch 2.x state machines are still needed to download the final epoch 2.x blocks.
     pub(crate) fn need_epoch2_state_machines(&self, epoch_id: StacksEpochId) -> bool {
-        epoch_id < StacksEpochId::Epoch30
-            || (epoch_id >= StacksEpochId::Epoch30 && !self.stacks_tip.is_nakamoto)
+        !(epoch_id >= StacksEpochId::Epoch30 && self.stacks_tip.is_nakamoto)
     }
 
     /// Do the actual work in the state machine.
@@ -4627,7 +4637,7 @@ impl PeerNetwork {
                     // careful -- the sortition DB stores a StacksBlockId's value (the tenure-start
                     // StacksBlockId) as a BlockHeaderHash, since that's what it was designed to
                     // deal with in the pre-Nakamoto days
-                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0.clone())
+                    if cached_rc_info.anchor_block_id() == StacksBlockId(anchor_hash.0)
                         || cached_rc_info.anchor_block_hash == *anchor_hash
                     {
                         // cached reward set data is still valid
@@ -4716,9 +4726,8 @@ impl PeerNetwork {
     /// * hint to the download state machine to start looking for the new block at the new
     /// stable sortition height
     /// * hint to the antientropy protocol to reset to the latest reward cycle
-    pub fn refresh_burnchain_view<B: BurnchainHeaderReader>(
+    pub fn refresh_burnchain_view(
         &mut self,
-        indexer: &B,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
         ibd: bool,
@@ -4875,41 +4884,6 @@ impl PeerNetwork {
                 ibd,
             );
 
-            // update tx validation information
-            self.ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), canonical_sn.block_height)?;
-
-            if self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
-                // update heaviest affirmation map view
-                self.heaviest_affirmation_map = static_get_heaviest_affirmation_map(
-                    &self.burnchain,
-                    indexer,
-                    &self.burnchain_db,
-                    sortdb,
-                    &canonical_sn.sortition_id,
-                )
-                .map_err(|_| {
-                    net_error::Transient("Unable to query heaviest affirmation map".to_string())
-                })?;
-
-                self.tentative_best_affirmation_map = static_get_canonical_affirmation_map(
-                    &self.burnchain,
-                    indexer,
-                    &self.burnchain_db,
-                    sortdb,
-                    chainstate,
-                    &canonical_sn.sortition_id,
-                )
-                .map_err(|_| {
-                    net_error::Transient("Unable to query canonical affirmation map".to_string())
-                })?;
-
-                self.sortition_tip_affirmation_map =
-                    SortitionDB::find_sortition_tip_affirmation_map(
-                        sortdb,
-                        &canonical_sn.sortition_id,
-                    )?;
-            }
-
             // update last anchor data
             let ih = sortdb.index_handle(&canonical_sn.sortition_id);
             self.last_anchor_block_hash = ih
@@ -4930,21 +4904,6 @@ impl PeerNetwork {
             // refresh stackerdb configs -- canonical stacks tip has changed
             debug!("{:?}: Refresh all stackerdbs", &self.get_local_peer());
             self.refresh_stacker_db_configs(sortdb, chainstate)?;
-        }
-
-        if stacks_tip_changed && self.get_current_epoch().epoch_id < StacksEpochId::Epoch30 {
-            // update stacks tip affirmation map view
-            // (NOTE: this check has to happen _after_ self.chain_view gets updated!)
-            self.stacks_tip_affirmation_map = static_get_stacks_tip_affirmation_map(
-                &self.burnchain_db,
-                sortdb,
-                &canonical_sn.sortition_id,
-                &canonical_sn.canonical_stacks_tip_consensus_hash,
-                &canonical_sn.canonical_stacks_tip_hash,
-            )
-            .map_err(|_| {
-                net_error::Transient("Unable to query stacks tip affirmation map".to_string())
-            })?;
         }
 
         // can't fail after this point
@@ -5519,7 +5478,7 @@ impl PeerNetwork {
 
         // update burnchain view, before handling any HTTP connections
         let unsolicited_buffered_messages =
-            match self.refresh_burnchain_view(indexer, sortdb, chainstate, ibd) {
+            match self.refresh_burnchain_view(sortdb, chainstate, ibd) {
                 Ok(msgs) => msgs,
                 Err(e) => {
                     warn!("Failed to refresh burnchain view: {:?}", &e);

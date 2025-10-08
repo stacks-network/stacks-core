@@ -13,8 +13,6 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-#![allow(clippy::result_large_err)]
-
 pub mod diagnostic;
 pub mod errors;
 
@@ -55,6 +53,7 @@ pub mod clarity;
 
 use std::collections::BTreeMap;
 
+pub use clarity_types::MAX_CALL_STACK_DEPTH;
 use costs::CostErrors;
 use stacks_common::types::StacksEpochId;
 
@@ -85,8 +84,6 @@ pub use crate::vm::representations::{
 pub use crate::vm::types::Value;
 use crate::vm::types::{PrincipalData, TypeSignature};
 pub use crate::vm::version::ClarityVersion;
-
-pub const MAX_CALL_STACK_DEPTH: usize = 64;
 
 #[derive(Debug, Clone)]
 pub struct ParsedContract {
@@ -280,7 +277,7 @@ pub fn apply(
         env.call_stack.insert(&identifier, track_recursion);
         let mut resp = match function {
             CallableType::NativeFunction(_, function, cost_function) => {
-                runtime_cost(*cost_function, env, evaluated_args.len())
+                runtime_cost(cost_function.clone(), env, evaluated_args.len())
                     .map_err(Error::from)
                     .and_then(|_| function.apply(evaluated_args, env))
             }
@@ -290,7 +287,7 @@ pub fn apply(
                 } else {
                     evaluated_args.len() as u64
                 };
-                runtime_cost(*cost_function, env, cost_input)
+                runtime_cost(cost_function.clone(), env, cost_input)
                     .map_err(Error::from)
                     .and_then(|_| function.apply(evaluated_args, env))
             }
@@ -500,14 +497,12 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch20,
-        ast::ASTRules::PrecheckSize,
         use_mainnet,
     );
     let epoch_205_result = execute_with_parameters(
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch2_05,
-        ast::ASTRules::PrecheckSize,
         use_mainnet,
     );
 
@@ -524,7 +519,6 @@ pub fn execute_with_parameters_and_call_in_global_context<F>(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-    ast_rules: ast::ASTRules,
     use_mainnet: bool,
     mut global_context_function: F,
 ) -> Result<Option<Value>>
@@ -549,15 +543,8 @@ where
     );
     global_context.execute(|g| {
         global_context_function(g)?;
-        let parsed = ast::build_ast_with_rules(
-            &contract_id,
-            program,
-            &mut (),
-            clarity_version,
-            epoch,
-            ast_rules,
-        )?
-        .expressions;
+        let parsed =
+            ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }
@@ -567,14 +554,12 @@ pub fn execute_with_parameters(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-    ast_rules: ast::ASTRules,
     use_mainnet: bool,
 ) -> Result<Option<Value>> {
     execute_with_parameters_and_call_in_global_context(
         program,
         clarity_version,
         epoch,
-        ast_rules,
         use_mainnet,
         |_| Ok(()),
     )
@@ -583,13 +568,7 @@ pub fn execute_with_parameters(
 /// Execute for test with `version`, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
 pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
-    execute_with_parameters(
-        program,
-        version,
-        StacksEpochId::Epoch20,
-        ast::ASTRules::PrecheckSize,
-        false,
-    )
+    execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
 }
 
 /// Execute for test in Clarity1, Epoch20, testnet.
@@ -599,7 +578,6 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
         program,
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch20,
-        ast::ASTRules::PrecheckSize,
         false,
     )
 }
@@ -614,7 +592,6 @@ pub fn execute_with_limited_execution_time(
         program,
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch20,
-        ast::ASTRules::PrecheckSize,
         false,
         |g| {
             g.set_max_execution_time(max_execution_time);
@@ -630,7 +607,6 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
         program,
         ClarityVersion::Clarity2,
         StacksEpochId::Epoch21,
-        ast::ASTRules::PrecheckSize,
         false,
     )
 }

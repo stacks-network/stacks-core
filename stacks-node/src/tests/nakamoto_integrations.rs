@@ -24,7 +24,6 @@ use std::time::{Duration, Instant};
 use std::{env, thread};
 
 use clarity::boot_util::boot_code_addr;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
@@ -35,7 +34,8 @@ use libsigner::v0::messages::{
     MessageSlotID, RejectReason, SignerMessage as SignerMessageV0, StateMachineUpdate,
     StateMachineUpdateContent, StateMachineUpdateMinerState,
 };
-use libsigner::{SignerSession, StackerDBSession};
+use libsigner::v0::signer_state::ReplayTransactionSet;
+use libsigner::{SignerSession, StackerDBSession, StacksBlockEvent};
 use rand::{thread_rng, Rng};
 use rusqlite::{Connection, OptionalExtension};
 use serial_test::serial;
@@ -54,7 +54,8 @@ use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use stacks::chainstate::stacks::address::{PoxAddress, StacksAddressExtensions};
 use stacks::chainstate::stacks::boot::{
-    MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME, SIP_031_TESTNET_ADDR,
+    COSTS_4_NAME, MINERS_NAME, SIGNERS_VOTING_FUNCTION_NAME, SIGNERS_VOTING_NAME,
+    SIP_031_TESTNET_ADDR,
 };
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::miner::{
@@ -63,15 +64,15 @@ use stacks::chainstate::stacks::miner::{
 };
 use stacks::chainstate::stacks::{
     SinglesigHashMode, SinglesigSpendingCondition, StacksTransaction, TenureChangeCause,
-    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionPostConditionMode, TransactionPublicKeyEncoding, TransactionSmartContract,
-    TransactionSpendingCondition, TransactionVersion, MAX_BLOCK_LEN,
+    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionContractCall,
+    TransactionPayload, TransactionPostConditionMode, TransactionPublicKeyEncoding,
+    TransactionSmartContract, TransactionSpendingCondition, TransactionVersion, MAX_BLOCK_LEN,
 };
 use stacks::config::{EventKeyType, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MAXIMUM_MEMPOOL_TX_CHAINING};
 use stacks::core::test_util::{
-    insert_tx_in_mempool, make_contract_call, make_contract_publish_versioned,
-    make_stacks_transfer_serialized, make_stacks_transfer_tx,
+    insert_tx_in_mempool, make_big_read_count_contract, make_contract_call,
+    make_contract_publish_versioned, make_stacks_transfer_serialized, make_stacks_transfer_tx,
 };
 use stacks::core::{
     EpochList, StacksEpoch, StacksEpochId, BLOCK_LIMIT_MAINNET_10, HELIUM_BLOCK_LIMIT_20,
@@ -111,13 +112,15 @@ use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
+use stacks_signer::config::DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS;
 use stacks_signer::signerdb::{BlockInfo, BlockState, ExtraBlockInfo, SignerDb};
 use stacks_signer::v0::SpawnedSigner;
 
-use super::bitcoin_regtest::BitcoinCoreController;
+use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
 use crate::nakamoto_node::miner::{
-    fault_injection_stall_miner, fault_injection_unstall_miner, TEST_BLOCK_ANNOUNCE_STALL,
-    TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP, TEST_P2P_BROADCAST_STALL,
+    fault_injection_stall_miner, fault_injection_try_stall_miner, fault_injection_unstall_miner,
+    TEST_BLOCK_ANNOUNCE_STALL, TEST_BROADCAST_PROPOSAL_STALL, TEST_P2P_BROADCAST_SKIP,
+    TEST_P2P_BROADCAST_STALL,
 };
 use crate::nakamoto_node::relayer::TEST_MINER_THREAD_STALL;
 use crate::neon::Counters;
@@ -125,8 +128,9 @@ use crate::operations::BurnchainOpSigner;
 use crate::run_loop::boot_nakamoto;
 use crate::tests::neon_integrations::{
     call_read_only, get_account, get_account_result, get_chain_info_opt, get_chain_info_result,
-    get_neighbors, get_pox_info, get_sortition_info, next_block_and_wait,
-    run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer, wait_for_runloop,
+    get_constant, get_neighbors, get_node_health, get_pox_info, get_sortition_info,
+    next_block_and_wait, run_until_burnchain_height, submit_tx, submit_tx_fallible, test_observer,
+    wait_for_runloop,
 };
 use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
@@ -216,6 +220,92 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 251,
+            end_height: STACKS_EPOCH_MAX,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_2
+        },
+    ];
+    pub static ref NAKAMOTO_INTEGRATION_3_3_EPOCHS: [StacksEpoch; 12] = [
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch10,
+            start_height: 0,
+            end_height: 0,
+            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+            network_epoch: PEER_VERSION_EPOCH_1_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch20,
+            start_height: 0,
+            end_height: 1,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch2_05,
+            start_height: 1,
+            end_height: 2,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_05
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch21,
+            start_height: 2,
+            end_height: 3,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch22,
+            start_height: 3,
+            end_height: 4,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_2
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch23,
+            start_height: 4,
+            end_height: 5,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_3
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch24,
+            start_height: 5,
+            end_height: 201,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_4
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch25,
+            start_height: 201,
+            end_height: 231,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_2_5
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch30,
+            start_height: 231,
+            end_height: 232,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_0
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch31,
+            start_height: 232,
+            end_height: 233,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_1
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch32,
+            start_height: 233,
+            end_height: 234,
+            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            network_epoch: PEER_VERSION_EPOCH_3_2
+        },
+        StacksEpoch {
+            epoch_id: StacksEpochId::Epoch33,
+            start_height: 234,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_2
@@ -1570,20 +1660,23 @@ fn simple_neon_integration() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1601,7 +1694,7 @@ fn simple_neon_integration() {
     boot_to_epoch_3(
         &naka_conf,
         &node_counters.blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -1793,19 +1886,22 @@ fn restarting_miner() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::from_seed(&[3, 2, 3, 2, 3, 2]);
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -1835,7 +1931,7 @@ fn restarting_miner() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2014,20 +2110,23 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt * 2 + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2050,7 +2149,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     boot_to_pre_epoch_3_boundary(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2261,17 +2360,20 @@ fn mine_multiple_per_tenure_integration() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2294,11 +2396,11 @@ fn mine_multiple_per_tenure_integration() {
         .spawn(move || run_loop.start(None, 0))
         .unwrap();
     wait_for_runloop(&blocks_processed);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2417,10 +2519,11 @@ fn mine_multiple_per_tenure_integration() {
 /// It starts in Epoch 2.0, mines with `neon_node` to Epoch 3.0, and then switches
 ///  to Nakamoto operation (activating pox-4 by submitting a stack-stx tx). The BootLoop
 ///  struct handles the epoch-2/3 tear-down and spin-up.
-/// This test makes three assertions:
+/// This test makes four assertions:
 ///  * 15 tenures are mined after 3.0 starts
 ///  * Each tenure has 6 blocks (the coinbase block and 5 interim blocks)
 ///  * Both nodes see the same chainstate at the end of the test
+///  * Both nodes have the same `PeerNetwork::highest_stacks_height_of_neighbors`
 fn multiple_miners() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -2445,10 +2548,13 @@ fn multiple_miners() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -2483,7 +2589,7 @@ fn multiple_miners() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -2538,11 +2644,11 @@ fn multiple_miners() {
         .unwrap();
     wait_for_runloop(&blocks_processed);
 
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -2645,6 +2751,19 @@ fn multiple_miners() {
     info!("Peer height information"; "peer_1" => peer_1_height, "peer_2" => peer_2_height);
     assert_eq!(peer_1_height, peer_2_height);
 
+    // check that the `ConversationHttp::chat` was called and updated
+    // `PeerNetwork::highest_stacks_height_of_neighbors`
+    wait_for(20, || {
+        let health_node_1 = get_node_health(&naka_conf);
+        let health_node_2 = get_node_health(&conf_node_2);
+        info!("Peer health information"; "peer_1" => ?health_node_1, "peer_2" => ?health_node_2);
+        Ok(
+            health_node_1.max_stacks_height_of_neighbors == peer_2_height
+                && health_node_2.max_stacks_height_of_neighbors == peer_1_height,
+        )
+    })
+    .unwrap();
+
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
     assert_eq!(
         tip.stacks_block_height,
@@ -2702,14 +2821,17 @@ fn correct_burn_outs() {
     let stacker_accounts = accounts[0..3].to_vec();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
 
-    let signers = TestSigners::new(vec![sender_signer_sk]);
+    let signers = TestSigners::new(vec![sender_signer_sk.clone()]);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3022,7 +3144,7 @@ fn block_proposal_api_endpoint() {
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3041,12 +3163,12 @@ fn block_proposal_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -3130,6 +3252,7 @@ fn block_proposal_api_endpoint() {
             coinbase,
             1,
             None,
+            None,
         )
         .expect("Failed to build Nakamoto block");
 
@@ -3159,7 +3282,6 @@ fn block_proposal_api_endpoint() {
             &tx,
             tx_len,
             &BlockLimitFunction::NO_LIMIT_HIT,
-            ASTRules::PrecheckSize,
             None,
         );
         assert!(
@@ -3379,16 +3501,19 @@ fn miner_writes_proposed_block_to_stackerdb() {
     let send_amt = 1000;
     let send_fee = 100;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
 
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
 
     test_observer::spawn();
     test_observer::register(
@@ -3396,7 +3521,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3419,7 +3544,7 @@ fn miner_writes_proposed_block_to_stackerdb() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -3492,15 +3617,15 @@ fn vote_for_aggregate_key_burn_op() {
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
 
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
 
-    naka_conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3526,8 +3651,8 @@ fn vote_for_aggregate_key_burn_op() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -3553,7 +3678,7 @@ fn vote_for_aggregate_key_burn_op() {
     let mut miner_signer = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting pre-stx op");
     let pre_stx_op = PreStxOp {
-        output: signer_addr,
+        output: signer_addr.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -3612,7 +3737,7 @@ fn vote_for_aggregate_key_burn_op() {
 
     let stacker_pk = StacksPublicKey::from_private(&stacker_sk);
     let signer_key: StacksPublicKeyBuffer = stacker_pk.to_bytes_compressed().as_slice().into();
-    let aggregate_key = signer_key;
+    let aggregate_key = signer_key.clone();
 
     let vote_for_aggregate_key_op =
         BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
@@ -3621,7 +3746,7 @@ fn vote_for_aggregate_key_burn_op() {
             sender: signer_addr,
             round: 0,
             reward_cycle,
-            aggregate_key,
+            aggregate_key: aggregate_key.clone(),
             // to be filled in
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -3707,7 +3832,7 @@ fn follower_bootup_simple() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -3716,17 +3841,20 @@ fn follower_bootup_simple() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -3751,7 +3879,7 @@ fn follower_bootup_simple() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4026,7 +4154,7 @@ fn follower_bootup_across_multiple_cycles() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -4035,16 +4163,19 @@ fn follower_bootup_across_multiple_cycles() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4069,7 +4200,7 @@ fn follower_bootup_across_multiple_cycles() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4249,7 +4380,7 @@ fn follower_bootup_custom_chain_id() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -4258,17 +4389,20 @@ fn follower_bootup_custom_chain_id() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4293,7 +4427,7 @@ fn follower_bootup_custom_chain_id() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -4595,19 +4729,28 @@ fn burn_ops_integration_test() {
     let sender_addr = tests::to_addr(&sender_sk);
     let mut sender_nonce = 0;
 
-    let mut signers = TestSigners::new(vec![signer_sk_1]);
+    let mut signers = TestSigners::new(vec![signer_sk_1.clone()]);
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     // Add the initial balances to the other accounts
-    naka_conf.add_initial_balance(PrincipalData::from(stacker_addr_1).to_string(), 1000000);
-    naka_conf.add_initial_balance(PrincipalData::from(stacker_addr_2).to_string(), 1000000);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 100_000_000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(stacker_addr_1.clone()).to_string(),
+        1000000,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(stacker_addr_2.clone()).to_string(),
+        1000000,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        100_000_000,
+    );
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -4635,8 +4778,8 @@ fn burn_ops_integration_test() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk_1],
+        &[stacker_sk.clone()],
+        &[signer_sk_1.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -4655,7 +4798,7 @@ fn burn_ops_integration_test() {
 
     info!("Submitting first pre-stx op");
     let pre_stx_op = PreStxOp {
-        output: signer_addr_1,
+        output: signer_addr_1.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -4679,7 +4822,7 @@ fn burn_ops_integration_test() {
     let mut miner_signer_2 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting second pre-stx op");
     let pre_stx_op_2 = PreStxOp {
-        output: signer_addr_2,
+        output: signer_addr_2.clone(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -4700,7 +4843,7 @@ fn burn_ops_integration_test() {
     let mut miner_signer_3 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     info!("Submitting third pre-stx op");
     let pre_stx_op_3 = PreStxOp {
-        output: stacker_addr_1,
+        output: stacker_addr_1.clone(),
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -4720,7 +4863,7 @@ fn burn_ops_integration_test() {
     info!("Submitting fourth pre-stx op");
     let mut miner_signer_4 = Keychain::default(naka_conf.node.seed.clone()).generate_op_signer();
     let pre_stx_op_4 = PreStxOp {
-        output: stacker_addr_2,
+        output: stacker_addr_2.clone(),
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -4757,7 +4900,8 @@ fn burn_ops_integration_test() {
     let lock_period: u8 = 6;
     let topic = Pox4SignatureTopic::StackStx;
     let auth_id: u32 = 1;
-    let pox_addr = PoxAddress::Standard(signer_addr_1, Some(AddressHashMode::SerializeP2PKH));
+    let pox_addr =
+        PoxAddress::Standard(signer_addr_1.clone(), Some(AddressHashMode::SerializeP2PKH));
 
     info!(
         "Submitting set-signer-key-authorization";
@@ -4842,13 +4986,13 @@ fn burn_ops_integration_test() {
             .total_available(),
     );
 
-    info!("Signer 1 addr: {}", signer_addr_1.to_b58());
-    info!("Signer 2 addr: {}", signer_addr_2.to_b58());
+    info!("Signer 1 addr: {}", signer_addr_1.clone().to_b58());
+    info!("Signer 2 addr: {}", signer_addr_2.clone().to_b58());
 
     info!("Submitting transfer STX op");
     let transfer_stx_op = TransferStxOp {
-        sender: stacker_addr_1,
-        recipient: stacker_addr_2,
+        sender: stacker_addr_1.clone(),
+        recipient: stacker_addr_2.clone(),
         transfered_ustx: 10000,
         memo: vec![],
         txid: Txid([0u8; 32]),
@@ -4869,8 +5013,8 @@ fn burn_ops_integration_test() {
 
     info!("Submitting delegate STX op");
     let del_stx_op = DelegateStxOp {
-        sender: stacker_addr_2,
-        delegate_to: stacker_addr_1,
+        sender: stacker_addr_2.clone(),
+        delegate_to: stacker_addr_1.clone(),
         reward_addr: None,
         delegated_ustx: 100_000,
         // to be filled in
@@ -4896,11 +5040,11 @@ fn burn_ops_integration_test() {
     let min_stx = pox_info.next_cycle.min_threshold_ustx;
 
     let stack_stx_op_with_some_signer_key = StackStxOp {
-        sender: signer_addr_1,
+        sender: signer_addr_1.clone(),
         reward_addr: pox_addr,
         stacked_ustx: min_stx.into(),
         num_cycles: lock_period,
-        signer_key: Some(signer_key_arg_1),
+        signer_key: Some(signer_key_arg_1.clone()),
         max_amount: Some(u128::MAX),
         auth_id: Some(auth_id),
         // to be filled in
@@ -4922,7 +5066,7 @@ fn burn_ops_integration_test() {
     );
 
     let stack_stx_op_with_no_signer_key = StackStxOp {
-        sender: signer_addr_2,
+        sender: signer_addr_2.clone(),
         reward_addr: PoxAddress::Standard(signer_addr_2, None),
         stacked_ustx: 100000,
         num_cycles: 6,
@@ -4965,7 +5109,7 @@ fn burn_ops_integration_test() {
                 sender_nonce,
                 200,
                 naka_conf.burnchain.chain_id,
-                &stacker_addr_1.into(),
+                &stacker_addr_1.clone().into(),
                 10000,
             );
             sender_nonce += 1;
@@ -5170,14 +5314,17 @@ fn forked_tenure_is_ignored() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
@@ -5187,10 +5334,10 @@ fn forked_tenure_is_ignored() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
-    let miner_sk = naka_conf.miner.mining_key.unwrap();
+    let miner_sk = naka_conf.miner.mining_key.clone().unwrap();
     let miner_pk = StacksPublicKey::from_private(&miner_sk);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -5215,7 +5362,7 @@ fn forked_tenure_is_ignored() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -5534,15 +5681,18 @@ fn check_block_heights() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -5586,7 +5736,7 @@ fn check_block_heights() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -5619,7 +5769,9 @@ fn check_block_heights() {
         contract0_name,
         "get-heights",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let preheights = heights0_value.expect_tuple().unwrap();
     info!("Heights from pre-epoch 3.0: {preheights}");
 
@@ -5642,7 +5794,9 @@ fn check_block_heights() {
         contract0_name,
         "get-heights",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let heights0 = heights0_value.expect_tuple().unwrap();
     info!("Heights from epoch 3.0 start: {heights0}");
     assert_eq!(
@@ -5713,7 +5867,9 @@ fn check_block_heights() {
             contract1_name,
             "get-heights",
             vec![],
-        );
+        )
+        .result()
+        .unwrap();
         let heights1 = heights1_value.expect_tuple().unwrap();
         info!("Heights from Clarity 1: {heights1}");
 
@@ -5723,7 +5879,9 @@ fn check_block_heights() {
             contract3_name,
             "get-heights",
             vec![],
-        );
+        )
+        .result()
+        .unwrap();
         let heights3 = heights3_value.expect_tuple().unwrap();
         info!("Heights from Clarity 3: {heights3}");
 
@@ -5823,7 +5981,9 @@ fn check_block_heights() {
                 contract1_name,
                 "get-heights",
                 vec![],
-            );
+            )
+            .result()
+            .unwrap();
             let heights1 = heights1_value.expect_tuple().unwrap();
             info!("Heights from Clarity 1: {heights1}");
 
@@ -5833,7 +5993,9 @@ fn check_block_heights() {
                 contract3_name,
                 "get-heights",
                 vec![],
-            );
+            )
+            .result()
+            .unwrap();
             let heights3 = heights3_value.expect_tuple().unwrap();
             info!("Heights from Clarity 3: {heights3}");
 
@@ -5950,7 +6112,10 @@ fn nakamoto_attempt_time() {
 
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_addr = tests::to_addr(&sender_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1_000_000_000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1_000_000_000,
+    );
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -5984,7 +6149,7 @@ fn nakamoto_attempt_time() {
     test_observer::spawn();
     test_observer::register(&mut naka_conf, &[EventKeyType::BlockProposal]);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6007,7 +6172,7 @@ fn nakamoto_attempt_time() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6275,17 +6440,20 @@ fn clarity_burn_state() {
     let tx_fee = 1000;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6311,7 +6479,7 @@ fn clarity_burn_state() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6367,7 +6535,9 @@ fn clarity_burn_state() {
                 contract_name,
                 "foo",
                 vec![&Value::UInt(burn_block_height)],
-            );
+            )
+            .result()
+            .unwrap();
             result.expect_result_ok().expect("Read-only call failed");
 
             // Pause mining to prevent the stacks block from being mined before the tenure change is processed
@@ -6457,7 +6627,9 @@ fn clarity_burn_state() {
                 contract_name,
                 "foo",
                 vec![&expected_height],
-            );
+            )
+            .result()
+            .unwrap();
             info!("Read-only result: {result:?}");
             result.expect_result_ok().expect("Read-only call failed");
 
@@ -6541,19 +6713,22 @@ fn signer_chainstate() {
     let send_amt = 1000;
     let send_fee = 200;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * 20,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -6577,7 +6752,7 @@ fn signer_chainstate() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -6622,7 +6797,7 @@ fn signer_chainstate() {
     blind_signer(&naka_conf, &signers, &counters);
 
     let signer_client = stacks_signer::client::StacksClient::new(
-        StacksPrivateKey::from_seed(&[0, 1, 2, 3]),
+        &StacksPrivateKey::from_seed(&[0, 1, 2, 3]),
         naka_conf.node.rpc_bind.clone(),
         naka_conf
             .connection_options
@@ -6657,6 +6832,7 @@ fn signer_chainstate() {
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
+            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6667,7 +6843,13 @@ fn signer_chainstate() {
             last_tenures_proposals
         {
             let reject_code = sortitions_view
-                .check_proposal(&signer_client, &mut signer_db, prior_tenure_first, true)
+                .check_proposal(
+                    &signer_client,
+                    &mut signer_db,
+                    prior_tenure_first,
+                    true,
+                    ReplayTransactionSet::none(),
+                )
                 .expect_err("Sortitions view should reject proposals from prior tenure");
             assert_eq!(
                 reject_code,
@@ -6676,7 +6858,13 @@ fn signer_chainstate() {
             );
             for block in prior_tenure_interims.iter() {
                 let reject_code = sortitions_view
-                    .check_proposal(&signer_client, &mut signer_db, block, true)
+                    .check_proposal(
+                        &signer_client,
+                        &mut signer_db,
+                        block,
+                        true,
+                        ReplayTransactionSet::none(),
+                    )
                     .expect_err("Sortitions view should reject proposals from prior tenure");
                 assert_eq!(
                     reject_code,
@@ -6708,7 +6896,13 @@ fn signer_chainstate() {
             .block_height_to_reward_cycle(burn_block_height)
             .unwrap();
         sortitions_view
-            .check_proposal(&signer_client, &mut signer_db, &proposal.0, true)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &proposal.0,
+                true,
+                ReplayTransactionSet::none(),
+            )
             .expect("Nakamoto integration test produced invalid block proposal");
         signer_db
             .insert_block(&BlockInfo {
@@ -6754,7 +6948,13 @@ fn signer_chainstate() {
         let proposal_interim = get_latest_block_proposal(&naka_conf, &sortdb).unwrap();
 
         sortitions_view
-            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0, true)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &proposal_interim.0,
+                true,
+                ReplayTransactionSet::none(),
+            )
             .expect("Nakamoto integration test produced invalid block proposal");
         // force the view to refresh and check again
 
@@ -6767,6 +6967,7 @@ fn signer_chainstate() {
             tenure_idle_timeout: Duration::from_secs(300),
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
+            reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -6777,7 +6978,13 @@ fn signer_chainstate() {
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
         sortitions_view
-            .check_proposal(&signer_client, &mut signer_db, &proposal_interim.0, true)
+            .check_proposal(
+                &signer_client,
+                &mut signer_db,
+                &proposal_interim.0,
+                true,
+                ReplayTransactionSet::none(),
+            )
             .expect("Nakamoto integration test produced invalid block proposal");
 
         signer_db
@@ -6814,7 +7021,7 @@ fn signer_chainstate() {
         version: 1,
         chain_length: last_tenure_header.chain_length,
         burn_spent: last_tenure_header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: last_tenure_header.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -6839,10 +7046,17 @@ fn signer_chainstate() {
         tenure_idle_timeout: Duration::from_secs(300),
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
+        reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            false,
+            ReplayTransactionSet::none(),
+        )
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but blocks have already
@@ -6851,8 +7065,8 @@ fn signer_chainstate() {
         version: 1,
         chain_length: last_tenure_header.chain_length,
         burn_spent: last_tenure_header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
-        parent_block_id: last_tenure_header.parent_block_id,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
+        parent_block_id: last_tenure_header.parent_block_id.clone(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
         timestamp: last_tenure_header.timestamp + 1,
@@ -6890,7 +7104,13 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            false,
+            ReplayTransactionSet::none(),
+        )
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but it doesn't confirm all the blocks of the parent tenure
@@ -6899,7 +7119,7 @@ fn signer_chainstate() {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
         burn_spent: reorg_to_block.header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -6930,9 +7150,9 @@ fn signer_chainstate() {
                 post_condition_mode: TransactionPostConditionMode::Allow,
                 post_conditions: vec![],
                 payload: TransactionPayload::TenureChange(TenureChangePayload {
-                    tenure_consensus_hash: sibling_block_header.consensus_hash,
-                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash,
-                    burn_view_consensus_hash: sibling_block_header.consensus_hash,
+                    tenure_consensus_hash: sibling_block_header.consensus_hash.clone(),
+                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash.clone(),
+                    burn_view_consensus_hash: sibling_block_header.consensus_hash.clone(),
                     previous_tenure_end: reorg_to_block.block_id(),
                     previous_tenure_blocks: 1,
                     cause: stacks::chainstate::stacks::TenureChangeCause::BlockFound,
@@ -6944,18 +7164,25 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            false,
+            ReplayTransactionSet::none(),
+        )
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     // Case: the block contains a tenure change, but the parent tenure is a reorg
     let reorg_to_block = first_tenure_blocks.as_ref().unwrap().last().unwrap();
     // make the sortition_view *think* that our block commit pointed at this old tenure
-    sortitions_view.cur_sortition.data.parent_tenure_id = reorg_to_block.header.consensus_hash;
+    sortitions_view.cur_sortition.data.parent_tenure_id =
+        reorg_to_block.header.consensus_hash.clone();
     let mut sibling_block_header = NakamotoBlockHeader {
         version: 1,
         chain_length: reorg_to_block.header.chain_length + 1,
         burn_spent: reorg_to_block.header.burn_spent,
-        consensus_hash: last_tenure_header.consensus_hash,
+        consensus_hash: last_tenure_header.consensus_hash.clone(),
         parent_block_id: reorg_to_block.block_id(),
         tx_merkle_root: Sha512Trunc256Sum::from_data(&[0]),
         state_index_root: TrieHash([0; 32]),
@@ -6986,9 +7213,9 @@ fn signer_chainstate() {
                 post_condition_mode: TransactionPostConditionMode::Allow,
                 post_conditions: vec![],
                 payload: TransactionPayload::TenureChange(TenureChangePayload {
-                    tenure_consensus_hash: sibling_block_header.consensus_hash,
-                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash,
-                    burn_view_consensus_hash: sibling_block_header.consensus_hash,
+                    tenure_consensus_hash: sibling_block_header.consensus_hash.clone(),
+                    prev_tenure_consensus_hash: reorg_to_block.header.consensus_hash.clone(),
+                    burn_view_consensus_hash: sibling_block_header.consensus_hash.clone(),
                     previous_tenure_end: reorg_to_block.block_id(),
                     previous_tenure_blocks: 1,
                     cause: stacks::chainstate::stacks::TenureChangeCause::BlockFound,
@@ -7000,7 +7227,13 @@ fn signer_chainstate() {
     };
 
     sortitions_view
-        .check_proposal(&signer_client, &mut signer_db, &sibling_block, false)
+        .check_proposal(
+            &signer_client,
+            &mut signer_db,
+            &sibling_block,
+            false,
+            ReplayTransactionSet::none(),
+        )
         .expect_err("A sibling of a previously approved block must be rejected.");
 
     let start_sortition = &reorg_to_block.header.consensus_hash;
@@ -7072,12 +7305,15 @@ fn continue_tenure_extend() {
     let send_amt = 1000;
     let send_fee = 200;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * 20,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let mut transfer_nonce = 0;
@@ -7085,7 +7321,7 @@ fn continue_tenure_extend() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7108,7 +7344,7 @@ fn continue_tenure_extend() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -7373,7 +7609,9 @@ fn get_block_times(
         contract0_name,
         "get-time",
         vec![&clarity::vm::Value::UInt(tenure_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let time0 = time0_value
         .expect_optional()
         .unwrap()
@@ -7387,7 +7625,9 @@ fn get_block_times(
         contract0_name,
         "get-last-time",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let time0_now = time_now0_value
         .expect_optional()
         .unwrap()
@@ -7401,7 +7641,9 @@ fn get_block_times(
         contract1_name,
         "get-time",
         vec![&clarity::vm::Value::UInt(tenure_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let time1 = time1_value
         .expect_optional()
         .unwrap()
@@ -7415,7 +7657,9 @@ fn get_block_times(
         contract1_name,
         "get-last-time",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let time1_now = time1_now_value
         .expect_optional()
         .unwrap()
@@ -7429,7 +7673,9 @@ fn get_block_times(
         contract3_name,
         "get-tenure-time",
         vec![&clarity::vm::Value::UInt(block_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let time3_tenure = time3_tenure_value
         .expect_optional()
         .unwrap()
@@ -7443,7 +7689,9 @@ fn get_block_times(
         contract3_name,
         "get-block-time",
         vec![&clarity::vm::Value::UInt(block_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let time3_block = time3_block_value
         .expect_optional()
         .unwrap()
@@ -7457,7 +7705,9 @@ fn get_block_times(
         contract3_name,
         "get-last-tenure-time",
         vec![],
-    );
+    )
+    .result()
+    .unwrap();
     let time3_now_tenure = time3_now_tenure_value
         .expect_optional()
         .unwrap()
@@ -7519,17 +7769,20 @@ fn check_block_times() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 12,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7574,7 +7827,7 @@ fn check_block_times() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -7598,7 +7851,9 @@ fn check_block_times() {
         contract0_name,
         "get-time",
         vec![&clarity::vm::Value::UInt(1)],
-    );
+    )
+    .result()
+    .unwrap();
     let time0 = time0_value
         .expect_optional()
         .unwrap()
@@ -7907,10 +8162,13 @@ fn check_block_info() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 2,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let contract3_name = "test-contract-3";
@@ -7918,7 +8176,7 @@ fn check_block_info() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -7951,7 +8209,9 @@ fn check_block_info() {
             contract_name,
             "get-block-info",
             vec![&clarity::vm::Value::UInt(query_height)],
-        );
+        )
+        .result()
+        .unwrap();
         result.expect_tuple().unwrap().data_map
     };
 
@@ -7962,7 +8222,9 @@ fn check_block_info() {
             contract3_name,
             "get-tenure-info",
             vec![&clarity::vm::Value::UInt(query_height)],
-        );
+        )
+        .result()
+        .unwrap();
         result.expect_tuple().unwrap().data_map
     };
 
@@ -8030,7 +8292,7 @@ fn check_block_info() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -8538,17 +8800,20 @@ fn check_block_info_rewards() {
     let send_fee = 180;
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         3 * deploy_fee + (send_amt + send_fee) * 2,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -8608,14 +8873,16 @@ fn check_block_info_rewards() {
             contract_name,
             "get-block-info",
             vec![&clarity::vm::Value::UInt(query_height)],
-        );
+        )
+        .result()
+        .unwrap();
         result.expect_tuple().unwrap().data_map
     };
 
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -8804,7 +9071,9 @@ fn check_block_info_rewards() {
         contract3_name,
         "get-tenure-info",
         vec![&clarity::vm::Value::UInt(mature_height)],
-    );
+    )
+    .result()
+    .unwrap();
     let tuple3_tenure = result3_tenure.expect_tuple().unwrap().data_map;
     assert_eq!(tuple3_tenure["block-reward"], tuple0["block-reward"]);
 
@@ -8831,7 +9100,9 @@ fn check_block_info_rewards() {
         contract3_name,
         "get-tenure-info",
         vec![&clarity::vm::Value::UInt(last_nakamoto_block)],
-    );
+    )
+    .result()
+    .unwrap();
     let tuple3_tenure = result3_tenure.expect_tuple().unwrap().data_map;
     assert_eq!(tuple3_tenure["block-reward"], tuple0["block-reward"]);
 
@@ -8858,7 +9129,7 @@ fn mock_mining() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 3;
     let inter_blocks_per_tenure = 3;
     // setup sender + recipient for some test stx transfers
@@ -8880,17 +9151,20 @@ fn mock_mining() {
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -8916,7 +9190,7 @@ fn mock_mining() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -9108,7 +9382,7 @@ fn utxo_check_on_startup_panic() {
     }
     last.start_height = 131;
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9184,7 +9458,7 @@ fn utxo_check_on_startup_recover() {
     }
     last.start_height = 131;
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9242,17 +9516,17 @@ fn v3_signer_api_endpoint() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
 
     // only subscribe to the block proposal events
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9269,13 +9543,13 @@ fn v3_signer_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -9406,16 +9680,16 @@ fn v3_blockbyheight_api_endpoint() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     // only subscribe to the block proposal events
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::BlockProposal]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9433,13 +9707,13 @@ fn v3_blockbyheight_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -9524,17 +9798,17 @@ fn nakamoto_lockup_events() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * 100,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
 
     // only subscribe to the block proposal events
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9550,13 +9824,13 @@ fn nakamoto_lockup_events() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -9691,14 +9965,20 @@ fn skip_mining_long_tx() {
     let send_amt = 1000;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_1_addr).to_string(),
+        PrincipalData::from(sender_1_addr.clone()).to_string(),
         send_amt * 15 + send_fee * 15,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_2_addr).to_string(), 10000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_2_addr.clone()).to_string(),
+        10000,
+    );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -9706,7 +9986,7 @@ fn skip_mining_long_tx() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -9730,7 +10010,7 @@ fn skip_mining_long_tx() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -9983,7 +10263,7 @@ fn test_shadow_recovery() {
             break;
         }
 
-        let header = header.anchored_header.as_stacks_nakamoto().clone().unwrap();
+        let header = header.anchored_header.as_stacks_nakamoto().unwrap();
 
         if header.is_shadow_block() {
             assert!(shadow_ids.contains(&header.block_id()));
@@ -10003,7 +10283,7 @@ fn test_shadow_recovery() {
             has_epoch_3_failure = true;
         }
 
-        cursor = header.parent_block_id;
+        cursor = header.parent_block_id.clone();
     }
 
     assert!(has_epoch_3_recovery);
@@ -10047,7 +10327,7 @@ fn sip029_coinbase_change() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -10056,16 +10336,19 @@ fn sip029_coinbase_change() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -10091,7 +10374,7 @@ fn sip029_coinbase_change() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -10248,8 +10531,8 @@ fn clarity_cost_spend_down() {
         .collect();
     let sender_signer_addrs: Vec<_> = sender_signer_sks.iter().map(tests::to_addr).collect();
     let sender_addrs: Vec<_> = sender_sks.iter().map(tests::to_addr).collect();
-    let deployer_sk = sender_sks[0];
-    let deployer_addr = sender_addrs[0];
+    let deployer_sk = sender_sks[0].clone();
+    let deployer_addr = sender_addrs[0].clone();
     let mut sender_nonces: HashMap<String, u64> = HashMap::new();
 
     let get_and_increment_nonce =
@@ -10270,7 +10553,7 @@ fn clarity_cost_spend_down() {
     let amount =
         (large_deploy_fee + small_deploy_fee) + tx_fee * nmb_txs_per_signer + 100 * tenure_count;
     for sender_addr in sender_addrs {
-        naka_conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), amount);
+        naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
     }
     for sender_signer_addr in sender_signer_addrs {
         naka_conf.add_initial_balance(
@@ -10286,7 +10569,7 @@ fn clarity_cost_spend_down() {
     test_observer::spawn();
     test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -10538,16 +10821,16 @@ fn consensus_hash_event_dispatcher() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     // only subscribe to the block proposal events
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -10566,13 +10849,13 @@ fn consensus_hash_event_dispatcher() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -10594,7 +10877,7 @@ fn consensus_hash_event_dispatcher() {
     let burn_block = burn_blocks.last().unwrap();
     assert_eq!(burn_block.consensus_hash, tip.consensus_hash);
 
-    let parent_burn_block_hash = parent_burn_block.burn_block_hash;
+    let parent_burn_block_hash = parent_burn_block.burn_block_hash.clone();
 
     assert_eq!(burn_block.parent_burn_block_hash, parent_burn_block_hash);
 
@@ -10979,13 +11262,16 @@ fn mine_invalid_principal_from_consensus_buff() {
     // setup sender + recipient for some test stx transfers
     // these are necessary for the interim blocks to get mined at all
     let sender_addr = tests::to_addr(&sender_sk);
-    conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1000000,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11005,13 +11291,13 @@ fn mine_invalid_principal_from_consensus_buff() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11095,13 +11381,16 @@ fn reload_miner_config() {
     let sender_addr = tests::to_addr(&sender_sk);
     let old_burn_fee_cap: u64 = 100000;
     conf.burnchain.burn_fee_cap = old_burn_fee_cap;
-    conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1000000,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11141,13 +11430,13 @@ fn reload_miner_config() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11238,13 +11527,16 @@ fn rbf_on_config_change() {
     let sender_addr = tests::to_addr(&sender_sk);
     let old_burn_fee_cap: u64 = 100000;
     conf.burnchain.burn_fee_cap = old_burn_fee_cap;
-    conf.add_initial_balance(PrincipalData::from(sender_addr).to_string(), 1000000);
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        1000000,
+    );
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::AnyEvent]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11284,13 +11576,13 @@ fn rbf_on_config_change() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -11369,8 +11661,11 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
@@ -11401,7 +11696,10 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     //   (1305150 + 180) * 25 + 1305150 = 33_938_400 uSTX.
     let initial_balance = 33_938_400;
     for addr in initial_sender_addrs.iter() {
-        naka_conf.add_initial_balance(PrincipalData::from(*addr).to_string(), initial_balance);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(addr.clone()).to_string(),
+            initial_balance,
+        );
     }
     // This will hold tuples for all of our senders, with the sender pk and
     // the nonce
@@ -11418,7 +11716,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         naka_conf.node.working_dir
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11442,7 +11740,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -11707,8 +12005,11 @@ fn larger_mempool() {
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
@@ -11736,7 +12037,10 @@ fn larger_mempool() {
     // (13011180 + 180) * 26 = 338_295_360 uSTX.
     let initial_balance = 338_295_360;
     for addr in initial_sender_addrs.iter() {
-        naka_conf.add_initial_balance(PrincipalData::from(*addr).to_string(), initial_balance);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(addr.clone()).to_string(),
+            initial_balance,
+        );
     }
     // This will hold tuples for all of our senders, with the sender pk and
     // the nonce
@@ -11753,7 +12057,7 @@ fn larger_mempool() {
         naka_conf.node.working_dir
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -11779,7 +12083,7 @@ fn larger_mempool() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -12018,16 +12322,16 @@ fn v3_transaction_api_endpoint() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     // only subscribe to the block proposal events
     test_observer::spawn();
     test_observer::register(&mut conf, &[EventKeyType::MinedBlocks]);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12046,13 +12350,13 @@ fn v3_transaction_api_endpoint() {
     let coord_channel = run_loop.coordinator_channels();
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -12113,12 +12417,12 @@ fn v3_transaction_api_endpoint() {
     let last_block_event = block_events.last().unwrap();
 
     let first_transaction = match last_block_event.tx_events.first().unwrap() {
-        TransactionEvent::Success(first_transaction) => Some(first_transaction.txid),
+        TransactionEvent::Success(first_transaction) => Some(first_transaction.txid.clone()),
         _ => None,
     }
     .unwrap();
 
-    let response_json = get_v3_transaction(first_transaction);
+    let response_json = get_v3_transaction(first_transaction.clone());
 
     assert_eq!(
         response_json
@@ -12172,20 +12476,23 @@ fn handle_considered_txs_foreign_key_failure() {
     let bad_sender_sk = Secp256k1PrivateKey::from_seed(&[30]);
     let bad_sender_addr = tests::to_addr(&bad_sender_sk);
     naka_conf.add_initial_balance(
-        PrincipalData::from(bad_sender_addr).to_string(),
+        PrincipalData::from(bad_sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
     let good_sender_sk = Secp256k1PrivateKey::from_seed(&[31]);
     let good_sender_addr = tests::to_addr(&good_sender_sk);
     naka_conf.add_initial_balance(
-        PrincipalData::from(good_sender_addr).to_string(),
+        PrincipalData::from(good_sender_addr.clone()).to_string(),
         (send_amt + send_fee) * 2,
     );
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let stacker_sk = setup_stacker(&mut naka_conf);
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
@@ -12193,7 +12500,7 @@ fn handle_considered_txs_foreign_key_failure() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12216,7 +12523,7 @@ fn handle_considered_txs_foreign_key_failure() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -12326,16 +12633,16 @@ fn empty_mempool_sleep_ms() {
     let send_amt = 100;
     let send_fee = 180;
     conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         send_amt + send_fee,
     );
-    conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
     // Set the empty mempool sleep time to something long enough that we can
     // see the effect in the test.
     conf.miner.empty_mempool_sleep_time = Duration::from_secs(30);
 
-    let mut btcd_controller = BitcoinCoreController::new(conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12356,13 +12663,13 @@ fn empty_mempool_sleep_ms() {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
 
     let run_loop_thread = thread::spawn(move || run_loop.start(None, 0));
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
     wait_for_runloop(&blocks_processed);
     boot_to_epoch_3(
         &conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -12454,9 +12761,9 @@ fn miner_constructs_replay_block() {
     let signer_sk = Secp256k1PrivateKey::random();
     let signer_addr = tests::to_addr(&signer_sk);
     let stacker_sk = setup_stacker(&mut naka_conf);
-    naka_conf.add_initial_balance(PrincipalData::from(signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
-    let mut signers = TestSigners::new(vec![signer_sk]);
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
 
     test_observer::spawn();
     test_observer::register(
@@ -12464,7 +12771,7 @@ fn miner_constructs_replay_block() {
         &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
     );
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12487,8 +12794,8 @@ fn miner_constructs_replay_block() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
-        &[signer_sk],
+        &[stacker_sk.clone()],
+        &[signer_sk.clone()],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
     );
@@ -12499,7 +12806,7 @@ fn miner_constructs_replay_block() {
 
     // Pause mining to prevent any of the submitted txs getting mined.
     info!("Stalling mining...");
-    fault_injection_stall_miner();
+    fault_injection_try_stall_miner();
     let burn_height_before = get_chain_info(&naka_conf).burn_block_height;
     // Mine 1 bitcoin block to trigger a new block found transaction
     next_block_and(&mut btc_regtest_controller, 60, || {
@@ -12611,34 +12918,44 @@ fn miner_constructs_replay_block() {
     assert_eq!(tenure_change.cause, TenureChangeCause::BlockFound);
 
     info!("Verifying next block contains the expected replay txs...");
+    let block: StacksBlockEvent =
+        serde_json::from_value(blocks[blocks_before + 1].clone()).expect("Failed to parse block");
+    let tx = block.transactions.get(0).unwrap();
+    assert!(matches!(
+        tx.payload,
+        TransactionPayload::TenureChange(TenureChangePayload {
+            cause: TenureChangeCause::Extended,
+            ..
+        })
+    ));
     let block = &observed_blocks[observed_before + 1];
-    assert_eq!(block.tx_events.len(), 6);
-    if let TransactionEvent::Success(tx) = &block.tx_events[0] {
+    assert_eq!(block.tx_events.len(), 7);
+    if let TransactionEvent::Success(tx) = &block.tx_events[1] {
         assert_eq!(tx.txid, succeed_tx_1.txid());
     } else {
         panic!("Failed to mine the first tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[1] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[2] {
         assert_eq!(tx.txid, succeed_tx_2.txid());
     } else {
         panic!("Failed to mine the second tx");
     };
-    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[2] {
+    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[3] {
         assert_eq!(tx.txid, fail_tx_3.txid());
     } else {
         panic!("Failed to error on the third tx");
     };
-    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[3] {
+    if let TransactionEvent::ProcessingError(tx) = &block.tx_events[4] {
         assert_eq!(tx.txid, fail_tx_4.txid());
     } else {
         panic!("Failed to error on the fourth tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[4] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[5] {
         assert_eq!(tx.txid, succeed_tx_5.txid());
     } else {
         panic!("Failed to mine the fifth tx");
     };
-    if let TransactionEvent::Success(tx) = &block.tx_events[5] {
+    if let TransactionEvent::Success(tx) = &block.tx_events[6] {
         assert_eq!(tx.txid, succeed_tx_6.txid());
     } else {
         panic!("Failed to mine the sixth tx");
@@ -12707,7 +13024,7 @@ fn test_sip_031_activation() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     let tenure_count = 5;
     let inter_blocks_per_tenure = 9;
     // setup sender + recipient for some test stx transfers
@@ -12716,16 +13033,19 @@ fn test_sip_031_activation() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -12751,7 +13071,7 @@ fn test_sip_031_activation() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13011,7 +13331,7 @@ fn test_sip_031_last_phase() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     // let's assume funds for 200 tenures
     let tenure_count = 200;
     let inter_blocks_per_tenure = 9;
@@ -13021,10 +13341,13 @@ fn test_sip_031_last_phase() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let epoch32_start_height =
@@ -13052,7 +13375,7 @@ fn test_sip_031_last_phase() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -13078,7 +13401,7 @@ fn test_sip_031_last_phase() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13171,6 +13494,7 @@ fn test_sip_031_last_phase() {
 
     let mut sender_nonce = 0;
     // 50 more tenures (each one with 3 stacks blocks)
+    let principal = PrincipalData::from(sender_signer_addr);
     for _ in 0..50 {
         let commits_before = commits_submitted.load(Ordering::SeqCst);
         next_block_and_process_new_stacks_blocks(
@@ -13184,7 +13508,7 @@ fn test_sip_031_last_phase() {
                     sender_nonce,
                     send_fee,
                     naka_conf.burnchain.chain_id,
-                    &PrincipalData::from(sender_signer_addr),
+                    &principal,
                     send_amt,
                 );
                 submit_tx(&http_origin, &transfer_tx);
@@ -13331,7 +13655,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     // let's assume funds for 200 tenures
     let tenure_count = 200;
     let inter_blocks_per_tenure = 9;
@@ -13341,10 +13665,13 @@ fn test_sip_031_last_phase_out_of_epoch() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let epoch32_start_height =
@@ -13372,7 +13699,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -13398,7 +13725,7 @@ fn test_sip_031_last_phase_out_of_epoch() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13489,7 +13816,6 @@ fn test_sip_031_last_phase_out_of_epoch() {
                 conn.with_readonly_clarity_env(
                     naka_conf.is_mainnet(),
                     naka_conf.burnchain.chain_id,
-                    ClarityVersion::Clarity3,
                     PrincipalData::Standard(StandardPrincipalData::transient()),
                     None,
                     LimitedCostTracker::new_free(),
@@ -13541,7 +13867,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     let sender_sk = Secp256k1PrivateKey::random();
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
-    let mut signers = TestSigners::new(vec![sender_signer_sk]);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
     // let's assume funds for 200 tenures
     let tenure_count = 200;
     let inter_blocks_per_tenure = 9;
@@ -13551,10 +13877,13 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     let send_amt = 100;
     let send_fee = 180;
     naka_conf.add_initial_balance(
-        PrincipalData::from(sender_addr).to_string(),
+        PrincipalData::from(sender_addr.clone()).to_string(),
         (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
     );
-    naka_conf.add_initial_balance(PrincipalData::from(sender_signer_addr).to_string(), 100000);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     let epoch32_start_height =
@@ -13568,7 +13897,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     test_observer::spawn();
     test_observer::register_any(&mut naka_conf);
 
-    let mut btcd_controller = BitcoinCoreController::new(naka_conf.clone());
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
     btcd_controller
         .start_bitcoind()
         .expect("Failed starting bitcoind");
@@ -13594,7 +13923,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     boot_to_epoch_3(
         &naka_conf,
         &blocks_processed,
-        &[stacker_sk],
+        &[stacker_sk.clone()],
         &[sender_signer_sk],
         &mut Some(&mut signers),
         &mut btc_regtest_controller,
@@ -13760,7 +14089,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
                 sender_nonce,
                 send_fee,
                 naka_conf.burnchain.chain_id,
-                &PrincipalData::from(sender_signer_addr),
+                &PrincipalData::from(sender_signer_addr.clone()),
                 send_amt,
             );
             submit_tx(&http_origin, &transfer_tx);
@@ -13877,6 +14206,1115 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     );
 
     set_test_sip_031_emission_schedule(None);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test Epoch 3.3 activation
+///
+/// - check epoch 3.3 is active
+/// - check costs-4 was deployed
+#[test]
+#[ignore]
+#[serial]
+fn test_epoch_3_3_activation() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    naka_conf.node.pox_sync_sample_secs = 180;
+    naka_conf.burnchain.max_rbf = 10_000_000;
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+    let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
+
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    let burnchain = naka_conf.get_burnchain();
+    let sortdb = burnchain.open_sortition_db(true).unwrap();
+    let (mut chainstate, _) = StacksChainState::open(
+        naka_conf.is_mainnet(),
+        naka_conf.burnchain.chain_id,
+        &naka_conf.get_chainstate_path_str(),
+        None,
+    )
+    .unwrap();
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    // check for Epoch 3.3 in clarity db
+    let latest_stacks_block_id = StacksBlockId::from_hex(
+        &test_observer::get_blocks()
+            .last()
+            .unwrap()
+            .get("index_block_hash")
+            .unwrap()
+            .as_str()
+            .unwrap()[2..],
+    )
+    .unwrap();
+
+    let epoch_version = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| conn.with_clarity_db_readonly(|db| db.get_clarity_epoch_version().unwrap()),
+    );
+
+    assert_eq!(epoch_version, Some(StacksEpochId::Epoch33));
+
+    // check if costs-4 boot contract has been deployed
+    let costs_4_boot_contract_exists = chainstate.with_read_only_clarity_tx(
+        &sortdb
+            .index_handle_at_block(&chainstate, &latest_stacks_block_id)
+            .unwrap(),
+        &latest_stacks_block_id,
+        |conn| {
+            conn.with_clarity_db_readonly(|db| {
+                db.has_contract(&boot_code_id(COSTS_4_NAME, naka_conf.is_mainnet()))
+            })
+        },
+    );
+
+    assert_eq!(costs_4_boot_contract_exists, Some(true));
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test the effect of a high contract_limit_percentage value on the mempool
+/// walk strategy.
+///
+/// The miner will fill a block with as many large contract calls as it can,
+/// trigger the block limit reached, see that the contract_cost_limit_percentage is
+/// not yet exceeded and then include whatever small contract calls it can before
+/// resorting to stx transfers
+#[test]
+#[ignore]
+fn contract_limit_percentage_mempool_strategy_high_limit() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let num_signers = 30;
+    let nmb_large_tx_senders = 8;
+    let num_senders = 20 + nmb_large_tx_senders;
+    let sender_sks: Vec<_> = (0..num_senders)
+        .map(|_| Secp256k1PrivateKey::random())
+        .collect();
+    let sender_signer_sks: Vec<_> = (0..num_signers)
+        .map(|_| Secp256k1PrivateKey::random())
+        .collect();
+    let sender_signer_addrs: Vec<_> = sender_signer_sks.iter().map(tests::to_addr).collect();
+    let sender_addrs: Vec<_> = sender_sks.iter().map(tests::to_addr).collect();
+    let deployer_sk = sender_sks[0].clone();
+    let deployer_addr = sender_addrs[0].clone();
+    let mut sender_nonces: HashMap<String, u64> = HashMap::new();
+
+    let get_and_increment_nonce =
+        |sender_sk: &Secp256k1PrivateKey, sender_nonces: &mut HashMap<String, u64>| {
+            let nonce = sender_nonces.get(&sender_sk.to_hex()).unwrap_or(&0);
+            let result = *nonce;
+            sender_nonces.insert(sender_sk.to_hex(), result + 1);
+            result
+        };
+    let mut signers = TestSigners::new(sender_signer_sks.clone());
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let small_tx_fee = 180;
+    let large_tx_fee = 10000000000000;
+    let small_deploy_fee = 590200;
+    let large_deploy_fee = 1070200;
+    let send_fee = 180;
+    let send_amt = 100;
+    let amount = large_deploy_fee
+        + small_deploy_fee
+        + small_tx_fee * 2
+        + large_tx_fee * 2
+        + send_fee
+        + send_amt;
+    for sender_addr in sender_addrs {
+        naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
+    }
+    for sender_signer_addr in sender_signer_addrs {
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_signer_addr).to_string(),
+            amount * 2,
+        );
+    }
+    naka_conf.miner.contract_cost_limit_percentage = Some(95);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
+    let stacker_sks: Vec<_> = (0..num_signers)
+        .map(|_| setup_stacker(&mut naka_conf))
+        .collect();
+
+    test_observer::spawn();
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_mined_blocks: mined_blocks,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &stacker_sks,
+        &sender_signer_sks,
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // Create large and smaller contracts that will be called multiple times
+    // Create cheap and expensive contracts that will be called multiple times
+    let small_proportion: usize = 5;
+    let large_proportion: usize = 22;
+    let small_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, small_proportion as u64);
+    let large_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, large_proportion as u64);
+    let expected_big = 100 / large_proportion;
+    let expected_small = (100 - large_proportion * expected_big) / small_proportion;
+
+    let call_large = |sender_sk: &_, sender_nonces: &mut _| {
+        let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
+        let contract_tx = make_contract_call(
+            sender_sk,
+            sender_nonce,
+            large_tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "big-contract",
+            "big-tx",
+            &[],
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce
+    };
+
+    let call_small = |sender_sk: &_, sender_nonces: &mut _| {
+        let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
+        // Every sender does both a small and transfer tx call
+        let contract_tx = make_contract_call(
+            sender_sk,
+            sender_nonce,
+            small_tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "small-contract",
+            "big-tx",
+            &[],
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce
+    };
+
+    info!("----- Mining BTC block -----");
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_count > blocks_before
+            && blocks_processed > blocks_processed_before
+            && commits_submitted.load(Ordering::SeqCst) > commits_before)
+    })
+    .unwrap();
+
+    // First, lets deploy the contract
+    info!("----- Waiting for deploy txs to be mined -----");
+    // Pause mining so we can add both transactions to the mempool at once.
+    fault_injection_stall_miner();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let small_contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        small_deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "small-contract",
+        &small_contract,
+    );
+    submit_tx(&http_origin, &small_contract_tx);
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let large_contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        large_deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "big-contract",
+        &large_contract,
+    );
+    submit_tx(&http_origin, &large_contract_tx);
+    fault_injection_unstall_miner();
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        Ok(cur_sender_nonce > deployer_nonce
+            && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len())
+    })
+    .expect("Failed to publish contracts");
+
+    // Second, lets call the contracts so the miner has an accurate estimate of their costs for subsequent block building
+    info!("----- Mining initial contract calls -----");
+    // Pause mining so we can add both transactions to the mempool at once.
+    fault_injection_stall_miner();
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let _ = call_small(&deployer_sk, &mut sender_nonces);
+    let nonce = call_large(&deployer_sk, &mut sender_nonces);
+
+    fault_injection_unstall_miner();
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(cur_sender_nonce > nonce
+            && mined_after.len() > mined_before.len()
+            && blocks_after.len() > blocks_before.len())
+    })
+    .expect("Failed to mine initial contract calls");
+
+    info!("----- Mining BTC block to reset tenure limits -----");
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(blocks_after.len() > blocks_before.len() && mined_after.len() > mined_before.len())
+    })
+    .unwrap();
+
+    // Pause mining so we can add all our transactions to the mempool at once.
+    fault_injection_stall_miner();
+    info!("----- Submitting contract call txs -----");
+    // Make note of how much we mined prior to the contract call txs
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let recipient = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+    );
+    // Lets also submit a ton of transfers to fill up the rest of the block once we hit the limit
+    for (sender_i, sender_sk) in sender_sks.iter().enumerate() {
+        // Only send a large tx call for the first few senders
+        if sender_i < nmb_large_tx_senders {
+            call_large(sender_sk, &mut sender_nonces);
+        };
+        // Every sender does both a small and transfer tx call
+        call_small(sender_sk, &mut sender_nonces);
+        // Also fill up the mempool with a bunch of transfers
+        let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
+        let transfer_tx = make_stacks_transfer_serialized(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient.clone().into(),
+            send_amt,
+        );
+        submit_tx(&http_origin, &transfer_tx);
+    }
+
+    info!("----- Mining contract call txs -----");
+    fault_injection_unstall_miner();
+    let mut nmb_big = 0;
+    let mut nmb_small = 0;
+    let mut nmb_transfers = 0;
+    wait_for(120, || {
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        let mined_blocks: Vec<_> = mined_after.iter().skip(mined_before.len()).collect();
+        let nmb_txs = mined_blocks
+            .iter()
+            .map(|b| b.tx_events.len())
+            .sum::<usize>();
+        let nmb_mined_blocks = mined_blocks.len();
+        let blocks_after = test_observer::get_blocks();
+        let blocks: Vec<_> = blocks_after.iter().skip(blocks_before.len()).collect();
+        debug!(
+            "Mined a total of {nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
+        );
+        nmb_big = 0;
+        nmb_small = 0;
+        nmb_transfers = 0;
+        if nmb_txs < expected_big + expected_small * 2 {
+            return Ok(false);
+        }
+        for (i, block) in blocks.into_iter().enumerate() {
+            let block: StacksBlockEvent = serde_json::from_value(block.clone()).unwrap();
+            info!("block {i} contains {:?} transactions", block.transactions.len());
+            for tx in block.transactions.iter() {
+                match &tx.payload {
+                    TransactionPayload::ContractCall(TransactionContractCall {
+                        contract_name,
+                        ..
+                    }) => match contract_name.to_string().as_str() {
+                        "small-contract" => {
+                            assert!(nmb_big >= expected_big, "We should not mine small txs before filling the tenure with the large transactions");
+                            nmb_small += 1;
+                        }
+                        "big-contract" => {
+                            assert!(nmb_big < expected_big, "We should not mine more than the expected number of transactions");
+                            nmb_big += 1;
+                        }
+                        _ => panic!("Unexpected contract call to {contract_name}"),
+                    },
+                    TransactionPayload::TokenTransfer(..) => {
+                        assert!(nmb_big >= expected_big && nmb_small >= expected_small, "We should not mine any transfers until we exhaust the initial contract calls");
+                        nmb_transfers += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(nmb_big >= expected_big
+            && nmb_small >= expected_small
+            && nmb_transfers >= expected_small)
+    })
+    .expect("Failed to find the expected contract calls");
+
+    assert_eq!(nmb_big, expected_big);
+    assert_eq!(nmb_small, expected_small);
+    assert_eq!(nmb_transfers, expected_small);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+/// Test the effect of a low contract_limit_percentage value on the mempool
+/// walk strategy.
+///
+/// The miner will fill a block with as many large contract calls as it can,
+/// trigger the block limit reached, see that the contract_cost_limit_percentage is
+/// also exceeded and then resort to only including stx transfers (failing to mine
+/// any of the smaller contract limit calls)
+#[test]
+#[ignore]
+fn contract_limit_percentage_mempool_strategy_low_limit() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    let num_signers = 30;
+    let nmb_large_tx_senders = 8;
+    let num_senders = 10 + nmb_large_tx_senders;
+    let nmb_small_tx_senders = num_senders / 2;
+    let sender_sks: Vec<_> = (0..num_senders)
+        .map(|_| Secp256k1PrivateKey::random())
+        .collect();
+    let sender_signer_sks: Vec<_> = (0..num_signers)
+        .map(|_| Secp256k1PrivateKey::random())
+        .collect();
+    let sender_signer_addrs: Vec<_> = sender_signer_sks.iter().map(tests::to_addr).collect();
+    let sender_addrs: Vec<_> = sender_sks.iter().map(tests::to_addr).collect();
+    let deployer_sk = sender_sks[0].clone();
+    let deployer_addr = sender_addrs[0].clone();
+    let mut sender_nonces: HashMap<String, u64> = HashMap::new();
+
+    let get_and_increment_nonce =
+        |sender_sk: &Secp256k1PrivateKey, sender_nonces: &mut HashMap<String, u64>| {
+            let nonce = sender_nonces.get(&sender_sk.to_hex()).unwrap_or(&0);
+            let result = *nonce;
+            sender_nonces.insert(sender_sk.to_hex(), result + 1);
+            result
+        };
+    let mut signers = TestSigners::new(sender_signer_sks.clone());
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let small_tx_fee = 180;
+    let large_tx_fee = 10000000000000;
+    let small_deploy_fee = 590200;
+    let large_deploy_fee = 1070200;
+    let send_fee = 180;
+    let send_amt = 100;
+    let amount =
+        large_deploy_fee + small_deploy_fee + small_tx_fee + large_tx_fee * 2 + send_fee + send_amt;
+    for sender_addr in sender_addrs {
+        naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
+    }
+    for sender_signer_addr in sender_signer_addrs {
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_signer_addr).to_string(),
+            amount * 2,
+        );
+    }
+    let limit_percentage = 80;
+    naka_conf.miner.contract_cost_limit_percentage = Some(limit_percentage);
+    naka_conf.miner.tenure_cost_limit_per_block_percentage = None;
+    let stacker_sks: Vec<_> = (0..num_signers)
+        .map(|_| setup_stacker(&mut naka_conf))
+        .collect();
+
+    test_observer::spawn();
+    test_observer::register(&mut naka_conf, &[EventKeyType::MinedBlocks]);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed,
+        naka_submitted_commits: commits_submitted,
+        naka_mined_blocks: mined_blocks,
+        ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &stacker_sks,
+        &sender_signer_sks,
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    wait_for_first_naka_block_commit(60, &commits_submitted);
+
+    // Create cheap and expensive contracts that will be called multiple times
+    let small_proportion: usize = 5;
+    let large_proportion: usize = 22;
+    let small_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, small_proportion as u64);
+    let large_contract =
+        make_big_read_count_contract(HELIUM_BLOCK_LIMIT_20, large_proportion as u64);
+    let expected_big = 100 / large_proportion;
+
+    let call_large = |sender_sk: &_, sender_nonces: &mut _| {
+        let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
+        let contract_tx = make_contract_call(
+            sender_sk,
+            sender_nonce,
+            large_tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "big-contract",
+            "big-tx",
+            &[],
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce
+    };
+
+    let call_small = |sender_sk: &_, sender_nonces: &mut _| {
+        let sender_nonce = get_and_increment_nonce(sender_sk, sender_nonces);
+        // Every sender does both a small and transfer tx call
+        let contract_tx = make_contract_call(
+            sender_sk,
+            sender_nonce,
+            small_tx_fee,
+            naka_conf.burnchain.chain_id,
+            &deployer_addr,
+            "small-contract",
+            "big-tx",
+            &[],
+        );
+        submit_tx(&http_origin, &contract_tx);
+        sender_nonce
+    };
+    info!("----- Mining BTC block -----");
+    let blocks_before = mined_blocks.load(Ordering::SeqCst);
+    let blocks_processed_before = coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .get_stacks_blocks_processed();
+    let commits_before = commits_submitted.load(Ordering::SeqCst);
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        Ok(blocks_count > blocks_before
+            && blocks_processed > blocks_processed_before
+            && commits_submitted.load(Ordering::SeqCst) > commits_before)
+    })
+    .unwrap();
+
+    // First, lets deploy the contracts
+    info!("----- Waiting for deploy txs to be mined -----");
+    // Pause mining so we can add both transactions to the mempool at once.
+    fault_injection_stall_miner();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let small_contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        small_deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "small-contract",
+        &small_contract,
+    );
+    submit_tx(&http_origin, &small_contract_tx);
+    let deployer_nonce = get_and_increment_nonce(&deployer_sk, &mut sender_nonces);
+    let large_contract_tx = make_contract_publish(
+        &deployer_sk,
+        deployer_nonce,
+        large_deploy_fee,
+        naka_conf.burnchain.chain_id,
+        "big-contract",
+        &large_contract,
+    );
+    submit_tx(&http_origin, &large_contract_tx);
+    fault_injection_unstall_miner();
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        Ok(cur_sender_nonce > deployer_nonce
+            && test_observer::get_mined_nakamoto_blocks().len() > mined_before.len())
+    })
+    .expect("Failed to publish contracts");
+
+    // Second, lets call the contracts so the miner has an accurate estimate of their costs for subsequent block building
+    info!("----- Mining initial contract calls -----");
+    // Pause mining so we can add both transactions to the mempool at once.
+    fault_injection_stall_miner();
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
+    let _ = call_small(&deployer_sk, &mut sender_nonces);
+    let nonce = call_large(&deployer_sk, &mut sender_nonces);
+
+    fault_injection_unstall_miner();
+    wait_for(30, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&deployer_sk)).nonce;
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(cur_sender_nonce > nonce
+            && mined_after.len() > mined_before.len()
+            && blocks_after.len() > blocks_before.len()
+            && get_chain_info(&naka_conf).stacks_tip_height > stacks_height)
+    })
+    .expect("Failed to mine initial contract calls");
+
+    info!("----- Mining BTC block to reset tenure limits -----");
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let stacks_height = get_chain_info(&naka_conf).stacks_tip_height;
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let blocks_after = test_observer::get_blocks();
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        Ok(blocks_after.len() > blocks_before.len()
+            && mined_after.len() > mined_before.len()
+            && get_chain_info(&naka_conf).stacks_tip_height > stacks_height)
+    })
+    .unwrap();
+
+    // Pause mining so we can add all our transactions to the mempool at once.
+    fault_injection_stall_miner();
+    info!("----- Submitting contract call txs -----");
+    // Make note of how much we mined prior to the contract call txs
+    let blocks_before = test_observer::get_blocks();
+    let mined_before = test_observer::get_mined_nakamoto_blocks();
+    let recipient = StacksAddress::p2pkh(
+        false,
+        &StacksPublicKey::from_private(&StacksPrivateKey::random()),
+    );
+    // Lets also submit a ton of transfers to fill up the rest of the block once we hit the limit
+    for (sender_i, sender_sk) in sender_sks.iter().enumerate() {
+        // Only send a large tx call for the first few senders
+        if sender_i < nmb_large_tx_senders {
+            call_large(sender_sk, &mut sender_nonces);
+        };
+        // Only have some transfers blocked by small tx calls to ensure we can mine transfers once the limit is reached
+        if sender_i < nmb_small_tx_senders {
+            call_small(sender_sk, &mut sender_nonces);
+        }
+        // Also fill up the mempool with a bunch of transfers
+        let sender_nonce = get_and_increment_nonce(sender_sk, &mut sender_nonces);
+        let transfer_tx = make_stacks_transfer_serialized(
+            &sender_sk,
+            sender_nonce,
+            send_fee,
+            naka_conf.burnchain.chain_id,
+            &recipient.clone().into(),
+            send_amt,
+        );
+        submit_tx(&http_origin, &transfer_tx);
+    }
+
+    info!("----- Mining contract call txs -----");
+    fault_injection_unstall_miner();
+    // We expect at least 4 large contract calls, followed by no small contract calls as we will have switched to only transfers after that point
+    // All transfers that can get mined should be (i.e. any that are not blocked by the unmined large/small contract calls)
+    let mut nmb_big = 0;
+    let mut nmb_transfers = 0;
+    let expected_transfers = num_senders - nmb_small_tx_senders;
+    wait_for(120, || {
+        let mined_after = test_observer::get_mined_nakamoto_blocks();
+        let mined_blocks: Vec<_> = mined_after.iter().skip(mined_before.len()).collect();
+        let total_nmb_txs = mined_blocks
+            .iter()
+            .map(|b| b.tx_events.len())
+            .sum::<usize>();
+        let nmb_mined_blocks = mined_blocks.len();
+        let blocks_after = test_observer::get_blocks();
+        let blocks: Vec<_> = blocks_after.iter().skip(blocks_before.len()).collect();
+        nmb_big = 0;
+        nmb_transfers = 0;
+        debug!(
+            "Mined a total of {total_nmb_txs} transactions across {nmb_mined_blocks} mined blocks"
+        );
+        if total_nmb_txs < expected_big + expected_transfers {
+            return Ok(false);
+        }
+        for (i, block) in blocks.into_iter().enumerate() {
+            let block: StacksBlockEvent = serde_json::from_value(block.clone()).unwrap();
+            info!("block {i} contains {:?} transactions", block.transactions.len());
+            for tx in block.transactions.iter() {
+                match &tx.payload {
+                    TransactionPayload::ContractCall(TransactionContractCall {
+                        contract_name,
+                        ..
+                    }) => match contract_name.to_string().as_str() {
+                        "small-contract" => {
+                            panic!("We expected no small contract calls to get mined");
+                        }
+                        "big-contract" => {
+                            nmb_big += 1;
+                        }
+                        _ => panic!("Unexpected contract call to {contract_name}"),
+                    },
+                    TransactionPayload::TokenTransfer(..) => {
+                        assert!(nmb_big >= expected_big, "We should only mine token transfers after mining all the contract calls");
+                        nmb_transfers += 1;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(nmb_big >= expected_big && nmb_transfers >= expected_transfers)
+    })
+    .expect("Failed to find the expected contract calls");
+
+    assert_eq!(nmb_big, expected_big);
+    assert_eq!(nmb_transfers, expected_transfers);
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Verify the block timestamp using `block-time`.
+fn check_block_time_keyword() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let send_amt = 100;
+    let send_fee = 180;
+    let deploy_fee = 3000;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        3 * deploy_fee + (send_amt + send_fee) * 12,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let mut sender_nonce = 0;
+    let contract_name = "test-contract";
+    let contract = r#"
+(define-constant deploy-time block-time)
+(define-constant deploy-height stacks-block-height)
+(define-read-only (get-current-time)
+  block-time
+)
+(define-read-only (get-ihh (height uint)) (get-stacks-block-info? id-header-hash height))
+(define-read-only (get-time (height uint)) (get-stacks-block-info? time height))
+(define-read-only (get-height) stacks-block-height)
+(define-read-only (get-previous-time (height uint))
+  (ok (at-block (unwrap! (get-stacks-block-info? id-header-hash height) (err u100))
+    block-time
+  ))
+)
+(define-public (get-current-time-call)
+  (ok block-time)
+)
+(define-public (get-previous-time-call (height uint))
+  (ok (at-block (unwrap! (get-stacks-block-info? id-header-hash height) (err u100))
+    block-time
+  ))
+)
+"#;
+
+    let contract_tx = make_contract_publish_versioned(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        contract_name,
+        contract,
+        Some(ClarityVersion::Clarity4),
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &contract_tx);
+
+    let mut stacks_block_height = 0;
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+        Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        .unwrap();
+
+    let deploy_time_value = get_constant(&naka_conf, &sender_addr, contract_name, "deploy-time");
+    let deploy_time = deploy_time_value.clone().expect_u128().unwrap();
+    let deploy_height = get_constant(&naka_conf, &sender_addr, contract_name, "deploy-height");
+
+    let current_time_value = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract_name,
+        "get-current-time",
+        vec![],
+    )
+    .result()
+    .unwrap();
+    info!("Current time: {current_time_value}");
+    let current_time = current_time_value.expect_u128().unwrap();
+    assert!(
+        current_time > deploy_time,
+        "block-time should be greater than the time at deployment"
+    );
+
+    let previous_time_result = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract_name,
+        "get-previous-time",
+        vec![&deploy_height],
+    )
+    .result()
+    .unwrap();
+    let previous_time_value = previous_time_result.expect_result_ok().unwrap();
+    info!("Previous time: {previous_time_value}");
+    assert_eq!(
+        previous_time_value, deploy_time_value,
+        "get-previous-time should be the same as at deployment"
+    );
+
+    test_observer::clear();
+
+    let last_time_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "get-current-time-call",
+        &[],
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &last_time_tx);
+
+    let prev_time_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "get-previous-time-call",
+        &[deploy_height],
+    );
+    sender_nonce += 1;
+    submit_tx(&http_origin, &prev_time_tx);
+
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        Ok(cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contract calls");
+
+    let blocks = test_observer::get_blocks();
+    info!("Blocks: {:?}", blocks);
+    for block in blocks.iter() {
+        for tx in block.get("transactions").unwrap().as_array().unwrap() {
+            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
+            if raw_tx == "0x00" {
+                continue;
+            }
+            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
+            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            if let TransactionPayload::ContractCall(contract_call) = parsed.payload {
+                eprintln!("{}", contract_call.function_name.as_str());
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                let time = parsed.expect_result_ok().unwrap().expect_u128().unwrap();
+                match contract_call.function_name.as_str() {
+                    "get-current-time-call" => {
+                        info!("Current time: {}", time);
+                        assert!(time > current_time, "block-time should have advanced");
+                    }
+                    "get-previous-time-call" => {
+                        info!("Previous time: {}", time);
+                        assert_eq!(
+                            time, deploy_time,
+                            "block-time should be the same as at deployment"
+                        );
+                    }
+                    _ => panic!("Unexpected contract call"),
+                }
+            }
+        }
+    }
+
+    // Attempting to get block time for an pre-3.3 block should cause an error
+    let err = call_read_only(
+        &naka_conf,
+        &sender_addr,
+        contract_name,
+        "get-previous-time",
+        vec![&Value::UInt(1)],
+    )
+    .result()
+    .expect_err("Expected error, got ");
+    info!("Invalid time: {err}");
+    assert!(err.starts_with("BlockTimeNotAvailable"));
 
     coord_channel
         .lock()

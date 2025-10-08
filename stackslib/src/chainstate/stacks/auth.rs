@@ -294,7 +294,7 @@ impl MultisigSpendingCondition {
             net_error::VerifyingError("Failed to generate address from public keys".to_string())
         })?;
 
-        if *addr.bytes() != self.signer {
+        if addr.bytes() != &self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
@@ -483,7 +483,7 @@ impl OrderIndependentMultisigSpendingCondition {
             net_error::VerifyingError("Failed to generate address from public keys".to_string())
         })?;
 
-        if *addr.bytes() != self.signer {
+        if addr.bytes() != &self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
@@ -501,7 +501,7 @@ impl StacksMessageCodec for SinglesigSpendingCondition {
         write_next(fd, &self.signer)?;
         write_next(fd, &self.nonce)?;
         write_next(fd, &self.tx_fee)?;
-        write_next(fd, &(self.key_encoding.clone() as u8))?;
+        write_next(fd, &(self.key_encoding as u8))?;
         write_next(fd, &self.signature)?;
         Ok(())
     }
@@ -563,10 +563,7 @@ impl SinglesigSpendingCondition {
         let ret = self.signature.clone();
         self.signature = MessageSignature::empty();
 
-        return Some(TransactionAuthField::Signature(
-            self.key_encoding.clone(),
-            ret,
-        ));
+        return Some(TransactionAuthField::Signature(self.key_encoding, ret));
     }
 
     pub fn address_mainnet(&self) -> StacksAddress {
@@ -615,7 +612,7 @@ impl SinglesigSpendingCondition {
             net_error::VerifyingError("Failed to generate address from public key".to_string())
         })?;
 
-        if *addr.bytes() != self.signer {
+        if addr.bytes() != &self.signer {
             return Err(net_error::VerifyingError(format!(
                 "Signer hash does not equal hash of public key(s): {} != {}",
                 addr.bytes(),
@@ -2396,33 +2393,34 @@ mod test {
         tx_auth_check_all_epochs(auth_p2wpkh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2wpkh, None);
 
-        let auth_p2sh = TransactionAuth::from_p2sh(&[privk_1, privk_2], 2).unwrap();
+        let privks = [privk_1.clone(), privk_2.clone()];
+        let auth_p2sh = TransactionAuth::from_p2sh(&privks, 2).unwrap();
         let auth_sponsored_p2sh = auth_p2sh.clone().into_sponsored(
-            TransactionAuth::from_p2sh(&[privk_1, privk_2], 2).unwrap()
+            TransactionAuth::from_p2sh(&privks, 2).unwrap()
         ).unwrap();
 
         tx_auth_check_all_epochs(auth_p2sh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2sh, None);
 
-        let auth_p2wsh = TransactionAuth::from_p2wsh(&[privk_1, privk_2], 2).unwrap();
+        let auth_p2wsh = TransactionAuth::from_p2wsh(&privks, 2).unwrap();
         let auth_sponsored_p2wsh = auth_p2wsh.clone().into_sponsored(
-            TransactionAuth::from_p2wsh(&[privk_1, privk_2], 2).unwrap()
+            TransactionAuth::from_p2wsh(&privks, 2).unwrap()
         ).unwrap();
 
         tx_auth_check_all_epochs(auth_p2wsh, None);
         tx_auth_check_all_epochs(auth_sponsored_p2wsh, None);
 
-        let auth_order_independent_p2sh = TransactionAuth::from_order_independent_p2sh(&[privk_1, privk_2], 2).unwrap();
+        let auth_order_independent_p2sh = TransactionAuth::from_order_independent_p2sh(&privks, 2).unwrap();
         let auth_sponsored_order_independent_p2sh = auth_order_independent_p2sh.clone().into_sponsored(
-            TransactionAuth::from_order_independent_p2sh(&[privk_1, privk_2], 2).unwrap()
+            TransactionAuth::from_order_independent_p2sh(&privks, 2).unwrap()
         ).unwrap();
 
         tx_auth_check_all_epochs(auth_order_independent_p2sh, Some(StacksEpochId::Epoch30));
         tx_auth_check_all_epochs(auth_sponsored_order_independent_p2sh, Some(StacksEpochId::Epoch30));
 
-        let auth_order_independent_p2wsh = TransactionAuth::from_order_independent_p2wsh(&[privk_1, privk_2], 2).unwrap();
+        let auth_order_independent_p2wsh = TransactionAuth::from_order_independent_p2wsh(&privks, 2).unwrap();
         let auth_sponsored_order_independent_p2wsh = auth_order_independent_p2wsh.clone().into_sponsored(
-            TransactionAuth::from_order_independent_p2wsh(&[privk_1, privk_2], 2).unwrap()
+            TransactionAuth::from_order_independent_p2wsh(&privks, 2).unwrap()
         ).unwrap();
 
         tx_auth_check_all_epochs(auth_order_independent_p2wsh, Some(StacksEpochId::Epoch30));

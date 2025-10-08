@@ -503,6 +503,9 @@ impl StackerDBListener {
                     SignerMessageV0::StateMachineUpdate(update) => {
                         self.update_global_state_evaluator(&signer_pubkey, update);
                     }
+                    SignerMessageV0::BlockPreCommit(_) => {
+                        debug!("Received block pre-commit message. Ignoring.");
+                    }
                 };
             }
         }
@@ -665,7 +668,7 @@ impl StackerDBListenerComms {
 
     /// Get the global state if there is one
     pub fn get_signer_global_state(&self) -> Option<SignerStateMachine> {
-        let mut eval = self
+        let eval = self
             .global_state_evaluator
             .lock()
             .expect("FATAL: failed to lock global state evaluator");

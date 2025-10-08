@@ -21,7 +21,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrors, Error,
-    InterpreterResult as Result, ShortReturnType,
+    InterpreterResult as Result, ShortReturnType, SyntaxBindingError, SyntaxBindingErrorType,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -58,6 +58,8 @@ macro_rules! switch_on_global_epoch {
                 StacksEpochId::Epoch31 => $Epoch205Version(args, env, context),
                 // Note: We reuse 2.05 for 3.2.
                 StacksEpochId::Epoch32 => $Epoch205Version(args, env, context),
+                // Note: We reuse 2.05 for 3.3.
+                StacksEpochId::Epoch33 => $Epoch205Version(args, env, context),
             }
         }
     };
@@ -189,6 +191,8 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     ReplaceAt("replace-at?", ClarityVersion::Clarity2, None),
     GetStacksBlockInfo("get-stacks-block-info?", ClarityVersion::Clarity3, None),
     GetTenureInfo("get-tenure-info?", ClarityVersion::Clarity3, None),
+    ContractHash("contract-hash?", ClarityVersion::Clarity4, None),
+    ToAscii("to-ascii?", ClarityVersion::Clarity4, None),
 });
 
 ///
@@ -557,6 +561,10 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 NativeHandle::MoreArg(&arithmetic::native_bitwise_xor),
                 ClarityCostFunction::Xor,
             ),
+            ContractHash => {
+                SpecialFunction("special_contract_hash", &database::special_contract_hash)
+            }
+            ToAscii => SpecialFunction("special_to_ascii", &conversions::special_to_ascii),
         };
         Some(callable)
     } else {
@@ -634,7 +642,11 @@ fn special_if(
                 eval(&args[2], env, context)
             }
         }
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into()),
+        _ => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BoolType),
+            Box::new(conditional),
+        )
+        .into()),
     }
 }
 
@@ -655,29 +667,46 @@ fn special_asserts(
                 Ok(conditional)
             } else {
                 let thrown = eval(&args[1], env, context)?;
-                Err(ShortReturnType::AssertionFailed(thrown).into())
+                Err(ShortReturnType::AssertionFailed(Box::new(thrown)).into())
             }
         }
-        _ => Err(CheckErrors::TypeValueError(TypeSignature::BoolType, conditional).into()),
+        _ => Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BoolType),
+            Box::new(conditional),
+        )
+        .into()),
     }
 }
 
 pub fn handle_binding_list<F, E>(
     bindings: &[SymbolicExpression],
+    binding_error_type: SyntaxBindingErrorType,
     mut handler: F,
 ) -> std::result::Result<(), E>
 where
     F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
-    E: From<CheckErrors>,
+    E: for<'a> From<(CheckErrors, &'a SymbolicExpression)>,
 {
-    for binding in bindings.iter() {
-        let binding_expression = binding.match_list().ok_or(CheckErrors::BadSyntaxBinding)?;
+    for (i, binding) in bindings.iter().enumerate() {
+        let binding_expression = binding.match_list().ok_or_else(|| {
+            (
+                SyntaxBindingError::NotList(binding_error_type, i).into(),
+                binding,
+            )
+        })?;
         if binding_expression.len() != 2 {
-            return Err(CheckErrors::BadSyntaxBinding.into());
+            return Err((
+                SyntaxBindingError::InvalidLength(binding_error_type, i).into(),
+                binding,
+            )
+                .into());
         }
-        let var_name = binding_expression[0]
-            .match_atom()
-            .ok_or(CheckErrors::BadSyntaxBinding)?;
+        let var_name = binding_expression[0].match_atom().ok_or_else(|| {
+            (
+                SyntaxBindingError::NotAtom(binding_error_type, i).into(),
+                &binding_expression[0],
+            )
+        })?;
         let var_sexp = &binding_expression[1];
 
         handler(var_name, var_sexp)?;
@@ -687,11 +716,12 @@ where
 
 pub fn parse_eval_bindings(
     bindings: &[SymbolicExpression],
+    binding_error_type: SyntaxBindingErrorType,
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Vec<(ClarityName, Value)>> {
     let mut result = Vec::with_capacity(bindings.len());
-    handle_binding_list(bindings, |var_name, var_sexp| {
+    handle_binding_list(bindings, binding_error_type, |var_name, var_sexp| {
         eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
     })?;
 
@@ -719,7 +749,7 @@ fn special_let(
     let mut memory_use = 0;
 
     finally_drop_memory!( env, memory_use; {
-        handle_binding_list::<_, Error>(bindings, |binding_name, var_sexp| {
+        handle_binding_list::<_, Error>(bindings, SyntaxBindingErrorType::Let, |binding_name, var_sexp| {
             if is_reserved(binding_name, env.contract_context.get_clarity_version()) ||
                 env.contract_context.lookup_function(binding_name).is_some() ||
                 inner_context.lookup_variable(binding_name).is_some() {

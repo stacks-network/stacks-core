@@ -35,7 +35,7 @@ use stacks::net::atlas::{AtlasConfig, AtlasDB, AttachmentInstance};
 use stacks::net::db::PeerDB;
 use stacks::net::p2p::PeerNetwork;
 use stacks::net::stackerdb::StackerDBs;
-use stacks::net::{Error as NetError, RPCHandlerArgs};
+use stacks::net::RPCHandlerArgs;
 use stacks::util_lib::strings::UrlString;
 use stacks_common::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, TrieHash, VRFSeed};
 use stacks_common::types::net::PeerAddress;
@@ -166,7 +166,7 @@ fn spawn_peer(
     genesis_chainstate_hash: Sha256Sum,
     poll_timeout: u64,
     config: Config,
-) -> Result<JoinHandle<()>, NetError> {
+) -> JoinHandle<()> {
     this.bind(p2p_sock, rpc_sock).unwrap();
     let server_thread = thread::spawn(move || {
         // create estimators, metric instances for RPC handler
@@ -253,7 +253,7 @@ fn spawn_peer(
             }
         }
     });
-    Ok(server_thread)
+    server_thread
 }
 
 // Check if the small test genesis chainstate data should be used.
@@ -523,8 +523,7 @@ impl Node {
             Sha256Sum::from_hex(stx_genesis::GENESIS_CHAINSTATE_HASH).unwrap(),
             1000,
             self.config.clone(),
-        )
-        .unwrap();
+        );
 
         info!("Start HTTP server on: {}", &self.config.node.rpc_bind);
         info!("Start P2P server on: {}", &self.config.node.p2p_bind);
@@ -557,7 +556,7 @@ impl Node {
                 .expect("FATAL: failed to read sortition DB")
                 .expect("FATAL: no epoch defined");
 
-        let key_reg_op = self.generate_leader_key_register_op(vrf_pk, &consensus_hash);
+        let key_reg_op = self.generate_leader_key_register_op(vrf_pk, consensus_hash);
         let mut op_signer = self.keychain.generate_op_signer();
         let key_txid = burnchain_controller
             .submit_operation(cur_epoch.epoch_id, key_reg_op, &mut op_signer)
@@ -840,22 +839,13 @@ impl Node {
             parent_consensus_hash
         };
 
-        let burnchain = self.config.get_burnchain();
-        let burnchain_db =
-            BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true)
-                .expect("FATAL: failed to connect to burnchain DB");
-
         let atlas_config = Self::make_atlas_config();
         let mut processed_blocks = vec![];
         loop {
             let mut process_blocks_at_tip = {
                 let tx = db.tx_begin_at_tip();
-                self.chain_state.process_blocks(
-                    burnchain_db.conn(),
-                    tx,
-                    1,
-                    Some(&self.event_dispatcher),
-                )
+                self.chain_state
+                    .process_blocks(tx, 1, Some(&self.event_dispatcher))
             };
             match process_blocks_at_tip {
                 Err(e) => panic!("Error while processing block - {e:?}"),
@@ -988,7 +978,7 @@ impl Node {
     fn generate_leader_key_register_op(
         &mut self,
         vrf_public_key: VRFPublicKey,
-        consensus_hash: &ConsensusHash,
+        consensus_hash: ConsensusHash,
     ) -> BlockstackOperationType {
         let mut txid_bytes = [0u8; 32];
         let mut rng = rand::thread_rng();
@@ -998,7 +988,7 @@ impl Node {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
             memo: vec![],
-            consensus_hash: *consensus_hash,
+            consensus_hash,
             vtxindex: 1,
             txid,
             block_height: 0,

@@ -16,16 +16,15 @@
 
 use stacks_common::types::StacksEpochId;
 
-use super::{
-    check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypeResult, TypingContext,
-};
-use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use super::{check_argument_count, check_arguments_at_least, no_type, TypeChecker, TypingContext};
+use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingErrorType};
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
+use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::{
     BlockInfoProperty, FixedFunction, FunctionArg, FunctionSignature, FunctionType, PrincipalData,
-    TupleTypeSignature, TypeSignature, Value, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
+    TupleTypeSignature, TypeSignature, Value,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -40,8 +39,13 @@ pub enum TypedNativeFunction {
     Simple(SimpleNativeFunction),
 }
 
+#[allow(clippy::type_complexity)]
 pub struct SpecialNativeFunction(
-    &'static dyn Fn(&mut TypeChecker, &[SymbolicExpression], &TypingContext) -> TypeResult,
+    &'static dyn Fn(
+        &mut TypeChecker,
+        &[SymbolicExpression],
+        &TypingContext,
+    ) -> Result<TypeSignature, CheckError>,
 );
 pub struct SimpleNativeFunction(pub FunctionType);
 
@@ -49,7 +53,7 @@ fn check_special_list_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     let typed_args = checker.type_check_all(args, context)?;
     for type_arg in typed_args.iter() {
         runtime_cost(
@@ -58,16 +62,15 @@ fn check_special_list_cons(
             type_arg.type_size()?,
         )?;
     }
-    TypeSignature::parent_list_type(&typed_args)
-        .map_err(|x| x.into())
-        .map(TypeSignature::from)
+    let list_type = TypeSignature::parent_list_type(&typed_args)?;
+    Ok(TypeSignature::from(list_type))
 }
 
 fn check_special_print(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
 }
@@ -76,7 +79,7 @@ fn check_special_as_contract(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
     checker.type_check(&args[0], context)
 }
@@ -85,9 +88,9 @@ fn check_special_at_block(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check(&args[1], context)
 }
 
@@ -95,7 +98,7 @@ fn check_special_begin(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(1, args)?;
 
     checker.type_check_consecutive_statements(args, context)
@@ -105,7 +108,7 @@ fn inner_handle_tuple_get(
     tuple_type_sig: &TupleTypeSignature,
     field_to_get: &str,
     checker: &mut TypeChecker,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleGet,
         checker,
@@ -126,7 +129,7 @@ fn check_special_get(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let field_to_get = args[0].match_atom().ok_or(CheckErrors::BadTupleFieldName)?;
@@ -141,10 +144,10 @@ fn check_special_get(
             let option_type = TypeSignature::new_option(inner_type)?;
             Ok(option_type)
         } else {
-            Err(CheckErrors::ExpectedTuple(*value_type_sig).into())
+            Err(CheckErrors::ExpectedTuple(value_type_sig).into())
         }
     } else {
-        Err(CheckErrors::ExpectedTuple(argument_type).into())
+        Err(CheckErrors::ExpectedTuple(Box::new(argument_type)).into())
     }
 }
 
@@ -152,19 +155,19 @@ fn check_special_merge(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
 
     let res = checker.type_check(&args[0], context)?;
     let mut base = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
-        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+        _ => Err(CheckErrors::ExpectedTuple(Box::new(res.clone()))),
     }?;
 
     let res = checker.type_check(&args[1], context)?;
     let mut update = match res {
         TypeSignature::TupleType(tuple_sig) => Ok(tuple_sig),
-        _ => Err(CheckErrors::ExpectedTuple(res.clone())),
+        _ => Err(CheckErrors::ExpectedTuple(Box::new(res.clone()))),
     }?;
     runtime_cost(
         ClarityCostFunction::AnalysisCheckTupleMerge,
@@ -180,7 +183,7 @@ pub fn check_special_tuple_cons(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(1, args)?;
     let len = args.len();
 
@@ -188,20 +191,24 @@ pub fn check_special_tuple_cons(
 
     let mut tuple_type_data = Vec::with_capacity(len);
 
-    handle_binding_list(args, |var_name, var_sexp| {
-        checker.type_check(var_sexp, context).and_then(|var_type| {
-            runtime_cost(
-                ClarityCostFunction::AnalysisTupleItemsCheck,
-                checker,
-                var_type.type_size()?,
-            )?;
-            tuple_type_data.push((var_name.clone(), var_type));
-            Ok(())
-        })
-    })?;
+    handle_binding_list(
+        args,
+        SyntaxBindingErrorType::TupleCons,
+        |var_name, var_sexp| {
+            checker.type_check(var_sexp, context).and_then(|var_type| {
+                runtime_cost(
+                    ClarityCostFunction::AnalysisTupleItemsCheck,
+                    checker,
+                    var_type.type_size()?,
+                )?;
+                tuple_type_data.push((var_name.clone(), var_type));
+                Ok(())
+            })
+        },
+    )?;
 
     let tuple_signature = TupleTypeSignature::try_from(tuple_type_data)
-        .map_err(|_e| CheckErrors::BadTupleConstruction)?;
+        .map_err(|e| CheckErrors::BadTupleConstruction(e.message()))?;
 
     Ok(TypeSignature::TupleType(tuple_signature))
 }
@@ -210,7 +217,7 @@ fn check_special_let(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
     let binding_list = args[0]
@@ -221,26 +228,30 @@ fn check_special_let(
 
     runtime_cost(ClarityCostFunction::AnalysisCheckLet, checker, args.len())?;
 
-    handle_binding_list(binding_list, |var_name, var_sexp| {
-        checker.contract_context.check_name_used(var_name)?;
-        if out_context.lookup_variable_type(var_name).is_some() {
-            return Err(CheckError::new(CheckErrors::NameAlreadyUsed(
-                var_name.to_string(),
-            )));
-        }
+    handle_binding_list(
+        binding_list,
+        SyntaxBindingErrorType::Let,
+        |var_name, var_sexp| {
+            checker.contract_context.check_name_used(var_name)?;
+            if out_context.lookup_variable_type(var_name).is_some() {
+                return Err(CheckError::new(CheckErrors::NameAlreadyUsed(
+                    var_name.to_string(),
+                )));
+            }
 
-        let typed_result = checker.type_check(var_sexp, &out_context)?;
+            let typed_result = checker.type_check(var_sexp, &out_context)?;
 
-        runtime_cost(
-            ClarityCostFunction::AnalysisBindName,
-            checker,
-            typed_result.type_size()?,
-        )?;
-        out_context
-            .variable_types
-            .insert(var_name.clone(), typed_result);
-        Ok(())
-    })?;
+            runtime_cost(
+                ClarityCostFunction::AnalysisBindName,
+                checker,
+                typed_result.type_size()?,
+            )?;
+            out_context
+                .variable_types
+                .insert(var_name.clone(), typed_result);
+            Ok(())
+        },
+    )?;
 
     checker.type_check_consecutive_statements(&args[1..args.len()], &out_context)
 }
@@ -249,7 +260,7 @@ fn check_special_fetch_var(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     _context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let var_name = args[0]
@@ -276,7 +287,7 @@ fn check_special_set_var(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
@@ -297,8 +308,8 @@ fn check_special_set_var(
 
     if !expected_value_type.admits_type(&StacksEpochId::Epoch2_05, &value_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_value_type.clone(),
-            value_type,
+            Box::new(expected_value_type.clone()),
+            Box::new(value_type),
         )))
     } else {
         Ok(TypeSignature::BoolType)
@@ -309,7 +320,7 @@ fn check_special_equals(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(1, args)?;
 
     let arg_types = checker.type_check_all(args, context)?;
@@ -318,7 +329,7 @@ fn check_special_equals(
     for x_type in arg_types.into_iter() {
         analysis_typecheck_cost(checker, &x_type, &arg_type)?;
         arg_type = TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, &x_type, &arg_type)
-            .map_err(|_| CheckErrors::TypeError(x_type, arg_type))?;
+            .map_err(|_| CheckErrors::TypeError(Box::new(x_type), Box::new(arg_type)))?;
     }
 
     Ok(TypeSignature::BoolType)
@@ -328,7 +339,7 @@ fn check_special_if(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(3, args)?;
 
     checker.type_check_expects(&args[0], context, &TypeSignature::BoolType)?;
@@ -340,15 +351,16 @@ fn check_special_if(
 
     analysis_typecheck_cost(checker, expr1, expr2)?;
 
-    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, expr1, expr2)
-        .map_err(|_| CheckErrors::IfArmsMustMatch(expr1.clone(), expr2.clone()).into())
+    TypeSignature::least_supertype(&StacksEpochId::Epoch2_05, expr1, expr2).map_err(|_| {
+        CheckErrors::IfArmsMustMatch(Box::new(expr1.clone()), Box::new(expr2.clone())).into()
+    })
 }
 
 fn check_contract_call(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
     let func_name = args[1]
@@ -401,7 +413,7 @@ fn check_contract_call(
                 _ => {
                     return Err(
                         CheckErrors::TraitReferenceUnknown(trait_instance.to_string()).into(),
-                    )
+                    );
                 }
             };
 
@@ -441,7 +453,7 @@ fn check_contract_of(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
 
     let trait_instance = match &args[0].expr {
@@ -468,9 +480,9 @@ fn check_principal_of(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(1, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_33)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
     Ok(
         TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType)
             .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
@@ -481,12 +493,12 @@ fn check_secp256k1_recover(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(2, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
-    checker.type_check_expects(&args[1], context, &BUFF_65)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
     Ok(
-        TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType)
+        TypeSignature::new_response(TypeSignature::BUFFER_33, TypeSignature::UIntType)
             .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
     )
 }
@@ -495,11 +507,11 @@ fn check_secp256k1_verify(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_argument_count(3, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
-    checker.type_check_expects(&args[1], context, &BUFF_65)?;
-    checker.type_check_expects(&args[2], context, &BUFF_33)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
+    checker.type_check_expects(&args[2], context, &TypeSignature::BUFFER_33)?;
     Ok(TypeSignature::BoolType)
 }
 
@@ -507,7 +519,7 @@ fn check_get_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
     let block_info_prop_str = args[0]
@@ -533,7 +545,7 @@ impl TypedNativeFunction {
         checker: &mut TypeChecker,
         args: &[SymbolicExpression],
         context: &TypingContext,
-    ) -> TypeResult {
+    ) -> Result<TypeSignature, CheckError> {
         use self::TypedNativeFunction::{Simple, Special};
         match self {
             Special(SpecialNativeFunction(check)) => check(checker, args, context),
@@ -598,43 +610,43 @@ impl TypedNativeFunction {
             }))),
             Hash160 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_20.clone(),
+                TypeSignature::BUFFER_20,
             ))),
             Sha256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Sha512Trunc256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Sha512 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_64.clone(),
+                TypeSignature::BUFFER_64,
             ))),
             Keccak256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Secp256k1Recover => Special(SpecialNativeFunction(&check_secp256k1_recover)),
             Secp256k1Verify => Special(SpecialNativeFunction(&check_secp256k1_verify)),
@@ -770,10 +782,10 @@ impl TypedNativeFunction {
             | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
             | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
             | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo => {
+            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash | ToAscii => {
                 return Err(CheckErrors::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
-                ))
+                ));
             }
         };
 

@@ -50,7 +50,7 @@ macro_rules! define_named_enum {
         }
     ) => {
         $(#[$enum_meta])*
-        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Copy, Clone)]
+        #[derive(::serde::Serialize, ::serde::Deserialize, Debug, Hash, PartialEq, Eq, Clone)]
         pub enum $Name {
             $(
                 $(#[$variant_meta])*
@@ -427,13 +427,11 @@ macro_rules! impl_array_newtype {
         }
 
         impl Clone for $thing {
-            #[inline]
-            fn clone(&self) -> $thing {
-                *self
+            #[allow(clippy::non_canonical_clone_impl)]
+            fn clone(&self) -> Self {
+                $thing(self.0.clone())
             }
         }
-
-        impl Copy for $thing {}
 
         impl ::std::hash::Hash for $thing {
             #[inline]

@@ -28,7 +28,8 @@ use crate::monitoring;
 use crate::net::connection::{ConnectionHttp, ConnectionOptions, ReplyHandleHttp};
 use crate::net::http::HttpResponseContents;
 use crate::net::httpcore::{
-    StacksHttp, StacksHttpMessage, StacksHttpRequest, StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
+    HttpPreambleExtensions as _, StacksHttp, StacksHttpMessage, StacksHttpRequest,
+    StacksHttpResponse, HTTP_REQUEST_ID_RESERVED,
 };
 use crate::net::{Error as net_error, StacksMessageType, StacksNodeState};
 use crate::util_lib::strings::UrlString;
@@ -60,8 +61,6 @@ pub struct ConversationHttp {
     last_response_timestamp: u64,
     /// absolute time when this conversation was instantiated
     connection_time: u64,
-    /// stacks canonical chain tip that this peer reported
-    canonical_stacks_tip_height: Option<u32>,
     /// Ongoing replies
     reply_streams: VecDeque<(ReplyHandleHttp, HttpResponseContents, bool)>,
     /// outstanding request
@@ -105,7 +104,7 @@ impl ConversationHttp {
         conn_id: usize,
         socket_send_buffer_size: u32,
     ) -> ConversationHttp {
-        let stacks_http = StacksHttp::new(peer_addr.clone(), conn_opts);
+        let stacks_http = StacksHttp::new(peer_addr, conn_opts);
         ConversationHttp {
             connection: ConnectionHttp::new(stacks_http, conn_opts, None),
             conn_id,
@@ -114,7 +113,6 @@ impl ConversationHttp {
             peer_addr,
             outbound_url,
             peer_host,
-            canonical_stacks_tip_height: None,
             pending_request: None,
             pending_response: None,
             keep_alive: true,
@@ -228,6 +226,12 @@ impl ConversationHttp {
 
         let mut reply = self.connection.make_relay_handle(self.conn_id)?;
         let relay_msg_opt = node.take_relay_message();
+
+        // All successful RPC responses MUST include the canonical stacks tip height header.
+        if response_preamble.is_success() {
+            response_preamble
+                .set_canonical_stacks_tip_height(Some(node.canonical_stacks_tip_height()));
+        }
 
         // make sure content-length is properly set, based on how we're about to stream data back
         response_preamble.content_length = response_body.content_length();
@@ -528,6 +532,10 @@ impl ConversationHttp {
                     info!("Handled StacksHTTPRequest Error"; "path" => %path, "processing_time_ms" => start_time.elapsed().as_millis(), "conn_id" => self.conn_id, "peer_addr" => &self.peer_addr);
                 }
                 StacksHttpMessage::Response(resp) => {
+                    node.update_highest_stacks_neighbor(
+                        &self.get_peer_addr(),
+                        resp.preamble().get_canonical_stacks_tip_height(),
+                    );
                     // Is there someone else waiting for this message?  If so, pass it along.
                     // (this _should_ be our pending_request handle)
                     match self

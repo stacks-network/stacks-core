@@ -23,15 +23,14 @@ use super::test_rpc;
 use crate::net::api::*;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{
-    HttpPreambleExtensions, HttpRequestContentsExtensions, RPCRequestHandler, StacksHttp,
-    StacksHttpRequest,
+    HttpRequestContentsExtensions as _, RPCRequestHandler, StacksHttp, StacksHttpRequest,
 };
 use crate::net::{ProtocolFamily, TipRequest};
 
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let vm_key_epoch = TrieHash::from_key("vm-epoch::epoch-version");
     let vm_key_trip =
@@ -70,7 +69,7 @@ fn test_try_parse_request() {
         let (preamble, contents) = parsed_request.destruct();
 
         // consumed path args
-        assert_eq!(handler.marf_key_hash, Some(key.clone()));
+        assert_eq!(handler.marf_key_hash, Some(key));
 
         assert_eq!(&preamble, request.preamble());
 
@@ -141,11 +140,6 @@ fn test_try_make_response() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
-    );
-
     let resp = response.decode_clarity_marf_response().unwrap();
     assert_eq!(resp.data, "0x0000000000000000000000000000000000");
     assert!(resp.marf_proof.is_some());
@@ -155,11 +149,6 @@ fn test_try_make_response() {
     debug!(
         "Response:\n{}\n",
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
-    );
-
-    assert_eq!(
-        response.preamble().get_canonical_stacks_tip_height(),
-        Some(1)
     );
 
     let resp = response.decode_clarity_marf_response().unwrap();
