@@ -843,7 +843,7 @@ impl NakamotoBlockHeader {
             .map_err(|_| ChainstateError::NoRegisteredSigners(0))?;
 
         // HashMap of <PublicKey, (Signer, Index)>
-        let signers_by_pk: HashMap<_, _> = signers
+        let mut signers_by_pk: HashMap<_, _> = signers
             .iter()
             .enumerate()
             .map(|(i, signer)| (&signer.signing_key, (signer, i)))
@@ -861,7 +861,7 @@ impl NakamotoBlockHeader {
             let mut public_key_bytes = [0u8; 33];
             public_key_bytes.copy_from_slice(&public_key.to_bytes_compressed()[..]);
 
-            let (signer, signer_index) = signers_by_pk.get(&public_key_bytes).ok_or_else(|| {
+            let (signer, signer_index) = signers_by_pk.remove(&public_key_bytes).ok_or_else(|| {
                 warn!(
                     "Found an invalid public key. Reward set has {} signers. Chain length {}. Signatures length {}",
                     signers.len(),
@@ -876,13 +876,13 @@ impl NakamotoBlockHeader {
 
             // Enforce order of signatures
             if let Some(index) = last_index.as_ref() {
-                if *index >= *signer_index {
+                if *index >= signer_index {
                     return Err(ChainstateError::InvalidStacksBlock(
                         "Signatures are out of order".to_string(),
                     ));
                 }
             } else {
-                last_index = Some(*signer_index);
+                last_index = Some(signer_index);
             }
 
             total_weight_signed = total_weight_signed
