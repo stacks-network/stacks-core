@@ -37,7 +37,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "23ecbcb91cac914ba3994a15f3ea7189bcab4e9762530cd0e6c7d237fcd6dc78",
+    marf_hash: "dedba92e27a93c88c9631c2ecad3b191ada28f49b1e9f973b573af0bebf8445e",
     transactions: [],
     total_block_cost: ExecutionCost(
       write_length: 0,
