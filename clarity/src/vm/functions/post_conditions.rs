@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
 
@@ -249,7 +249,7 @@ pub fn special_restrict_assets(
     // If the allowances are violated:
     // - Rollback the context
     // - Return an error with the index of the violated allowance
-    match check_allowances(&asset_owner, &allowances, asset_maps) {
+    match check_allowances(&asset_owner, allowances, asset_maps) {
         Ok(None) => {}
         Ok(Some(violation_index)) => {
             env.global_context.roll_back()?;
@@ -343,7 +343,7 @@ pub fn special_as_contract(
         // If the allowances are violated:
         // - Rollback the context
         // - Return an error with the index of the violated allowance
-        match check_allowances(&contract_principal, &allowances, asset_maps) {
+        match check_allowances(&contract_principal, allowances, asset_maps) {
             Ok(None) => {}
             Ok(Some(violation_index)) => {
                 nested_env.global_context.roll_back()?;
@@ -381,20 +381,25 @@ pub fn special_as_contract(
 /// allowances are satisfied, return `Ok(None)`.
 fn check_allowances(
     owner: &PrincipalData,
-    allowances: &[Allowance],
+    allowances: Vec<Allowance>,
     assets: &AssetMap,
 ) -> InterpreterResult<Option<u128>> {
     // Elements are (index in allowances, amount)
     let mut stx_allowances: Vec<(usize, u128)> = Vec::new();
     // Map assets to a vector of (index in allowances, amount)
-    let mut ft_allowances: HashMap<&AssetIdentifier, Vec<(usize, u128)>> = HashMap::new();
-    // Map assets to a tuple with the first allowance's index and a hashset of
-    // serialized asset identifiers
-    let mut nft_allowances: HashMap<&AssetIdentifier, (usize, HashSet<String>)> = HashMap::new();
+    let mut ft_allowances: HashMap<AssetIdentifier, Vec<(usize, u128)>> = HashMap::new();
+    // Map assets to a tuple with the first allowance's index and a vector of
+    // asset identifiers. We use Vec instead of HashSet because:
+    // 1. Most NFT IDs are simple (`uint`s), making Value::eq() very fast
+    // 2. Linear search through ≤128 items is cache-friendly and fast
+    // 3. Avoids serialization cost during both setup and lookup phases
+    // 4. Simpler implementation with lower memory overhead (no cloning or
+    //    space used for serialization)
+    let mut nft_allowances: HashMap<AssetIdentifier, (usize, Vec<Value>)> = HashMap::new();
     // Elements are (index in allowances, amount)
     let mut stacking_allowances: Vec<(usize, u128)> = Vec::new();
 
-    for (i, allowance) in allowances.iter().enumerate() {
+    for (i, allowance) in allowances.into_iter().enumerate() {
         match allowance {
             Allowance::All => {
                 // any asset movement is allowed
@@ -405,17 +410,15 @@ fn check_allowances(
             }
             Allowance::Ft(ft) => {
                 ft_allowances
-                    .entry(&ft.asset)
+                    .entry(ft.asset)
                     .or_default()
                     .push((i, ft.amount));
             }
             Allowance::Nft(nft) => {
-                let (_, set) = nft_allowances
-                    .entry(&nft.asset)
-                    .or_insert_with(|| (i, HashSet::new()));
-                for id in &nft.asset_ids {
-                    set.insert(id.serialize_to_hex()?);
-                }
+                let (_, vec) = nft_allowances
+                    .entry(nft.asset)
+                    .or_insert_with(|| (i, Vec::new()));
+                vec.extend(nft.asset_ids);
             }
             Allowance::Stacking(stacking) => {
                 stacking_allowances.push((i, stacking.amount));
@@ -495,16 +498,16 @@ fn check_allowances(
     // Check NFT movements
     if let Some(nft_moved) = assets.get_all_nonfungible_tokens(owner) {
         for (asset, ids_moved) in nft_moved {
-            let mut merged: Vec<(usize, HashSet<String>)> = Vec::new();
-            if let Some((index, allowance_map)) = nft_allowances.get(asset) {
-                merged.push((*index, allowance_map.clone()));
+            let mut merged: Vec<(usize, &Vec<Value>)> = Vec::new();
+            if let Some((index, allowance_vec)) = nft_allowances.get(asset) {
+                merged.push((*index, allowance_vec));
             }
 
-            if let Some((index, allowance_map)) = nft_allowances.get(&AssetIdentifier {
+            if let Some((index, allowance_vec)) = nft_allowances.get(&AssetIdentifier {
                 contract_identifier: asset.contract_identifier.clone(),
                 asset_name: "*".into(),
             }) {
-                merged.push((*index, allowance_map.clone()));
+                merged.push((*index, allowance_vec));
             }
 
             if merged.is_empty() {
@@ -515,10 +518,10 @@ fn check_allowances(
             // Sort by allowance index so we check allowances in order
             merged.sort_by_key(|(idx, _)| *idx);
 
-            for (index, allowance_map) in merged {
+            for (index, allowance_vec) in merged {
                 // Check against the NFT allowances
                 for id_moved in ids_moved {
-                    if !allowance_map.contains(&id_moved.serialize_to_hex()?) {
+                    if !allowance_vec.contains(id_moved) {
                         return Ok(Some(u128::try_from(index).map_err(|_| {
                             InterpreterError::Expect("failed to convert index to u128".into())
                         })?));
