@@ -4,6 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
+    marf_hash: "63ea49669d2216ebc7e4f8b5e1cd2c99b8aff9806794adf87dcf709c0a244798",
     transactions: [
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
@@ -54,6 +55,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
+    marf_hash: "7fc538e605a4a353871c4a655ae850fe9a70c3875b65f2bb42ea3bef5effed2c",
     transactions: [
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
@@ -104,6 +106,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
+    marf_hash: "4d5c9a6d07806ac5006137de22b083de66fff7119143dd5cd92e4a457d66e028",
     transactions: [
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
@@ -154,6 +157,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
+    marf_hash: "66eed8c0ab31db111a5adcc83d38a7004c6e464e3b9fb9f52ec589bc6d5f2d32",
     transactions: [
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
