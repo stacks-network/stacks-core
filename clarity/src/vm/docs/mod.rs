@@ -2714,7 +2714,11 @@ const ALLOWANCE_WITH_STACKING: SpecialAPI = SpecialAPI {
 expression. `with-stacking` is not allowed outside of `restrict-assets?` or
 `as-contract?` contexts. This restricts calls to the active PoX contract
 that either delegate funds for stacking or stack directly, ensuring that the
-locked amount is limited by the amount of uSTX specified.",
+locked amount is limited by the amount of uSTX specified. Note that the
+amount specified here is the total amount allowed to be stacked, i.e. a call to
+`stack-increase` will need an allowance for the new total, not just the
+increase amount.
+",
     example: r#"
 (restrict-assets? tx-sender
   ((with-stacking u1000000000000))
