@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+
+- Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
+
+### Changed
+
+- Replaced `libsecp256k1` with `k256` and `p256` from RustCrypto and removed separate Wasm implementations.
+
 ## [3.2.0.0.2]
 
 ### Added
