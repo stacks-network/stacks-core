@@ -590,8 +590,80 @@ impl NakamotoStagingBlocksTx<'_> {
         Ok(())
     }
 
+    /// Insert a Nakamoto block into the staging blocks DB.
+    /// We only store a block in the following cases:
+    ///
+    /// * No block with this block's sighash exists in the DB
+    /// * A block with this block's sighash exists, AND
+    ///     * this block represents more signing power
+    ///
+    /// If neither of the above is true, then this is a no-op.
+    /// NOTE: This is intentionally the only public access into
+    /// storing additional blocks inside the staging blocks DB
+    pub fn store_block_if_better(
+        &self,
+        block: &NakamotoBlock,
+        burn_attachable: bool,
+        signing_weight: u32,
+        obtain_method: NakamotoBlockObtainMethod,
+    ) -> Result<bool, ChainstateError> {
+        let block_id = block.block_id();
+        let block_hash = block.header.block_hash();
+        let consensus_hash = block.header.consensus_hash.clone();
+
+        // case 1 -- no block with this sighash exists.
+        if self.try_store_block_with_new_signer_sighash(
+            block,
+            burn_attachable,
+            signing_weight,
+            obtain_method,
+        )? {
+            debug!("Stored block with new sighash";
+                   "block_id" => %block_id,
+                   "block_hash" => %block_hash);
+            return Ok(true);
+        }
+
+        // case 2 -- the block exists. Consider replacing it, but only if its
+        // signing weight is higher.
+        let (existing_block_id, _processed, orphaned, existing_signing_weight) = self.conn().get_block_processed_and_signed_weight(&consensus_hash, &block_hash)?
+            .ok_or_else(|| {
+                // this should be unreachable -- there's no record of this block
+                error!("Could not store block {block_id} ({consensus_hash}) with block hash {block_hash} -- no record of its processed status or signing weight!");
+                ChainstateError::NoSuchBlockError
+            })?;
+
+        if orphaned {
+            // nothing to do
+            debug!("Will not store alternative copy of block {block_id} ({consensus_hash}) with block hash {block_hash}, since a block with the same block hash was orphaned");
+            return Ok(false);
+        }
+
+        let ret = if existing_signing_weight < signing_weight {
+            self.replace_block(block, signing_weight, obtain_method)?;
+            debug!("Replaced block";
+                   "existing_block_id" => %existing_block_id,
+                   "block_id" => %block_id,
+                   "block_hash" => %block_hash,
+                   "existing_signing_weight" => existing_signing_weight,
+                   "signing_weight" => signing_weight);
+            true
+        } else {
+            if existing_signing_weight > signing_weight {
+                debug!("Will not store alternative copy of block {block_id} ({consensus_hash}) with block hash {block_hash}, since it has less signing power");
+            } else {
+                debug!(
+                    "Will not store duplicate copy of block {block_id} ({consensus_hash}) with block hash {block_hash}"
+                );
+            }
+            false
+        };
+
+        Ok(ret)
+    }
+
     /// Store a block into the staging DB.
-    pub(crate) fn store_block(
+    fn store_block(
         &self,
         block: &NakamotoBlock,
         burn_attachable: bool,
@@ -665,7 +737,7 @@ impl NakamotoStagingBlocksTx<'_> {
 
     /// Do we have a block with the given signer sighash?
     /// NOTE: the block hash and sighash are the same for Nakamoto blocks
-    pub(crate) fn has_nakamoto_block_with_block_hash(
+    fn has_nakamoto_block_with_block_hash(
         &self,
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
@@ -681,7 +753,7 @@ impl NakamotoStagingBlocksTx<'_> {
     /// NOTE: the block hash and sighash are the same for Nakamoto blocks, so this is equivalent to
     /// storing a new block.
     /// Return true if stored; false if not.
-    pub(crate) fn try_store_block_with_new_signer_sighash(
+    fn try_store_block_with_new_signer_sighash(
         &self,
         block: &NakamotoBlock,
         burn_attachable: bool,
@@ -698,7 +770,7 @@ impl NakamotoStagingBlocksTx<'_> {
 
     /// Replace an already-stored block with a newer copy with more signing
     /// power.  Arguments will not be validated; the caller must do this.
-    pub(crate) fn replace_block(
+    fn replace_block(
         &self,
         block: &NakamotoBlock,
         signing_weight: u32,
