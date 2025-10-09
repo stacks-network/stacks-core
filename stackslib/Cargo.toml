@@ -79,7 +79,7 @@ rlimit = "0.10.2"
 chrono = "0.4.19"
 tempfile = "3.3"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
-insta = { version = "1.37.0", features = ["ron"] }
+insta = { version = "1.37.0", features = ["ron", "redactions"] }
 pinny = { git = "https://github.com/BitcoinL2-Labs/pinny-rs.git", rev = "54ba9d533a7b84525a5e65a3eae1a3ae76b9ea49" } #v0.0.2
 
 [features]
