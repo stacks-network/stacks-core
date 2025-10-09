@@ -578,6 +578,21 @@ fn test_as_contract_with_nft_empty_id_list() {
 }
 
 #[test]
+fn test_as_contract_with_nft_wrong_type() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 current-contract)
+(nft-mint? stackaroo u123 current-contract)
+(let ((recipient tx-sender))
+  (as-contract? ((with-nft current-contract "stackaroo" (list 123)))
+    (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::error(Value::UInt(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
 fn test_as_contract_with_nft_wildcard_ok() {
     let snippet = r#"
 (define-non-fungible-token stackaroo uint)
