@@ -30,7 +30,7 @@ use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{Value as ClarityValue, MAX_CALL_STACK_DEPTH};
+use clarity::vm::{ClarityVersion, Value as ClarityValue, MAX_CALL_STACK_DEPTH};
 use pinny::tag;
 use serde::{Deserialize, Serialize};
 use stacks_common::bitvec::BitVec;
@@ -43,7 +43,8 @@ use crate::chainstate::stacks::db::StacksEpochReceipt;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksTransaction, TenureChangeCause};
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
-    make_contract_call, make_contract_publish, make_stacks_transfer_tx, to_addr,
+    make_contract_call, make_contract_publish, make_contract_publish_versioned,
+    make_stacks_transfer_tx, to_addr,
 };
 use crate::core::{EpochList, BLOCK_LIMIT_MAINNET_21};
 use crate::net::tests::NakamotoBootPlan;
@@ -186,6 +187,109 @@ macro_rules! consensus_test {
     };
 }
 
+/// Returns the list of Clarity versions that can be used to deploy contracts in the given epoch.
+const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVersion] {
+    match epoch {
+        StacksEpochId::Epoch10 => &[],
+        StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => &[ClarityVersion::Clarity1],
+        StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25 => &[ClarityVersion::Clarity1, ClarityVersion::Clarity2],
+        StacksEpochId::Epoch30 | StacksEpochId::Epoch31 | StacksEpochId::Epoch32 => &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity2,
+            ClarityVersion::Clarity3,
+        ],
+        StacksEpochId::Epoch33 => &[
+            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity2,
+            ClarityVersion::Clarity3,
+            ClarityVersion::Clarity4,
+        ],
+    }
+}
+
+fn consensus_test_contract_exec_helper(
+    epochs: &[StacksEpochId],
+    contract_name: &str,
+    contract_code: &str,
+    function_name: &str,
+    function_args: &[ClarityValue],
+    marfs: &[&str],
+    expect_same_result: bool,
+) {
+    let mut contract_names = vec![];
+    let sender = &FAUCET_PRIV_KEY;
+    let contract_addr = to_addr(sender);
+    // Create epoch blocks by pairing each epoch with its corresponding MARF hash
+    let epoch_blocks = epochs
+        .into_iter()
+        .enumerate()
+        .map(|(i, epoch)| {
+            let marf_hash_contract = marfs.get(i * 2).expect("Mismatch between epochs and marfs");
+            let marf_hash_txs = marfs
+                .get(i * 2 + 1)
+                .expect("Mismatch between epochs and marfs");
+            // Currently, nonces must be reset to 0 for each new block.
+            let mut tx_factory = TransactionFactory::new(CHAIN_ID_TESTNET);
+            let clarity_versions = clarity_versions_for_epoch(*epoch);
+            let mut contract_upload_txs: Vec<TestBlock> = clarity_versions
+                .iter()
+                .map(|version| {
+                    let name = format!("{}_{}_{}", contract_name, epoch, version);
+                    contract_names.push(name.clone());
+                    TestBlock {
+                        marf_hash: marf_hash_contract.to_string(),
+                        transactions: vec![tx_factory.contract_deploy(
+                            sender,
+                            &name,
+                            contract_code,
+                            Some(*version),
+                        )],
+                    }
+                })
+                .collect();
+            let mut contract_call_txs: Vec<TestBlock> = contract_names
+                .iter()
+                .map(|contract_name| TestBlock {
+                    marf_hash: marf_hash_txs.to_string(),
+                    transactions: vec![tx_factory.contract_call(
+                        sender,
+                        &contract_addr,
+                        contract_name,
+                        function_name,
+                        function_args,
+                    )],
+                })
+                .collect();
+            contract_upload_txs.append(&mut contract_call_txs);
+            (*epoch, contract_upload_txs)
+        })
+        .collect();
+
+    let test_vector = ConsensusTestVector {
+        initial_balances: vec![],
+        epoch_blocks,
+    };
+
+    let result = ConsensusTest::new(function_name!(), test_vector).run();
+
+    if expect_same_result {
+        // Allow duplicate snapshots - useful for iterating over results
+        // where each iteration should produce the same snapshot
+        insta::allow_duplicates! {
+            for res in result {
+                insta::assert_ron_snapshot!(res);
+            }
+        }
+    } else {
+        // Standard single snapshot of the entire result
+        insta::assert_ron_snapshot!(result);
+    }
+}
+
 /// The type of transaction to create.
 pub enum TxTypes<'a> {
     Transfer {
@@ -235,7 +339,7 @@ impl TransactionFactory {
         match tx_type {
             TxTypes::Transfer { from, to, amount } => self.transfer(from, to, *amount),
             TxTypes::ContractDeploy { sender, name, code } => {
-                self.contract_deploy(sender, name, code)
+                self.contract_deploy(sender, name, code, None)
             }
             TxTypes::ContractCall {
                 sender,
@@ -287,16 +391,18 @@ impl TransactionFactory {
         sender: &StacksPrivateKey,
         name: &str,
         code: &str,
+        version: Option<ClarityVersion>,
     ) -> StacksTransaction {
         let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
         let nonce = self.nonce_counter.entry(address).or_insert(0);
-        let tx_bytes = make_contract_publish(
+        let tx_bytes = make_contract_publish_versioned(
             sender,
             *nonce,
             (code.len() * 100) as u64,
             self.default_chain_id,
             name,
             code,
+            version,
         );
         *nonce += 1;
         StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
