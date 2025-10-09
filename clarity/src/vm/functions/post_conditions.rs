@@ -15,15 +15,16 @@
 
 use std::collections::{HashMap, HashSet};
 
-use clarity_types::types::{AssetIdentifier, PrincipalData};
+use clarity_types::types::{AssetIdentifier, PrincipalData, StandardPrincipalData};
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
-use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker};
+use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult,
 };
+use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::Value;
 use crate::vm::{eval, Environment, LocalContext};
@@ -54,6 +55,38 @@ pub enum Allowance {
     All,
 }
 
+impl Allowance {
+    /// Returns the size in bytes of the allowance when stored in memory.
+    /// This is used to account for memory usage when evaluating `as-contract?`
+    /// and `restrict-assets?` expressions.
+    pub fn size_in_bytes(&self) -> Result<usize, InterpreterError> {
+        match self {
+            Allowance::Stx(_) => Ok(std::mem::size_of::<StxAllowance>()),
+            Allowance::Ft(ft) => Ok(std::mem::size_of::<FtAllowance>()
+                + std::mem::size_of::<StandardPrincipalData>()
+                + ft.asset.contract_identifier.name.len() as usize
+                + ft.asset.asset_name.len() as usize),
+            Allowance::Nft(nft) => {
+                let mut total_size = std::mem::size_of::<NftAllowance>()
+                    + std::mem::size_of::<StandardPrincipalData>()
+                    + nft.asset.contract_identifier.name.len() as usize
+                    + nft.asset.asset_name.len() as usize;
+
+                for id in &nft.asset_ids {
+                    let memory_use = id.get_memory_use().map_err(|e| {
+                        InterpreterError::Expect(format!("Failed to calculate memory use: {e}"))
+                    })?;
+                    total_size += memory_use as usize;
+                }
+
+                Ok(total_size)
+            }
+            Allowance::Stacking(_) => Ok(std::mem::size_of::<StackingAllowance>()),
+            Allowance::All => Ok(0),
+        }
+    }
+}
+
 fn eval_allowance(
     allowance_expr: &SymbolicExpression,
     env: &mut Environment,
@@ -66,9 +99,15 @@ fn eval_allowance(
         .split_first()
         .ok_or(CheckErrors::NonFunctionApplication)?;
     let name = name_expr.match_atom().ok_or(CheckErrors::BadFunctionName)?;
+    let Some(ref native_function) = NativeFunctions::lookup_by_name_at_version(
+        name,
+        env.contract_context.get_clarity_version(),
+    ) else {
+        return Err(CheckErrors::ExpectedAllowanceExpr(name.to_string()).into());
+    };
 
-    match name.as_str() {
-        "with-stx" => {
+    match native_function {
+        NativeFunctions::AllowanceWithStx => {
             if rest.len() != 1 {
                 return Err(CheckErrors::IncorrectArgumentCount(1, rest.len()).into());
             }
@@ -76,7 +115,7 @@ fn eval_allowance(
             let amount = amount.expect_u128()?;
             Ok(Allowance::Stx(StxAllowance { amount }))
         }
-        "with-ft" => {
+        NativeFunctions::AllowanceWithFt => {
             if rest.len() != 3 {
                 return Err(CheckErrors::IncorrectArgumentCount(3, rest.len()).into());
             }
@@ -105,7 +144,7 @@ fn eval_allowance(
 
             Ok(Allowance::Ft(FtAllowance { asset, amount }))
         }
-        "with-nft" => {
+        NativeFunctions::AllowanceWithNft => {
             if rest.len() != 3 {
                 return Err(CheckErrors::IncorrectArgumentCount(3, rest.len()).into());
             }
@@ -134,7 +173,7 @@ fn eval_allowance(
 
             Ok(Allowance::Nft(NftAllowance { asset, asset_ids }))
         }
-        "with-stacking" => {
+        NativeFunctions::AllowanceWithStacking => {
             if rest.len() != 1 {
                 return Err(CheckErrors::IncorrectArgumentCount(1, rest.len()).into());
             }
@@ -142,7 +181,7 @@ fn eval_allowance(
             let amount = amount.expect_u128()?;
             Ok(Allowance::Stacking(StackingAllowance { amount }))
         }
-        "with-all-assets-unsafe" => {
+        NativeFunctions::AllowanceAll => {
             if !rest.is_empty() {
                 return Err(CheckErrors::IncorrectArgumentCount(1, rest.len()).into());
             }
@@ -182,6 +221,10 @@ pub fn special_restrict_assets(
         allowance_list.len(),
     )?;
 
+    if allowance_list.len() > MAX_ALLOWANCES {
+        return Err(CheckErrors::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
+    }
+
     let mut allowances = Vec::with_capacity(allowance_list.len());
     for allowance in allowance_list {
         allowances.push(eval_allowance(allowance, env, context)?);
@@ -205,10 +248,17 @@ pub fn special_restrict_assets(
 
     // If the allowances are violated:
     // - Rollback the context
-    // - Emit an event
-    if let Some(violation_index) = check_allowances(&asset_owner, &allowances, asset_maps)? {
-        env.global_context.roll_back()?;
-        return Value::error(Value::UInt(violation_index));
+    // - Return an error with the index of the violated allowance
+    match check_allowances(&asset_owner, &allowances, asset_maps) {
+        Ok(None) => {}
+        Ok(Some(violation_index)) => {
+            env.global_context.roll_back()?;
+            return Value::error(Value::UInt(violation_index));
+        }
+        Err(e) => {
+            env.global_context.roll_back()?;
+            return Err(e);
+        }
     }
 
     env.global_context.commit()?;
@@ -255,14 +305,19 @@ pub fn special_as_contract(
         allowance_list.len(),
     )?;
 
-    let mut allowances = Vec::with_capacity(allowance_list.len());
-    for allowance in allowance_list {
-        allowances.push(eval_allowance(allowance, env, context)?);
-    }
-
-    let mut memory_use = 0;
+    let mut memory_use = 0u64;
 
     finally_drop_memory!( env, memory_use; {
+        let mut allowances = Vec::with_capacity(allowance_list.len());
+        for allowance_expr in allowance_list {
+            let allowance = eval_allowance(allowance_expr, env, context)?;
+            let allowance_memory = u64::try_from(allowance.size_in_bytes()?)
+                .map_err(|_| InterpreterError::Expect("Allowance size too large".into()))?;
+            env.add_memory(allowance_memory)?;
+            memory_use += allowance_memory;
+            allowances.push(allowance);
+        }
+
         env.add_memory(cost_constants::AS_CONTRACT_MEMORY)?;
         memory_use += cost_constants::AS_CONTRACT_MEMORY;
 
@@ -287,7 +342,7 @@ pub fn special_as_contract(
 
         // If the allowances are violated:
         // - Rollback the context
-        // - Emit an event
+        // - Return an error with the index of the violated allowance
         match check_allowances(&contract_principal, &allowances, asset_maps) {
             Ok(None) => {}
             Ok(Some(violation_index)) => {

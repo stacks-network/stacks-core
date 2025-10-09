@@ -2683,7 +2683,11 @@ from the `asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
 expression. `with-nft` is not allowed outside of `restrict-assets?` or
 `as-contract?` contexts. Note that `token-name` should match the name used in
 the `define-non-fungible-token` call in the contract. When `"*"` is used for
-the token name, the allowance applies to **all** NFTs defined in `contract-id`."#,
+the token name, the allowance applies to **all** NFTs defined in `contract-id`.
+Note that the type of the elements in `asset-identifiers` should match the type
+defined in the `define-non-fungible-token` call in the contract, but this is
+**not** checked by the type-checker. An identifier with the wrong type will
+simply never match any asset."#,
     example: r#"
 (define-non-fungible-token stackaroo uint)
 (nft-mint? stackaroo u123 tx-sender)
