@@ -663,6 +663,7 @@ impl NakamotoStagingBlocksTx<'_> {
     }
 
     /// Store a block into the staging DB.
+    /// NOTE: This should not be made public
     fn store_block(
         &self,
         block: &NakamotoBlock,
@@ -753,6 +754,7 @@ impl NakamotoStagingBlocksTx<'_> {
     /// NOTE: the block hash and sighash are the same for Nakamoto blocks, so this is equivalent to
     /// storing a new block.
     /// Return true if stored; false if not.
+    /// NOTE: This should not be made public
     fn try_store_block_with_new_signer_sighash(
         &self,
         block: &NakamotoBlock,
@@ -770,6 +772,7 @@ impl NakamotoStagingBlocksTx<'_> {
 
     /// Replace an already-stored block with a newer copy with more signing
     /// power.  Arguments will not be validated; the caller must do this.
+    /// NOTE: This should not be made public
     fn replace_block(
         &self,
         block: &NakamotoBlock,
