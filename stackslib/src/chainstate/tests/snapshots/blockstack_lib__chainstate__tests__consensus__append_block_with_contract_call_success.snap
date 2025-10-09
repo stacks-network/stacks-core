@@ -1,0 +1,158 @@
+---
+source: stackslib/src/chainstate/tests/consensus.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "186c8e49bcfc59bb67ed22f031f009a44681f296392e0f92bed520918ba463ae",
+    transactions: [
+      ExpectedTransactionOutput(
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+      ExpectedTransactionOutput(
+        return_type: Response(ResponseData(
+          committed: true,
+          data: UInt(1),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 103,
+          read_count: 3,
+          runtime: 499,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 104,
+      read_count: 4,
+      runtime: 12467,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ad23713f072473cad6a32125ed5fa822bb62bbfae8ed2302209c12d2f1958128",
+    transactions: [
+      ExpectedTransactionOutput(
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+      ExpectedTransactionOutput(
+        return_type: Response(ResponseData(
+          committed: true,
+          data: UInt(1),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 103,
+          read_count: 3,
+          runtime: 499,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 104,
+      read_count: 4,
+      runtime: 12467,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "021bd30b09b5ac6ff34abd11f05244a966af937b584b1752f272cd717bb25f1d",
+    transactions: [
+      ExpectedTransactionOutput(
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+      ExpectedTransactionOutput(
+        return_type: Response(ResponseData(
+          committed: true,
+          data: UInt(1),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 103,
+          read_count: 3,
+          runtime: 499,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 104,
+      read_count: 4,
+      runtime: 12467,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "416e728daeec4de695c89d15eede8ddb7b85fb4af82daffb1e0d8166a3e93451",
+    transactions: [
+      ExpectedTransactionOutput(
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 121,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 11968,
+        ),
+      ),
+      ExpectedTransactionOutput(
+        return_type: Response(ResponseData(
+          committed: true,
+          data: UInt(1),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 103,
+          read_count: 3,
+          runtime: 499,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 121,
+      write_count: 2,
+      read_length: 104,
+      read_count: 4,
+      runtime: 12467,
+    ),
+  )),
+]

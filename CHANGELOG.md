@@ -7,6 +7,12 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Unreleased
 
+### Changed
+
+- Renamed Clarity 4's new `block-time` to `stacks-block-time`
+
+## [3.2.0.0.2]
+
 ### Added
 
 - Renamed `clarity-serialization` to `clarity-types`.
@@ -29,6 +35,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
     - `with-stacking`
     - `with-all-assets-unsafe`
 - Added `contract_cost_limit_percentage` to the miner config file — sets the percentage of a block’s execution cost at which, if a large non-boot contract call would cause a BlockTooBigError, the miner will stop adding further non-boot contract calls and only include STX transfers and boot contract calls for the remainder of the block.
+- Fixed a bug caused by a miner winning a sortition with a block commit that pointed to a previous tip, which would cause the miner to try and reorg itself. [#6481](https://github.com/stacks-network/stacks-core/issues/6481)
 
 ### Changed
 
