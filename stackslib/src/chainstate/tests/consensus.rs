@@ -32,18 +32,19 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityVersion, Value as ClarityValue, MAX_CALL_STACK_DEPTH};
 use pinny::tag;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
 use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksTransaction, TenureChangeCause, TransactionPayload,
-    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    Error as ChainstateError, StacksTransaction, TenureChangeCause, TransactionContractCall,
+    TransactionPayload, TransactionSmartContract, MINER_BLOCK_CONSENSUS_HASH,
+    MINER_BLOCK_HEADER_HASH,
 };
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
@@ -111,6 +112,8 @@ const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVe
 /// * `function_args` - Arguments for the function call.
 /// * `deploy_epochs` - Epochs for contract deployment.
 /// * `call_epochs` - Epochs for function execution.
+/// * `deploy_success` - Whether deployments blocks are expected to succeed.
+/// * `call_success` - Whether function call blocks are expected to succeed.
 ///
 /// # Returns
 ///
@@ -127,6 +130,8 @@ fn run_contract_consensus_test(
     function_args: &[ClarityValue],
     deploy_epochs: &[StacksEpochId],
     call_epochs: &[StacksEpochId],
+    deploy_success: bool,
+    call_success: bool,
 ) -> Vec<ExpectedResult> {
     assert!(
         !deploy_epochs.is_empty(),
@@ -144,6 +149,8 @@ fn run_contract_consensus_test(
     let mut contract_names = vec![];
     let sender = &FAUCET_PRIV_KEY;
     let contract_addr = to_addr(sender);
+    let mut tx_factory = TestTxFactory::new(CHAIN_ID_TESTNET);
+
     // Create epoch blocks by pairing each epoch with its corresponding transactions
     let epoch_blocks = all_epochs
         .into_iter()
@@ -160,14 +167,13 @@ fn run_contract_consensus_test(
                             version.to_string().replace(" ", "")
                         );
                         contract_names.push(name.clone());
-                        // Currently, nonces must be reset to 0 for each new block.
-                        let mut tx_factory = TestTxFactory::new(CHAIN_ID_TESTNET);
                         TestBlock {
                             transactions: vec![tx_factory.contract_deploy(
                                 sender,
                                 &name,
                                 contract_code,
                                 Some(*version),
+                                deploy_success, // increase nonce on deploys expected to succeed
                             )],
                         }
                     })
@@ -177,18 +183,15 @@ fn run_contract_consensus_test(
             if call_epochs.contains(&epoch) {
                 let mut contract_call_txs: Vec<TestBlock> = contract_names
                     .iter()
-                    .map(|contract_name| {
-                        // Currently, nonces must be reset to 0 for each new block.
-                        let mut tx_factory = TestTxFactory::new(CHAIN_ID_TESTNET);
-                        TestBlock {
-                            transactions: vec![tx_factory.contract_call(
-                                sender,
-                                &contract_addr,
-                                contract_name,
-                                function_name,
-                                function_args,
-                            )],
-                        }
+                    .map(|contract_name| TestBlock {
+                        transactions: vec![tx_factory.contract_call(
+                            sender,
+                            &contract_addr,
+                            contract_name,
+                            function_name,
+                            function_args,
+                            call_success, // increase nonce on calls expected to succeed
+                        )],
                     })
                     .collect();
                 blocks.append(&mut contract_call_txs);
@@ -250,6 +253,8 @@ fn filter_contract_consensus_test_results(
 /// * `$name`: The test function's name.
 /// * `contract_name`, `contract_code`: The contract's name and source.
 /// * `function_name`, `function_args`: The function to call and its arguments.
+/// * `call_success`: Expected function call success flag.
+/// * `deploy_success`: (optional): Expected deployment success flag. Defaults to `true`.
 /// * `deploy_epochs` (optional): Epochs to deploy the contract in. Defaults to all epochs >= 3.0.
 /// * `call_epochs` (optional): Epochs to call the function in. Defaults to [`EPOCHS_TO_TEST`].
 /// * `expect_same_result` (optional): If `true`, allows duplicate snapshots. Defaults to `false`.
@@ -257,7 +262,7 @@ fn filter_contract_consensus_test_results(
 /// # Example
 ///
 /// ```rust,ignore
-/// define_contract_consensus_test!(
+/// contract_call_consensus_test!(
 ///     my_test,
 ///     contract_name: "my-contract",
 ///     contract_code: "(define-public (get-message) (ok \"hello\"))",
@@ -265,13 +270,15 @@ fn filter_contract_consensus_test_results(
 ///     function_args: &[],
 /// );
 /// ```
-macro_rules! contract_consensus_test {
+macro_rules! contract_call_consensus_test {
     (
         $name:ident,
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         function_name: $function_name:expr,
         function_args: $function_args:expr,
+        call_success: $call_success:expr,
+        $(deploy_success: $deploy_success:expr,)?
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
         $(expect_same_result: $expect_same_result:expr,)?
@@ -280,26 +287,32 @@ macro_rules! contract_consensus_test {
         #[test]
         fn $name() {
             let contract_name = $contract_name;
-            let contract_code = $contract_code;
-            let function_name = $function_name;
-            let function_args = $function_args;
 
             // Handle deploy_epochs parameter (default to all epochs >= 3.0 if not provided)
-            let deploy_epochs = if false { unreachable!() } $(|| $deploy_epochs)? else { StacksEpochId::ALL_GTE_30 };
+            let deploy_epochs = StacksEpochId::ALL_GTE_30;
+            $(let deploy_epochs = $deploy_epochs;)?
 
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-            let call_epochs = if false { unreachable!() } $(|| $call_epochs)? else { EPOCHS_TO_TEST };
+            let call_epochs = EPOCHS_TO_TEST;
+            $(let call_epochs = $call_epochs;)?
+
+            // Handle deploy_success parameter (default to true if not provided)
+            let deploy_success = true;
+            $(let deploy_success = $deploy_success;)?
 
             // Handle expect_same_result parameter (default to false if not provided)
-            let expect_same = false $(|| $expect_same_result)?;
+            let expect_same = false;
+            $(let expect_same = $expect_same_result;)?
 
             let result = run_contract_consensus_test(
                 contract_name,
-                contract_code,
-                function_name,
-                function_args,
+                $contract_code,
+                $function_name,
+                $function_args,
                 deploy_epochs,
                 call_epochs,
+                deploy_success,
+                $call_success,
             );
 
             if expect_same {
@@ -331,6 +344,71 @@ macro_rules! contract_consensus_test {
                 });
             }
         }
+    };
+}
+
+/// Generates a consensus test for contract deployment across multiple epochs.
+///
+/// This macro automates deploying a contract in different Stacks epochs and
+/// Clarity versions, validating deployment success and comparing results.
+///
+/// # Arguments
+///
+/// * `$name`: The test function's name.
+/// * `contract_name`: The contract's name.
+/// * `contract_code`: The contract's source code.
+/// * `deploy_success`: Expected deployment success flag.
+/// * `deploy_epochs` (optional): Epochs to deploy in. Defaults to [`EPOCHS_TO_TEST`].
+/// * `expect_same_result` (optional): If `true`, merges identical results in snapshots.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// contract_deploy_consensus_test!(
+///     deploy_test,
+///     contract_name: "my-contract",
+///     contract_code: "(define-public (init) (ok true))",
+///     deploy_success: true,
+/// );
+/// ```
+macro_rules! contract_deploy_consensus_test {
+    // Handle the case where deploy_epochs is not provided
+    (
+        $name:ident,
+        contract_name: $contract_name:expr,
+        contract_code: $contract_code:expr,
+        deploy_success: $deploy_success:expr,
+        $(expect_same_result: $expect_same_result:expr,)?
+    ) => {
+        contract_deploy_consensus_test!(
+            $name,
+            contract_name: $contract_name,
+            contract_code: $contract_code,
+            deploy_success: $deploy_success,
+            deploy_epochs: EPOCHS_TO_TEST,
+            $(expect_same_result: $expect_same_result,)?
+        );
+    };
+    (
+        $name:ident,
+        contract_name: $contract_name:expr,
+        contract_code: $contract_code:expr,
+        deploy_success: $deploy_success:expr,
+        deploy_epochs: $deploy_epochs:expr,
+        $(expect_same_result: $expect_same_result:expr,)?
+    ) => {
+        contract_call_consensus_test!(
+            $name,
+            contract_name: $contract_name,
+            contract_code: $contract_code,
+            function_name: "",   // No function calls, just deploys
+            function_args: &[],  // No function calls, just deploys
+            call_success: false, // No function calls, so this value is irrelevant
+            deploy_success: $deploy_success,
+            deploy_epochs: $deploy_epochs,
+            call_epochs: &[],    // No function calls, just deploys
+            $(expect_same_result: $expect_same_result,)?
+        );
     };
 }
 
@@ -379,11 +457,13 @@ impl TestTxFactory {
     ///
     /// Returns:
     /// A [`StacksTransaction`] representing the created transaction.
-    pub fn generate_tx(&mut self, tx_type: &TestTxSpec) -> StacksTransaction {
+    pub fn generate_tx(&mut self, tx_type: &TestTxSpec, increase_nonce: bool) -> StacksTransaction {
         match tx_type {
-            TestTxSpec::Transfer { from, to, amount } => self.transfer(from, to, *amount),
+            TestTxSpec::Transfer { from, to, amount } => {
+                self.transfer(from, to, *amount, increase_nonce)
+            }
             TestTxSpec::ContractDeploy { sender, name, code } => {
-                self.contract_deploy(sender, name, code, None)
+                self.contract_deploy(sender, name, code, None, increase_nonce)
             }
             TestTxSpec::ContractCall {
                 sender,
@@ -391,7 +471,14 @@ impl TestTxFactory {
                 contract_name,
                 function_name,
                 args,
-            } => self.contract_call(sender, contract_addr, contract_name, function_name, args),
+            } => self.contract_call(
+                sender,
+                contract_addr,
+                contract_name,
+                function_name,
+                args,
+                increase_nonce,
+            ),
         }
     }
 
@@ -411,11 +498,14 @@ impl TestTxFactory {
         from: &StacksPrivateKey,
         to: &PrincipalData,
         amount: u64,
+        increase_nonce: bool,
     ) -> StacksTransaction {
         let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(from));
         let nonce = self.nonce_counter.entry(address).or_insert(0);
         let tx = make_stacks_transfer_tx(from, *nonce, 180, self.default_chain_id, to, amount);
-        *nonce += 1;
+        if increase_nonce {
+            *nonce += 1;
+        }
         tx
     }
 
@@ -436,6 +526,7 @@ impl TestTxFactory {
         name: &str,
         code: &str,
         version: Option<ClarityVersion>,
+        increase_nonce: bool,
     ) -> StacksTransaction {
         let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
         let nonce = self.nonce_counter.entry(address).or_insert(0);
@@ -448,7 +539,9 @@ impl TestTxFactory {
             code,
             version,
         );
-        *nonce += 1;
+        if increase_nonce {
+            *nonce += 1;
+        }
         StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
     }
 
@@ -472,6 +565,7 @@ impl TestTxFactory {
         contract_name: &str,
         function_name: &str,
         args: &[ClarityValue],
+        increase_nonce: bool,
     ) -> StacksTransaction {
         let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
         let nonce = self.nonce_counter.entry(address).or_insert(0);
@@ -485,7 +579,9 @@ impl TestTxFactory {
             function_name,
             args,
         );
-        *nonce += 1;
+        if increase_nonce {
+            *nonce += 1;
+        }
         StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
     }
 }
@@ -586,11 +682,47 @@ fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
 pub struct ExpectedTransactionOutput {
     /// The transaction that was executed.
     /// `None` for bitcoin transactions.
+    #[serde(serialize_with = "serialize_opt_tx_payload")]
     pub tx: Option<TransactionPayload>,
     /// The expected return value of the transaction.
     pub return_type: ClarityValue,
     /// The expected execution cost of the transaction.
     pub cost: ExecutionCost,
+}
+
+/// Custom serializer for `Option<TransactionPayload>` to improve snapshot readability.
+/// This avoids large diffs in snapshots due to code body changes and focuses on key fields.
+fn serialize_opt_tx_payload<S>(
+    value: &Option<TransactionPayload>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let changed = match value {
+        None => "BitcoinTx".to_string(),
+        Some(TransactionPayload::TokenTransfer(sender, amount, memo)) => {
+            format!("TokenTransfer(from: {sender}, amount: {amount}, memo: {memo})")
+        }
+        Some(TransactionPayload::SmartContract(
+            TransactionSmartContract { name, code_body },
+            clarity_version,
+        )) => {
+            format!("SmartContract(name: {name}, code_body: [..], clarity_version: {clarity_version:?})")
+        }
+        Some(TransactionPayload::ContractCall(TransactionContractCall {
+            address,
+            contract_name,
+            function_name,
+            function_args,
+        })) => {
+            format!("ContractCall(address: {address}, contract_name: {contract_name}, function_name: {function_name}, function_args: [{function_args:?}])")
+        }
+        Some(payload) => {
+            format!("{payload:?}")
+        }
+    };
+    serializer.serialize_str(&changed)
 }
 
 /// Represents the expected outputs for a block's execution.
@@ -735,9 +867,15 @@ impl ConsensusTest<'_> {
             let tenure_change_tx = self.chain.miner.make_nakamoto_tenure_change(tenure_change);
             let coinbase_tx = self.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-            let _blocks_and_sizes =
-                self.chain
-                    .make_nakamoto_tenure(tenure_change_tx, coinbase_tx, Some(0));
+            let blocks_and_sizes = self
+                .chain
+                .make_nakamoto_tenure(tenure_change_tx, coinbase_tx, Some(0))
+                .unwrap();
+            assert_eq!(
+                blocks_and_sizes.len(),
+                1,
+                "Mined more than one Nakamoto block"
+            );
             let burn_block_height = self.chain.get_burn_block_height();
             current_epoch =
                 SortitionDB::get_stacks_epoch(self.chain.sortdb().conn(), burn_block_height)
@@ -768,59 +906,38 @@ impl ConsensusTest<'_> {
             for (i, block) in epoch_blocks.iter().enumerate() {
                 debug!("--------- Running block {i} for epoch {epoch:?} ---------");
                 let (nakamoto_block, block_size) = self.construct_nakamoto_block(&block);
-                let sortdb = self.chain.sortdb.take().unwrap();
+                let mut sortdb = self.chain.sortdb.take().unwrap();
+                let mut stacks_node = self.chain.stacks_node.take().unwrap();
                 let chain_tip = NakamotoChainState::get_canonical_block_header(
-                    self.chain.stacks_node().chainstate.db(),
+                    stacks_node.chainstate.db(),
                     &sortdb,
                 )
                 .unwrap()
                 .unwrap();
                 let pox_constants = PoxConstants::test_default();
+                let sig_hash = nakamoto_block.header.signer_signature_hash();
                 debug!(
-                    "--------- Appending block {} ---------",
-                    nakamoto_block.header.signer_signature_hash();
+                    "--------- Processing block {sig_hash} ---------";
                     "block" => ?nakamoto_block
                 );
-                {
-                    let (mut chainstate_tx, clarity_instance) = self
-                        .chain
-                        .stacks_node()
-                        .chainstate
-                        .chainstate_tx_begin()
-                        .unwrap();
-
-                    let mut burndb_conn = sortdb.index_handle_at_tip();
-
-                    let result = NakamotoChainState::append_block(
-                        &mut chainstate_tx,
-                        clarity_instance,
-                        &mut burndb_conn,
-                        &chain_tip.consensus_hash,
-                        &pox_constants,
-                        &chain_tip,
-                        &chain_tip.burn_header_hash,
-                        chain_tip.burn_header_height,
-                        chain_tip.burn_header_timestamp,
-                        &nakamoto_block,
-                        block_size.try_into().unwrap(),
-                        nakamoto_block.header.burn_spent,
-                        1500,
-                        &RewardSet::empty(),
-                        false,
-                    );
-
-                    debug!("--------- Appended block: {} ---------", result.is_ok());
-                    let remapped_result = result.map(|(receipt, clarity_commit, _, _)| {
-                        clarity_commit.commit();
-                        receipt
-                    });
-                    let expected_marf = nakamoto_block.header.state_index_root;
-                    results.push(ExpectedResult::create_from(remapped_result, expected_marf));
-                    chainstate_tx.commit().unwrap();
-                }
-
+                let expected_marf = nakamoto_block.header.state_index_root;
+                let res = TestStacksNode::process_pushed_next_ready_block(
+                    &mut stacks_node,
+                    &mut sortdb,
+                    &mut self.chain.miner,
+                    &chain_tip.consensus_hash,
+                    &mut self.chain.coord,
+                    nakamoto_block.clone(),
+                );
+                debug!(
+                    "--------- Processed block: {sig_hash} ---------";
+                    "block" => ?nakamoto_block
+                );
+                let remapped_result = res.map(|receipt| receipt.unwrap()).into();
+                results.push(ExpectedResult::create_from(remapped_result, expected_marf));
                 // Restore chainstate for the next block
                 self.chain.sortdb = Some(sortdb);
+                self.chain.stacks_node = Some(stacks_node);
             }
         }
         results
@@ -959,59 +1076,66 @@ impl ConsensusTest<'_> {
 }
 
 #[test]
+fn test_append_empty_blocks() {
+    let empty_test_blocks = vec![TestBlock {
+        transactions: vec![],
+    }];
+    let mut epoch_blocks = HashMap::new();
+    for epoch in EPOCHS_TO_TEST {
+        epoch_blocks.insert(*epoch, empty_test_blocks.clone());
+    }
+
+    let test_vector = ConsensusTestVector {
+        initial_balances: vec![],
+        epoch_blocks,
+    };
+    let result = ConsensusTest::new(function_name!(), test_vector).run();
+    insta::assert_ron_snapshot!(result);
+}
+
+#[test]
 fn test_append_stx_transfers_success() {
     let sender_privks = [
         StacksPrivateKey::from_hex(SK_1).unwrap(),
         StacksPrivateKey::from_hex(SK_2).unwrap(),
         StacksPrivateKey::from_hex(SK_3).unwrap(),
     ];
+    let total_epochs = EPOCHS_TO_TEST.len() as u64;
     let send_amount = 1_000;
     let tx_fee = 180;
+    // initialize balances
     let mut initial_balances = Vec::new();
-    let transactions: Vec<_> = sender_privks
-        .iter()
-        .map(|sender_privk| {
-            initial_balances.push((
-                StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk)).into(),
-                send_amount + tx_fee,
-            ));
-            // Interestingly, it doesn't seem to care about nonce...
-            make_stacks_transfer_tx(
-                sender_privk,
-                0,
-                tx_fee,
-                CHAIN_ID_TESTNET,
-                &boot_code_addr(false).into(),
-                send_amount,
-            )
-        })
-        .collect();
+    for sender_privk in &sender_privks {
+        let sender_addr =
+            StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk)).into();
+        // give them enough to cover all transfers across all epochs
+        initial_balances.push((sender_addr, (send_amount + tx_fee) * total_epochs));
+    }
 
+    // build transactions per epoch, incrementing nonce per sender
     let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            transactions: transactions.clone(),
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            transactions: transactions.clone(),
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            transactions: transactions.clone(),
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            transactions: transactions.clone(),
-        }],
-    );
+    let mut nonces = vec![0u64; sender_privks.len()]; // track nonce per sender
+
+    for epoch in EPOCHS_TO_TEST {
+        let transactions: Vec<_> = sender_privks
+            .iter()
+            .enumerate()
+            .map(|(i, sender_privk)| {
+                let tx = make_stacks_transfer_tx(
+                    sender_privk,
+                    nonces[i], // use current nonce
+                    tx_fee,
+                    CHAIN_ID_TESTNET,
+                    &boot_code_addr(false).into(),
+                    send_amount,
+                );
+                nonces[i] += 1; // increment for next epoch
+                tx
+            })
+            .collect();
+
+        epoch_blocks.insert(*epoch, vec![TestBlock { transactions }]);
+    }
 
     let test_vector = ConsensusTestVector {
         initial_balances,
@@ -1022,85 +1146,29 @@ fn test_append_stx_transfers_success() {
     insta::assert_ron_snapshot!(result);
 }
 
-#[test]
-fn test_append_empty_blocks() {
-    let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-
-    let test_vector = ConsensusTestVector {
-        initial_balances: vec![],
-        epoch_blocks,
-    };
-    let result = ConsensusTest::new(function_name!(), test_vector).run();
-    insta::assert_ron_snapshot!(result);
-}
-
-// Example of using the contract_consensus_test! macro
-// Deploys a valid contract to each epoch, for each Clarity version,
+// Example of using the `contract_consensus_test!` macro
+// Deploys a contract to each epoch, for each Clarity version,
 // then calls a function in that contract and snapshots the results.
-contract_consensus_test!(
+contract_call_consensus_test!(
     successfully_deploy_and_call,
     contract_name: "foo_contract",
     contract_code: FOO_CONTRACT,
     function_name: "bar",
     function_args: &[ClarityValue::UInt(1)],
+    call_success: true,
 );
 
-/// Example of using `run_contract_consensus_test` directly.
-/// Equivalent to the above `contract_consensus_test!` invocation.
-#[test]
-fn test_contract_exec_helper_different_results() {
-    let result = run_contract_consensus_test(
-        "foo_contract",
-        FOO_CONTRACT,
-        "bar",
-        &[ClarityValue::UInt(1)],
-        StacksEpochId::ALL_GTE_30,
-        EPOCHS_TO_TEST,
-    );
-
-    // Standard single snapshot of the entire result
-    insta::assert_ron_snapshot!(result);
-}
-
-#[test]
-fn test_append_chainstate_error_expression_stack_depth_too_deep_new() {
-    let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
-    let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
-    let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-    let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");
-
-    let result = run_contract_consensus_test(
-        "test-exceeds",
-        &tx_exceeds_body,
-        "",
-        &[],
-        EPOCHS_TO_TEST, // For deploy-only error tests, only current and future epochs are relevant.
-        &[],            // Skip function calls. This test only deploys the contract.
-    );
-
-    insta::assert_ron_snapshot!(result);
-}
+// Example of using the `contract_deploy_consensus_test!` macro
+// Deploys a contract that exceeds the maximum allowed stack depth
+// and verifies that deployment fails with the expected error.
+contract_deploy_consensus_test!(
+    chainstate_error_expression_stack_depth_too_deep,
+    contract_name: "test-exceeds",
+    contract_code: &{
+        let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
+        let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
+        let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
+        format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}")
+    },
+    deploy_success: false,
+);

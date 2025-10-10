@@ -2478,28 +2478,23 @@ impl NakamotoChainState {
         reward_set: &RewardSet,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, ChainstateError> {
-        test_debug!("Consider Nakamoto block {}", &block.block_id());
+        let block_id = block.block_id();
+        test_debug!("Consider Nakamoto block {block_id}");
         // do nothing if we already have this block
-        if Self::get_block_header(headers_conn, &block.header.block_id())?.is_some() {
-            debug!("Already have block {}", &block.header.block_id());
+        if Self::get_block_header(headers_conn, &block_id)?.is_some() {
+            debug!("Already have block {block_id}");
             return Ok(false);
         }
 
         // if this is the first tenure block, then make sure it's well-formed
         block.is_wellformed_tenure_start_block().map_err(|_| {
-            warn!(
-                "Block {} is not a well-formed first tenure block",
-                &block.block_id()
-            );
+            warn!("Block {block_id} is not a well-formed first tenure block");
             ChainstateError::InvalidStacksBlock("Not a well-formed first-tenure block".into())
         })?;
 
         // if this is a tenure-extend block, then make sure it's well-formed
         block.is_wellformed_tenure_extend_block().map_err(|_| {
-            warn!(
-                "Block {} is not a well-formed tenure-extend block",
-                &block.block_id()
-            );
+            warn!("Block {block_id} is not a well-formed tenure-extend block");
             ChainstateError::InvalidStacksBlock("Not a well-formed tenure-extend block".into())
         })?;
 
@@ -2510,51 +2505,50 @@ impl NakamotoChainState {
         if block.is_shadow_block() {
             // this block is already present in the staging DB, so just perform some prefunctory
             // validation (since they're constructed a priori to be valid)
-            if let Err(e) = Self::validate_shadow_nakamoto_block_burnchain(
+            Self::validate_shadow_nakamoto_block_burnchain(
                 staging_db_tx.conn(),
                 db_handle,
                 expected_burn_opt,
                 block,
                 config.mainnet,
                 config.chain_id,
-            ) {
+            )
+            .unwrap_or_else(|e| {
                 error!("Unacceptable shadow Nakamoto block";
-                      "stacks_block_id" => %block.block_id(),
-                      "error" => ?e
+                    "stacks_block_id" => %block_id,
+                    "error" => ?e
                 );
                 panic!("Unacceptable shadow Nakamoto block");
-            }
-
+            });
             return Ok(false);
         }
 
         // this block must be consistent with its miner's leader-key and block-commit, and must
         // contain only transactions that are valid in this epoch.
-        if let Err(e) = Self::validate_normal_nakamoto_block_burnchain(
+        Self::validate_normal_nakamoto_block_burnchain(
             staging_db_tx.conn(),
             db_handle,
             expected_burn_opt,
             block,
             config.mainnet,
             config.chain_id,
-        ) {
+        )
+        .inspect_err(|e| {
             warn!("Unacceptable Nakamoto block; will not store";
-                  "stacks_block_id" => %block.block_id(),
-                  "error" => ?e
+                "stacks_block_id" => %block_id,
+                "error" => ?e
             );
-            return Ok(false);
-        };
+        })?;
 
-        let signing_weight = match block.header.verify_signer_signatures(reward_set) {
-            Ok(x) => x,
-            Err(e) => {
+        let signing_weight = block
+            .header
+            .verify_signer_signatures(reward_set)
+            .inspect_err(|e| {
                 warn!("Received block, but the signer signatures are invalid";
-                      "block_id" => %block.block_id(),
-                      "error" => ?e,
+                    "block_id" => %block_id,
+                    "error" => ?e,
                 );
-                return Err(e);
-            }
-        };
+            })?;
 
         // if we pass all the tests, then along the way, we will have verified (in
         // Self::validate_nakamoto_block_burnchain) that the consensus hash of this block is on the
@@ -2569,9 +2563,9 @@ impl NakamotoChainState {
             obtain_method,
         )?;
         if ret {
-            test_debug!("Stored Nakamoto block {}", &block.block_id());
+            test_debug!("Stored Nakamoto block {block_id}");
         } else {
-            test_debug!("Did NOT store Nakamoto block {}", &block.block_id());
+            test_debug!("Did NOT store Nakamoto block {block_id}");
         }
         Ok(ret)
     }
