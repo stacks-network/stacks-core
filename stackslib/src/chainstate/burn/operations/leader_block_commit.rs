@@ -105,7 +105,7 @@ impl LeaderBlockCommitOp {
             key_vtxindex: paired_key.vtxindex as u16,
             parent_block_ptr: 0,
             parent_vtxindex: 0,
-            memo: vec![0x00],
+            memo: vec![0x00].into(),
             burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
@@ -140,7 +140,7 @@ impl LeaderBlockCommitOp {
             key_vtxindex,
             parent_block_ptr: parent_block_height,
             parent_vtxindex,
-            memo: vec![],
+            memo: vec![].into(),
             burn_fee,
             input: input.clone(),
             block_header_hash: block_header_hash.clone(),
@@ -433,7 +433,7 @@ impl LeaderBlockCommitOp {
             parent_vtxindex: data.parent_vtxindex,
             key_block_ptr: data.key_block_ptr,
             key_vtxindex: data.key_vtxindex,
-            memo: vec![data.memo],
+            memo: vec![data.memo].into(),
             burn_parent_modulus: data.burn_parent_modulus,
 
             commit_outs,
@@ -507,7 +507,7 @@ pub struct RewardSetInfo {
     pub allow_nakamoto_punishment: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MissedBlockCommit {
     pub txid: Txid,
     pub input: (Txid, u32),
@@ -1136,6 +1136,7 @@ mod tests {
     use stacks_common::deps_common::bitcoin::blockdata::transaction::{Transaction, TxOut};
     use stacks_common::deps_common::bitcoin::network::serialize::{deserialize, serialize_hex};
     use stacks_common::types::chainstate::{BlockHeaderHash, SortitionId, StacksAddress, VRFSeed};
+    use stacks_common::util::db::ColumnEncoding;
     use stacks_common::util::get_epoch_time_secs;
     use stacks_common::util::hash::*;
     use stacks_common::util::vrf::VRFPublicKey;
@@ -1722,7 +1723,7 @@ mod tests {
                     parent_vtxindex: 0x5051,
                     key_block_ptr: 0x60616263,
                     key_vtxindex: 0x7071,
-                    memo: vec![0x1f],
+                    memo: vec![0x1f].into(),
 
                     commit_outs: vec![
                         PoxAddress::Standard( StacksAddress::new(26, Hash160::empty()).unwrap(), None ),
@@ -1738,7 +1739,8 @@ mod tests {
                     block_height,
                     burn_parent_modulus: ((block_height - 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
                     burn_header_hash,
-                    treatment: vec![],                })
+                    treatment: vec![],
+                })
             },
             OpFixture {
                 // invalid -- wrong opcode
@@ -1914,7 +1916,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -1936,7 +1938,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -1965,7 +1967,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: 124,
             key_vtxindex: 456,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -2121,7 +2123,7 @@ mod tests {
                     parent_vtxindex: 444,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
-                    memo: vec![STACKS_EPOCH_2_1_MARKER],
+                    memo: vec![STACKS_EPOCH_2_1_MARKER].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2172,7 +2174,7 @@ mod tests {
                     parent_vtxindex: 0,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
-                    memo: vec![STACKS_EPOCH_2_1_MARKER],
+                    memo: vec![STACKS_EPOCH_2_1_MARKER].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2223,7 +2225,7 @@ mod tests {
                     parent_vtxindex: 0,
                     key_block_ptr: 124,
                     key_vtxindex: 456,
-                    memo: vec![STACKS_EPOCH_2_1_MARKER],
+                    memo: vec![STACKS_EPOCH_2_1_MARKER].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2274,7 +2276,7 @@ mod tests {
                     parent_vtxindex: 0,
                     key_block_ptr: 124,
                     key_vtxindex: 456,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2337,7 +2339,7 @@ mod tests {
                     parent_vtxindex: 0,
                     key_block_ptr: 124,
                     key_vtxindex: 456,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2452,7 +2454,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -2474,7 +2476,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -2504,7 +2506,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: 124,
             key_vtxindex: 456,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -2656,7 +2658,7 @@ mod tests {
                     parent_vtxindex: 456,
                     key_block_ptr: 1,
                     key_vtxindex: 457,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2707,7 +2709,7 @@ mod tests {
                     parent_vtxindex: 444,
                     key_block_ptr: 2,
                     key_vtxindex: 400,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2759,7 +2761,7 @@ mod tests {
                     key_block_ptr: 124,
                     key_vtxindex: 457,
                     commit_outs: vec![],
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
 
                     burn_fee: 12345,
                     input: (Txid([0; 32]), 0),
@@ -2809,7 +2811,7 @@ mod tests {
                     parent_vtxindex: 444,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2862,7 +2864,7 @@ mod tests {
                     parent_vtxindex: 444,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -2913,7 +2915,7 @@ mod tests {
                     parent_vtxindex: 444,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 0,
@@ -2964,7 +2966,7 @@ mod tests {
                     parent_vtxindex: 444,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -3015,7 +3017,7 @@ mod tests {
                     parent_vtxindex: 0,
                     key_block_ptr: 124,
                     key_vtxindex: 457,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -3066,7 +3068,7 @@ mod tests {
                     parent_vtxindex: 0,
                     key_block_ptr: 124,
                     key_vtxindex: 456,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
                     commit_outs: vec![],
 
                     burn_fee: 12345,
@@ -3146,6 +3148,10 @@ mod tests {
             panic!("Cannot evaluate");
         }
 
+        fn column_encoding(&self) -> Option<ColumnEncoding> {
+            None
+        }
+
         fn get_nakamoto_tip(
             &self,
         ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
@@ -3190,7 +3196,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: 124,
             key_vtxindex: 456,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3508,7 +3514,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
             txid: Txid([0x01; 32]),
             vtxindex: 456,
             block_height: first_block_height + 1,
@@ -3524,7 +3530,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3554,7 +3560,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_05_MARKER],
+            memo: vec![STACKS_EPOCH_2_05_MARKER].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3584,7 +3590,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_05_MARKER + 1],
+            memo: vec![STACKS_EPOCH_2_05_MARKER + 1].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3614,7 +3620,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_05_MARKER - 1],
+            memo: vec![STACKS_EPOCH_2_05_MARKER - 1].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3644,7 +3650,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![],
+            memo: vec![].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3674,7 +3680,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_1_MARKER],
+            memo: vec![STACKS_EPOCH_2_1_MARKER].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3704,7 +3710,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_1_MARKER + 1],
+            memo: vec![STACKS_EPOCH_2_1_MARKER + 1].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3734,7 +3740,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_1_MARKER - 1],
+            memo: vec![STACKS_EPOCH_2_1_MARKER - 1].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -3764,7 +3770,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: leader_key.block_height as u32,
             key_vtxindex: leader_key.vtxindex as u16,
-            memo: vec![],
+            memo: vec![].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,

@@ -180,7 +180,7 @@ fn serde_blockstack_ops() {
             recipient: StacksAddress::new(0, Hash160([6u8; 20]))
                 .expect("Unable to create StacksAddress"),
             transfered_ustx: 20,
-            memo: vec![],
+            memo: vec![].into(),
             txid: Txid([3u8; 32]),
             vtxindex: 1,
             block_height: 20,
@@ -226,7 +226,7 @@ fn serde_blockstack_ops() {
                 parent_vtxindex: 2,
                 key_block_ptr: 3,
                 key_vtxindex: 4,
-                memo: vec![],
+                memo: vec![].into(),
                 burn_fee: 5,
                 vtxindex: 1,
                 input: (Txid([1u8; 32]), 1),
@@ -250,7 +250,7 @@ fn serde_blockstack_ops() {
             LeaderKeyRegisterOp {
                 consensus_hash: ConsensusHash([0u8; 20]),
                 public_key: VRFPublicKey::from_private(&VRFPrivateKey::new()),
-                memo: vec![],
+                memo: vec![].into(),
                 txid: Txid([3u8; 32]),
                 vtxindex: 0,
                 block_height: 1,

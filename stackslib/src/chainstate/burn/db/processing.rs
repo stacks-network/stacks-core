@@ -370,7 +370,7 @@ mod tests {
                 "a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a",
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -393,7 +393,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: 101,
             key_vtxindex: 400,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             apparent_sender: BurnchainSigner("hello-world".to_string()),
 
             commit_outs: vec![],

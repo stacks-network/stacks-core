@@ -59,6 +59,7 @@ use crate::core::mempool::{
 };
 use crate::core::test_util::{insert_tx_in_mempool, make_stacks_transfer_serialized, to_addr};
 use crate::core::{FIRST_BURNCHAIN_CONSENSUS_HASH, FIRST_STACKS_BLOCK_HASH};
+use crate::stacks_common::util::db::SqlEncoded;
 use crate::util_lib::bloom::test::setup_bloom_counter;
 use crate::util_lib::bloom::*;
 use crate::util_lib::db::tx_begin_immediate;
@@ -614,7 +615,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    params![Some(123.0), txid],
+                    params![Some(123.0), txid.sqlhex()],
                 )
                 .unwrap();
         } else {
@@ -622,7 +623,7 @@ fn test_iterate_candidates_consider_no_estimate_tx_prob() {
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    params![none, txid],
+                    params![none, txid.sqlhex()],
                 )
                 .unwrap();
         }
@@ -1159,7 +1160,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    params![Some(123.0), txid],
+                    params![Some(123.0), txid.sqlhex()],
                 )
                 .unwrap();
         } else {
@@ -1167,7 +1168,7 @@ fn test_iterate_candidates_concurrent_write_lock() {
             mempool_tx
                 .execute(
                     "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                    params![none, txid],
+                    params![none, txid.sqlhex()],
                 )
                 .unwrap();
         }

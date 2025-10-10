@@ -23,6 +23,7 @@ use stacks_common::deps_common::bitcoin::blockdata::transaction::Transaction as 
 use stacks_common::deps_common::bitcoin::network::serialize::deserialize;
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::*;
 
 use super::*;
@@ -57,7 +58,7 @@ impl BurnchainDB {
         use rusqlite::params;
 
         let sql = "SELECT op FROM burnchain_db_block_ops WHERE block_hash = ?1";
-        let args = params![block_hash];
+        let args = params![block_hash.sqlhex()];
         let mut ops: Vec<BlockstackOperationType> = query_rows(&self.conn, sql, args)?;
         ops.sort_by_key(|op| op.vtxindex());
         Ok(ops)
@@ -525,7 +526,7 @@ pub fn make_simple_block_commit(
         parent_vtxindex: 0,
         key_block_ptr: 0,
         key_vtxindex: 0,
-        memo: vec![0],
+        memo: vec![0].into(),
 
         commit_outs: vec![
             PoxAddress::standard_burn_address(false),
@@ -1099,7 +1100,7 @@ fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
     let sample_txid = "txid1".to_string();
     conn.execute(
             "INSERT INTO burnchain_db_block_headers (block_height, block_hash, parent_block_hash, num_txs, timestamp) VALUES (?, ?, ?, ?, ?)",
-            params![1, &sample_block_hash, &sample_parent_block_hash, 1, 1234567890],
+            params![1, &sample_block_hash.sqlhex(), &sample_parent_block_hash.sqlhex(), 1, 1234567890],
         )?;
     conn.execute(
         "INSERT INTO affirmation_maps (weight, affirmation_map) VALUES (?, ?)",
@@ -1107,7 +1108,7 @@ fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
     )?;
     conn.execute(
             "INSERT INTO block_commit_metadata (burn_block_hash, txid, block_height, vtxindex, affirmation_id, anchor_block, anchor_block_descendant) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params![&sample_block_hash, &sample_txid, 1, 0, 0, None::<i64>, None::<i64>],
+            params![&sample_block_hash.sqlhex(), &sample_txid, 1, 0, 0, None::<i64>, None::<i64>],
         )?;
 
     // Create BurnchainDB using connect to trigger migration code
@@ -1153,7 +1154,7 @@ fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
     let header: Option<BurnchainBlockHeader> = query_row(
         &db.conn,
         "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ?",
-        params![&sample_block_hash],
+        params![&sample_block_hash.sqlhex()],
     )?;
     assert!(
         header.is_some(),
@@ -1162,7 +1163,7 @@ fn burnchain_db_migration_v2_to_v3() -> Result<(), BurnchainError> {
     let metadata: Option<String> = query_row(
         &db.conn,
         "SELECT txid FROM block_commit_metadata WHERE burn_block_hash = ?",
-        params![&sample_block_hash],
+        params![&sample_block_hash.sqlhex()],
     )?;
     assert_eq!(
         metadata,

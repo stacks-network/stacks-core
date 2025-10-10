@@ -27,6 +27,7 @@ use stacks_common::deps_common::bitcoin::network::serialize::BitcoinHash;
 use stacks_common::deps_common::bitcoin::util::hash::Sha256dHash;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::uint::Uint256;
 
@@ -685,7 +686,7 @@ impl SpvClient {
         query_row(
             &self.headers_db,
             "SELECT height FROM headers WHERE hash = ?1",
-            &[burn_header_hash],
+            params![burn_header_hash.sqlhex()],
         )
         .map_err(|e| e.into())
     }
@@ -754,7 +755,7 @@ impl SpvClient {
             header.bits,
             header.nonce,
             u64_to_sql(height)?,
-            BurnchainHeaderHash::from_bitcoin_hash(&header.bitcoin_hash()),
+            BurnchainHeaderHash::from_bitcoin_hash(&header.bitcoin_hash()).sqlhex(),
         ];
 
         tx.execute(sql, args)

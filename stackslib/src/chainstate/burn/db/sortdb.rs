@@ -28,6 +28,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::db::{ColumnEncoding, SqlEncoded};
 use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::vrf::*;
 
@@ -39,8 +40,8 @@ use crate::chainstate::burn::operations::leader_block_commit::{
     MissedBlockCommit, RewardSetInfo, OUTPUTS_PER_COMMIT,
 };
 use crate::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, StackStxOp,
-    TransferStxOp, VoteForAggregateKeyOp,
+    BlockstackOperationType, BurnOpMemo, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
 use crate::chainstate::burn::{
     BlockSnapshot, ConsensusHash, ConsensusHashExtensions, OpsHash, SortitionHash,
@@ -100,7 +101,7 @@ impl FromRow<BurnchainHeaderHash> for BurnchainHeaderHash {
 impl FromRow<MissedBlockCommit> for MissedBlockCommit {
     fn from_row(row: &Row) -> Result<MissedBlockCommit, db_error> {
         let intended_sortition = SortitionId::from_column(row, "intended_sortition_id")?;
-        let input_json: String = row.get_unwrap("input");
+        let input_json: String = row.get("input")?;
         let input = serde_json::from_str(&input_json).map_err(db_error::SerializationError)?;
         let txid = Txid::from_column(row, "txid")?;
 
@@ -121,8 +122,8 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
             BurnchainHeaderHash::from_column(row, "parent_burn_header_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let ops_hash = OpsHash::from_column(row, "ops_hash")?;
-        let total_burn_str: String = row.get_unwrap("total_burn");
-        let sortition: bool = row.get_unwrap("sortition");
+        let total_burn_str: String = row.get("total_burn")?;
+        let sortition: bool = row.get("sortition")?;
         let sortition_hash = SortitionHash::from_column(row, "sortition_hash")?;
         let winning_block_txid = Txid::from_column(row, "winning_block_txid")?;
         let winning_stacks_block_hash =
@@ -131,7 +132,7 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         let num_sortitions = u64::from_column(row, "num_sortitions")?;
 
         // information we learn about the stacks block this snapshot committedto
-        let stacks_block_accepted: bool = row.get_unwrap("stacks_block_accepted");
+        let stacks_block_accepted: bool = row.get("stacks_block_accepted")?;
         let stacks_block_height = u64::from_column(row, "stacks_block_height")?;
         let arrival_index = u64::from_column(row, "arrival_index")?;
 
@@ -146,9 +147,9 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
         // identifiers derived from PoX forking state
         let sortition_id = SortitionId::from_column(row, "sortition_id")?;
         let parent_sortition_id = SortitionId::from_column(row, "parent_sortition_id")?;
-        let pox_valid = row.get_unwrap("pox_valid");
+        let pox_valid = row.get("pox_valid")?;
 
-        let accumulated_coinbase_ustx_str: String = row.get_unwrap("accumulated_coinbase_ustx");
+        let accumulated_coinbase_ustx_str: String = row.get("accumulated_coinbase_ustx")?;
         let accumulated_coinbase_ustx = accumulated_coinbase_ustx_str
             .parse::<u128>()
             .expect("DB CORRUPTION: failed to parse stored value");
@@ -196,16 +197,12 @@ impl FromRow<BlockSnapshot> for BlockSnapshot {
 impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
     fn from_row(row: &Row) -> Result<LeaderKeyRegisterOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let vtxindex: u32 = row.get("vtxindex")?;
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let consensus_hash = ConsensusHash::from_column(row, "consensus_hash")?;
         let public_key = VRFPublicKey::from_column(row, "public_key")?;
-        let memo_hex: String = row.get_unwrap("memo");
-
-        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
-
-        let memo = memo_bytes.to_vec();
+        let memo = BurnOpMemo::from_column(row, "memo")?;
 
         let leader_key_row = LeaderKeyRegisterOp {
             txid,
@@ -225,27 +222,23 @@ impl FromRow<LeaderKeyRegisterOp> for LeaderKeyRegisterOp {
 impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
     fn from_row(row: &Row) -> Result<LeaderBlockCommitOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let vtxindex: u32 = row.get("vtxindex")?;
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
         let block_header_hash = BlockHeaderHash::from_column(row, "block_header_hash")?;
         let new_seed = VRFSeed::from_column(row, "new_seed")?;
-        let parent_block_ptr: u32 = row.get_unwrap("parent_block_ptr");
-        let parent_vtxindex: u16 = row.get_unwrap("parent_vtxindex");
-        let key_block_ptr: u32 = row.get_unwrap("key_block_ptr");
-        let key_vtxindex: u16 = row.get_unwrap("key_vtxindex");
-        let memo_hex: String = row.get_unwrap("memo");
-        let burn_fee_str: String = row.get_unwrap("burn_fee");
-        let input_json: String = row.get_unwrap("input");
-        let apparent_sender_json: String = row.get_unwrap("apparent_sender");
-        let sunset_burn_str: String = row.get_unwrap("sunset_burn");
+        let parent_block_ptr: u32 = row.get("parent_block_ptr")?;
+        let parent_vtxindex: u16 = row.get("parent_vtxindex")?;
+        let key_block_ptr: u32 = row.get("key_block_ptr")?;
+        let key_vtxindex: u16 = row.get("key_vtxindex")?;
+        let memo = BurnOpMemo::from_column(row, "memo")?;
+        let burn_fee_str: String = row.get("burn_fee")?;
+        let input_json: String = row.get("input")?;
+        let apparent_sender_json: String = row.get("apparent_sender")?;
+        let sunset_burn_str: String = row.get("sunset_burn")?;
 
-        let commit_outs = serde_json::from_value(row.get_unwrap("commit_outs"))
-            .expect("Unparseable value stored to database");
-
-        let memo_bytes = hex_bytes(&memo_hex).map_err(|_e| db_error::ParseError)?;
-
-        let memo = memo_bytes.to_vec();
+        let commit_outs =
+            serde_json::from_value(row.get("commit_outs")?).map_err(|_| db_error::ParseError)?;
 
         let input = serde_json::from_str(&input_json).map_err(db_error::SerializationError)?;
 
@@ -260,9 +253,9 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
             .parse::<u64>()
             .expect("DB Corruption: Sunset burn is not parseable as u64");
 
-        let burn_parent_modulus: u8 = row.get_unwrap("burn_parent_modulus");
+        let burn_parent_modulus: u8 = row.get("burn_parent_modulus")?;
 
-        let punished_str: Option<String> = row.get_unwrap("punished");
+        let punished_str: Option<String> = row.get("punished")?;
         let punished = punished_str
             .as_deref()
             .map(serde_json::from_str)
@@ -298,16 +291,16 @@ impl FromRow<LeaderBlockCommitOp> for LeaderBlockCommitOp {
 impl FromRow<StackStxOp> for StackStxOp {
     fn from_row(row: &Row) -> Result<StackStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let vtxindex: u32 = row.get("vtxindex")?;
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let sender = StacksAddress::from_column(row, "sender_addr")?;
         let reward_addr = PoxAddress::from_column(row, "reward_addr")?;
-        let stacked_ustx_str: String = row.get_unwrap("stacked_ustx");
-        let stacked_ustx = u128::from_str_radix(&stacked_ustx_str, 10)
-            .expect("CORRUPTION: bad u128 written to sortdb");
-        let num_cycles = row.get_unwrap("num_cycles");
+        let stacked_ustx_str: String = row.get("stacked_ustx")?;
+        let stacked_ustx =
+            u128::from_str_radix(&stacked_ustx_str, 10).map_err(|_| db_error::ParseError)?;
+        let num_cycles = row.get("num_cycles")?;
         let signing_key_str_opt: Option<String> = row.get("signer_key")?;
         let signer_key = match signing_key_str_opt {
             Some(key_str) => serde_json::from_str(&key_str).ok(),
@@ -341,17 +334,17 @@ impl FromRow<StackStxOp> for StackStxOp {
 impl FromRow<DelegateStxOp> for DelegateStxOp {
     fn from_row(row: &Row) -> Result<DelegateStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let vtxindex: u32 = row.get("vtxindex")?;
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let sender = StacksAddress::from_column(row, "sender_addr")?;
         let delegate_to = StacksAddress::from_column(row, "delegate_to")?;
-        let reward_addr_str: String = row.get_unwrap("reward_addr");
+        let reward_addr_str: String = row.get("reward_addr")?;
         let reward_addr = serde_json::from_str(&reward_addr_str)
             .expect("CORRUPTION: DB stored bad transition ops");
 
-        let delegated_ustx_str: String = row.get_unwrap("delegated_ustx");
+        let delegated_ustx_str: String = row.get("delegated_ustx")?;
         let delegated_ustx = u128::from_str_radix(&delegated_ustx_str, 10)
             .expect("CORRUPTION: bad u128 written to sortdb");
         let until_burn_height = u64::from_column(row, "until_burn_height")?;
@@ -373,17 +366,16 @@ impl FromRow<DelegateStxOp> for DelegateStxOp {
 impl FromRow<TransferStxOp> for TransferStxOp {
     fn from_row(row: &Row) -> Result<TransferStxOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let vtxindex: u32 = row.get("vtxindex")?;
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let sender = StacksAddress::from_column(row, "sender_addr")?;
         let recipient = StacksAddress::from_column(row, "recipient_addr")?;
-        let transfered_ustx_str: String = row.get_unwrap("transfered_ustx");
-        let transfered_ustx = u128::from_str_radix(&transfered_ustx_str, 10)
-            .expect("CORRUPTION: bad u128 written to sortdb");
-        let memo_hex: String = row.get_unwrap("memo");
-        let memo = hex_bytes(&memo_hex).map_err(|_| db_error::Corruption)?;
+        let transfered_ustx_str: String = row.get("transfered_ustx")?;
+        let transfered_ustx =
+            u128::from_str_radix(&transfered_ustx_str, 10).map_err(|_| db_error::ParseError)?;
+        let memo = BurnOpMemo::from_column(row, "memo")?;
 
         Ok(TransferStxOp {
             txid,
@@ -401,20 +393,20 @@ impl FromRow<TransferStxOp> for TransferStxOp {
 impl FromRow<VoteForAggregateKeyOp> for VoteForAggregateKeyOp {
     fn from_row(row: &Row) -> Result<VoteForAggregateKeyOp, db_error> {
         let txid = Txid::from_column(row, "txid")?;
-        let vtxindex: u32 = row.get_unwrap("vtxindex");
+        let vtxindex: u32 = row.get("vtxindex")?;
         let block_height = u64::from_column(row, "block_height")?;
         let burn_header_hash = BurnchainHeaderHash::from_column(row, "burn_header_hash")?;
 
         let sender = StacksAddress::from_column(row, "sender_addr")?;
-        let aggregate_key_str: String = row.get_unwrap("aggregate_key");
-        let aggregate_key: StacksPublicKeyBuffer = serde_json::from_str(&aggregate_key_str)
-            .expect("CORRUPTION: DB stored bad transition ops");
-        let round: u32 = row.get_unwrap("round");
+        let aggregate_key_str: String = row.get("aggregate_key")?;
+        let aggregate_key: StacksPublicKeyBuffer =
+            serde_json::from_str(&aggregate_key_str).map_err(|_| db_error::ParseError)?;
+        let round: u32 = row.get("round")?;
         let reward_cycle = u64::from_column(row, "reward_cycle")?;
-        let signer_index: u16 = row.get_unwrap("signer_index");
-        let signer_key_str: String = row.get_unwrap("signer_key");
-        let signer_key: StacksPublicKeyBuffer = serde_json::from_str(&signer_key_str)
-            .expect("CORRUPTION: DB stored bad transition ops");
+        let signer_index: u16 = row.get("signer_index")?;
+        let signer_key_str: String = row.get("signer_key")?;
+        let signer_key: StacksPublicKeyBuffer =
+            serde_json::from_str(&signer_key_str).map_err(|_| db_error::ParseError)?;
 
         Ok(VoteForAggregateKeyOp {
             txid,
@@ -462,15 +454,15 @@ impl FromRow<AcceptedStacksBlockHeader> for AcceptedStacksBlockHeader {
 
 impl FromRow<StacksEpoch> for StacksEpoch {
     fn from_row(row: &Row) -> Result<StacksEpoch, db_error> {
-        let epoch_id_u32: u32 = row.get_unwrap("epoch_id");
+        let epoch_id_u32: u32 = row.get("epoch_id")?;
         let epoch_id = StacksEpochId::try_from(epoch_id_u32).map_err(|_| db_error::ParseError)?;
 
         let start_height = u64::from_column(row, "start_block_height")?;
         let end_height = u64::from_column(row, "end_block_height")?;
 
-        let network_epoch: u8 = row.get_unwrap("network_epoch");
+        let network_epoch: u8 = row.get("network_epoch")?;
 
-        let block_limit = row.get_unwrap("block_limit");
+        let block_limit = row.get("block_limit")?;
         Ok(StacksEpoch {
             epoch_id,
             start_height,
@@ -481,7 +473,11 @@ impl FromRow<StacksEpoch> for StacksEpoch {
     }
 }
 
-pub const SORTITION_DB_VERSION: u32 = 10;
+pub const SORTITION_DB_VERSION: u32 = 11;
+
+const SORTITION_DB_DBCONFIG_TABLE: &str = "CREATE TABLE db_config(version TEXT PRIMARY KEY);";
+const SORTITION_DB_DBCONFIG_ENCODING: &str =
+    "ALTER TABLE db_config ADD encoding INTEGER DEFAULT NULL;";
 
 const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
     r#"
@@ -615,7 +611,7 @@ const SORTITION_DB_INITIAL_SCHEMA: &[&str] = &[
 
         PRIMARY KEY(txid, intended_sortition_id)
     );"#,
-    "CREATE TABLE db_config(version TEXT PRIMARY KEY);",
+    SORTITION_DB_DBCONFIG_TABLE,
 ];
 
 const SORTITION_DB_SCHEMA_2: &[&str] = &[r#"
@@ -721,6 +717,14 @@ static SORTITION_DB_SCHEMA_9: &[&str] =
     &[r#"ALTER TABLE block_commits ADD punished TEXT DEFAULT NULL;"#];
 static SORTITION_DB_SCHEMA_10: &[&str] = &[r#"DROP TABLE IF EXISTS ast_rule_heights;"#];
 
+static SORTITION_DB_SCHEMA_11: &[&str] = &[
+    "DROP TABLE db_config",
+    SORTITION_DB_DBCONFIG_TABLE,
+    SORTITION_DB_DBCONFIG_ENCODING,
+];
+static SORTITION_DB_SCHEMA_DBCONFIG: &[&str] =
+    &[SORTITION_DB_DBCONFIG_TABLE, SORTITION_DB_DBCONFIG_ENCODING];
+
 const LAST_SORTITION_DB_INDEX: &str = "index_block_commits_by_sender";
 const SORTITION_DB_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS snapshots_block_hashes ON snapshots(block_height,index_root,winning_stacks_block_hash);",
@@ -772,6 +776,8 @@ pub struct SortitionDB {
     pub pox_constants: PoxConstants,
     /// Path on disk from which this DB was opened (caller-given; not resolved).
     pub path: String,
+    /// Encoding to use when loading or storing columns
+    pub(crate) column_encoding: Option<ColumnEncoding>,
 }
 
 #[derive(Clone)]
@@ -779,6 +785,8 @@ pub struct SortitionDBTxContext {
     pub first_block_height: u64,
     pub pox_constants: PoxConstants,
     pub dryrun: bool,
+    /// Encoding to use when loading or storing columns
+    pub(crate) column_encoding: Option<ColumnEncoding>,
 }
 
 #[derive(Clone)]
@@ -787,6 +795,8 @@ pub struct SortitionHandleContext {
     pub pox_constants: PoxConstants,
     pub chain_tip: SortitionId,
     pub dryrun: bool,
+    /// Encoding to use when loading or storing columns
+    pub(crate) column_encoding: Option<ColumnEncoding>,
 }
 
 pub type SortitionDBConn<'a> = IndexDBConn<'a, SortitionDBTxContext, SortitionId>;
@@ -827,8 +837,9 @@ pub fn get_block_commit_by_txid(
     sort_id: &SortitionId,
     txid: &Txid,
 ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+    let encoding = SortitionDB::get_column_encoding(conn)?;
     let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND txid = ?2 LIMIT 1";
-    let args = params![sort_id, txid];
+    let args = params![sort_id.sql_encoded(encoding), txid.sql_encoded(encoding)];
     query_row(conn, qry, args)
 }
 
@@ -1016,6 +1027,9 @@ pub trait SortitionHandle {
     ///  a transaction, this should point to the open transaction.
     fn sqlite(&self) -> &Connection;
 
+    /// Returns the column encoding to use, if any
+    fn column_encoding(&self) -> Option<ColumnEncoding>;
+
     /// Returns the snapshot of the burnchain block at burnchain height `block_height`.
     /// Returns None if there is no block at this height.
     fn get_block_snapshot_by_height(
@@ -1089,7 +1103,7 @@ pub trait SortitionHandle {
     ) -> Result<bool, db_error> {
         let earliest_block_height_opt = self.sqlite().query_row(
             "SELECT block_height FROM snapshots WHERE winning_stacks_block_hash = ? ORDER BY block_height ASC LIMIT 1",
-            &[potential_ancestor],
+            params![potential_ancestor.sql_encoded(self.column_encoding())],
             |row| Ok(u64::from_row(row).expect("Expected u64 in database")))
             .optional()?;
 
@@ -1205,6 +1219,7 @@ impl<'a> SortitionHandleTx<'a> {
                 first_block_height: conn.first_block_height,
                 pox_constants: conn.pox_constants.clone(),
                 dryrun: conn.dryrun,
+                column_encoding: conn.column_encoding,
             },
         );
 
@@ -1261,7 +1276,9 @@ impl<'a> SortitionHandleTx<'a> {
 
         let qry = "SELECT * FROM leader_keys WHERE sortition_id = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
         let args = params![
-            ancestor_snapshot.sortition_id,
+            ancestor_snapshot
+                .sortition_id
+                .sql_encoded(self.context.column_encoding),
             u64_to_sql(key_block_height)?,
             key_vtxindex,
         ];
@@ -1537,6 +1554,10 @@ impl SortitionHandle for SortitionHandleTx<'_> {
         self.tx()
     }
 
+    fn column_encoding(&self) -> Option<ColumnEncoding> {
+        self.context.column_encoding
+    }
+
     fn tip(&self) -> SortitionId {
         self.context.chain_tip.clone()
     }
@@ -1566,6 +1587,10 @@ impl SortitionHandle for SortitionHandleConn<'_> {
 
     fn sqlite(&self) -> &Connection {
         self.conn()
+    }
+
+    fn column_encoding(&self) -> Option<ColumnEncoding> {
+        self.context.column_encoding
     }
 
     fn tip(&self) -> SortitionId {
@@ -1737,7 +1762,7 @@ impl SortitionHandleTx<'_> {
         sortition_id: &SortitionId,
     ) -> Result<(Vec<PoxAddress>, u128), db_error> {
         let sql = "SELECT pox_payouts FROM snapshots WHERE sortition_id = ?1";
-        let args = params![sortition_id];
+        let args = params![sortition_id.sql_encoded(self.context.column_encoding)];
         let pox_addrs_json: String = query_row(self, sql, args)?.ok_or(db_error::NotFoundError)?;
 
         let pox_addrs: (Vec<PoxAddress>, u128) =
@@ -1812,7 +1837,7 @@ impl SortitionHandleTx<'_> {
     }
 
     /// Update the canonical Stacks tip
-    fn update_canonical_stacks_tip(
+    pub(crate) fn update_canonical_stacks_tip(
         &mut self,
         sort_id: &SortitionId,
         consensus_hash: &ConsensusHash,
@@ -1821,9 +1846,9 @@ impl SortitionHandleTx<'_> {
     ) -> Result<(), db_error> {
         let sql = "INSERT OR REPLACE INTO stacks_chain_tips (sortition_id,consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4)";
         let args = params![
-            sort_id,
-            consensus_hash,
-            stacks_block_hash,
+            sort_id.sql_encoded(self.context.column_encoding),
+            consensus_hash.sql_encoded(self.context.column_encoding),
+            stacks_block_hash.sql_encoded(self.context.column_encoding),
             u64_to_sql(stacks_block_height)?,
         ];
         self.execute(sql, args)?;
@@ -1878,7 +1903,7 @@ impl SortitionHandleTx<'_> {
             // votes).
             let current_sortition_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = self.query_row_and_then(
                 "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ?1 ORDER BY block_height DESC LIMIT 1",
-                rusqlite::params![&burn_tip.sortition_id],
+                rusqlite::params![&burn_tip.sortition_id.sql_encoded(self.context.column_encoding)],
                 |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
             ).optional()?;
 
@@ -1932,8 +1957,8 @@ impl SortitionHandleTx<'_> {
         let args = params![
             u64_to_sql(stacks_block_height)?,
             u64_to_sql(arrival_index + 1)?,
-            consensus_hash,
-            stacks_block_hash,
+            consensus_hash.sql_encoded(self.context.column_encoding),
+            stacks_block_hash.sql_encoded(self.context.column_encoding),
         ];
 
         debug!(
@@ -2058,6 +2083,7 @@ impl<'a> SortitionHandleConn<'a> {
                 first_block_height: connection.context.first_block_height,
                 pox_constants: connection.context.pox_constants.clone(),
                 dryrun: connection.context.dryrun,
+                column_encoding: connection.context.column_encoding,
             },
         ))
     }
@@ -2517,7 +2543,7 @@ impl<'a> SortitionHandleConn<'a> {
         sortition_id: &SortitionId,
     ) -> Result<(Vec<PoxAddress>, u128), db_error> {
         let sql = "SELECT pox_payouts FROM snapshots WHERE sortition_id = ?1";
-        let args = params![sortition_id];
+        let args = params![sortition_id.sql_encoded(self.context.column_encoding)];
         let pox_addrs_json: String = query_row(self, sql, args)?.ok_or(db_error::NotFoundError)?;
 
         let pox_addrs: (Vec<PoxAddress>, u128) =
@@ -2561,6 +2587,7 @@ impl SortitionDB {
                 first_block_height: self.first_block_height,
                 pox_constants: self.pox_constants.clone(),
                 dryrun: self.dryrun,
+                column_encoding: self.column_encoding,
             },
         );
         Ok(index_tx)
@@ -2574,6 +2601,7 @@ impl SortitionDB {
                 first_block_height: self.first_block_height,
                 pox_constants: self.pox_constants.clone(),
                 dryrun: self.dryrun,
+                column_encoding: self.column_encoding,
             },
         )
     }
@@ -2586,6 +2614,7 @@ impl SortitionDB {
                 chain_tip: chain_tip.clone(),
                 pox_constants: self.pox_constants.clone(),
                 dryrun: self.dryrun,
+                column_encoding: self.column_encoding,
             },
         )
     }
@@ -2639,6 +2668,7 @@ impl SortitionDB {
                 chain_tip: chain_tip.clone(),
                 pox_constants: self.pox_constants.clone(),
                 dryrun: self.dryrun,
+                column_encoding: self.column_encoding,
             },
         ))
     }
@@ -2674,6 +2704,7 @@ impl SortitionDB {
         let (first_block_height, first_burn_header_hash) =
             SortitionDB::get_first_block_height_and_hash(marf.sqlite_conn())?;
 
+        let encoding = SortitionDB::get_column_encoding(&marf.sqlite_conn())?;
         let mut db = SortitionDB {
             path: path.to_string(),
             marf,
@@ -2682,6 +2713,7 @@ impl SortitionDB {
             pox_constants,
             first_block_height,
             first_burn_header_hash,
+            column_encoding: encoding,
         };
 
         db.check_schema_version_or_error()?;
@@ -2740,6 +2772,7 @@ impl SortitionDB {
             first_block_height,
             pox_constants,
             first_burn_header_hash: first_burn_hash.clone(),
+            column_encoding: migrator.as_ref().map(|m| m.get_column_encoding()).flatten(),
         };
 
         if create_flag {
@@ -2836,11 +2869,12 @@ impl SortitionDB {
         let db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
         SortitionDB::apply_schema_9(&db_tx, epochs_ref)?;
         SortitionDB::apply_schema_10(&db_tx)?;
+        SortitionDB::apply_schema_11(&db_tx, None)?;
         db_tx.commit()?;
 
         self.add_indexes()?;
 
-        debug!("Instantiated SortDB");
+        debug!("Instantiated SortDB with default encoding");
         Ok(())
     }
 
@@ -2948,8 +2982,12 @@ impl SortitionDB {
         txid: &Txid,
         sortition_id: &SortitionId,
     ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM block_commits WHERE txid = ?1 AND sortition_id = ?2";
-        let args = params![txid, sortition_id];
+        let args = params![
+            txid.sql_encoded(encoding),
+            sortition_id.sql_encoded(encoding)
+        ];
         query_row(conn, qry, args)
     }
 
@@ -2960,8 +2998,12 @@ impl SortitionDB {
         txid: &Txid,
         sortition_id: &SortitionId,
     ) -> Result<Option<SortitionId>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT parent_sortition_id AS sortition_id FROM block_commit_parents WHERE block_commit_parents.block_commit_txid = ?1 AND block_commit_parents.block_commit_sortition_id = ?2";
-        let args = params![txid, sortition_id];
+        let args = params![
+            txid.sql_encoded(encoding),
+            sortition_id.sql_encoded(encoding)
+        ];
         query_row(conn, qry, args)
     }
 
@@ -2976,8 +3018,9 @@ impl SortitionDB {
         conn: &DBConn,
         bhh: &BurnchainHeaderHash,
     ) -> Result<Vec<BlockSnapshot>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM snapshots WHERE burn_header_hash = ?1";
-        query_rows(conn, qry, &[bhh])
+        query_rows(conn, qry, params![bhh.sql_encoded(encoding)])
     }
 
     /// Get all snapshots for a burn block height, even if they're not on the canonical PoX fork
@@ -3011,7 +3054,11 @@ impl SortitionDB {
     #[cfg_attr(test, mutants::skip)]
     pub fn get_consensus_hash_height(&self, ch: &ConsensusHash) -> Result<Option<u64>, db_error> {
         let qry = "SELECT block_height FROM snapshots WHERE consensus_hash = ?1";
-        let mut heights: Vec<u64> = query_rows(self.conn(), qry, &[ch])?;
+        let mut heights: Vec<u64> = query_rows(
+            self.conn(),
+            qry,
+            params![ch.sql_encoded(self.column_encoding)],
+        )?;
         if let Some(height) = heights.pop() {
             for next_height in heights {
                 if height != next_height {
@@ -3082,45 +3129,95 @@ impl SortitionDB {
         Ok(version)
     }
 
+    /// Get the database column encoding for byte strings, given a DB connection
+    pub(crate) fn get_column_encoding(
+        conn: &Connection,
+    ) -> Result<Option<ColumnEncoding>, db_error> {
+        let Some(version) = Self::get_schema_version(conn)? else {
+            // schema predates specific encoding scheme, so use the default
+            return Ok(None);
+        };
+
+        let Some(encoding_u8): Option<u8> = conn
+            .query_row(
+                "SELECT encoding FROM db_config WHERE version = ?1 AND encoding IS NOT NULL",
+                params![version],
+                |row| row.get(0),
+            )
+            .optional()?
+        else {
+            return Ok(None);
+        };
+
+        Ok(ColumnEncoding::try_from(encoding_u8).ok())
+    }
+
+    /// Set the database column encoding.
+    /// Only used during migration.
+    pub(crate) fn set_column_encoding(
+        conn: &Connection,
+        encoding: Option<ColumnEncoding>,
+    ) -> Result<(), db_error> {
+        conn.execute(
+            "UPDATE db_config SET encoding = ?1",
+            params![&encoding.map(|enc| enc.as_u8())],
+        )?;
+        Ok(())
+    }
+
+    /// Update the database schema with the given version and column encoding rules.
+    /// Returns Ok(()) on success
+    /// Returns Err(..) on error
+    fn update_db_version(
+        tx: &DBTx,
+        version: u32,
+        encoding: Option<ColumnEncoding>,
+    ) -> Result<(), db_error> {
+        // drop and recreate the table each time so we have the latest schema
+        tx.execute("DROP TABLE db_config", NO_PARAMS)?;
+        for sql_exec in SORTITION_DB_SCHEMA_DBCONFIG {
+            tx.execute_batch(sql_exec)?;
+        }
+        tx.execute(
+            "INSERT INTO db_config (version,encoding) VALUES (?1,?2)",
+            params![version, encoding.map(|enc| enc.as_u8())],
+        )?;
+        Ok(())
+    }
+
     fn apply_schema_2(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 2...");
         for sql_exec in SORTITION_DB_SCHEMA_2 {
             tx.execute_batch(sql_exec)?;
         }
 
         SortitionDB::validate_and_insert_epochs(tx, epochs)?;
 
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["2"],
-        )?;
-
+        Self::update_db_version(tx, 2, None)?;
         Ok(())
     }
 
     fn apply_schema_3(tx: &DBTx) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 3...");
         for sql_exec in SORTITION_DB_SCHEMA_3 {
             tx.execute_batch(sql_exec)?;
         }
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["3"],
-        )?;
+        Self::update_db_version(tx, 3, None)?;
         Ok(())
     }
 
     fn apply_schema_4(tx: &DBTx) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 4...");
         for sql_exec in SORTITION_DB_SCHEMA_4 {
             tx.execute_batch(sql_exec)?;
         }
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["4"],
-        )?;
+        Self::update_db_version(tx, 4, None)?;
         Ok(())
     }
 
     #[cfg_attr(test, mutants::skip)]
     fn apply_schema_5(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 5...");
         // the schema 5 changes simply **replace** the contents of the epochs table
         //  by dropping all the current rows and then revalidating and inserting
         //  `epochs`
@@ -3129,44 +3226,31 @@ impl SortitionDB {
         }
 
         SortitionDB::validate_and_insert_epochs(tx, epochs)?;
-
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["5"],
-        )?;
-
+        Self::update_db_version(tx, 5, None)?;
         Ok(())
     }
 
     #[cfg_attr(test, mutants::skip)]
     fn apply_schema_6(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 6...");
         for sql_exec in SORTITION_DB_SCHEMA_6 {
             tx.execute_batch(sql_exec)?;
         }
 
         SortitionDB::validate_and_insert_epochs(tx, epochs)?;
-
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["6"],
-        )?;
-
+        Self::update_db_version(tx, 6, None)?;
         Ok(())
     }
 
     #[cfg_attr(test, mutants::skip)]
     fn apply_schema_7(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 7...");
         for sql_exec in SORTITION_DB_SCHEMA_7 {
             tx.execute_batch(sql_exec)?;
         }
 
         SortitionDB::validate_and_insert_epochs(tx, epochs)?;
-
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["7"],
-        )?;
-
+        Self::update_db_version(tx, 7, None)?;
         Ok(())
     }
 
@@ -3191,13 +3275,14 @@ impl SortitionDB {
         &mut self,
         canonical_tip: &BlockSnapshot,
     ) -> Result<(), db_error> {
+        let encoding = self.column_encoding;
         let first_block_height = self.first_block_height;
         let tx = self.tx_begin()?;
 
         // skip if this step was done
         if table_exists(&tx, "stacks_chain_tips")? {
             let sql = "SELECT 1 FROM stacks_chain_tips WHERE sortition_id = ?1";
-            let args = params![canonical_tip.sortition_id];
+            let args = params![canonical_tip.sortition_id.sql_encoded(encoding)];
             if let Ok(Some(_)) = query_row::<i64, _>(&tx, sql, args) {
                 info!("`stacks_chain_tips` appears to have been populated already; skipping this step");
                 return Ok(());
@@ -3214,9 +3299,11 @@ impl SortitionDB {
             for snapshot in snapshots.into_iter() {
                 let sql = "INSERT OR REPLACE INTO stacks_chain_tips (sortition_id,consensus_hash,block_hash,block_height) VALUES (?1,?2,?3,?4)";
                 let args = params![
-                    snapshot.sortition_id,
-                    snapshot.canonical_stacks_tip_consensus_hash,
-                    snapshot.canonical_stacks_tip_hash,
+                    snapshot.sortition_id.sql_encoded(encoding),
+                    snapshot
+                        .canonical_stacks_tip_consensus_hash
+                        .sql_encoded(encoding),
+                    snapshot.canonical_stacks_tip_hash.sql_encoded(encoding),
                     u64_to_sql(snapshot.canonical_stacks_tip_height)?,
                 ];
                 tx.execute(sql, args)?;
@@ -3265,6 +3352,7 @@ impl SortitionDB {
         &mut self,
         mut migrator: Option<SortitionDBMigrator>,
     ) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 8...");
         let canonical_tip = SortitionDB::get_canonical_burn_chain_tip(self.conn())?;
 
         // port over `stacks_chain_tips` table
@@ -3281,10 +3369,7 @@ impl SortitionDB {
         }
 
         let tx = self.tx_begin()?;
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["8"],
-        )?;
+        Self::update_db_version(&tx, 8, None)?;
         tx.commit()?;
 
         Ok(())
@@ -3292,30 +3377,31 @@ impl SortitionDB {
 
     #[cfg_attr(test, mutants::skip)]
     fn apply_schema_9(tx: &DBTx, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 9...");
         for sql_exec in SORTITION_DB_SCHEMA_9 {
             tx.execute_batch(sql_exec)?;
         }
 
         SortitionDB::validate_and_replace_epochs(tx, epochs)?;
-
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["9"],
-        )?;
-
+        Self::update_db_version(tx, 9, None)?;
         Ok(())
     }
 
     fn apply_schema_10(tx: &DBTx) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 10...");
         for sql_exec in SORTITION_DB_SCHEMA_10 {
             tx.execute_batch(sql_exec)?;
         }
+        Self::update_db_version(tx, 10, None)?;
+        Ok(())
+    }
 
-        tx.execute(
-            "INSERT OR REPLACE INTO db_config (version) VALUES (?1)",
-            &["10"],
-        )?;
-
+    fn apply_schema_11(tx: &DBTx, encoding: Option<ColumnEncoding>) -> Result<(), db_error> {
+        info!("Migrating sortition DB to schema 11...");
+        for sql_exec in SORTITION_DB_SCHEMA_11 {
+            tx.execute_batch(sql_exec)?;
+        }
+        Self::update_db_version(tx, 11, encoding)?;
         Ok(())
     }
 
@@ -3384,6 +3470,11 @@ impl SortitionDB {
                         let tx = self.tx_begin()?;
                         SortitionDB::apply_schema_10(tx.deref())?;
                         tx.commit()?;
+                    } else if version == 10 {
+                        let encoding = self.column_encoding;
+                        let tx = self.tx_begin()?;
+                        SortitionDB::apply_schema_11(tx.deref(), encoding)?;
+                        tx.commit()?;
                     } else if version == SORTITION_DB_VERSION {
                         // this transaction is almost never needed
                         let validated_epochs = StacksEpoch::validate_epochs(epochs);
@@ -3391,6 +3482,8 @@ impl SortitionDB {
                         if existing_epochs == validated_epochs {
                             return Ok(());
                         }
+
+                        info!("Updating sortition DB epochs...");
 
                         // epochs are out of date
                         let tx = self.tx_begin()?;
@@ -3421,6 +3514,7 @@ impl SortitionDB {
         {
             let index_path = db_mkdirs(path)?;
             let marf = SortitionDB::open_index(&index_path)?;
+            let column_encoding = SortitionDB::get_column_encoding(marf.sqlite_conn())?;
             let mut db = SortitionDB {
                 path: path.to_string(),
                 marf,
@@ -3429,8 +3523,13 @@ impl SortitionDB {
                 first_block_height: migrator.get_burnchain().first_block_height,
                 first_burn_header_hash: migrator.get_burnchain().first_block_hash.clone(),
                 pox_constants: migrator.get_burnchain().pox_constants.clone(),
+                column_encoding,
             };
-            db.check_schema_version_and_update(epochs, Some(migrator))
+            db.check_schema_version_and_update(epochs, Some(migrator))?;
+
+            let column_encoding = SortitionDB::get_column_encoding(db.conn())?;
+            db.column_encoding = column_encoding;
+            Ok(())
         } else {
             debug!("SortitionDB is at the latest schema");
             Ok(())
@@ -3468,9 +3567,10 @@ impl SortitionDB {
         if !rc_info.is_reward_info_known() {
             return Ok(());
         }
+        let encoding = SortitionDB::get_column_encoding(&sort_tx)?;
         let sql = "REPLACE INTO preprocessed_reward_sets (sortition_id,reward_set) VALUES (?1,?2)";
         let rc_json = serde_json::to_string(rc_info).map_err(db_error::SerializationError)?;
-        let args = params![sortition_id, rc_json];
+        let args = params![sortition_id.sql_encoded(encoding), rc_json];
         sort_tx.execute(sql, args)?;
         Ok(())
     }
@@ -3516,8 +3616,9 @@ impl SortitionDB {
         sortdb: &DBConn,
         sortition_id: &SortitionId,
     ) -> Result<Option<RewardCycleInfo>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(&sortdb)?;
         let sql = "SELECT reward_set FROM preprocessed_reward_sets WHERE sortition_id = ?1";
-        let args = params![sortition_id];
+        let args = params![sortition_id.sql_encoded(encoding)];
         let reward_set_opt: Option<String> =
             sortdb.query_row(sql, args, |row| row.get(0)).optional()?;
 
@@ -3564,6 +3665,7 @@ impl SortitionDBConn<'_> {
                 chain_tip: chain_tip.clone(),
                 pox_constants: self.context.pox_constants.clone(),
                 dryrun: self.context.dryrun,
+                column_encoding: self.context.column_encoding,
             },
         )
     }
@@ -3733,7 +3835,7 @@ impl SortitionDBConn<'_> {
         sortition_id: &SortitionId,
     ) -> Result<(Vec<PoxAddress>, u128), db_error> {
         let sql = "SELECT pox_payouts FROM snapshots WHERE sortition_id = ?1";
-        let args = params![sortition_id];
+        let args = params![sortition_id.sql_encoded(self.context.column_encoding)];
         let pox_addrs_json: String =
             query_row(self.conn(), sql, args)?.ok_or(db_error::NotFoundError)?;
 
@@ -3853,17 +3955,25 @@ impl SortitionDB {
         burnchain_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<SortitionId>, BurnchainError> {
         let qry = "SELECT sortition_id FROM snapshots WHERE burn_header_hash = ? AND pox_valid = 1";
-        query_row(self.conn(), qry, &[burnchain_header_hash]).map_err(BurnchainError::from)
+        query_row(
+            self.conn(),
+            qry,
+            params![burnchain_header_hash.sql_encoded(self.column_encoding)],
+        )
+        .map_err(BurnchainError::from)
     }
 
     fn get_block_height(
         conn: &Connection,
         sortition_id: &SortitionId,
     ) -> Result<Option<u32>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT block_height FROM snapshots WHERE sortition_id = ? LIMIT 1";
-        conn.query_row(qry, &[sortition_id], |row| row.get(0))
-            .optional()
-            .map_err(db_error::from)
+        conn.query_row(qry, params![sortition_id.sql_encoded(encoding)], |row| {
+            row.get(0)
+        })
+        .optional()
+        .map_err(db_error::from)
     }
 
     /// Is the given block an expected PoX anchor in this sortition history?
@@ -3912,12 +4022,13 @@ impl SortitionDB {
         canonical_stacks_height: u64,
         stacks_block_accepted: Option<bool>,
     ) -> Result<(), BurnchainError> {
+        let encoding = SortitionDB::get_column_encoding(tx)?;
         if let Some(stacks_block_accepted) = stacks_block_accepted {
             let args = params![
-                sortition_id,
+                sortition_id.sql_encoded(encoding),
                 u64_to_sql(canonical_stacks_height)?,
-                canonical_stacks_bhh,
-                canonical_stacks_ch,
+                canonical_stacks_bhh.sql_encoded(encoding),
+                canonical_stacks_ch.sql_encoded(encoding),
                 stacks_block_accepted,
             ];
             tx.execute(
@@ -3926,10 +4037,10 @@ impl SortitionDB {
             )?;
         } else {
             let args = params![
-                sortition_id,
+                sortition_id.sql_encoded(encoding),
                 u64_to_sql(canonical_stacks_height)?,
-                canonical_stacks_bhh,
-                canonical_stacks_ch,
+                canonical_stacks_bhh.sql_encoded(encoding),
+                canonical_stacks_ch.sql_encoded(encoding),
             ];
             tx.execute(
                 "UPDATE snapshots SET pox_valid = 1, canonical_stacks_tip_height = ?2, canonical_stacks_tip_hash = ?3, canonical_stacks_tip_consensus_hash = ?4 WHERE sortition_id = ?1",
@@ -3956,6 +4067,8 @@ impl SortitionDB {
         G: FnMut(&mut SortitionDBTx),
     {
         let mut db_tx = self.tx_begin()?;
+        let encoding = SortitionDB::get_column_encoding(&db_tx)?;
+
         let mut queue = vec![burn_block.clone()];
 
         while let Some(header) = queue.pop() {
@@ -3964,7 +4077,9 @@ impl SortitionDB {
                 let mut stmt = db_tx.prepare(
                     "SELECT DISTINCT burn_header_hash FROM snapshots WHERE parent_burn_header_hash = ?",
                 )?;
-                for next_header in stmt.query_map(&[&header], |row| row.get(0))? {
+                for next_header in
+                    stmt.query_map(&[&header.sql_encoded(encoding)], |row| row.get(0))?
+                {
                     queue.push(next_header?);
                 }
             }
@@ -3977,7 +4092,7 @@ impl SortitionDB {
                 let to_invalidate: Vec<BlockSnapshot> = query_rows(
                     &db_tx,
                     "SELECT * FROM snapshots WHERE parent_burn_header_hash = ?1",
-                    &[&header],
+                    &[&header.sql_encoded(encoding)],
                 )?;
                 for invalid in to_invalidate {
                     debug!("Invalidate child of {}: {:?}", &header, &invalid);
@@ -3993,7 +4108,7 @@ impl SortitionDB {
                 canonical_stacks_tip_consensus_hash = "0000000000000000000000000000000000000000",
                 stacks_block_accepted = 0
                 WHERE parent_burn_header_hash = ?"#,
-                &[&header],
+                &[&header.sql_encoded(encoding)],
             )?;
         }
 
@@ -4059,7 +4174,7 @@ impl SortitionDB {
         let sql_transition_ops = "SELECT accepted_ops, consumed_keys FROM snapshot_transition_ops WHERE sortition_id = ?";
         let transition_ops = self
             .conn()
-            .query_row(sql_transition_ops, &[id], |row| {
+            .query_row(sql_transition_ops, params![id.sql_encoded(self.column_encoding)], |row| {
                 let accepted_ops: String = row.get_unwrap(0);
                 let consumed_leader_keys: String = row.get_unwrap(1);
                 Ok(BurnchainStateTransitionOps {
@@ -4070,7 +4185,7 @@ impl SortitionDB {
                 })
             })
             .optional()?
-            .expect("CORRUPTION: DB stored BlockSnapshot, but not the transition ops");
+            .unwrap_or_else(|| panic!("CORRUPTION: DB stored BlockSnapshot for {id} (encoding {:?}), but not the transition ops", &self.column_encoding));
 
         Ok(Some((snapshot, transition_ops)))
     }
@@ -4422,10 +4537,11 @@ impl SortitionDB {
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Vec<StackStxOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         query_rows(
             conn,
             "SELECT * FROM stack_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
+            params![burn_header_hash.sql_encoded(encoding)],
         )
     }
 
@@ -4436,10 +4552,11 @@ impl SortitionDB {
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Vec<DelegateStxOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         query_rows(
             conn,
             "SELECT * FROM delegate_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
+            params![burn_header_hash.sql_encoded(encoding)],
         )
     }
 
@@ -4450,10 +4567,11 @@ impl SortitionDB {
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Vec<VoteForAggregateKeyOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         query_rows(
             conn,
             "SELECT * FROM vote_for_aggregate_key WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
+            params![burn_header_hash.sql_encoded(encoding)],
         )
     }
 
@@ -4464,10 +4582,11 @@ impl SortitionDB {
         conn: &Connection,
         burn_header_hash: &BurnchainHeaderHash,
     ) -> Result<Vec<TransferStxOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         query_rows(
             conn,
             "SELECT * FROM transfer_stx WHERE burn_header_hash = ? ORDER BY vtxindex",
-            &[burn_header_hash],
+            params![burn_header_hash.sql_encoded(encoding)],
         )
     }
 
@@ -4476,8 +4595,9 @@ impl SortitionDB {
         conn: &Connection,
         burnchain_header_hash: &BurnchainHeaderHash,
     ) -> Result<Option<BurnchainHeaderHash>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let sql = "SELECT parent_burn_header_hash AS burn_header_hash FROM snapshots WHERE burn_header_hash = ?1";
-        let args = params![burnchain_header_hash];
+        let args = params![burnchain_header_hash.sql_encoded(encoding)];
         let mut rows = query_rows::<BurnchainHeaderHash, _>(conn, sql, args)?;
 
         // there can be more than one if there was a PoX reorg.  If so, make sure they're _all the
@@ -4566,11 +4686,12 @@ impl SortitionDB {
         conn: &Connection,
         tip: &BlockSnapshot,
     ) -> Result<Option<(ConsensusHash, BlockHeaderHash, u64)>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let mut cursor = tip.clone();
         loop {
             let result_at_tip : Option<(ConsensusHash, BlockHeaderHash, u64)> = conn.query_row_and_then(
                 "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
-                &[&cursor.sortition_id],
+                &[&cursor.sortition_id.sql_encoded(encoding)],
                 |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
             ).optional()?;
             if let Some(stacks_tip) = result_at_tip {
@@ -4654,8 +4775,9 @@ impl SortitionDB {
         conn: &Connection,
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<BurnchainHeaderHash>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT burn_header_hash FROM snapshots WHERE consensus_hash = ?1 AND pox_valid = 1 LIMIT 1";
-        let args = [&consensus_hash];
+        let args = [&consensus_hash.sql_encoded(encoding)];
         query_row_panic(conn, qry, &args, || {
             format!(
                 "FATAL: multiple block snapshots for the same block with consensus hash {}",
@@ -4668,8 +4790,9 @@ impl SortitionDB {
         conn: &Connection,
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<SortitionId>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT sortition_id FROM snapshots WHERE consensus_hash = ?1 AND pox_valid = 1 LIMIT 1";
-        let args = [&consensus_hash];
+        let args = [&consensus_hash.sql_encoded(encoding)];
         query_row_panic(conn, qry, &args, || {
             format!(
                 "FATAL: multiple block snapshots for the same block with consensus hash {}",
@@ -4684,8 +4807,9 @@ impl SortitionDB {
         conn: &Connection,
         consensus_hash: &ConsensusHash,
     ) -> Result<Option<BlockSnapshot>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM snapshots WHERE consensus_hash = ?1";
-        let args = [&consensus_hash];
+        let args = [&consensus_hash.sql_encoded(encoding)];
         query_row_panic(conn, qry, &args, || {
             format!(
                 "FATAL: multiple block snapshots for the same block with consensus hash {}",
@@ -4699,8 +4823,9 @@ impl SortitionDB {
         conn: &Connection,
         consensus_hash: &ConsensusHash,
     ) -> Result<bool, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT 1 FROM snapshots WHERE consensus_hash = ?1";
-        let args = [&consensus_hash];
+        let args = [&consensus_hash.sql_encoded(encoding)];
         let res: Option<i64> = query_row_panic(conn, qry, &args, || {
             format!(
                 "FATAL: multiple block snapshots for the same block with consensus hash {}",
@@ -4716,8 +4841,9 @@ impl SortitionDB {
         conn: &Connection,
         sortition_id: &SortitionId,
     ) -> Result<Option<BlockSnapshot>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM snapshots WHERE sortition_id = ?1";
-        let args = [&sortition_id];
+        let args = [&sortition_id.sql_encoded(encoding)];
         query_row_panic(conn, qry, &args, || {
             format!("FATAL: multiple block snapshots for the same block {sortition_id}")
         })
@@ -4730,10 +4856,21 @@ impl SortitionDB {
 
     /// Get the first snapshot
     pub fn get_first_block_snapshot(conn: &Connection) -> Result<BlockSnapshot, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM snapshots WHERE consensus_hash = ?1";
-        let result = query_row_panic(conn, qry, &[&ConsensusHash::empty()], || {
-            "FATAL: multiple first-block snapshots".into()
-        })?;
+
+        test_debug!(
+            "encoding = {:?}, consensus-hash: {:?}",
+            &encoding,
+            &ConsensusHash::empty().sql_encoded(encoding)
+        );
+
+        let result = query_row_panic(
+            conn,
+            qry,
+            params![&ConsensusHash::empty().sql_encoded(encoding)],
+            || "FATAL: multiple first-block snapshots".into(),
+        )?;
         match result {
             None => {
                 // should never happen
@@ -4747,8 +4884,9 @@ impl SortitionDB {
     pub(crate) fn get_first_block_height_and_hash(
         conn: &Connection,
     ) -> Result<(u64, BurnchainHeaderHash), db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let sql = "SELECT block_height, burn_header_hash FROM snapshots WHERE consensus_hash = ?1";
-        let args = params![ConsensusHash::empty()];
+        let args = params![ConsensusHash::empty().sql_encoded(encoding)];
         let mut stmt = conn.prepare(sql)?;
         let mut rows = stmt.query(args)?;
         if let Some(row) = rows.next()? {
@@ -4889,8 +5027,9 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Vec<LeaderBlockCommitOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 ORDER BY vtxindex ASC";
-        let args = params![sortition];
+        let args = params![sortition.sql_encoded(encoding)];
 
         query_rows(conn, qry, args)
     }
@@ -4901,8 +5040,9 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Vec<MissedBlockCommit>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM missed_commits WHERE intended_sortition_id = ?1";
-        let args = params![sortition];
+        let args = params![sortition.sql_encoded(encoding)];
 
         query_rows(conn, qry, args)
     }
@@ -4913,8 +5053,9 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Vec<LeaderKeyRegisterOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM leader_keys WHERE sortition_id = ?1 ORDER BY vtxindex ASC";
-        let args = params![sortition];
+        let args = params![sortition.sql_encoded(encoding)];
 
         query_rows(conn, qry, args)
     }
@@ -4925,10 +5066,14 @@ impl SortitionDB {
         conn: &Connection,
         sortition: &SortitionId,
     ) -> Result<Option<u16>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT vtxindex FROM block_commits WHERE sortition_id = ?1
                     AND txid = (
                       SELECT winning_block_txid FROM snapshots WHERE sortition_id = ?2 LIMIT 1) LIMIT 1";
-        let args = params![sortition, sortition];
+        let args = params![
+            sortition.sql_encoded(encoding),
+            sortition.sql_encoded(encoding)
+        ];
         conn.query_row(qry, args, |row| row.get(0))
             .optional()
             .map_err(db_error::from)
@@ -5009,8 +5154,13 @@ impl SortitionDB {
     ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
         assert!(block_height < BLOCK_HEIGHT_MAX);
 
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
-        let args = params![sortition, u64_to_sql(block_height)?, vtxindex];
+        let args = params![
+            sortition.sql_encoded(encoding),
+            u64_to_sql(block_height)?,
+            vtxindex
+        ];
         query_row_panic(conn, qry, args, || {
             format!(
                 "Multiple parent blocks at {},{} in {}",
@@ -5029,6 +5179,7 @@ impl SortitionDB {
         key_vtxindex: u32,
         tip: &SortitionId,
     ) -> Result<Option<LeaderKeyRegisterOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(ic)?;
         assert!(key_block_height < BLOCK_HEIGHT_MAX);
         let ancestor_snapshot = match SortitionDB::get_ancestor_snapshot(ic, key_block_height, tip)?
         {
@@ -5040,7 +5191,7 @@ impl SortitionDB {
 
         let qry = "SELECT * FROM leader_keys WHERE sortition_id = ?1 AND block_height = ?2 AND vtxindex = ?3 LIMIT 2";
         let args = params![
-            ancestor_snapshot.sortition_id,
+            ancestor_snapshot.sortition_id.sql_encoded(encoding),
             u64_to_sql(key_block_height)?,
             key_vtxindex,
         ];
@@ -5060,6 +5211,7 @@ impl SortitionDB {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<LeaderBlockCommitOp>, db_error> {
+        let encoding = SortitionDB::get_column_encoding(conn)?;
         let (sortition_id, winning_txid) = match SortitionDB::get_block_snapshot_consensus(
             conn,
             consensus_hash,
@@ -5077,7 +5229,11 @@ impl SortitionDB {
         };
 
         let qry = "SELECT * FROM block_commits WHERE sortition_id = ?1 AND block_header_hash = ?2 AND txid = ?3";
-        let args = params![sortition_id, block_hash, winning_txid];
+        let args = params![
+            sortition_id.sql_encoded(encoding),
+            block_hash.sql_encoded(encoding),
+            winning_txid.sql_encoded(encoding)
+        ];
         query_row_panic(conn, qry, args, || {
             format!("FATAL: multiple block commits for {}", &block_hash)
         })
@@ -5309,8 +5465,8 @@ impl SortitionHandleTx<'_> {
             // look at stacks_chain_tips table
             let res: Result<_, db_error> = self.deref().query_row_and_then(
                 "SELECT consensus_hash,block_hash,block_height FROM stacks_chain_tips WHERE sortition_id = ? ORDER BY block_height DESC LIMIT 1",
-                &[&parent_snapshot.sortition_id],
-                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), (u64::try_from(row.get_unwrap::<_, i64>(2)).expect("FATAL: block height too high"))))
+                &[&parent_snapshot.sortition_id.sql_encoded(self.context.column_encoding)],
+                |row| Ok((row.get(0)?, row.get(1)?, (u64::try_from(row.get::<_, i64>(2)?).expect("FATAL: block height too high"))))
             );
             let (
                 canonical_stacks_tip_consensus_hash,
@@ -5390,23 +5546,24 @@ impl SortitionHandleTx<'_> {
     }
 
     #[cfg(any(test, feature = "testing"))]
-    fn store_burn_distribution(
+    pub(crate) fn store_burn_distribution(
         &mut self,
         new_sortition: &SortitionId,
         transition: &BurnchainStateTransition,
     ) {
         let create = "CREATE TABLE IF NOT EXISTS snapshot_burn_distributions (sortition_id TEXT PRIMARY KEY, data TEXT NOT NULL);";
         self.execute(create, NO_PARAMS).unwrap();
-        let sql = "INSERT INTO snapshot_burn_distributions (sortition_id, data) VALUES (?, ?)";
+        let sql =
+            "INSERT OR REPLACE INTO snapshot_burn_distributions (sortition_id, data) VALUES (?, ?)";
         let args = params![
-            new_sortition,
+            new_sortition.sql_encoded(self.context.column_encoding),
             serde_json::to_string(&transition.burn_dist).unwrap(),
         ];
         self.execute(sql, args).unwrap();
     }
 
     #[cfg(not(any(test, feature = "testing")))]
-    fn store_burn_distribution(
+    pub(crate) fn store_burn_distribution(
         &mut self,
         _new_sortition: &SortitionId,
         _transition: &BurnchainStateTransition,
@@ -5420,7 +5577,7 @@ impl SortitionHandleTx<'_> {
     ) -> Result<(), db_error> {
         let sql = "INSERT INTO snapshot_transition_ops (sortition_id, accepted_ops, consumed_keys) VALUES (?, ?, ?)";
         let args = params![
-            new_sortition,
+            new_sortition.sql_encoded(self.context.column_encoding),
             serde_json::to_string(&transition.accepted_ops).unwrap(),
             serde_json::to_string(&transition.consumed_leader_keys).unwrap(),
         ];
@@ -5439,7 +5596,7 @@ impl SortitionHandleTx<'_> {
     }
 
     /// Store a blockstack burnchain operation
-    fn store_burnchain_transaction(
+    pub(crate) fn store_burnchain_transaction(
         &mut self,
         blockstack_op: &BlockstackOperationType,
         sort_id: &SortitionId,
@@ -5516,14 +5673,18 @@ impl SortitionHandleTx<'_> {
         assert!(leader_key.block_height < BLOCK_HEIGHT_MAX);
 
         let args = params![
-            leader_key.txid,
+            leader_key.txid.sql_encoded(self.context.column_encoding),
             leader_key.vtxindex,
             u64_to_sql(leader_key.block_height)?,
-            leader_key.burn_header_hash,
-            leader_key.consensus_hash,
+            leader_key
+                .burn_header_hash
+                .sql_encoded(self.context.column_encoding),
+            leader_key
+                .consensus_hash
+                .sql_encoded(self.context.column_encoding),
             leader_key.public_key.to_hex(),
-            to_hex(&leader_key.memo),
-            sort_id,
+            leader_key.memo.sql_encoded(self.context.column_encoding),
+            sort_id.sql_encoded(self.context.column_encoding),
         ];
 
         self.execute("INSERT INTO leader_keys (txid, vtxindex, block_height, burn_header_hash, consensus_hash, public_key, memo, sortition_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
@@ -5534,10 +5695,11 @@ impl SortitionHandleTx<'_> {
     /// Insert a stack-stx op
     fn insert_stack_stx(&mut self, op: &StackStxOp) -> Result<(), db_error> {
         let args = params![
-            op.txid,
+            op.txid.sql_encoded(self.context.column_encoding),
             op.vtxindex,
             u64_to_sql(op.block_height)?,
-            op.burn_header_hash,
+            op.burn_header_hash
+                .sql_encoded(self.context.column_encoding),
             op.sender.to_string(),
             op.reward_addr.to_db_string(),
             op.stacked_ustx.to_string(),
@@ -5555,10 +5717,11 @@ impl SortitionHandleTx<'_> {
     /// Insert a delegate-stx op
     fn insert_delegate_stx(&mut self, op: &DelegateStxOp) -> Result<(), db_error> {
         let args = params![
-            op.txid,
+            op.txid.sql_encoded(self.context.column_encoding),
             op.vtxindex,
             u64_to_sql(op.block_height)?,
-            op.burn_header_hash,
+            op.burn_header_hash
+                .sql_encoded(self.context.column_encoding),
             op.sender.to_string(),
             op.delegate_to.to_string(),
             serde_json::to_string(&op.reward_addr).unwrap(),
@@ -5577,10 +5740,11 @@ impl SortitionHandleTx<'_> {
         op: &VoteForAggregateKeyOp,
     ) -> Result<(), db_error> {
         let args = params![
-            op.txid,
+            op.txid.sql_encoded(self.context.column_encoding),
             op.vtxindex,
             u64_to_sql(op.block_height)?,
-            op.burn_header_hash,
+            op.burn_header_hash
+                .sql_encoded(self.context.column_encoding),
             op.sender.to_string(),
             serde_json::to_string(&op.aggregate_key).unwrap(),
             op.round,
@@ -5597,14 +5761,15 @@ impl SortitionHandleTx<'_> {
     /// Insert a transfer-stx op
     fn insert_transfer_stx(&mut self, op: &TransferStxOp) -> Result<(), db_error> {
         let args = params![
-            op.txid,
+            op.txid.sql_encoded(self.context.column_encoding),
             op.vtxindex,
             u64_to_sql(op.block_height)?,
-            op.burn_header_hash,
+            op.burn_header_hash
+                .sql_encoded(self.context.column_encoding),
             op.sender.to_string(),
             op.recipient.to_string(),
             op.transfered_ustx.to_string(),
-            to_hex(&op.memo),
+            op.memo.sql_encoded(self.context.column_encoding),
         ];
 
         self.execute("REPLACE INTO transfer_stx (txid, vtxindex, block_height, burn_header_hash, sender_addr, recipient_addr, transfered_ustx, memo) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)", args)?;
@@ -5645,20 +5810,26 @@ impl SortitionHandleTx<'_> {
         }
 
         let args = params![
-            block_commit.txid,
+            block_commit.txid.sql_encoded(self.context.column_encoding),
             block_commit.vtxindex,
             u64_to_sql(block_commit.block_height)?,
-            block_commit.burn_header_hash,
-            block_commit.block_header_hash,
-            block_commit.new_seed,
+            block_commit
+                .burn_header_hash
+                .sql_encoded(self.context.column_encoding),
+            block_commit
+                .block_header_hash
+                .sql_encoded(self.context.column_encoding),
+            block_commit
+                .new_seed
+                .sql_encoded(self.context.column_encoding),
             block_commit.parent_block_ptr,
             block_commit.parent_vtxindex,
             block_commit.key_block_ptr,
             block_commit.key_vtxindex,
-            to_hex(&block_commit.memo[..]),
+            block_commit.memo.sql_encoded(self.context.column_encoding),
             block_commit.burn_fee.to_string(),
             tx_input_str,
-            sort_id,
+            sort_id.sql_encoded(self.context.column_encoding),
             serde_json::to_value(&block_commit.commit_outs).unwrap(),
             block_commit.sunset_burn.to_string(),
             apparent_sender_str,
@@ -5669,7 +5840,11 @@ impl SortitionHandleTx<'_> {
         self.execute("INSERT INTO block_commits (txid, vtxindex, block_height, burn_header_hash, block_header_hash, new_seed, parent_block_ptr, parent_vtxindex, key_block_ptr, key_vtxindex, memo, burn_fee, input, sortition_id, commit_outs, sunset_burn, apparent_sender, burn_parent_modulus, punished) \
                       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)", args)?;
 
-        let parent_args = params![sort_id, block_commit.txid, parent_sortition_id];
+        let parent_args = params![
+            sort_id.sql_encoded(self.context.column_encoding),
+            block_commit.txid.sql_encoded(self.context.column_encoding),
+            parent_sortition_id.sql_encoded(self.context.column_encoding)
+        ];
 
         debug!(
             "Parent sortition of {},{},{} is {} (parent at {},{})",
@@ -5692,12 +5867,20 @@ impl SortitionHandleTx<'_> {
     }
 
     /// Insert a missed block commit
-    fn insert_missed_block_commit(&mut self, op: &MissedBlockCommit) -> Result<(), db_error> {
+    pub(crate) fn insert_missed_block_commit(
+        &mut self,
+        op: &MissedBlockCommit,
+    ) -> Result<(), db_error> {
         // serialize tx input to JSON
         let tx_input_str =
             serde_json::to_string(&op.input).map_err(db_error::SerializationError)?;
 
-        let args = params![op.txid, op.intended_sortition, tx_input_str];
+        let args = params![
+            op.txid.sql_encoded(self.context.column_encoding),
+            op.intended_sortition
+                .sql_encoded(self.context.column_encoding),
+            tx_input_str
+        ];
 
         self.execute(
             "INSERT OR REPLACE INTO missed_commits (txid, intended_sortition_id, input) \
@@ -5741,7 +5924,9 @@ impl SortitionHandleTx<'_> {
             let all_valid_sortitions: Vec<i64> = query_rows(
                 self,
                 "SELECT 1 FROM snapshots WHERE burn_header_hash = ?1 AND pox_valid = 1 LIMIT 1",
-                &[&snapshot.burn_header_hash],
+                &[&snapshot
+                    .burn_header_hash
+                    .sql_encoded(self.context.column_encoding)],
             )?;
             if !all_valid_sortitions.is_empty() {
                 error!("FATAL: Tried to insert snapshot {:?}, but already have pox-valid sortition for {:?}", &snapshot, &snapshot.burn_header_hash);
@@ -5751,30 +5936,55 @@ impl SortitionHandleTx<'_> {
 
         let args = params![
             u64_to_sql(snapshot.block_height)?,
-            snapshot.burn_header_hash,
+            snapshot
+                .burn_header_hash
+                .sql_encoded(self.context.column_encoding),
             u64_to_sql(snapshot.burn_header_timestamp)?,
-            snapshot.parent_burn_header_hash,
-            snapshot.consensus_hash,
-            snapshot.ops_hash,
+            snapshot
+                .parent_burn_header_hash
+                .sql_encoded(self.context.column_encoding),
+            snapshot
+                .consensus_hash
+                .sql_encoded(self.context.column_encoding),
+            snapshot.ops_hash.sql_encoded(self.context.column_encoding),
             snapshot.total_burn.to_string(),
             snapshot.sortition,
-            snapshot.sortition_hash,
-            snapshot.winning_block_txid,
-            snapshot.winning_stacks_block_hash,
-            snapshot.index_root,
+            snapshot
+                .sortition_hash
+                .sql_encoded(self.context.column_encoding),
+            snapshot
+                .winning_block_txid
+                .sql_encoded(self.context.column_encoding),
+            snapshot
+                .winning_stacks_block_hash
+                .sql_encoded(self.context.column_encoding),
+            snapshot
+                .index_root
+                .sql_encoded(self.context.column_encoding),
             u64_to_sql(snapshot.num_sortitions)?,
             snapshot.stacks_block_accepted,
             u64_to_sql(snapshot.stacks_block_height)?,
             u64_to_sql(snapshot.arrival_index)?,
             u64_to_sql(snapshot.canonical_stacks_tip_height)?,
-            snapshot.canonical_stacks_tip_hash,
-            snapshot.canonical_stacks_tip_consensus_hash,
-            snapshot.sortition_id,
-            snapshot.parent_sortition_id,
+            snapshot
+                .canonical_stacks_tip_hash
+                .sql_encoded(self.context.column_encoding),
+            snapshot
+                .canonical_stacks_tip_consensus_hash
+                .sql_encoded(self.context.column_encoding),
+            snapshot
+                .sortition_id
+                .sql_encoded(self.context.column_encoding),
+            snapshot
+                .parent_sortition_id
+                .sql_encoded(self.context.column_encoding),
             snapshot.pox_valid,
             snapshot.accumulated_coinbase_ustx.to_string(),
             pox_payouts_json,
-            snapshot.miner_pk_hash,
+            snapshot
+                .miner_pk_hash
+                .as_ref()
+                .map(|miner_pk| miner_pk.sql_encoded(self.context.column_encoding)),
         ];
 
         self.execute("INSERT INTO snapshots \
@@ -6363,8 +6573,8 @@ impl SortitionHandleTx<'_> {
         best_height: u64,
     ) -> Result<(), db_error> {
         let args = params![
-            best_chh,
-            best_bhh,
+            best_chh.sql_encoded(self.context.column_encoding),
+            best_bhh.sql_encoded(self.context.column_encoding),
             u64_to_sql(best_height)?,
             u64_to_sql(tip.block_height)?,
         ];
@@ -6467,7 +6677,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: next_txid(),
             vtxindex,
@@ -6727,6 +6937,7 @@ pub mod tests {
                 first_block_height,
                 first_burn_header_hash: first_burn_hash.clone(),
                 pox_constants: PoxConstants::test_default(),
+                column_encoding: None,
             };
 
             if create_flag {
@@ -6763,6 +6974,7 @@ pub mod tests {
             sql_pragma(self.conn(), "journal_mode", &"WAL")?;
             sql_pragma(self.conn(), "foreign_keys", &true)?;
 
+            let column_encoding = self.column_encoding;
             let mut db_tx = SortitionHandleTx::begin(self, &SortitionId::sentinel())?;
 
             // create first (sentinel) snapshot
@@ -6803,26 +7015,38 @@ pub mod tests {
 
             let args = params![
                 u64_to_sql(first_snapshot.block_height)?,
-                first_snapshot.burn_header_hash,
+                first_snapshot.burn_header_hash.sql_encoded(column_encoding),
                 u64_to_sql(first_snapshot.burn_header_timestamp)?,
-                first_snapshot.parent_burn_header_hash,
-                first_snapshot.consensus_hash,
-                first_snapshot.ops_hash,
+                first_snapshot
+                    .parent_burn_header_hash
+                    .sql_encoded(column_encoding),
+                first_snapshot.consensus_hash.sql_encoded(column_encoding),
+                first_snapshot.ops_hash.sql_encoded(column_encoding),
                 first_snapshot.total_burn.to_string(),
                 first_snapshot.sortition,
-                first_snapshot.sortition_hash,
-                first_snapshot.winning_block_txid,
-                first_snapshot.winning_stacks_block_hash,
-                first_snapshot.index_root,
+                first_snapshot.sortition_hash.sql_encoded(column_encoding),
+                first_snapshot
+                    .winning_block_txid
+                    .sql_encoded(column_encoding),
+                first_snapshot
+                    .winning_stacks_block_hash
+                    .sql_encoded(column_encoding),
+                first_snapshot.index_root.sql_encoded(column_encoding),
                 u64_to_sql(first_snapshot.num_sortitions)?,
                 first_snapshot.stacks_block_accepted,
                 u64_to_sql(first_snapshot.stacks_block_height)?,
                 u64_to_sql(first_snapshot.arrival_index)?,
                 u64_to_sql(first_snapshot.canonical_stacks_tip_height)?,
-                first_snapshot.canonical_stacks_tip_hash,
-                first_snapshot.canonical_stacks_tip_consensus_hash,
-                first_snapshot.sortition_id,
-                first_snapshot.parent_sortition_id,
+                first_snapshot
+                    .canonical_stacks_tip_hash
+                    .sql_encoded(column_encoding),
+                first_snapshot
+                    .canonical_stacks_tip_consensus_hash
+                    .sql_encoded(column_encoding),
+                first_snapshot.sortition_id.sql_encoded(column_encoding),
+                first_snapshot
+                    .parent_sortition_id
+                    .sql_encoded(column_encoding),
                 first_snapshot.pox_valid,
                 first_snapshot.accumulated_coinbase_ustx.to_string(),
                 pox_payouts_json,
@@ -6858,8 +7082,14 @@ pub mod tests {
             bhh: &BlockHeaderHash,
             height: u64,
         ) -> Result<(), db_error> {
+            let encoding = SortitionDB::get_column_encoding(conn)?;
             let tip = SortitionDB::get_canonical_burn_chain_tip(conn)?;
-            let args = params![ch, bhh, u64_to_sql(height)?, tip.sortition_id];
+            let args = params![
+                ch.sql_encoded(encoding),
+                bhh.sql_encoded(encoding),
+                u64_to_sql(height)?,
+                tip.sortition_id.sql_encoded(encoding)
+            ];
             conn.execute("UPDATE snapshots SET canonical_stacks_tip_consensus_hash = ?1, canonical_stacks_tip_hash = ?2, canonical_stacks_tip_height = ?3
                         WHERE sortition_id = ?4", args)
                 .map_err(db_error::SqliteError)?;
@@ -6883,10 +7113,11 @@ pub mod tests {
             txid: &Txid,
         ) -> Result<Option<BlockstackOperationType>, db_error> {
             // leader key?
+            let encoding = SortitionDB::get_column_encoding(conn)?;
             let leader_key_sql = "SELECT * FROM leader_keys WHERE txid = ?1 LIMIT 1";
-            let args = [&txid];
+            let args = params![txid.sql_encoded(encoding)];
 
-            let leader_key_res = query_row_panic(conn, leader_key_sql, &args, || {
+            let leader_key_res = query_row_panic(conn, leader_key_sql, args, || {
                 "Multiple leader keys with same txid".to_string()
             })?;
             if let Some(leader_key) = leader_key_res {
@@ -6896,7 +7127,7 @@ pub mod tests {
             // block commit?
             let block_commit_sql = "SELECT * FROM block_commits WHERE txid = ?1 LIMIT 1";
 
-            let block_commit_res = query_row_panic(conn, block_commit_sql, &args, || {
+            let block_commit_res = query_row_panic(conn, block_commit_sql, args, || {
                 "Multiple block commits with same txid".to_string()
             })?;
             if let Some(block_commit) = block_commit_res {
@@ -7079,7 +7310,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -7158,7 +7389,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -7186,7 +7417,7 @@ pub mod tests {
             parent_vtxindex: 0x5150,
             key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
 
             commit_outs: vec![],
             burn_fee: 12345,
@@ -7381,7 +7612,7 @@ pub mod tests {
             )
             .unwrap(),
             public_key: public_key.clone(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -7873,7 +8104,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -7901,7 +8132,7 @@ pub mod tests {
             parent_vtxindex: 0x4342,
             key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -10080,7 +10311,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -10109,7 +10340,7 @@ pub mod tests {
             parent_vtxindex: 0,
             key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -10152,7 +10383,7 @@ pub mod tests {
             parent_vtxindex: genesis_block_commit.vtxindex as u16,
             key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -10195,7 +10426,7 @@ pub mod tests {
             parent_vtxindex: block_commit_1.vtxindex as u16,
             key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,
@@ -10238,7 +10469,7 @@ pub mod tests {
             parent_vtxindex: genesis_block_commit.vtxindex as u16,
             key_block_ptr: (block_height + 1) as u32,
             key_vtxindex: vtxindex as u16,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
             commit_outs: vec![],
 
             burn_fee: 1,
@@ -10640,7 +10871,7 @@ pub mod tests {
                 sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
                 recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
                 transfered_ustx: 123,
-                memo: vec![0x00, 0x01, 0x02, 0x03, 0x04],
+                memo: vec![0x00, 0x01, 0x02, 0x03, 0x04].into(),
 
                 txid: Txid([0x01; 32]),
                 vtxindex: 1,
@@ -10738,7 +10969,7 @@ pub mod tests {
                 sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
                 recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
                 transfered_ustx: 123,
-                memo: vec![0x00, 0x01, 0x02, 0x03, 0x04],
+                memo: vec![0x00, 0x01, 0x02, 0x03, 0x04].into(),
 
                 txid: Txid([0x01; 32]),
                 vtxindex: 1,

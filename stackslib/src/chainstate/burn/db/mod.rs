@@ -34,14 +34,18 @@ pub mod sortdb;
 
 pub type DBConn = Connection;
 
-impl_byte_array_from_column!(Txid);
+impl_byte_array_rusqlite_only!(Txid);
+impl_byte_array_rusqlite_only!(OpsHash);
+impl_byte_array_rusqlite_only!(SortitionHash);
+
+impl_byte_array_from_column_only!(Txid);
 impl_byte_array_from_column_only!(ConsensusHash);
 impl_byte_array_from_column_only!(Hash160);
 impl_byte_array_from_column_only!(BlockHeaderHash);
 impl_byte_array_from_column_only!(VRFSeed);
-impl_byte_array_from_column!(OpsHash);
+impl_byte_array_from_column_only!(OpsHash);
 impl_byte_array_from_column_only!(BurnchainHeaderHash);
-impl_byte_array_from_column!(SortitionHash);
+impl_byte_array_from_column_only!(SortitionHash);
 impl_byte_array_from_column_only!(Sha512Trunc256Sum);
 impl_byte_array_from_column_only!(VRFProof);
 impl_byte_array_from_column_only!(TrieHash);

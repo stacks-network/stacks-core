@@ -42,6 +42,7 @@ use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey,
 };
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 
@@ -760,7 +761,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
     ) -> Result<bool, ChainstateError> {
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1 AND obtain_method = ?2";
         let args = params![
-            index_block_hash,
+            index_block_hash.sqlhex(),
             &NakamotoBlockObtainMethod::Shadow.to_string()
         ];
         let res: Option<i64> = query_row(self, qry, args)?;
@@ -777,7 +778,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
     ) -> Result<bool, ChainstateError> {
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND obtain_method = ?2";
         let args = rusqlite::params![
-            consensus_hash,
+            consensus_hash.sqlhex(),
             NakamotoBlockObtainMethod::Shadow.to_string()
         ];
         let present: Option<u32> = query_row(self, qry, args)?;
@@ -797,7 +798,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
         ch: &ConsensusHash,
     ) -> Result<Option<NakamotoBlock>, ChainstateError> {
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND obtain_method = ?2 ORDER BY height DESC LIMIT 1";
-        let args = params![ch, &NakamotoBlockObtainMethod::Shadow.to_string()];
+        let args = params![ch.sqlhex(), &NakamotoBlockObtainMethod::Shadow.to_string()];
         let res: Option<Vec<u8>> = query_row(self, qry, args)?;
         let Some(block_bytes) = res else {
             return Ok(None);
@@ -824,7 +825,7 @@ impl NakamotoStagingBlocksTx<'_> {
 
         // is this block stored already?
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
-        let args = params![block_id];
+        let args = params![block_id.sqlhex()];
         let present: Option<i64> = query_row(self, qry, args)?;
         if present.is_some() {
             return Ok(());
@@ -832,7 +833,7 @@ impl NakamotoStagingBlocksTx<'_> {
 
         // this tenure must be empty, or it must be a shadow tenure
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1";
-        let args = rusqlite::params![&shadow_block.header.consensus_hash];
+        let args = rusqlite::params![&shadow_block.header.consensus_hash.sqlhex()];
         let present: Option<u32> = query_row(self, qry, args)?;
         if present.is_some()
             && !self
@@ -847,7 +848,7 @@ impl NakamotoStagingBlocksTx<'_> {
         // there must not be a block at this height in this tenure
         let qry = "SELECT 1 FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND height = ?2";
         let args = rusqlite::params![
-            &shadow_block.header.consensus_hash,
+            &shadow_block.header.consensus_hash.sqlhex(),
             u64_to_sql(shadow_block.header.chain_length)?
         ];
         let present: Option<u32> = query_row(self, qry, args)?;

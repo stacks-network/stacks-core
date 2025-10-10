@@ -37,6 +37,7 @@ use serde::Deserialize;
 use stacks_common::codec::{read_next, write_next, StacksMessageCodec};
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use crate::burnchains::bitcoin::address::LegacyBitcoinAddress;
@@ -2610,7 +2611,7 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Vec<Txid>, Error> {
         let sql = "SELECT txids FROM burnchain_txids WHERE index_block_hash = ?1";
-        let args = params![index_block_hash];
+        let args = params![index_block_hash.sqlhex()];
 
         let txids = conn
             .query_row(sql, args, |r| {
@@ -2694,7 +2695,7 @@ impl StacksChainState {
         let txids_json =
             serde_json::to_string(&txids).expect("FATAL: could not serialize Vec<Txid>");
         let sql = "INSERT INTO burnchain_txids (index_block_hash, txids) VALUES (?1, ?2)";
-        let args = params![index_block_hash, &txids_json];
+        let args = params![index_block_hash.sqlhex(), &txids_json];
         tx.execute(sql, args)?;
         Ok(())
     }
@@ -2822,7 +2823,7 @@ impl StacksChainState {
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
-            let args = params![&index_block_hash];
+            let args = params![&index_block_hash.sqlhex()];
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
@@ -3184,15 +3185,15 @@ pub mod test {
                 to_hex(&[0u8; 32]),
                 to_hex(&[0u8; 32]),
                 to_hex(&[0u8; 20]),
-                &sample_block_hash,
-                &sample_index_block_hash,
+                &sample_block_hash.sqlhex(),
+                &sample_index_block_hash.sqlhex(),
                 1,
                 to_hex(&[0u8; 32]),
-                &sample_consensus_hash,
-                &sample_burn_header_hash,
+                &sample_consensus_hash.sqlhex(),
+                &sample_burn_header_hash.sqlhex(),
                 100,
                 1234567890,
-                &sample_parent_block_id,
+                &sample_parent_block_id.sqlhex(),
                 serde_json::to_string(&ExecutionCost::ZERO).unwrap(),
                 "1000",
                 10
@@ -3248,7 +3249,7 @@ pub mod test {
             .query_row(
                 "SELECT block_hash, consensus_hash, block_size
             FROM block_headers WHERE index_block_hash = ?",
-                params![&sample_index_block_hash],
+                params![&sample_index_block_hash.sqlhex()],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,

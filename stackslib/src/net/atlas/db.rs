@@ -41,6 +41,7 @@ use rusqlite::{params, Connection, OpenFlags, Row, Transaction};
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::{to_hex, Hash160};
 
 use super::{AtlasConfig, Attachment, AttachmentInstance};
@@ -231,7 +232,7 @@ impl AtlasDB {
                 tx.execute(
                     "INSERT INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 1, ?)",
                     params![
-                        attachment.hash(),
+                        attachment.hash().sqlhex(),
                         attachment.content,
                         now,
                     ],
@@ -406,7 +407,7 @@ impl AtlasDB {
                 tx.execute(
                     "INSERT INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 1, ?)",
                     params![
-                        attachment.hash(),
+                        attachment.hash().sqlhex(),
                         attachment.content,
                         now,
                     ],
@@ -494,7 +495,7 @@ impl AtlasDB {
             .checked_add(AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE)
             .ok_or(db_error::Overflow)?;
         let qry = "SELECT attachment_index, is_available FROM attachment_instances WHERE attachment_index >= ?1 AND attachment_index < ?2 AND index_block_hash = ?3 ORDER BY attachment_index ASC";
-        let args = params![min, max, block_id,];
+        let args = params![min, max, block_id.sqlhex()];
         let rows = query_rows::<(u32, u32), _>(&self.conn, qry, args)?;
 
         let mut bool_vector = vec![true; AttachmentInstance::ATTACHMENTS_INV_PAGE_SIZE as usize];
@@ -525,7 +526,7 @@ impl AtlasDB {
         let res = tx.execute(
             "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 0, ?)",
             params![
-                attachment.hash(),
+                attachment.hash().sqlhex(),
                 attachment.content,
                 now,
             ],
@@ -581,11 +582,11 @@ impl AtlasDB {
         let tx = self.tx_begin()?;
         tx.execute(
             "INSERT OR REPLACE INTO attachments (hash, content, was_instantiated, created_at) VALUES (?, ?, 1, ?)",
-            params![attachment.hash(), attachment.content, now],
+            params![attachment.hash().sqlhex(), attachment.content, now],
         )?;
         tx.execute(
             "UPDATE attachment_instances SET is_available = 1 WHERE content_hash = ?1 AND status = ?2",
-            params![attachment.hash(), AttachmentInstanceStatus::Checked],
+            params![attachment.hash().sqlhex(), AttachmentInstanceStatus::Checked],
         )?;
         tx.commit()?;
         Ok(())
@@ -692,7 +693,7 @@ impl AtlasDB {
             params![
                 AttachmentInstanceStatus::Checked,
                 is_available,
-                attachment.index_block_hash,
+                attachment.index_block_hash.sqlhex(),
                 attachment.contract_id.to_string(),
                 attachment.attachment_index,
             ],
@@ -716,15 +717,15 @@ impl AtlasDB {
                 metadata, contract_id, tx_id, status)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
-                attachment.content_hash,
+                attachment.content_hash.sqlhex(),
                 now,
-                attachment.index_block_hash,
+                attachment.index_block_hash.sqlhex(),
                 attachment.attachment_index,
                 u64_to_sql(attachment.stacks_block_height)?,
                 is_available,
                 attachment.metadata,
                 attachment.contract_id.to_string(),
-                attachment.tx_id,
+                attachment.tx_id.sqlhex(),
                 status
             ],
         )?;

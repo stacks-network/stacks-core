@@ -36,8 +36,8 @@ use stacks::burnchains::{
 };
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp, PreStxOp,
-    StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
+    BlockstackOperationType, BurnOpMemo, DelegateStxOp, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    PreStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
 #[cfg(test)]
 use stacks::chainstate::burn::Opcodes;
@@ -2559,7 +2559,7 @@ mod tests {
                 parent_vtxindex: 1,     // 0x0001
                 key_block_ptr: 1432,    // 0x00000598
                 key_vtxindex: 1,        // 0x0001
-                memo: vec![11],         // 0x5a >> 3
+                memo: vec![11].into(),  // 0x5a >> 3
 
                 burn_fee: 110_000, //relevant for fee calculation when sending the tx
                 input: (Txid([0x00; 32]), 0),
@@ -2699,7 +2699,7 @@ mod tests {
                 public_key: VRFPublicKey::from_private(
                     &VRFPrivateKey::from_bytes(&[0u8; 32]).unwrap(),
                 ),
-                memo: vec![],
+                memo: vec![].into(),
                 txid: Txid([3u8; 32]),
                 vtxindex: 0,
                 block_height: 1,
@@ -2845,7 +2845,7 @@ mod tests {
             parent_vtxindex: 1,     // 0x0001
             key_block_ptr: 1432,    // 0x00000598
             key_vtxindex: 1,        // 0x0001
-            memo: vec![11],         // 0x5a >> 3
+            memo: vec![11].into(),  // 0x5a >> 3
 
             burn_fee: 0,
             input: (Txid([0x00; 32]), 0),

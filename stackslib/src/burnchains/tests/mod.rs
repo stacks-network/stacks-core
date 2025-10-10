@@ -537,7 +537,7 @@ impl TestBurnchainBlock {
         txop.txid =
             Txid::from_test_data(txop.block_height, txop.vtxindex, &txop.burn_header_hash, 0);
 
-        txop.memo = vec![epoch_marker << 3];
+        txop.memo = vec![epoch_marker << 3].into();
         self.txs
             .push(BlockstackOperationType::LeaderBlockCommit(txop.clone()));
 

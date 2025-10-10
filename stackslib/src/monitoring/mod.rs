@@ -19,8 +19,9 @@ use std::path::PathBuf;
 use std::{fmt, fs};
 
 use clarity::vm::costs::ExecutionCost;
-use rusqlite::{OpenFlags, OptionalExtension};
+use rusqlite::{params, OpenFlags, OptionalExtension};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::uint::{Uint256, Uint512};
 
 use crate::burnchains::{BurnchainSigner, Txid};
@@ -217,7 +218,7 @@ fn txid_tracking_db_contains(conn: &DBConn, txid: &Txid) -> Result<bool, Databas
     let contains = conn
         .query_row(
             "SELECT 1 FROM processed_txids WHERE txid = ?",
-            &[txid],
+            params![txid.sqlhex()],
             |_row| Ok(true),
         )
         .optional()?

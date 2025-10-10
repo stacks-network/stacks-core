@@ -14,7 +14,7 @@ use stacks::chainstate::burn::operations::leader_block_commit::{
     BURN_BLOCK_MINED_AT_MODULUS, OUTPUTS_PER_COMMIT,
 };
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, PreStxOp, TransferStxOp,
+    BlockstackOperationType, BurnOpMemo, LeaderBlockCommitOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -688,7 +688,7 @@ fn transition_fixes_bitcoin_rigidity() {
         sender: spender_stx_addr.clone(),
         recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
-        memo: vec![],
+        memo: vec![].into(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -838,7 +838,7 @@ fn transition_fixes_bitcoin_rigidity() {
         sender: spender_stx_addr.clone(),
         recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
-        memo: vec![],
+        memo: vec![].into(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -911,7 +911,7 @@ fn transition_fixes_bitcoin_rigidity() {
         sender: spender_2_stx_addr.clone(),
         recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
-        memo: vec![],
+        memo: vec![].into(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -977,7 +977,7 @@ fn transition_fixes_bitcoin_rigidity() {
         sender: spender_stx_addr.clone(),
         recipient: recipient_addr.clone(),
         transfered_ustx: 123,
-        memo: vec![],
+        memo: vec![].into(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -1880,7 +1880,7 @@ fn transition_empty_blocks() {
                 apparent_sender: keychain.get_burnchain_signer(),
                 key_block_ptr,
                 key_vtxindex,
-                memo: vec![0], // bad epoch marker
+                memo: vec![0].into(), // bad epoch marker
                 new_seed: VRFSeed([0x11; 32]),
                 parent_block_ptr: 0,
                 parent_vtxindex: 0,

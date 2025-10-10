@@ -27,13 +27,13 @@ use stacks_common::util::vrf::VRFPublicKey;
 
 use crate::burnchains::{Burnchain, BurnchainBlockHeader, BurnchainTransaction};
 use crate::chainstate::burn::db::sortdb::SortitionHandleTx;
-use crate::chainstate::burn::operations::{Error as op_error, LeaderKeyRegisterOp};
+use crate::chainstate::burn::operations::{BurnOpMemo, Error as op_error, LeaderKeyRegisterOp};
 use crate::chainstate::burn::{ConsensusHash, Opcodes};
 
 pub struct ParsedData {
     pub consensus_hash: ConsensusHash,
     pub public_key: VRFPublicKey,
-    pub memo: Vec<u8>,
+    pub memo: BurnOpMemo,
 }
 
 impl LeaderKeyRegisterOp {
@@ -43,7 +43,7 @@ impl LeaderKeyRegisterOp {
 
         LeaderKeyRegisterOp {
             public_key: public_key.clone(),
-            memo: vec![],
+            memo: vec![].into(),
 
             // will be filled in
             consensus_hash: ConsensusHash([0u8; 20]),
@@ -77,8 +77,8 @@ impl LeaderKeyRegisterOp {
             new_memo
                 .get_mut(0..self.memo.len())
                 .expect("FATAL: improper handling of key_register op memo")
-                .copy_from_slice(&self.memo);
-            self.memo = new_memo;
+                .copy_from_slice(&self.memo.0[..]);
+            self.memo = new_memo.into();
         }
         self.memo
             .get_mut(0..20)
@@ -123,7 +123,7 @@ impl LeaderKeyRegisterOp {
         Some(ParsedData {
             consensus_hash,
             public_key: pubkey,
-            memo: memo.to_vec(),
+            memo: memo.to_vec().into(),
         })
     }
 
@@ -192,7 +192,7 @@ impl StacksMessageCodec for LeaderKeyRegisterOp {
             _ => self.memo.get(0..25),
         }
         .expect("FATAL: improper memo serialization");
-        fd.write_all(&memo).map_err(codec_error::WriteError)?;
+        fd.write_all(memo).map_err(codec_error::WriteError)?;
         Ok(())
     }
 
@@ -281,7 +281,7 @@ pub mod tests {
                 result: Some(LeaderKeyRegisterOp {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
-                    memo: vec![1, 2, 3, 4, 5],
+                    memo: vec![1, 2, 3, 4, 5].into(),
 
                     txid: Txid::from_bytes_be(&hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap()).unwrap(),
                     vtxindex,
@@ -295,7 +295,7 @@ pub mod tests {
                 result: Some(LeaderKeyRegisterOp {
                     consensus_hash: ConsensusHash::from_bytes(&hex_bytes("2222222222222222222222222222222222222222").unwrap()).unwrap(),
                     public_key: VRFPublicKey::from_bytes(&hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap()).unwrap(),
-                    memo: vec![],
+                    memo: vec![].into(),
 
                     txid: Txid::from_bytes_be(&hex_bytes("2fbf8d5be32dce49790d203ba59acbb0929d5243413174ff5d26a5c6f23dea65").unwrap()).unwrap(),
                     vtxindex,
@@ -486,7 +486,7 @@ pub mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -620,7 +620,7 @@ pub mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    memo: vec![1, 2, 3, 4, 5],
+                    memo: vec![1, 2, 3, 4, 5].into(),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(
@@ -649,7 +649,7 @@ pub mod tests {
                         .unwrap(),
                     )
                     .unwrap(),
-                    memo: vec![1, 2, 3, 4, 5],
+                    memo: vec![1, 2, 3, 4, 5].into(),
 
                     txid: Txid::from_bytes_be(
                         &hex_bytes(

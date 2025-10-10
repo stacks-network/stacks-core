@@ -20,13 +20,15 @@ use stacks_common::codec::{write_next, Error as codec_error, StacksMessageCodec}
 use stacks_common::types::chainstate::{BurnchainHeaderHash, StacksAddress};
 
 use crate::burnchains::{BurnchainBlockHeader, BurnchainTransaction, Txid};
-use crate::chainstate::burn::operations::{parse_u128_from_be, Error as op_error, TransferStxOp};
+use crate::chainstate::burn::operations::{
+    parse_u128_from_be, BurnOpMemo, Error as op_error, TransferStxOp,
+};
 use crate::chainstate::burn::Opcodes;
 
 // return type from parse_data below
 struct ParsedData {
     transfered_ustx: u128,
-    memo: Vec<u8>,
+    memo: BurnOpMemo,
 }
 
 impl TransferStxOp {
@@ -40,7 +42,7 @@ impl TransferStxOp {
             sender: sender.clone(),
             recipient: recipient.clone(),
             transfered_ustx,
-            memo: vec![],
+            memo: vec![].into(),
             // to be filled in
             txid: Txid([0u8; 32]),
             vtxindex: 0,
@@ -82,7 +84,7 @@ impl TransferStxOp {
         }
 
         let transfered_ustx = parse_u128_from_be(data.get(0..16)?).unwrap();
-        let memo = Vec::from(data.get(16..)?);
+        let memo = Vec::from(data.get(16..)?).into();
 
         Some(ParsedData {
             transfered_ustx,
@@ -203,7 +205,8 @@ impl StacksMessageCodec for TransferStxOp {
         write_next(fd, &(Opcodes::TransferStx as u8))?;
         fd.write_all(&self.transfered_ustx.to_be_bytes())
             .map_err(codec_error::WriteError)?;
-        fd.write_all(&self.memo).map_err(codec_error::WriteError)?;
+        fd.write_all(self.memo.as_slice())
+            .map_err(codec_error::WriteError)?;
         Ok(())
     }
 
@@ -300,6 +303,6 @@ mod tests {
             )
         );
         assert_eq!(op.transfered_ustx, u128::from_be_bytes([1; 16]));
-        assert_eq!(op.memo, vec![1; 61]);
+        assert_eq!(op.memo, vec![1; 61].into());
     }
 }

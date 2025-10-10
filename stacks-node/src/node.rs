@@ -12,7 +12,7 @@ use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
 };
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, BurnOpMemo, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::stacks::address::PoxAddress;
@@ -987,7 +987,7 @@ impl Node {
 
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
-            memo: vec![],
+            memo: vec![].into(),
             consensus_hash,
             vtxindex: 1,
             txid,
@@ -1042,7 +1042,7 @@ impl Node {
             apparent_sender: self.keychain.get_burnchain_signer(),
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
-            memo: vec![STACKS_EPOCH_2_1_MARKER],
+            memo: vec![STACKS_EPOCH_2_1_MARKER].into(),
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,

@@ -1115,7 +1115,7 @@ mod test {
                 parent_vtxindex: 0,
                 key_block_ptr: 0,
                 key_vtxindex: 0,
-                memo: vec![0x80],
+                memo: vec![0x80].into(),
                 commit_outs: vec![],
 
                 burn_fee: 100,

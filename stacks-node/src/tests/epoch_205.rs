@@ -6,7 +6,9 @@ use clarity::vm::types::PrincipalData;
 use clarity::vm::ContractName;
 use stacks::burnchains::{Burnchain, Txid};
 use stacks::chainstate::burn::operations::leader_block_commit::BURN_BLOCK_MINED_AT_MODULUS;
-use stacks::chainstate::burn::operations::{BlockstackOperationType, LeaderBlockCommitOp};
+use stacks::chainstate::burn::operations::{
+    BlockstackOperationType, BurnOpMemo, LeaderBlockCommitOp,
+};
 use stacks::chainstate::stacks::address::PoxAddress;
 use stacks::chainstate::stacks::db::StacksChainState;
 use stacks::chainstate::stacks::{
@@ -614,7 +616,7 @@ fn transition_empty_blocks() {
                 apparent_sender: keychain.get_burnchain_signer(),
                 key_block_ptr,
                 key_vtxindex,
-                memo: vec![0], // bad epoch marker
+                memo: vec![0].into(), // bad epoch marker
                 new_seed: VRFSeed([0x11; 32]),
                 parent_block_ptr: 0,
                 parent_vtxindex: 0,

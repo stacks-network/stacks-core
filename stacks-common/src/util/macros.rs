@@ -27,7 +27,7 @@ macro_rules! iterable_enum {
     ($Name:ident { $($Variant:ident,)* }) =>
     {
         pub enum $Name {
-            $($Variant),*,
+           $($Variant),*,
         }
         impl $Name {
             pub const ALL: &'static [$Name] = &[$($Name::$Variant),*];
@@ -731,25 +731,132 @@ macro_rules! fmax {
 }
 
 #[cfg(feature = "rusqlite")]
+#[macro_export]
 macro_rules! impl_byte_array_rusqlite_only {
     ($thing:ident) => {
         impl rusqlite::types::FromSql for $thing {
             fn column_result(
                 value: rusqlite::types::ValueRef,
             ) -> rusqlite::types::FromSqlResult<Self> {
-                let hex_str = value.as_str()?;
+                use $crate::codec::StacksMessageCodec;
+                let byte_slice = value.as_bytes()
+                    .map_err(|e| {
+                        error!("Failed to load column result as bytes: {:?}", &e);
+                        e
+                    })?;
+                let mut cursor = byte_slice;
+
+                // NB: This is a match statement so that if we add more encodings, this won't
+                // compile without a corresponding alteration.
+                match $crate::util::db::ColumnEncoding::consensus_deserialize(&mut cursor) {
+                    Ok($crate::util::db::ColumnEncoding::SIP003) => {
+                        // there's a designated encoding. Honor it.
+                        let inst = $thing::consensus_deserialize(&mut cursor)
+                            .map_err(|e| {
+                                error!("Failed to deserialize column from bytes: {:?}, {:?}", &cursor, &e);
+                                rusqlite::types::FromSqlError::InvalidType
+                            })?;
+                        return Ok(inst);
+                    }
+                    Err(_e) => {
+                        // byte code is not recognized, so this must be a hex string
+                    }
+                }
+
+                // no designated encoding byte, so this must be a hex string.
+                // try to decode it as such (but error out if this is not a valid hex string)
+                let hex_str = str::from_utf8(&byte_slice)
+                    .map_err(|e| {
+                        error!("Failed to interpret byte string as ASCII hex: {:?}", &e);
+                        rusqlite::types::FromSqlError::InvalidType
+                    })?;
+
                 let byte_str = $crate::util::hash::hex_bytes(hex_str)
-                    .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
+                    .map_err(|e| {
+                        error!("Failed to decode hex string {:?}: {:?}", &hex_str, &e);
+                        rusqlite::types::FromSqlError::InvalidType
+                    })?;
+
                 let inst = $thing::from_bytes(&byte_str)
-                    .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
+                    .ok_or_else(|| {
+                        error!("Failed to decode bytes to value: {:?}", &byte_str);
+                        rusqlite::types::FromSqlError::InvalidType
+                    })?;
+
                 Ok(inst)
             }
         }
 
-        impl rusqlite::types::ToSql for $thing {
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-                let hex_str = self.to_hex();
-                Ok(hex_str.into())
+        impl $crate::util::db::SqlEncoded for $thing {
+            fn sql_encoded(&self, encoding: Option<$crate::util::db::ColumnEncoding>) -> Vec<u8> {
+                use $crate::codec::StacksMessageCodec;
+                match encoding {
+                    None => {
+                        // hex string
+                        let hex_str = self.to_hex();
+                        hex_str.as_bytes().to_vec()
+                    },
+                    Some($crate::util::db::ColumnEncoding::SIP003) => {
+                        // SIP003 byte string
+                        let bytes = self.serialize_to_vec();
+                        let mut ret = vec![0; bytes.len() + 1];
+
+                        // SAFETY: ret has enough bytes allocated
+                        ret[0] = $crate::util::db::ColumnEncoding::SIP003.as_u8();
+                        ret[1..].copy_from_slice(&bytes);
+                        ret
+                    }
+                }
+            }
+
+            fn sql_decoded(row: &rusqlite::Row, column_name: &str, encoding: Option<$crate::util::db::ColumnEncoding>) -> Result<Self, $crate::codec::Error> {
+                use $crate::codec::StacksMessageCodec;
+                match encoding {
+                    None => {
+                        // expect hex string
+                        let hex_bin_str = match row.get_ref(column_name)
+                            .map_err(|e| $crate::codec::Error::DeserializeError(format!("DB error loading hex-encoded column '{column_name}': {e:?}")))?
+                        {
+                            rusqlite::types::ValueRef::Text(bytes) => bytes,
+                            rusqlite::types::ValueRef::Blob(bytes) => bytes,
+                            _ => {
+                                return Err($crate::codec::Error::DeserializeError(format!("DB error reading hex-encoded column '{column_name}: neither Text nor Blob affinity")));
+                            }
+                        };
+
+                        let hex_str = str::from_utf8(hex_bin_str)
+                            .map_err(|e| $crate::codec::Error::DeserializeError(format!("UTF-8 error decoding hex-encoded bytes from '{column_name}: {e:?}")))?;
+
+                        let byte_str = $crate::util::hash::hex_bytes(&hex_str)
+                            .map_err(|e| $crate::codec::Error::DeserializeError(format!("Hex error reading hex-encoded column '{column_name}': {e:?}")))?;
+                        let inst = $thing::from_bytes(&byte_str)
+                            .ok_or_else(|| $crate::codec::Error::DeserializeError(format!("Instantiation error from {} bytes of hex-encoded column '{column_name}'", &byte_str.len())))?;
+                        Ok(inst)
+                    }
+                    Some($crate::util::db::ColumnEncoding::SIP003) => {
+                        // expect a SIP003 byte string, with a 1-byte prefix
+                        let byte_str = match row.get_ref(column_name)
+                            .map_err(|e| $crate::codec::Error::DeserializeError(format!("DB error loading SIP003-encoded column '{column_name}': {e:?}")))?
+                        {
+                            rusqlite::types::ValueRef::Text(bytes) => bytes,
+                            rusqlite::types::ValueRef::Blob(bytes) => bytes,
+                            _ => {
+                                return Err($crate::codec::Error::DeserializeError(format!("DB error reading SIP003-encoded column '{column_name}: neither Text nor Blob affinity")));
+                            }
+                        };
+
+                        let Some(encoding_byte) = byte_str.get(0) else {
+                            return Err($crate::codec::Error::DeserializeError("Zero-length bytestring for SIP003-encoded column '{column_name}'".into()));
+                        };
+                        if *encoding_byte != $crate::util::db::ColumnEncoding::SIP003.as_u8() {
+                            return Err($crate::codec::Error::DeserializeError(format!("Column '{column_name}' is not SIP003-encoded; got encoding-byte value {:02x}", encoding_byte)));
+                        }
+
+                        // SAFETY: byte_str.len() >= 1 due to above checks
+                        let inst = $thing::consensus_deserialize(&mut &byte_str[1..])?;
+                        Ok(inst)
+                    }
+                }
             }
         }
     };
