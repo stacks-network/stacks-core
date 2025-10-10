@@ -1135,7 +1135,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok(())
     }
 
-    // Type check an expression, with an expected_type that should _admit_ the expression.
+    /// Type check an expression, with an expected_type that should _admit_ the expression.
     pub fn type_check_expects(
         &mut self,
         expr: &SymbolicExpression,
@@ -1157,7 +1157,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    // Type checks an expression, recursively type checking its subexpressions
+    /// Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(
         &mut self,
         expr: &SymbolicExpression,
@@ -1176,6 +1176,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         result
     }
 
+    /// Type checks a list of statements, ensuring that each statement is valid
+    /// and any responses before the last statement are handled.
     fn type_check_consecutive_statements(
         &mut self,
         args: &[SymbolicExpression],

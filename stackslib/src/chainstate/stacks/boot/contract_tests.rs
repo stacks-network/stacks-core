@@ -142,7 +142,7 @@ impl ClarityTestSim {
     /// Common setup logic for executing blocks in tests
     /// Returns (store, headers_db, burn_db, current_epoch)
     fn setup_block_environment(
-        &mut self,
+        &'_ mut self,
         new_tenure: bool,
     ) -> (
         Box<dyn WritableMarfStore + '_>,

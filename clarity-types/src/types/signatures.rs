@@ -855,6 +855,8 @@ impl TypeSignature {
     pub const STRING_ASCII_MAX: TypeSignature = Self::type_ascii_const(MAX_VALUE_SIZE);
     /// String ASCII type with length 40.
     pub const STRING_ASCII_40: TypeSignature = Self::type_ascii_const(40);
+    /// String ASCII type with length 128.
+    pub const STRING_ASCII_128: TypeSignature = Self::type_ascii_const(128);
 
     /// String UTF8 type with minimum length (`1`).
     pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8(1);
@@ -908,7 +910,7 @@ impl TypeSignature {
 
     /// Creates a string ASCII type with the specified length.
     /// It may panic if the provided length is invalid.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub const fn new_ascii_type_checked(len: u32) -> Self {
         Self::type_ascii_const(len)
     }

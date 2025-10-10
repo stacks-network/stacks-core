@@ -82,6 +82,7 @@ pub enum AssetMapEntry {
     Burn(u128),
     Token(u128),
     Asset(Vec<Value>),
+    Stacking(u128),
 }
 
 /**
@@ -90,10 +91,16 @@ during the execution of a transaction.
 */
 #[derive(Debug, Clone)]
 pub struct AssetMap {
+    /// Sum of all STX transfers by principal
     stx_map: HashMap<PrincipalData, u128>,
+    /// Sum of all STX burns by principal
     burn_map: HashMap<PrincipalData, u128>,
+    /// Sum of FT transfers by principal, by asset identifier
     token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
+    /// NFT transfers by principal, by asset identifier
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>,
+    /// Amount of STX stacked or delegated for stacking by principal
+    stacking_map: HashMap<PrincipalData, u128>,
 }
 
 impl AssetMap {
@@ -169,11 +176,23 @@ impl AssetMap {
             })
             .collect();
 
+        let stacking: serde_json::map::Map<_, _> = self
+            .stacking_map
+            .iter()
+            .map(|(principal, amount)| {
+                (
+                    format!("{principal}"),
+                    serde_json::value::Value::String(format!("{amount}")),
+                )
+            })
+            .collect();
+
         json!({
             "stx": stx,
             "burns": burns,
             "tokens": tokens,
-            "assets": assets
+            "assets": assets,
+            "stacking": stacking,
         })
     }
 }
@@ -264,6 +283,7 @@ impl AssetMap {
             burn_map: HashMap::new(),
             token_map: HashMap::new(),
             asset_map: HashMap::new(),
+            stacking_map: HashMap::new(),
         }
     }
 
@@ -343,6 +363,13 @@ impl AssetMap {
         Ok(())
     }
 
+    /// Log an amount of STX to be stacked or delegated for stacking by a
+    /// principal. Since any given principal can only stack once, this will
+    /// overwrite any previous amount for the principal.
+    pub fn add_stacking(&mut self, principal: &PrincipalData, amount: u128) {
+        self.stacking_map.insert(principal.clone(), amount);
+    }
+
     // This will add any asset transfer data from other to self,
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
@@ -390,6 +417,10 @@ impl AssetMap {
         for (principal, asset, amount) in to_add.into_iter() {
             let principal_map = self.token_map.entry(principal).or_default();
             principal_map.insert(asset, amount);
+        }
+
+        for (principal, stacking_amount) in other.stacking_map.drain() {
+            self.stacking_map.insert(principal, stacking_amount);
         }
 
         Ok(())
@@ -455,6 +486,14 @@ impl AssetMap {
         assets.get(asset_identifier).copied()
     }
 
+    pub fn get_all_fungible_tokens(
+        &self,
+        principal: &PrincipalData,
+    ) -> Option<&HashMap<AssetIdentifier, u128>> {
+        let assets = self.token_map.get(principal)?;
+        Some(assets)
+    }
+
     pub fn get_nonfungible_tokens(
         &self,
         principal: &PrincipalData,
@@ -462,6 +501,18 @@ impl AssetMap {
     ) -> Option<&Vec<Value>> {
         let assets = self.asset_map.get(principal)?;
         assets.get(asset_identifier)
+    }
+
+    pub fn get_all_nonfungible_tokens(
+        &self,
+        principal: &PrincipalData,
+    ) -> Option<&HashMap<AssetIdentifier, Vec<Value>>> {
+        let assets = self.asset_map.get(principal)?;
+        Some(assets)
+    }
+
+    pub fn get_stacking(&self, principal: &PrincipalData) -> Option<u128> {
+        self.stacking_map.get(principal).copied()
     }
 }
 
@@ -1551,6 +1602,12 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
     }
 
+    pub fn get_readonly_asset_map(&mut self) -> Result<&AssetMap> {
+        self.asset_maps
+            .last()
+            .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
+    }
+
     pub fn log_asset_transfer(
         &mut self,
         sender: &PrincipalData,
@@ -1588,6 +1645,11 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
 
     pub fn log_stx_burn(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
         self.get_asset_map()?.add_stx_burn(sender, transfered)
+    }
+
+    pub fn log_stacking(&mut self, sender: &PrincipalData, amount: u128) -> Result<()> {
+        self.get_asset_map()?.add_stacking(sender, amount);
+        Ok(())
     }
 
     pub fn execute<F, T>(&mut self, f: F) -> Result<T>

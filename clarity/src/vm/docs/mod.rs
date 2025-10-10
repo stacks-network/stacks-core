@@ -139,8 +139,7 @@ const STACKS_BLOCK_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
     snippet: "stacks-block-height",
     output_type: "uint",
     description: "Returns the current block height of the Stacks blockchain.",
-    example:
-        "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
+    example: "(<= stacks-block-height u500000) ;; returns true if the current block-height has not passed 500,000 blocks.",
 };
 
 const TENURE_HEIGHT_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -255,7 +254,7 @@ const TO_UINT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "to-uint ${1:int}",
     signature: "(to-uint i)",
     description: "Tries to convert the `int` argument to a `uint`. Will cause a runtime error and abort if the supplied argument is negative.",
-    example: "(to-uint 238) ;; Returns u238"
+    example: "(to-uint 238) ;; Returns u238",
 };
 
 const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -263,7 +262,7 @@ const TO_INT_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "to-int ${1:uint}",
     signature: "(to-int u)",
     description: "Tries to convert the `uint` argument to an `int`. Will cause a runtime error and abort if the supplied argument is >= `pow(2, 127)`",
-    example: "(to-int u238) ;; Returns 238"
+    example: "(to-int u238) ;; Returns 238",
 };
 
 const BUFF_TO_INT_LE_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -464,7 +463,7 @@ const ADD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     snippet: "+ ${1:expr-1} ${2:expr-2}",
     signature: "(+ i1 i2...)",
     description: "Adds a variable number of integer inputs and returns the result. In the event of an _overflow_, throws a runtime error.",
-    example: "(+ 1 2 3) ;; Returns 6"
+    example: "(+ 1 2 3) ;; Returns 6",
 };
 
 const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -474,7 +473,7 @@ const SUB_API: SimpleFunctionAPI = SimpleFunctionAPI {
     description: "Subtracts a variable number of integer inputs and returns the result. In the event of an _underflow_, throws a runtime error.",
     example: "(- 2 1 1) ;; Returns 0
 (- 0 3) ;; Returns -3
-"
+",
 };
 
 const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -485,7 +484,7 @@ const DIV_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(/ 2 3) ;; Returns 0
 (/ 5 2) ;; Returns 2
 (/ 4 2 2) ;; Returns 1
-"
+",
 };
 
 const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -496,7 +495,7 @@ const MUL_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(* 2 3) ;; Returns 6
 (* 5 2) ;; Returns 10
 (* 2 2 2) ;; Returns 8
-"
+",
 };
 
 const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -507,7 +506,7 @@ const MOD_API: SimpleFunctionAPI = SimpleFunctionAPI {
     example: "(mod 2 3) ;; Returns 2
 (mod 5 2) ;; Returns 1
 (mod 7 1) ;; Returns 0
-"
+",
 };
 
 const POW_API: SimpleFunctionAPI = SimpleFunctionAPI {
@@ -833,7 +832,9 @@ pub fn get_output_type_string(function_type: &FunctionType) -> String {
                 let arg_sig = match pos {
                     0 => left,
                     1 => right,
-                    _ => panic!("Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1).")
+                    _ => panic!(
+                        "Index out of range: TypeOfArgAtPosition for FunctionType::Binary can only handle two arguments, zero-indexed (0 or 1)."
+                    ),
                 };
 
                 match arg_sig {
@@ -1360,7 +1361,7 @@ const KECCAK256_API: SpecialAPI = SpecialAPI {
 
 Note: this differs from the `NIST SHA-3` (that is, FIPS 202) standard. If an integer (128 bit)
 is supplied the hash is computed over the little-endian representation of the integer.",
-    example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4"
+    example: "(keccak256 0) ;; Returns 0xf490de2920c8a35fabeb13208852aa28c76f9be9b03a4dd2b3c075f7a26923b4",
 };
 
 const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
@@ -1411,7 +1412,7 @@ function returns _err_, any database changes resulting from calling `contract-ca
 If the function returns _ok_, database changes occurred.",
     example: "
 ;; instantiate the sample/contracts/tokens.clar contract first!
-(as-contract (contract-call? .tokens mint! u19)) ;; Returns (ok u19)"
+(as-contract? () (try! (contract-call? .tokens mint! u19))) ;; Returns (ok u19)"
 };
 
 const CONTRACT_OF_API: SpecialAPI = SpecialAPI {
@@ -1433,7 +1434,8 @@ const PRINCIPAL_OF_API: SpecialAPI = SpecialAPI {
     snippet: "principal-of? ${1:public-key}",
     output_type: "(response principal uint)",
     signature: "(principal-of? public-key)",
-    description: "The `principal-of?` function returns the principal derived from the provided public key.
+    description:
+        "The `principal-of?` function returns the principal derived from the provided public key.
 This function may fail with the error code:
 
 * `(err u1)` -- `public-key` is invalid
@@ -1444,7 +1446,7 @@ with Stacks 2.1, this bug is fixed, so that this function will return a principa
 the network it is called on. In particular, if this is called on the mainnet, it will
 return a single-signature mainnet principal.
     ",
-    example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)"
+    example: "(principal-of? 0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns (ok ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP)",
 };
 
 const AT_BLOCK: SpecialAPI = SpecialAPI {
@@ -2372,7 +2374,7 @@ In the event that the `owner` principal isn't materialized, it returns 0.
 ",
     example: "
 (stx-get-balance 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns u0
-(stx-get-balance (as-contract tx-sender)) ;; Returns u1000
+(stx-get-balance tx-sender) ;; Returns u1000
 ",
 };
 
@@ -2388,7 +2390,7 @@ unlock height for any locked STX, all denominated in microstacks.
 ",
     example: r#"
 (stx-account 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u0))
-(stx-account (as-contract tx-sender)) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u1000))
+(stx-account tx-sender) ;; Returns (tuple (locked u0) (unlock-height u0) (unlocked u1000))
 "#,
 };
 
@@ -2410,12 +2412,9 @@ one of the following error codes:
 * `(err u4)` -- the `sender` principal is not the current `tx-sender`
 ",
     example: r#"
-(as-contract
-  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
-(as-contract
-  (stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (ok true)
-(as-contract
-  (stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender)) ;; Returns (err u4)
+(stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (ok true)
+(stx-transfer? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (ok true)
+(stx-transfer? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR tx-sender) ;; Returns (err u4)
 "#
 };
 
@@ -2429,8 +2428,7 @@ const STX_TRANSFER_MEMO: SpecialAPI = SpecialAPI {
 This function returns (ok true) if the transfer is successful, or, on an error, returns the same codes as `stx-transfer?`.
 ",
     example: r#"
-(as-contract
-  (stx-transfer-memo? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x010203)) ;; Returns (ok true)
+(stx-transfer-memo? u60 tx-sender 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR 0x010203) ;; Returns (ok true)
 "#
 };
 
@@ -2450,10 +2448,8 @@ one of the following error codes:
 * `(err u4)` -- the `sender` principal is not the current `tx-sender`
 ",
     example: "
-(as-contract
-  (stx-burn? u60 tx-sender)) ;; Returns (ok true)
-(as-contract
-  (stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)) ;; Returns (err u4)
+(stx-burn? u60 tx-sender) ;; Returns (ok true)
+(stx-burn? u50 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR) ;; Returns (err u4)
 "
 };
 
@@ -2563,6 +2559,204 @@ characters.",
 (to-ascii? 0x00112233) ;; Returns (ok "0x00112233")
 (to-ascii? u"An ASCII smiley face: :)") ;; Returns (ok "An ASCII smiley face: :)")
 (to-ascii? u"A smiley face emoji: \u{1F600}") ;; Returns (err u1)
+"#,
+};
+
+const RESTRICT_ASSETS: SpecialAPI = SpecialAPI {
+    input_type: "principal, ((Allowance){0,128}), AnyType, ... A",
+    snippet: "restrict-assets? ${1:asset-owner} (${2:allowance-1} ${3:allowance-2}) ${4:expr-1}",
+    output_type: "(response A int)",
+    signature: "(restrict-assets? asset-owner ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)",
+    description: "Executes the body expressions, then checks the asset
+outflows against the granted allowances, in declaration order. If any
+allowance is violated, the body expressions are reverted, an error is
+returned, and an event is emitted with the full details of the violation to
+help with debugging. Note that the `asset-owner` and allowance setup
+expressions are evaluated before executing the body expressions. The final
+body expression cannot return a `response` value in order to avoid returning
+a nested `response` value from `restrict-assets?` (nested responses are
+error-prone). Returns:
+* `(ok x)` if the outflows are within the allowances, where `x` is the
+    result of the final body expression and has type `A`.
+* `(err index)` if an allowance was violated, where `index` is the 0-based
+    index of the first violated allowance in the list of granted allowances,
+    or `u128` if an asset with no allowance caused the violation.",
+    example: r#"
+(restrict-assets? tx-sender ()
+  (+ u1 u2)
+) ;; Returns (ok u3)
+(restrict-assets? tx-sender ()
+  (try! (stx-transfer? u50 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (err u128)
+"#,
+};
+
+const AS_CONTRACT_SAFE: SpecialAPI = SpecialAPI {
+    input_type: "((Allowance){0,128}), AnyType, ... A",
+    snippet: "as-contract? (${1:allowance-1} ${2:allowance-2}) ${3:expr-1}",
+    output_type: "(response A uint)",
+    signature: "(as-contract? ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)",
+    description: "Switches the current context's `tx-sender` and
+`contract-caller` values to the contract's principal and executes the body
+expressions within that context, then checks the asset outflows from the
+contract against the granted allowances, in declaration order. If any
+allowance is violated, the body expressions are reverted, an error is
+returned, and an event is emitted with the full details of the violation to
+help with debugging. Note that the allowance setup expressions are evaluated
+before executing the body expressions. The final body expression cannot
+return a `response` value in order to avoid returning a nested `response`
+value from `as-contract?` (nested responses are error-prone). Returns:
+* `(ok x)` if the outflows are within the allowances, where `x` is the
+    result of the final body expression and has type `A`.
+* `(err index)` if an allowance was violated, where `index` is the 0-based
+    index of the first violated allowance in the list of granted allowances,
+    or `u128` if an asset with no allowance caused the violation.",
+    example: r#"
+(let ((recipient tx-sender))
+  (as-contract? ((with-stx u100))
+    (try! (stx-transfer? u50 tx-sender recipient))
+  )
+) ;; Returns (ok true)
+(let ((recipient tx-sender))
+  (as-contract? ()
+    (try! (stx-transfer? u50 tx-sender recipient))
+  )
+) ;; Returns (err u128)
+"#,
+};
+
+const ALLOWANCE_WITH_STX: SpecialAPI = SpecialAPI {
+    input_type: "uint",
+    snippet: "with-stx ${1:amount}",
+    output_type: "Allowance",
+    signature: "(with-stx amount)",
+    description: "Adds an outflow allowance for `amount` uSTX from the
+`asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
+expression. `with-stx` is not allowed outside of `restrict-assets?` or
+`as-contract?` contexts.",
+    example: r#"
+(restrict-assets? tx-sender
+  ((with-stx u100))
+  (try! (stx-transfer? u100 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (ok true)
+(restrict-assets? tx-sender
+  ((with-stx u50))
+  (try! (stx-transfer? u100 tx-sender 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM))
+) ;; Returns (err u0)
+"#,
+};
+
+const ALLOWANCE_WITH_FT: SpecialAPI = SpecialAPI {
+    input_type: "principal (string-ascii 128) uint",
+    snippet: "with-ft ${1:contract-id} ${2:token-name} ${3:amount}",
+    output_type: "Allowance",
+    signature: "(with-ft contract-id token-name amount)",
+    description: r#"Adds an outflow allowance for `amount` of the fungible
+token defined in `contract-id` with name `token-name` from the `asset-owner`
+of the enclosing `restrict-assets?` or `as-contract?` expression.  `with-ft` is
+not allowed outside of `restrict-assets?` or `as-contract?` contexts. Note that
+`token-name` should match the name used in the `define-fungible-token` call in
+the contract. When `"*"` is used for the token name, the allowance applies to
+**all** FTs defined in `contract-id`."#,
+    example: r#"
+(define-fungible-token stackaroo)
+(ft-mint? stackaroo u200 tx-sender)
+(restrict-assets? tx-sender
+  ((with-ft current-contract "stackaroo" u100))
+  (try! (ft-transfer? stackaroo u100 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+) ;; Returns (ok true)
+(restrict-assets? tx-sender
+  ((with-ft current-contract "stackaroo" u50))
+  (try! (ft-transfer? stackaroo u100 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+) ;; Returns (err u0)
+"#,
+};
+
+const ALLOWANCE_WITH_NFT: SpecialAPI = SpecialAPI {
+    input_type: "principal (string-ascii 128) (list 128 T)",
+    snippet: "with-nft ${1:contract-id} ${2:asset-name} ${3:asset-identifiers}",
+    output_type: "Allowance",
+    signature: "(with-nft contract-id asset-name identifiers)",
+    description: r#"Adds an outflow allowance for the non-fungible tokens
+identified by `identifiers` defined in `contract-id` with name `token-name`
+from the `asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
+expression. `with-nft` is not allowed outside of `restrict-assets?` or
+`as-contract?` contexts. Note that `token-name` should match the name used in
+the `define-non-fungible-token` call in the contract. When `"*"` is used for
+the token name, the allowance applies to **all** NFTs defined in `contract-id`.
+Note that the type of the elements in `asset-identifiers` should match the type
+defined in the `define-non-fungible-token` call in the contract, but this is
+**not** checked by the type-checker. An identifier with the wrong type will
+simply never match any asset."#,
+    example: r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u123 tx-sender)
+(nft-mint? stackaroo u124 tx-sender)
+(nft-mint? stackaroo u125 tx-sender)
+(restrict-assets? tx-sender
+  ((with-nft current-contract "stackaroo" (list u123)))
+  (try! (nft-transfer? stackaroo u123 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+) ;; Returns (ok true)
+(restrict-assets? tx-sender
+  ((with-nft current-contract "stackaroo" (list u125)))
+  (try! (nft-transfer? stackaroo u124 tx-sender 'SPAXYA5XS51713FDTQ8H94EJ4V579CXMTRNBZKSF))
+) ;; Returns (err u0)
+"#,
+};
+
+const ALLOWANCE_WITH_STACKING: SpecialAPI = SpecialAPI {
+    input_type: "uint",
+    snippet: "with-stacking ${1:amount}",
+    output_type: "Allowance",
+    signature: "(with-stacking amount)",
+    description: "Adds a stacking allowance for `amount` uSTX from the
+`asset-owner` of the enclosing `restrict-assets?` or `as-contract?`
+expression. `with-stacking` is not allowed outside of `restrict-assets?` or
+`as-contract?` contexts. This restricts calls to the active PoX contract
+that either delegate funds for stacking or stack directly, ensuring that the
+locked amount is limited by the amount of uSTX specified. Note that the
+amount specified here is the total amount allowed to be stacked, i.e. a call to
+`stack-increase` will need an allowance for the new total, not just the
+increase amount.
+",
+    example: r#"
+(restrict-assets? tx-sender
+  ((with-stacking u1000000000000))
+  (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
+    u1100000000000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
+  ))
+) ;; Returns (err u0)
+(restrict-assets? tx-sender
+  ((with-stacking u1000000000000))
+  (try! (contract-call? 'SP000000000000000000002Q6VF78.pox-4 delegate-stx
+    u900000000000 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
+  ))
+) ;; Returns (ok true)
+"#,
+};
+
+const ALLOWANCE_WITH_ALL: SpecialAPI = SpecialAPI {
+    input_type: "N/A",
+    snippet: "with-all-assets-unsafe",
+    output_type: "Allowance",
+    signature: "(with-all-assets-unsafe)",
+    description: "Grants unrestricted access to all assets of the contract to
+the enclosing `as-contract?` expression. `with-stacking` is not allowed outside
+of `as-contract?` contexts. Note that this is not allowed in `restrict-assets?`
+and will trigger an analysis error, since usage there does not make sense (i.e.
+just remove the `restrict-assets?` instead).
+**_⚠️ Security Warning: This should be used with extreme caution, as it
+effectively disables all asset protection for the contract. ⚠️_** This
+dangerous allowance should only be used when the code executing within the
+`as-contract?` body is verified to be trusted through other means (e.g.
+checking traits against an allow list, passed in from a trusted caller), and
+even then the more restrictive allowances should be preferred when possible.",
+    example: r#"
+(let ((recipient tx-sender))
+  (as-contract? ((with-all-assets-unsafe))
+    (try! (stx-transfer? u100 tx-sender recipient))
+  )
+) ;; Returns (ok true)
 "#,
 };
 
@@ -2680,6 +2874,13 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
         ContractHash => make_for_simple_native(&CONTRACT_HASH, function, name),
         ToAscii => make_for_special(&TO_ASCII, function),
+        RestrictAssets => make_for_special(&RESTRICT_ASSETS, function),
+        AsContractSafe => make_for_special(&AS_CONTRACT_SAFE, function),
+        AllowanceWithStx => make_for_special(&ALLOWANCE_WITH_STX, function),
+        AllowanceWithFt => make_for_special(&ALLOWANCE_WITH_FT, function),
+        AllowanceWithNft => make_for_special(&ALLOWANCE_WITH_NFT, function),
+        AllowanceWithStacking => make_for_special(&ALLOWANCE_WITH_STACKING, function),
+        AllowanceAll => make_for_special(&ALLOWANCE_WITH_ALL, function),
     }
 }
 
@@ -2790,6 +2991,7 @@ pub fn make_json_api_reference() -> String {
 
 #[cfg(test)]
 mod test {
+    use clarity_types::types::StandardPrincipalData;
     use stacks_common::consts::{CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_1};
     use stacks_common::types::chainstate::{
         BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, SortitionId, StacksAddress,
@@ -3033,7 +3235,7 @@ mod test {
         }
     }
 
-    fn docs_execute(store: &mut MemoryBackingStore, program: &str) {
+    fn docs_execute(store: &mut MemoryBackingStore, program: &str, version: ClarityVersion) {
         // execute the program, iterating at each ";; Returns" comment
         // there are maybe more rust-y ways of doing this, but this is the simplest.
         let mut segments = vec![];
@@ -3060,7 +3262,7 @@ mod test {
                 &contract_id,
                 &whole_contract,
                 &mut (),
-                ClarityVersion::latest(),
+                version,
                 StacksEpochId::latest(),
             )
             .unwrap()
@@ -3072,7 +3274,7 @@ mod test {
                 &mut analysis_db,
                 false,
                 &StacksEpochId::latest(),
-                &ClarityVersion::latest(),
+                &version,
             )
             .expect("Failed to type check");
         }
@@ -3085,7 +3287,7 @@ mod test {
                 &contract_id,
                 &total_example,
                 &mut (),
-                ClarityVersion::latest(),
+                version,
                 StacksEpochId::latest(),
             )
             .unwrap()
@@ -3098,7 +3300,7 @@ mod test {
                 &mut analysis_db,
                 false,
                 &StacksEpochId::latest(),
-                &ClarityVersion::latest(),
+                &version,
             )
             .expect("Failed to type check");
             type_results.push(
@@ -3112,8 +3314,7 @@ mod test {
         }
 
         let conn = store.as_docs_clarity_db();
-        let mut contract_context =
-            ContractContext::new(contract_id.clone(), ClarityVersion::latest());
+        let mut contract_context = ContractContext::new(contract_id.clone(), version);
         let mut global_context = GlobalContext::new(
             false,
             CHAIN_ID_TESTNET,
@@ -3186,10 +3387,14 @@ mod test {
                 );
                 continue;
             }
+            if func_api.name == "with-stacking" {
+                eprintln!("Skipping with-stacking, because it requires PoX state");
+                continue;
+            }
 
             let mut store = MemoryBackingStore::new();
             // first, load the samples for contract-call
-            // and give the doc environment's contract some STX
+            // and give the doc environment sender and its contract some STX
             {
                 let contract_id = QualifiedContractIdentifier::local("tokens").unwrap();
                 let trait_def_id = QualifiedContractIdentifier::parse(
@@ -3244,6 +3449,7 @@ mod test {
                 }
 
                 let conn = store.as_docs_clarity_db();
+                let sender_principal = PrincipalData::Standard(StandardPrincipalData::transient());
                 let docs_test_id = QualifiedContractIdentifier::local("docs-test").unwrap();
                 let docs_principal_id = PrincipalData::Contract(docs_test_id);
                 let mut env = OwnedEnvironment::new(conn, StacksEpochId::latest());
@@ -3257,6 +3463,13 @@ mod test {
                             .global_context
                             .database
                             .get_stx_balance_snapshot_genesis(&docs_principal_id)
+                            .unwrap();
+                        snapshot.set_balance(balance.clone());
+                        snapshot.save().unwrap();
+                        let mut snapshot = e
+                            .global_context
+                            .database
+                            .get_stx_balance_snapshot_genesis(&sender_principal)
                             .unwrap();
                         snapshot.set_balance(balance);
                         snapshot.save().unwrap();
@@ -3283,7 +3496,11 @@ mod test {
                 .collect::<Vec<_>>()
                 .join("\n");
             let the_throws = example.lines().filter(|x| x.contains(";; Throws"));
-            docs_execute(&mut store, &without_throws);
+            docs_execute(
+                &mut store,
+                &without_throws,
+                func_api.max_version.unwrap_or(ClarityVersion::latest()),
+            );
             for expect_err in the_throws {
                 eprintln!("{expect_err}");
                 execute(expect_err).unwrap_err();
@@ -3365,7 +3582,10 @@ mod test {
             ret,
         );
         result = get_input_type_string(&function_type);
-        assert_eq!(result, "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal");
+        assert_eq!(
+            result,
+            "uint, uint | uint, int | uint, principal | principal, uint | principal, int | principal, principal | int, uint | int, int | int, principal"
+        );
     }
 
     #[test]

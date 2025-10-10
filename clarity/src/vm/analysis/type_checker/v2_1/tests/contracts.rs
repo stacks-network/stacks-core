@@ -2647,13 +2647,18 @@ fn clarity_trait_experiments_downcast_trait_5(
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
+    let downcast_trait_5 = if version >= ClarityVersion::Clarity4 {
+        "downcast-trait-5-c4"
+    } else {
+        "downcast-trait-5"
+    };
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
     let err = db
         .execute(|db| {
             load_versioned(db, "math-trait", version, epoch)?;
-            load_versioned(db, "downcast-trait-5", version, epoch)
+            load_versioned(db, downcast_trait_5, version, epoch)
         })
         .unwrap_err();
     if epoch <= StacksEpochId::Epoch2_05 {

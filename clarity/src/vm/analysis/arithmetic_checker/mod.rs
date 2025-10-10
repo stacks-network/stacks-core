@@ -173,9 +173,31 @@ impl ArithmeticOnlyChecker<'_> {
             | ContractCall | StxTransfer | StxTransferMemo | StxBurn | AtBlock | GetStxBalance
             | GetTokenSupply | BurnToken | FromConsensusBuff | ToConsensusBuff | BurnAsset
             | StxGetAccount => Err(Error::FunctionNotPermitted(function)),
-            Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
-            | Fold | Slice | ReplaceAt | ContractHash => Err(Error::FunctionNotPermitted(function)),
+            Append
+            | Concat
+            | AsMaxLen
+            | ContractOf
+            | PrincipalOf
+            | ListCons
+            | Print
+            | AsContract
+            | ElementAt
+            | ElementAtAlias
+            | IndexOf
+            | IndexOfAlias
+            | Map
+            | Filter
+            | Fold
+            | Slice
+            | ReplaceAt
+            | ContractHash
+            | RestrictAssets
+            | AsContractSafe
+            | AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => Err(Error::FunctionNotPermitted(function)),
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 Err(Error::FunctionNotPermitted(function))
             }
