@@ -720,6 +720,8 @@ impl Config {
                 Ok(StacksEpochId::Epoch31)
             } else if epoch_name == EPOCH_CONFIG_3_2_0 {
                 Ok(StacksEpochId::Epoch32)
+            } else if epoch_name == EPOCH_CONFIG_3_3_0 {
+                Ok(StacksEpochId::Epoch33)
             } else {
                 Err(format!("Unknown epoch name specified: {epoch_name}"))
             }?;
@@ -748,6 +750,8 @@ impl Config {
             StacksEpochId::Epoch30,
             StacksEpochId::Epoch31,
             StacksEpochId::Epoch32,
+            // todo: when epoch 3.3 becomes mandatory
+            // StacksEpochId::Epoch33,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
@@ -1708,6 +1712,7 @@ pub const EPOCH_CONFIG_2_5_0: &str = "2.5";
 pub const EPOCH_CONFIG_3_0_0: &str = "3.0";
 pub const EPOCH_CONFIG_3_1_0: &str = "3.1";
 pub const EPOCH_CONFIG_3_2_0: &str = "3.2";
+pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 
 #[derive(Clone, Deserialize, Default, Debug)]
 #[serde(deny_unknown_fields)]
