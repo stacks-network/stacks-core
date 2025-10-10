@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
 clarity = { path = "../../clarity", default-features = false }
+clarity-cli = { path = "../clarity-cli", default-features = false }
 libstackerdb = { path = "../../libstackerdb", default-features = false }
 stacks-common = { path = "../../stacks-common", default-features = false }
 regex = { version = "1", default-features = false }

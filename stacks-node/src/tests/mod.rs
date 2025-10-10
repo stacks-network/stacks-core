@@ -78,6 +78,9 @@ pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd862
 
 pub const ADDR_4: &str = "ST31DA6FTSJX2WGTZ69SFY11BH51NZMB0ZZ239N96";
 
+/// The epoch that is being used for tests that call the clarity vm.
+pub const CURRENT_TESTING_EPOCH: StacksEpochId = StacksEpochId::Epoch32;
+
 lazy_static! {
     pub static ref PUBLISH_CONTRACT: Vec<u8> = make_contract_publish(
         &StacksPrivateKey::from_hex(

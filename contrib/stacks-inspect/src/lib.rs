@@ -393,7 +393,7 @@ pub fn command_try_mine(argv: &[String], conf: Option<&Config>) {
     let print_help_and_exit = || {
         let n = &argv[0];
         eprintln!("Usage: {n} <working-dir> [min-fee [max-time]]");
-        eprintln!("");
+        eprintln!();
         eprintln!(
             "Given a <working-dir>, try to ''mine'' an anchored block. This invokes the miner block"
         );
@@ -731,6 +731,7 @@ fn replay_mock_mined_block(db_path: &str, block: AssembledAnchorBlock, conf: Opt
 }
 
 /// Validate a block against chainstate
+#[allow(clippy::too_many_arguments)]
 fn replay_block(
     mut sort_tx: IndexDBTx<SortitionHandleContext, SortitionId>,
     mut chainstate_tx: ChainstateTx,
@@ -901,6 +902,7 @@ fn replay_naka_staging_block(db_path: &str, index_block_hash_hex: &str, conf: &C
     replay_block_nakamoto(&mut sortdb, &mut chainstate, &block, block_size).unwrap();
 }
 
+#[allow(clippy::result_large_err)]
 fn replay_block_nakamoto(
     sort_db: &mut SortitionDB,
     stacks_chain_state: &mut StacksChainState,
@@ -1145,7 +1147,7 @@ fn replay_block_nakamoto(
         &mut chainstate_tx,
         clarity_instance,
         &mut burn_view_handle,
-        &burnchain_view,
+        burnchain_view,
         &pox_constants,
         &parent_header_info,
         &next_ready_block_snapshot.burn_header_hash,

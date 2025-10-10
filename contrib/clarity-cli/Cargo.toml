@@ -1,15 +1,19 @@
 [package]
-name = "stacks-cli"
+name = "clarity-cli"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
 clarity = { path = "../../clarity", default-features = false }
-clarity-cli = { path = "../clarity-cli", default-features = false }
+stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
 stacks-common = { path = "../../stacks-common", default-features = false }
+slog = { version = "2.5.2", features = [ "max_level_trace" ] }
+lazy_static = { version = "1.4.0", default-features = false }
+serde = { version = "1" }
+serde_derive = "1"
 serde_json = { workspace = true }
+rand = { workspace = true }
+rusqlite = { workspace = true }
 
 [dev-dependencies]
 stacks-common = { path = "../../stacks-common", default-features = false, features = ["testing"] }
-tempfile = { version = "3.3", default-features = false }
