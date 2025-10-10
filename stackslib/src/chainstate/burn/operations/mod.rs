@@ -14,12 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::convert::From;
+use std::io::{Read, Write};
+use std::ops::{Index, IndexMut};
+use std::slice::SliceIndex;
 use std::{error, fmt};
 
-use clarity::vm::types::PrincipalData;
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
+use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, VRFSeed,
 };
@@ -45,6 +49,91 @@ pub mod vote_for_aggregate_key;
 mod test;
 
 /// This module contains all burn-chain operations
+
+/// Unused OP_RETURN bytes in some payloads
+/// The implementation is just featureful enough that we can use the
+/// impl_byte_array_rusqlite_only!() macro
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BurnOpMemo(pub Vec<u8>);
+
+impl StacksMessageCodec for BurnOpMemo {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.0)
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let inner: Vec<u8> = read_next(fd)?;
+        Ok(Self(inner))
+    }
+}
+
+impl BurnOpMemo {
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        Some(BurnOpMemo(bytes.to_vec()))
+    }
+
+    pub fn get<I: SliceIndex<[u8]>>(&self, idx: I) -> Option<&<I as SliceIndex<[u8]>>::Output> {
+        self.0.get(idx)
+    }
+
+    pub fn get_mut<I: SliceIndex<[u8]>>(
+        &mut self,
+        idx: I,
+    ) -> Option<&mut <I as SliceIndex<[u8]>>::Output> {
+        self.0.get_mut(idx)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+
+    pub fn first(&self) -> Option<&u8> {
+        self.0.first()
+    }
+
+    pub fn to_hex(&self) -> String {
+        to_hex(&self.0)
+    }
+}
+
+impl From<Vec<u8>> for BurnOpMemo {
+    fn from(v: Vec<u8>) -> Self {
+        Self(v)
+    }
+}
+
+impl Index<usize> for BurnOpMemo {
+    type Output = u8;
+    fn index(&self, idx: usize) -> &Self::Output {
+        self.0.index(idx)
+    }
+}
+
+impl IndexMut<usize> for BurnOpMemo {
+    fn index_mut(&mut self, idx: usize) -> &mut Self::Output {
+        self.0.index_mut(idx)
+    }
+}
+
+impl serde::Serialize for BurnOpMemo {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.serialize(s)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for BurnOpMemo {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let inner = Vec::<u8>::deserialize(d)?;
+        Ok(Self(inner))
+    }
+}
+
+impl_byte_array_rusqlite_only!(BurnOpMemo);
+impl_byte_array_from_column_only!(BurnOpMemo);
 
 #[derive(Debug)]
 pub enum Error {
@@ -169,7 +258,7 @@ pub struct TransferStxOp {
     pub sender: StacksAddress,
     pub recipient: StacksAddress,
     pub transfered_ustx: u128,
-    pub memo: Vec<u8>,
+    pub memo: BurnOpMemo,
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -221,7 +310,7 @@ pub struct LeaderBlockCommitOp {
     pub parent_vtxindex: u16, // offset in the parent block where the parent block hash can be found
     pub key_block_ptr: u32,   // pointer to the block that contains the leader key registration
     pub key_vtxindex: u16,    // offset in the block where the leader key can be found
-    pub memo: Vec<u8>,        // extra unused byte
+    pub memo: BurnOpMemo,     // extra unused byte
 
     /// how many burn tokens (e.g. satoshis) were committed to produce this block
     pub burn_fee: u64,
@@ -264,7 +353,7 @@ fn default_treatment() -> Vec<Treatment> {
 pub struct LeaderKeyRegisterOp {
     pub consensus_hash: ConsensusHash, // consensus hash at time of issuance
     pub public_key: VRFPublicKey,      // EdDSA public key
-    pub memo: Vec<u8>,                 // extra bytes in the op-return
+    pub memo: BurnOpMemo,              // extra bytes in the op-return
 
     // common to all transactions
     pub txid: Txid,                            // transaction ID
@@ -306,40 +395,6 @@ pub struct VoteForAggregateKeyOp {
     pub vtxindex: u32,                         // index in the block where this tx occurs
     pub block_height: u64,                     // block height at which this tx occurs
     pub burn_header_hash: BurnchainHeaderHash, // hash of the burn chain block header
-}
-
-fn hex_ser_memo<S: serde::Serializer>(bytes: &[u8], s: S) -> Result<S::Ok, S::Error> {
-    let inst = to_hex(bytes);
-    s.serialize_str(inst.as_str())
-}
-
-fn hex_deser_memo<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
-    let inst_str = String::deserialize(d)?;
-    hex_bytes(&inst_str).map_err(serde::de::Error::custom)
-}
-
-fn hex_serialize<S: serde::Serializer>(bhh: &BurnchainHeaderHash, s: S) -> Result<S::Ok, S::Error> {
-    let inst = bhh.to_hex();
-    s.serialize_str(inst.as_str())
-}
-
-fn hex_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<BurnchainHeaderHash, D::Error> {
-    let inst_str = String::deserialize(d)?;
-    BurnchainHeaderHash::from_hex(&inst_str).map_err(serde::de::Error::custom)
-}
-
-fn principal_serialize<S: serde::Serializer>(pd: &PrincipalData, s: S) -> Result<S::Ok, S::Error> {
-    let inst = pd.to_string();
-    s.serialize_str(inst.as_str())
-}
-
-fn principal_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<PrincipalData, D::Error> {
-    let inst_str = String::deserialize(d)?;
-    PrincipalData::parse(&inst_str).map_err(serde::de::Error::custom)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -742,7 +797,7 @@ impl BlockstackOperationType {
             "transfer_stx": {
                 "burn_block_height": op.block_height,
                 "burn_header_hash": &op.burn_header_hash.to_hex(),
-                "memo": memo_serialize(&op.memo),
+                "memo": memo_serialize(&op.memo.0[..]),
                 "recipient": stacks_addr_serialize(&op.recipient),
                 "sender": stacks_addr_serialize(&op.sender),
                 "transfered_ustx": op.transfered_ustx,
