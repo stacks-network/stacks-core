@@ -447,6 +447,13 @@ impl StacksEpochId {
         StacksEpochId::Epoch32
     }
 
+    pub const ALL_GTE_30: &'static [StacksEpochId] = &[
+        StacksEpochId::Epoch30,
+        StacksEpochId::Epoch31,
+        StacksEpochId::Epoch32,
+        StacksEpochId::Epoch33,
+    ];
+
     /// In this epoch, how should the mempool perform garbage collection?
     pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
         match self {
