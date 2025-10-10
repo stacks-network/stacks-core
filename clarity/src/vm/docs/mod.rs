@@ -1400,6 +1400,21 @@ The signature includes 64 bytes plus an optional additional recovery id (00..03)
  0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns false"
 };
 
+const SECP256R1VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 64), (buff 33)",
+    snippet: "secp256r1-verify ${1:message-hash} ${2:signature} ${3:public-key})",
+    output_type: "bool",
+    signature: "(secp256r1-verify message-hash signature public-key)",
+    description: "The `secp256r1-verify` function verifies that the provided signature of the message-hash
+was signed with the private key that generated the public key.
+`message-hash` is the `sha256` of the message and `signature` is the raw 64-byte signature.",
+    example: "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8
+    0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd310eac59293c23e6d6aa8b0c5d9e4e48fa4c4fdf1ace2ba618dc0263b5e90a0903 0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e) ;; Returns true
+(secp256r1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
+    0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+    0x037a6b62e3c8b14f1b5933f5d5ab0509a8e7d95a111b8d3b264d95bfa753b00296) ;; Returns false"
+};
+
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
     input_type: "ContractName, PublicFunctionName, Arg0, ...",
     snippet: "contract-call? ${1:contract-principal} ${2:func} ${3:arg1}",
@@ -2680,6 +2695,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         BitwiseRShift => make_for_simple_native(&BITWISE_RIGHT_SHIFT_API, function, name),
         ContractHash => make_for_simple_native(&CONTRACT_HASH, function, name),
         ToAscii => make_for_special(&TO_ASCII, function),
+        Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
     }
 }
 

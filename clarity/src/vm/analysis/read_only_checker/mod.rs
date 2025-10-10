@@ -285,17 +285,17 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
             | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Hash160 | Sha256
             | Keccak256 | Equals | If | Sha512 | Sha512Trunc256 | Secp256k1Recover
-            | Secp256k1Verify | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet
-            | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
-            | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe | BuffToIntBe
-            | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt | IsStandard
-            | ToConsensusBuff | PrincipalDestruct | PrincipalConstruct | Append | Concat
-            | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo | GetBurnBlockInfo
-            | GetStacksBlockInfo | GetTenureInfo | TupleGet | TupleMerge | Len | Print
-            | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
-            | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice | ReplaceAt
-            | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift | BitwiseXor2
-            | ElementAtAlias | IndexOfAlias | ContractHash | ToAscii => {
+            | Secp256k1Verify | Secp256r1Verify | ConsSome | ConsOkay | ConsError | DefaultTo
+            | UnwrapRet | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match
+            | IsErr | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe
+            | BuffToIntBe | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt
+            | IsStandard | ToConsensusBuff | PrincipalDestruct | PrincipalConstruct | Append
+            | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo
+            | GetBurnBlockInfo | GetStacksBlockInfo | GetTenureInfo | TupleGet | TupleMerge
+            | Len | Print | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount
+            | GetTokenBalance | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice
+            | ReplaceAt | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift
+            | BitwiseXor2 | ElementAtAlias | IndexOfAlias | ContractHash | ToAscii => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }
