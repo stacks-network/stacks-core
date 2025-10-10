@@ -865,7 +865,7 @@ impl NakamotoStagingBlocksTx<'_> {
         // shadow blocks cannot be replaced
         let signing_weight = u32::MAX;
 
-        self.store_block(
+        self.store_block_if_better(
             shadow_block,
             burn_attachable,
             signing_weight,

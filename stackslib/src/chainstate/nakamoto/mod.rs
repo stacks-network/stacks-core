@@ -2391,76 +2391,6 @@ impl NakamotoChainState {
         Ok(())
     }
 
-    /// Insert a Nakamoto block into the staging blocks DB.
-    /// We only store a block in the following cases:
-    ///
-    /// * No block with this block's sighash exists in the DB
-    /// * A block with this block's sighash exists, AND
-    ///     * this block represents more signing power
-    ///
-    /// If neither of the above is true, then this is a no-op.
-    pub(crate) fn store_block_if_better(
-        staging_db_tx: &NakamotoStagingBlocksTx,
-        block: &NakamotoBlock,
-        burn_attachable: bool,
-        signing_weight: u32,
-        obtain_method: NakamotoBlockObtainMethod,
-    ) -> Result<bool, ChainstateError> {
-        let block_id = block.block_id();
-        let block_hash = block.header.block_hash();
-
-        // case 1 -- no block with this sighash exists.
-        if staging_db_tx.try_store_block_with_new_signer_sighash(
-            block,
-            burn_attachable,
-            signing_weight,
-            obtain_method,
-        )? {
-            debug!("Stored block with new sighash";
-                   "block_id" => %block_id,
-                   "block_hash" => %block_hash);
-            return Ok(true);
-        }
-
-        // case 2 -- the block exists. Consider replacing it, but only if its
-        // signing weight is higher.
-        let (existing_block_id, _processed, orphaned, existing_signing_weight) = staging_db_tx.conn().get_block_processed_and_signed_weight(&block.header.consensus_hash, &block_hash)?
-            .ok_or_else(|| {
-                // this should be unreachable -- there's no record of this block
-                error!("Could not store block {} ({}) with block hash {} -- no record of its processed status or signing weight!", &block_id, &block.header.consensus_hash, &block_hash);
-                ChainstateError::NoSuchBlockError
-            })?;
-
-        if orphaned {
-            // nothing to do
-            debug!("Will not store alternative copy of block {} ({}) with block hash {}, since a block with the same block hash was orphaned", &block_id, &block.header.consensus_hash, &block_hash);
-            return Ok(false);
-        }
-
-        let ret = if existing_signing_weight < signing_weight {
-            staging_db_tx.replace_block(block, signing_weight, obtain_method)?;
-            debug!("Replaced block";
-                   "existing_block_id" => %existing_block_id,
-                   "block_id" => %block_id,
-                   "block_hash" => %block_hash,
-                   "existing_signing_weight" => existing_signing_weight,
-                   "signing_weight" => signing_weight);
-            true
-        } else {
-            if existing_signing_weight > signing_weight {
-                debug!("Will not store alternative copy of block {} ({}) with block hash {}, since it has less signing power", &block_id, &block.header.consensus_hash, &block_hash);
-            } else {
-                debug!(
-                    "Will not store duplicate copy of block {} ({}) with block hash {}",
-                    &block_id, &block.header.consensus_hash, &block_hash
-                );
-            }
-            false
-        };
-
-        return Ok(ret);
-    }
-
     /// Accept a Nakamoto block into the staging blocks DB.
     /// Fails if:
     /// * the public key cannot be recovered from the miner's signature
@@ -2470,17 +2400,17 @@ impl NakamotoChainState {
     /// * we already have the block
     /// Returns true if we stored the block; false if not.
     pub fn accept_block(
-        config: &ChainstateConfig,
+        chainstate: &mut StacksChainState,
         block: &NakamotoBlock,
         db_handle: &mut SortitionHandleConn,
-        staging_db_tx: &NakamotoStagingBlocksTx,
-        headers_conn: &Connection,
         reward_set: &RewardSet,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<bool, ChainstateError> {
         let block_id = block.block_id();
         test_debug!("Consider Nakamoto block {block_id}");
+        let config = chainstate.config();
         // do nothing if we already have this block
+        let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
         if Self::get_block_header(headers_conn, &block_id)?.is_some() {
             debug!("Already have block {block_id}");
             return Ok(false);
@@ -2555,13 +2485,13 @@ impl NakamotoChainState {
         // same sortition history as `db_handle` (and thus it must be burn_attachable)
         let burn_attachable = true;
 
-        let ret = Self::store_block_if_better(
-            staging_db_tx,
+        let ret = staging_db_tx.store_block_if_better(
             block,
             burn_attachable,
             signing_weight,
             obtain_method,
         )?;
+        staging_db_tx.commit()?;
         if ret {
             test_debug!("Stored Nakamoto block {block_id}");
         } else {

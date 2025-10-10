@@ -977,14 +977,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
             300,
         )
         .unwrap();
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block,
-            false,
-            1,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block,
+                false,
+                1,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
 
         // tenure has one block
         assert_eq!(
@@ -1007,14 +1007,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         )
         .unwrap();
 
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_2,
-            false,
-            1,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_2,
+                false,
+                1,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
 
         // tenure has two blocks
         assert_eq!(
@@ -1032,14 +1032,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // store, but do not process, a block
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3,
-            false,
-            1,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3,
+                false,
+                1,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1062,14 +1062,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // store, but do not process, the same block with a heavier weight
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3_weight_2,
-            false,
-            2,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3_weight_2,
+                false,
+                2,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1244,14 +1244,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // store a sibling with more weight, even though this block has been processed.
         // This is allowed because we don't commit to signatures.
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3,
-            false,
-            3,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3,
+                false,
+                3,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1307,14 +1307,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // store block 4, which descends from block 3 weight 2
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_4,
-            false,
-            1,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_4,
+                false,
+                1,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1341,14 +1341,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
             (true, false)
         );
 
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3,
-            false,
-            3,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3,
+                false,
+                3,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1389,14 +1389,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // can't re-store it, even if its signing power is better
-        assert!(!NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3_weight_2,
-            false,
-            3,
-            NakamotoBlockObtainMethod::Downloaded
-        )
-        .unwrap());
+        assert!(!staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3_weight_2,
+                false,
+                3,
+                NakamotoBlockObtainMethod::Downloaded
+            )
+            .unwrap());
         assert_eq!(
             NakamotoChainState::get_nakamoto_block_status(
                 staging_tx.conn(),
@@ -1411,14 +1411,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // can't store a sibling with the same sighash either, since if a block with the given sighash is orphaned, then
         // it doesn't matter how many signers it has
-        assert!(!NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3,
-            false,
-            3,
-            NakamotoBlockObtainMethod::Downloaded
-        )
-        .unwrap());
+        assert!(!staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3,
+                false,
+                3,
+                NakamotoBlockObtainMethod::Downloaded
+            )
+            .unwrap());
         assert_eq!(
             staging_tx
                 .conn()
