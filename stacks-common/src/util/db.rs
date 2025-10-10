@@ -15,14 +15,17 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::backtrace::Backtrace;
+use std::convert::TryFrom;
+use std::io::{Read, Write};
 use std::sync::{LazyLock, Mutex};
 use std::thread;
 use std::time::Instant;
 
 use hashbrown::HashMap;
 use rand::{thread_rng, Rng};
-use rusqlite::Connection;
+use rusqlite::{Connection, Row};
 
+use crate::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use crate::util::sleep_ms;
 
 /// Keep track of DB locks, for deadlock debugging
@@ -90,4 +93,74 @@ pub fn tx_busy_handler(run_count: i32) -> bool {
 
     sleep_ms(sleep_time_ms);
     true
+}
+
+/// We use one of a few different encodings for columns that store "byte-string-y" data. That is, data that
+/// is either a byte string, or data that is composed of many byte strings.  At the time of this
+/// writing, all byte-string-y data are stored as hex strings.  As part of a system-wide migration
+/// process, these fields will be moved over to a binary representation or a SIP-003 representation
+/// to save disk space.
+///
+/// The first byte in a DB-stored byte-string-y column identifies which codec to use, as detailed
+/// below.  The absence of one of these bytes means to use the legacy codec (i.e. hex string or
+/// JSON, depending on the struct).  The byte values are not ASCII printable, which ensures that
+/// their presence unambiguously identifies which codec to use.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum ColumnEncoding {
+    /// The following data is a SIP-003 blob
+    SIP003 = 0x00,
+}
+
+/// Conversion from a u8
+impl TryFrom<u8> for ColumnEncoding {
+    type Error = crate::codec::Error;
+
+    fn try_from(val: u8) -> Result<Self, Self::Error> {
+        match val {
+            0x00 => Ok(Self::SIP003),
+            _ => Err(Self::Error::DeserializeError(format!(
+                "Invalid ColumnEncoding {:02x}",
+                val
+            ))),
+        }
+    }
+}
+
+impl ColumnEncoding {
+    /// Convert to u8 value
+    pub fn as_u8(&self) -> u8 {
+        match self {
+            Self::SIP003 => 0x00,
+        }
+    }
+}
+
+impl StacksMessageCodec for ColumnEncoding {
+    fn consensus_serialize<W: Write>(&self, fd: &mut W) -> Result<(), CodecError> {
+        write_next(fd, &self.as_u8())
+    }
+
+    fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, CodecError> {
+        let byte: u8 = read_next(fd)?;
+        Self::try_from(byte)
+    }
+}
+
+/// This is an alternative to rusqlite's ToSql and FromSql traits which takes an optional encoding.
+/// If the encoding is None, then the implementation should return a hex string's ASCII bytes.
+pub trait SqlEncoded {
+    fn sql_encoded(&self, encoding: Option<ColumnEncoding>) -> Vec<u8>;
+    fn sql_decoded(
+        row: &Row,
+        column_name: &str,
+        encoding: Option<ColumnEncoding>,
+    ) -> Result<Self, crate::codec::Error>
+    where
+        Self: Sized;
+
+    #[inline]
+    fn sqlhex(&self) -> Vec<u8> {
+        self.sql_encoded(None)
+    }
 }
