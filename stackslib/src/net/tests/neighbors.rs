@@ -322,7 +322,7 @@ fn test_step_walk_1_neighbor_bad_epoch() {
 
         // peer 1 thinks its always epoch 2.0
         peer_1_config.peer_version = 0x18000000;
-        peer_1_config.epochs = Some(EpochList::new(&[StacksEpoch {
+        peer_1_config.chain_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: STACKS_EPOCH_MAX,
@@ -332,7 +332,7 @@ fn test_step_walk_1_neighbor_bad_epoch() {
 
         // peer 2 thinks its always epoch 2.05
         peer_2_config.peer_version = 0x18000005;
-        peer_2_config.epochs = Some(EpochList::new(&[StacksEpoch {
+        peer_2_config.chain_config.epochs = Some(EpochList::new(&[StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 0,
             end_height: STACKS_EPOCH_MAX,
@@ -1401,7 +1401,7 @@ fn test_step_walk_2_neighbors_rekey() {
         peer_2_config.connection_opts.disable_inv_sync = true;
         peer_2_config.connection_opts.disable_block_download = true;
 
-        let first_block_height = peer_1_config.current_block + 1;
+        let first_block_height = peer_1_config.chain_config.current_block + 1;
 
         // make keys expire soon
         peer_1_config.private_key_expire = first_block_height + 3;
@@ -1500,13 +1500,13 @@ fn test_step_walk_2_neighbors_different_networks() {
         let mut peer_1_config = TestPeerConfig::new(function_name!(), 0, 0);
         let peer_2_config = TestPeerConfig::new(function_name!(), 0, 0);
 
-        peer_1_config.network_id = peer_2_config.network_id + 1;
+        peer_1_config.chain_config.network_id = peer_2_config.chain_config.network_id + 1;
 
         let mut peer_1 = TestPeer::new(peer_1_config);
         let mut peer_2 = TestPeer::new(peer_2_config);
 
         let mut peer_1_neighbor = peer_1.to_neighbor();
-        peer_1_neighbor.addr.network_id = peer_2.config.network_id;
+        peer_1_neighbor.addr.network_id = peer_2.config.chain_config.network_id;
 
         peer_1.add_neighbor(&mut peer_2.to_neighbor(), None, true);
         peer_2.add_neighbor(&mut peer_1_neighbor, None, true);

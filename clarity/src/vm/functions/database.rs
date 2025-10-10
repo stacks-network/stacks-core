@@ -28,7 +28,7 @@ use crate::vm::errors::{
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
     BlockInfoProperty, BuffData, BurnBlockInfoProperty, PrincipalData, SequenceData,
-    StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value, BUFF_32,
+    StacksBlockInfoProperty, TenureInfoProperty, TupleData, TypeSignature, Value,
 };
 use crate::vm::{eval, ClarityVersion, Environment, LocalContext};
 
@@ -457,9 +457,11 @@ pub fn special_at_block(
             }
         }
         x => {
-            return Err(
-                CheckErrorKind::TypeValueError(Box::new(BUFF_32.clone()), Box::new(x)).into(),
+            return Err(CheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(x),
             )
+            .into())
         }
     };
 

@@ -61,7 +61,7 @@ fn test_bad_microblock_fees_pre_v210() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
-    peer_config.initial_balances = vec![
+    peer_config.chain_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
@@ -95,8 +95,8 @@ fn test_bad_microblock_fees_pre_v210() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]);
-    peer_config.epochs = Some(epochs);
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.epochs = Some(epochs);
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
@@ -109,11 +109,12 @@ fn test_bad_microblock_fees_pre_v210() {
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -123,8 +124,9 @@ fn test_bad_microblock_fees_pre_v210() {
     let mut block_ids = vec![];
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
 
@@ -377,11 +379,11 @@ fn test_bad_microblock_fees_fix_transition() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2020, 2021);
-    peer_config.initial_balances = vec![
+    peer_config.chain_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let epochs = EpochList::new(&[
         StacksEpoch {
@@ -419,7 +421,7 @@ fn test_bad_microblock_fees_fix_transition() {
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
-    peer_config.epochs = Some(epochs);
+    peer_config.chain_config.epochs = Some(epochs);
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
@@ -432,11 +434,12 @@ fn test_bad_microblock_fees_fix_transition() {
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -446,8 +449,9 @@ fn test_bad_microblock_fees_fix_transition() {
     let mut block_ids = vec![];
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
 
@@ -734,11 +738,11 @@ fn test_get_block_info_v210() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2022, 2023);
-    peer_config.initial_balances = vec![
+    peer_config.chain_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let epochs = EpochList::new(&[
         StacksEpoch {
@@ -776,7 +780,7 @@ fn test_get_block_info_v210() {
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
-    peer_config.epochs = Some(epochs);
+    peer_config.chain_config.epochs = Some(epochs);
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
@@ -789,11 +793,12 @@ fn test_get_block_info_v210() {
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -802,8 +807,9 @@ fn test_get_block_info_v210() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
 
@@ -996,7 +1002,7 @@ fn test_get_block_info_v210() {
     }
 
     for i in 0..num_blocks {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
@@ -1073,7 +1079,7 @@ fn test_get_block_info_v210() {
             )
             .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
     }
 }
 
@@ -1105,11 +1111,11 @@ fn test_get_block_info_v210_no_microblocks() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2022, 2023);
-    peer_config.initial_balances = vec![
+    peer_config.chain_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let epochs = EpochList::new(&[
         StacksEpoch {
@@ -1147,7 +1153,7 @@ fn test_get_block_info_v210_no_microblocks() {
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
-    peer_config.epochs = Some(epochs);
+    peer_config.chain_config.epochs = Some(epochs);
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
@@ -1160,11 +1166,12 @@ fn test_get_block_info_v210_no_microblocks() {
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -1173,8 +1180,9 @@ fn test_get_block_info_v210_no_microblocks() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
 
@@ -1299,7 +1307,7 @@ fn test_get_block_info_v210_no_microblocks() {
     }
 
     for i in 0..num_blocks {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
@@ -1364,7 +1372,7 @@ fn test_get_block_info_v210_no_microblocks() {
             )
             .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
     }
 }
 
@@ -1425,7 +1433,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
         2024,
         2025,
     );
-    peer_config.initial_balances = vec![
+    peer_config.chain_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
@@ -1466,8 +1474,8 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
-    peer_config.epochs = Some(epochs);
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.epochs = Some(epochs);
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
@@ -1480,11 +1488,12 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -1499,8 +1508,9 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
 
@@ -1764,7 +1774,7 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
 
     let mut recipient_total_reward = 0;
     for i in 0..num_blocks {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
@@ -1867,11 +1877,11 @@ fn test_coinbase_pay_to_alt_recipient_v210(pay_to_contract: bool) {
             )
             .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
     }
 
     // finally, verify that the alt. recipient got all the coinbases except the first one
-    let sortdb = peer.sortdb.take().unwrap();
+    let sortdb = peer.chain.sortdb.take().unwrap();
     let (consensus_hash, block_bhh) =
         SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
     let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);

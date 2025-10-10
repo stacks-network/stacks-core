@@ -26,14 +26,12 @@ use crate::vm::costs::{analysis_typecheck_cost, runtime_cost, CostErrors, CostTr
 use crate::vm::diagnostic::DiagnosableError;
 use crate::vm::functions::{handle_binding_list, NativeFunctions};
 use crate::vm::types::signatures::{
-    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype, ASCII_40,
-    TO_ASCII_MAX_BUFF, TO_ASCII_RESPONSE_STRING, UTF8_40,
+    CallableSubtype, FunctionArgSignature, FunctionReturnsSignature, SequenceSubtype,
 };
 use crate::vm::types::{
     BlockInfoProperty, BufferLength, BurnBlockInfoProperty, FixedFunction, FunctionArg,
     FunctionSignature, FunctionType, PrincipalData, StacksBlockInfoProperty, TenureInfoProperty,
-    TupleTypeSignature, TypeSignature, Value, BUFF_1, BUFF_20, BUFF_32, BUFF_33, BUFF_64, BUFF_65,
-    MAX_VALUE_SIZE,
+    TupleTypeSignature, TypeSignature, Value, MAX_VALUE_SIZE,
 };
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, SymbolicExpressionType};
 
@@ -130,7 +128,7 @@ fn check_special_at_block(
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
     checker.type_check(&args[1], context)
 }
 
@@ -668,7 +666,7 @@ fn check_principal_of(
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(1, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_33)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_33)?;
     Ok(
         TypeSignature::new_response(TypeSignature::PrincipalType, TypeSignature::UIntType)
             .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
@@ -688,13 +686,13 @@ fn check_principal_construct(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_1)?;
-    checker.type_check_expects(&args[1], context, &BUFF_20)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_1)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_20)?;
     if args.len() > 2 {
         checker.type_check_expects(
             &args[2],
             context,
-            &TypeSignature::contract_name_string_ascii_type()?,
+            &TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX,
         )?;
     }
     Ok(TypeSignature::new_response(
@@ -719,10 +717,10 @@ fn check_secp256k1_recover(
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
-    checker.type_check_expects(&args[1], context, &BUFF_65)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
     Ok(
-        TypeSignature::new_response(BUFF_33.clone(), TypeSignature::UIntType)
+        TypeSignature::new_response(TypeSignature::BUFFER_33, TypeSignature::UIntType)
             .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
     )
 }
@@ -733,9 +731,9 @@ fn check_secp256k1_verify(
     context: &TypingContext,
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(3, args)?;
-    checker.type_check_expects(&args[0], context, &BUFF_32)?;
-    checker.type_check_expects(&args[1], context, &BUFF_65)?;
-    checker.type_check_expects(&args[2], context, &BUFF_33)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_65)?;
+    checker.type_check_expects(&args[2], context, &TypeSignature::BUFFER_33)?;
     Ok(TypeSignature::BoolType)
 }
 
@@ -946,27 +944,27 @@ impl TypedNativeFunction {
             }
             StringToInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_string_ascii()?,
-                    TypeSignature::max_string_utf8()?,
+                    TypeSignature::STRING_ASCII_MAX,
+                    TypeSignature::STRING_UTF8_MAX,
                 ],
                 TypeSignature::OptionalType(Box::new(TypeSignature::IntType)),
             ))),
             StringToUInt => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_string_ascii()?,
-                    TypeSignature::max_string_utf8()?,
+                    TypeSignature::STRING_ASCII_MAX,
+                    TypeSignature::STRING_UTF8_MAX,
                 ],
                 TypeSignature::OptionalType(Box::new(TypeSignature::UIntType)),
             ))),
             IntToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 // 40 is the longest string one can get from int->string conversion.
-                ASCII_40,
+                TypeSignature::STRING_ASCII_40,
             ))),
             IntToUtf8 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![TypeSignature::IntType, TypeSignature::UIntType],
                 // 40 is the longest string one can get from int->string conversion.
-                UTF8_40,
+                TypeSignature::STRING_UTF8_40,
             ))),
             Not => Simple(SimpleNativeFunction(FunctionType::Fixed(FixedFunction {
                 args: vec![FunctionArg::new(
@@ -981,43 +979,43 @@ impl TypedNativeFunction {
             }))),
             Hash160 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_20.clone(),
+                TypeSignature::BUFFER_20,
             ))),
             Sha256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Sha512Trunc256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Sha512 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_64.clone(),
+                TypeSignature::BUFFER_64,
             ))),
             Keccak256 => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
-                    TypeSignature::max_buffer()?,
+                    TypeSignature::BUFFER_MAX,
                     TypeSignature::UIntType,
                     TypeSignature::IntType,
                 ],
-                BUFF_32.clone(),
+                TypeSignature::BUFFER_32,
             ))),
             Secp256k1Recover => Special(SpecialNativeFunction(&check_secp256k1_recover)),
             Secp256k1Verify => Special(SpecialNativeFunction(&check_secp256k1_verify)),
@@ -1047,12 +1045,12 @@ impl TypedNativeFunction {
                     /// and error types are the same.
                     fn parse_principal_basic_type() -> Result<TupleTypeSignature, CheckErrorKind> {
                         TupleTypeSignature::try_from(vec![
-                            ("version".into(), BUFF_1.clone()),
-                            ("hash-bytes".into(), BUFF_20.clone()),
+                            ("version".into(), TypeSignature::BUFFER_1),
+                            ("hash-bytes".into(), TypeSignature::BUFFER_20),
                             (
                                 "name".into(),
                                 TypeSignature::new_option(
-                                    TypeSignature::contract_name_string_ascii_type()?,
+                                    TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX,
                                 )
                                 .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
                             ),
@@ -1202,8 +1200,11 @@ impl TypedNativeFunction {
                         )
                     })?,
                 )],
-                returns: TypeSignature::new_response(BUFF_32.clone(), TypeSignature::UIntType)
-                    .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
+                returns: TypeSignature::new_response(
+                    TypeSignature::BUFFER_32,
+                    TypeSignature::UIntType,
+                )
+                .map_err(|_| CheckErrorKind::Expects("Bad constructor".into()))?,
             }))),
             ToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
                 vec![
@@ -1211,11 +1212,11 @@ impl TypedNativeFunction {
                     TypeSignature::UIntType,
                     TypeSignature::BoolType,
                     TypeSignature::PrincipalType,
-                    TO_ASCII_MAX_BUFF.clone(),
-                    TypeSignature::max_string_utf8()?,
+                    TypeSignature::TO_ASCII_BUFFER_MAX,
+                    TypeSignature::STRING_UTF8_MAX,
                 ],
                 TypeSignature::new_response(
-                    TO_ASCII_RESPONSE_STRING.clone(),
+                    TypeSignature::TO_ASCII_STRING_ASCII_MAX,
                     TypeSignature::UIntType,
                 )
                 .map_err(|_| {

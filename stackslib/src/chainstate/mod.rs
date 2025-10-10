@@ -24,3 +24,5 @@ pub mod burn;
 pub mod coordinator;
 pub mod nakamoto;
 pub mod stacks;
+#[cfg(test)]
+pub mod tests;

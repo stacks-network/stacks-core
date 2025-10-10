@@ -1655,8 +1655,8 @@ pub mod test {
         observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
-        peer_config.burnchain = burnchain.clone();
-        peer_config.epochs = epochs;
+        peer_config.chain_config.burnchain = burnchain.clone();
+        peer_config.chain_config.epochs = epochs;
         peer_config.setup_code = format!(
             "(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
             burnchain.first_block_height,
@@ -1693,14 +1693,14 @@ pub mod test {
             .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
             .collect();
 
-        peer_config.initial_balances = balances;
+        peer_config.chain_config.initial_balances = balances;
         let peer = TestPeer::new_with_observer(peer_config, observer);
 
         (peer, keys.to_vec())
     }
 
     pub fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
@@ -1711,7 +1711,7 @@ pub mod test {
             &boot_code_id(boot_contract, false),
             expr,
         );
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
         value
     }
 
@@ -1728,7 +1728,7 @@ pub mod test {
         name: &str,
         expr: &str,
     ) -> Value {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
@@ -1739,7 +1739,7 @@ pub mod test {
             &contract_id(addr, name),
             expr,
         );
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
         value
     }
 
@@ -1815,11 +1815,7 @@ pub mod test {
         addr: &PrincipalData,
     ) -> Option<(u128, PoxAddress, u128, u128)> {
         let value_opt = eval_at_tip(peer, "pox", &format!("(get-stacker-info '{addr})"));
-        let data = if let Some(d) = value_opt.expect_optional().unwrap() {
-            d
-        } else {
-            return None;
-        };
+        let data = value_opt.expect_optional().unwrap()?;
 
         let data = data.expect_tuple().unwrap();
 
@@ -1855,9 +1851,9 @@ pub mod test {
     where
         F: FnOnce(&mut StacksChainState, &SortitionDB) -> R,
     {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let r = todo(peer.chainstate(), &sortdb);
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
         r
     }
 
@@ -2814,8 +2810,9 @@ pub mod test {
     }
 
     pub fn get_current_reward_cycle(peer: &TestPeer, burnchain: &Burnchain) -> u128 {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap() as u128
@@ -2841,9 +2838,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -2908,7 +2906,7 @@ pub mod test {
         let mut peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
         let alice = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
         let bob = StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap();
-        peer_config.initial_lockups = vec![
+        peer_config.chain_config.initial_lockups = vec![
             ChainstateAccountLockup::new(alice.clone(), 1000, 1),
             ChainstateAccountLockup::new(bob.clone(), 1000, 1),
             ChainstateAccountLockup::new(alice.clone(), 1000, 2),
@@ -2968,9 +2966,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -3035,9 +3034,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -3152,9 +3152,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -3263,9 +3264,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -3474,9 +3476,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let cur_reward_cycle = burnchain
                 .block_height_to_reward_cycle(tip.block_height)
@@ -3735,9 +3738,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -4002,9 +4006,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -4218,9 +4223,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -4431,9 +4437,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -4680,9 +4687,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -5202,9 +5210,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -5648,9 +5657,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);

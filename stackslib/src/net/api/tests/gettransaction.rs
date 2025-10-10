@@ -111,7 +111,7 @@ fn test_try_make_response() {
     dummy_tip.0[0] = dummy_tip.0[0].wrapping_add(1);
 
     let peer = &rpc_test.peer_1;
-    let sortdb = peer.sortdb.as_ref().unwrap();
+    let sortdb = peer.chain.sortdb.as_ref().unwrap();
     let tenure_blocks = rpc_test
         .peer_1
         .chainstate_ref()

@@ -62,7 +62,7 @@ jobs:
       inputs.node_tag != '' ||
       inputs.signer_tag != ''
     name: Build Binaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m
     needs:
       - andon-cord
     permissions:

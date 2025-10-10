@@ -31,7 +31,7 @@ RUN case "${TAG}" in \
             ;; \
         *) \
             echo "/bin/stacks-node mainnet" > /tmp/command.sh && \
-            rm /bin/blockstack-cli /bin/clarity-cli /bin/stacks-events /bin/stacks-inspect \
+            rm /bin/stacks-cli /bin/clarity-cli /bin/stacks-inspect \
             ;; \
     esac && \
     chmod +x /tmp/command.sh

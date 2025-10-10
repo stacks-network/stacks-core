@@ -38,6 +38,6 @@ pub fn check_special_from_consensus_buff(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_argument_count(2, args)?;
     let result_type = TypeSignature::parse_type_repr(StacksEpochId::Epoch21, &args[0], checker)?;
-    checker.type_check_expects(&args[1], context, &TypeSignature::max_buffer()?)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_MAX)?;
     TypeSignature::new_option(result_type).map_err(StaticCheckError::from)
 }

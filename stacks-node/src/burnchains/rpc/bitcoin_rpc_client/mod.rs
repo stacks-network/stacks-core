@@ -363,6 +363,10 @@ pub type BitcoinRpcClientResult<T> = Result<T, BitcoinRpcClientError>;
 
 impl BitcoinRpcClient {
     /// Create a [`BitcoinRpcClient`] from Stacks Configuration, mainly using [`stacks::config::BurnchainConfig`]
+    ///
+    /// # Notes
+    /// `username` and `password` configuration are mandatory (`bitcoind` requires authentication for rpc calls),
+    /// so a [`BitcoinRpcClientError::MissingCredentials`] is returned otherwise,
     pub fn from_stx_config(config: &Config) -> BitcoinRpcClientResult<Self> {
         let host = config.burnchain.peer_host.clone();
         let port = config.burnchain.rpc_port;

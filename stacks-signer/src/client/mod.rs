@@ -224,7 +224,7 @@ pub(crate) mod tests {
 
     pub fn generate_random_consensus_hash() -> ConsensusHash {
         let rng = rand::thread_rng();
-        let bytes: Vec<u8> = rng.sample_iter(Standard).take(20).collect();
+        let bytes: Vec<u8> = rng.sample_iter::<u8, _>(Standard).take(20).collect();
         let mut hash = [0u8; 20];
         hash.copy_from_slice(&bytes);
         ConsensusHash(hash)

@@ -58,7 +58,7 @@ The timing of the next Stacking cycle can be found [here](https://stx.eco/dao/to
 
    - A label should be applied to each such issue/PR as `X.Y.Z.A.n-blocker`.
 
-3. Perform a [block-replay](../contrib/tools/block-replay.sh) using an existing chainstate, or sync from genesis
+3. Perform a [block-validation](../contrib/tools/block-validation.sh) using an existing chainstate, or sync from genesis
 
 4. Since development is continuing in the `develop` branch, it may be necessary to cherry-pick some commits into the release branch or open a PR against the release branch.
 

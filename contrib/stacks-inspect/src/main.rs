@@ -21,8 +21,8 @@ use clarity::types::StacksEpochId;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity_cli::DEFAULT_CLI_EPOCH;
 use stacks_inspect::{
-    command_contract_hash, command_replay_block, command_replay_block_nakamoto,
-    command_replay_mock_mining, command_try_mine, drain_common_opts,
+    command_contract_hash, command_replay_mock_mining, command_try_mine, command_validate_block,
+    command_validate_block_nakamoto, drain_common_opts,
 };
 use stackslib::chainstate::stacks::miner::BlockBuilderSettings;
 use stackslib::chainstate::stacks::{
@@ -1586,13 +1586,13 @@ check if the associated microblocks can be downloaded
         return;
     }
 
-    if argv[1] == "replay-block" {
-        command_replay_block(&argv[1..], common_opts.config.as_ref());
+    if argv[1] == "validate-block" {
+        command_validate_block(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 
-    if argv[1] == "replay-naka-block" {
-        command_replay_block_nakamoto(&argv[1..], common_opts.config.as_ref());
+    if argv[1] == "validate-naka-block" {
+        command_validate_block_nakamoto(&argv[1..], common_opts.config.as_ref());
         process::exit(0);
     }
 

@@ -55,3 +55,8 @@ lto = "fat"
 [profile.release-lite]
 inherits = "release"
 lto = "thin"
+
+# faster tests for `insta` https://docs.rs/insta/1.43.2/insta/#optional-faster-runs
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3

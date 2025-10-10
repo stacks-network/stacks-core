@@ -11,6 +11,7 @@ env:
   RUST_BACKTRACE: full
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 3
   TEST_TIMEOUT: 30
+  CI: true  # Required by insta snapshot tests to run in CI
 
 concurrency:
   group: stacks-core-tests-${{ github.head_ref || github.ref || github.run_id }}

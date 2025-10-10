@@ -286,6 +286,7 @@ impl SortitionsView {
                         "Current miner behaved improperly, this signer views the miner as invalid.";
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
                         "signer_signature_hash" => %block.header.signer_signature_hash(),
+                        "current_sortition_miner_status" => ?sortition.miner_status,
                     );
                     return Err(RejectReason::InvalidMiner);
                 }

@@ -25,7 +25,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
-pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length, BUFF_1};
+pub use crate::vm::types::signatures::{BufferLength, ListTypeData, StringUTF8Length};
 use crate::vm::types::SequenceSubtype::*;
 use crate::vm::types::StringSubtype::*;
 use crate::vm::types::{FunctionType, TypeSignature, Value};
@@ -84,12 +84,12 @@ pub fn check_special_map(
             TypeSignature::SequenceType(sequence) => {
                 let (entry_type, len) = match sequence {
                     ListType(list_data) => list_data.destruct(),
-                    BufferType(buffer_data) => (TypeSignature::min_buffer()?, buffer_data.into()),
+                    BufferType(buffer_data) => (TypeSignature::BUFFER_MIN, buffer_data.into()),
                     StringType(ASCII(ascii_data)) => {
-                        (TypeSignature::min_string_ascii()?, ascii_data.into())
+                        (TypeSignature::STRING_ASCII_MIN, ascii_data.into())
                     }
                     StringType(UTF8(utf8_data)) => {
-                        (TypeSignature::min_string_utf8()?, utf8_data.into())
+                        (TypeSignature::STRING_UTF8_MIN, utf8_data.into())
                     }
                 };
                 min_args = min_args.min(len);
@@ -132,7 +132,7 @@ pub fn check_special_filter(
 
     {
         let input_type = match argument_type {
-            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
+            TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
             _ => Err(CheckErrorKind::ExpectedSequence(Box::new(
                 argument_type.clone(),
             ))),
@@ -175,7 +175,7 @@ pub fn check_special_fold(
     let argument_type = checker.type_check(&args[1], context)?;
 
     let input_type = match argument_type {
-        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()?),
+        TypeSignature::SequenceType(sequence_type) => Ok(sequence_type.unit_type()),
         _ => Err(CheckErrorKind::ExpectedSequence(Box::new(argument_type))),
     }?;
 
@@ -394,9 +394,9 @@ pub fn check_special_element_at(
             let (entry_type, _) = list.destruct();
             TypeSignature::new_option(entry_type).map_err(|e| e.into())
         }
-        TypeSignature::SequenceType(BufferType(_)) => {
-            Ok(TypeSignature::OptionalType(Box::new(BUFF_1.clone())))
-        }
+        TypeSignature::SequenceType(BufferType(_)) => Ok(TypeSignature::OptionalType(Box::new(
+            TypeSignature::BUFFER_1,
+        ))),
         TypeSignature::SequenceType(StringType(ASCII(_))) => Ok(TypeSignature::OptionalType(
             Box::new(TypeSignature::SequenceType(StringType(ASCII(
                 BufferLength::try_from(1u32)
@@ -424,7 +424,7 @@ pub fn check_special_index_of(
     let list_type = checker.type_check(&args[0], context)?;
 
     let expected_input_type = match list_type {
-        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()?),
+        TypeSignature::SequenceType(ref sequence_type) => Ok(sequence_type.unit_type()),
         _ => Err(CheckErrorKind::ExpectedSequence(Box::new(list_type))),
     }?;
 

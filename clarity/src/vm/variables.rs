@@ -40,7 +40,7 @@ define_versioned_named_enum_with_max!(NativeVariables(ClarityVersion) {
     ChainId("chain-id", ClarityVersion::Clarity2, None),
     StacksBlockHeight("stacks-block-height", ClarityVersion::Clarity3, None),
     TenureHeight("tenure-height", ClarityVersion::Clarity3, None),
-    BlockTime("block-time", ClarityVersion::Clarity4, None),
+    StacksBlockTime("stacks-block-time", ClarityVersion::Clarity4, None),
     CurrentContract("current-contract", ClarityVersion::Clarity4, None)
 });
 
@@ -134,7 +134,7 @@ pub fn lookup_reserved_variable(
                 let contract = env.contract_context.contract_identifier.clone();
                 Ok(Some(Value::Principal(PrincipalData::Contract(contract))))
             }
-            NativeVariables::BlockTime => {
+            NativeVariables::StacksBlockTime => {
                 runtime_cost(ClarityCostFunction::FetchVar, env, 1)?;
                 let block_time = env.global_context.database.get_current_block_time()?;
                 Ok(Some(Value::UInt(u128::from(block_time))))

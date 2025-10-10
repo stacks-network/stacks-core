@@ -2,33 +2,28 @@
 set -o pipefail
 
 
-## Using 10 cpu cores, a full replay will take between 12-14 hours (assuming there are no other cpu/io bound processes running at the same time)
+## Using 10 cpu cores, a full validation will take between 12-14 hours (assuming there are no other cpu/io bound processes running at the same time)
 ##
 ## ** Recommend to run this script in screen or tmux **
 ##
-## We'll need ~73GB per slice, plus an extra ~400GB for the chainstate archive and marf DB
-## as of 02/2025:
-##   for 10 slices, this is about 1.1TB 
-##     - 149GB for compressed chainstate
-##     - 232GB decompressed marf db
-##     - 73GB per slice dir (1 dir per cpu)
-##   for 15 slices, this is about 1.46TB
-##   for 20 slices, this is about 1.8TB
+## We'll need ~217GB per slice, plus an extra ~4500GB for the chainstate archive and marf DB
+## as of 09/2025:
+##   for 10 slices, this is about 2.5TB
 
-NETWORK="mainnet"                         ## network to replay
-REPO_DIR="$HOME/stacks-core"              ## where to build the source
-REMOTE_REPO="stacks-network/stacks-core"  ## remote git repo to build stacks-inspect from
-SCRATCH_DIR="$HOME/scratch"               ## root folder for the replay slices
-TIMESTAMP=$(date +%Y-%m-%d-%s)            ## use a simple date format year-month-day-epoch
-LOG_DIR="$HOME/replay_${TIMESTAMP}"       ## location of logfiles for the replay
-SLICE_DIR="${SCRATCH_DIR}/slice"          ## location of slice dirs
-TMUX_SESSION="replay"                     ## tmux session name to run the replay
-TERM_OUT=false                            ## terminal friendly output
-TESTING=false                             ## only run a replay on a few thousand blocks
-BRANCH="develop"                          ## default branch to build stacks-inspect from
-CORES=$(grep -c processor /proc/cpuinfo)  ## retrieve total number of CORES on the system
-RESERVED=8                                ## reserve this many CORES for other processes as default
-LOCAL_CHAINSTATE=                         ## path to local chainstate to use instead of snapshot download
+NETWORK="mainnet"                               ## network to validate
+REPO_DIR="$HOME/stacks-core"                    ## where to build the source
+REMOTE_REPO="stacks-network/stacks-core"        ## remote git repo to build stacks-inspect from
+SCRATCH_DIR="$HOME/scratch"                     ## root folder for the validation slices
+TIMESTAMP=$(date +%Y-%m-%d-%s)                  ## use a simple date format year-month-day-epoch
+LOG_DIR="$HOME/block-validation_${TIMESTAMP}"   ## location of logfiles for the validation
+SLICE_DIR="${SCRATCH_DIR}/slice"                ## location of slice dirs
+TMUX_SESSION="validation"                       ## tmux session name to run the validation
+TERM_OUT=false                                  ## terminal friendly output
+TESTING=false                                   ## only run a validation on a few thousand blocks
+BRANCH="develop"                                ## default branch to build stacks-inspect from
+CORES=$(grep -c processor /proc/cpuinfo)        ## retrieve total number of CORES on the system
+RESERVED=8                                      ## reserve this many CORES for other processes as default
+LOCAL_CHAINSTATE=                               ## path to local chainstate to use instead of snapshot download
 
 ## ansi color codes for terminal output
 COLRED=$'\033[31m'    ## Red
@@ -66,15 +61,15 @@ build_stacks_inspect() {
         }
     else
         echo "Cloning stacks-core ${BRANCH}"
-        (git clone "https://github.com/${REMOTE_REPO}" --branch "${BRANCH}" "${REPO_DIR}" && cd "${REPO_DIR}") || { 
+        (git clone "https://github.com/${REMOTE_REPO}" --branch "${BRANCH}" "${REPO_DIR}" && cd "${REPO_DIR}") || {
             echo "${COLRED}Error${COLRESET} cloning https://github.com/${REMOTE_REPO} into ${REPO_DIR}"
             exit 1
         }
     fi
     git pull
-    ## build stacks-inspect to: $HOME/stacks-inspect/target/release/stacks-inspect
+    ## build stacks-inspect to: ${REPO_DIR}/target/release/stacks-inspect
     echo "Building stacks-inspect binary"
-    cargo build --bin=stacks-inspect --release || {
+    cd contrib/stacks-inspect && cargo build --bin=stacks-inspect --release || {
         echo "${COLRED}Error${COLRESET} building stacks-inspect binary"
         exit 1
     }
@@ -82,7 +77,7 @@ build_stacks_inspect() {
 }
 
 ## create the slice dirs from an chainstate archive (symlinking marf.sqlite.blobs), 1 dir per CPU
-configure_replay_slices() {
+configure_validation_slices() {
     if [ -d "$HOME/scratch" ]; then
         echo "Deleting existing scratch dir: ${COLYELLOW}$HOME/scratch${COLRESET}"
         rm -rf "${HOME}/scratch" || {
@@ -134,9 +129,9 @@ configure_replay_slices() {
 }
 
 ## setup the tmux sessions and create the logdir for storing output
-setup_replay() {
+setup_validation() {
     ## if there is an existing folder, rm it
-    if [ -d "${LOG_DIR}" ];then 
+    if [ -d "${LOG_DIR}" ];then
         echo "Removing logdir ${LOG_DIR}"
         rm -rf "${LOG_DIR}"
     fi
@@ -145,7 +140,7 @@ setup_replay() {
         echo "Creating logdir ${LOG_DIR}"
         mkdir -p "${LOG_DIR}"
     fi
-    ## if tmux session "replay" exists, kill it and start anew 
+    ## if tmux session "${TMUX_SESSION}" exists, kill it and start anew
     if eval "tmux list-windows -t ${TMUX_SESSION} &> /dev/null"; then
         echo "Killing existing tmux session: ${TMUX_SESSION}"
         eval "tmux kill-session -t ${TMUX_SESSION}  &> /dev/null"
@@ -165,9 +160,9 @@ setup_replay() {
     return 0
 }
 
-## run the block replay
-start_replay() {  
-    local mode=$1 
+## run the block validation
+start_validation() {
+    local mode=$1
     local total_blocks=0
     local starting_block=0
     local inspect_command
@@ -177,11 +172,11 @@ start_replay() {
             ## nakamoto blocks
             echo "Mode: ${COLYELLOW}${mode}${COLRESET}"
             local log_append="_${mode}"
-            inspect_command="replay-naka-block"
+            inspect_command="validate-naka-block"
             ## get the total number of nakamoto blocks in db
             total_blocks=$(echo "select count(*) from nakamoto_block_headers" | sqlite3 "${SLICE_DIR}"0/chainstate/vm/index.sqlite)
             starting_block=0 # for the block counter, start at this block
-            ## use these values if `--testing` arg is provided (only replay 1_000 blocks)
+            ## use these values if `--testing` arg is provided (only validate 1_000 blocks)
             ${TESTING} && total_blocks=301883
             ${TESTING} && starting_block=300883
             ;;
@@ -189,21 +184,21 @@ start_replay() {
             ## pre-nakamoto blocks
             echo "Mode: ${COLYELLOW}pre-nakamoto${COLRESET}"
             local log_append=""
-            inspect_command="replay-block"
+            inspect_command="validate-block"
             ## get the total number of blocks (with orphans) in db
             total_blocks=$(echo "select count(*) from staging_blocks where orphaned = 0" | sqlite3 "${SLICE_DIR}"0/chainstate/vm/index.sqlite)
             starting_block=0 # for the block counter, start at this block
-            ## use these values if `--testing` arg is provided (only replay 1_000 blocks) Note:  2.5 epoch is at 153106
+            ## use these values if `--testing` arg is provided (only validate 1_000 blocks) Note:  2.5 epoch is at 153106
             ${TESTING} && total_blocks=153000
             ${TESTING} && starting_block=152000
             ;;
     esac
-    local block_diff=$((total_blocks - starting_block)) ## how many blocks are being replayed
-    local slices=$((CORES - RESERVED))                  ## how many replay slices to use
-    local slice_blocks=$((block_diff / slices))         ## how many blocks to replay per slice
+    local block_diff=$((total_blocks - starting_block)) ## how many blocks are being validated
+    local slices=$((CORES - RESERVED))                  ## how many validation slices to use
+    local slice_blocks=$((block_diff / slices))         ## how many blocks to validate per slice
     ${TESTING} && echo "${COLRED}Testing: ${TESTING}${COLRESET}"
     echo "Total blocks: ${COLYELLOW}${total_blocks}${COLRESET}"
-    echo "Staring Block: ${COLYELLOW}$starting_block${COLRESET}"
+    echo "Starting Block: ${COLYELLOW}$starting_block${COLRESET}"
     echo "Block diff: ${COLYELLOW}$block_diff${COLRESET}"
     echo "******************************************************"
     echo "Total slices: ${COLYELLOW}${slices}${COLRESET}"
@@ -215,9 +210,9 @@ start_replay() {
         if [[ "${end_block_count}" -gt "${total_blocks}"  ]] ||  [[ "${slice_counter}" -eq $((slices - 1))  ]]; then
             end_block_count="${total_blocks}"
         fi
-        if [ "${mode}" != "nakamoto" ]; then ## don't create the tmux windows if we're replaying nakamoto blocks (they should already exist). TODO: check if it does exist in case the function call order changes
+        if [ "${mode}" != "nakamoto" ]; then ## don't create the tmux windows if we're validating nakamoto blocks (they should already exist). TODO: check if it does exist in case the function call order changes
             if [ "${slice_counter}" -gt 0 ];then
-                tmux new-window -t replay -d -n "slice${slice_counter}" || {
+                tmux new-window -t "${TMUX_SESSION}" -d -n "slice${slice_counter}" || {
                     echo "${COLRED}Error${COLRESET} creating tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
                     exit 1
                 }
@@ -226,12 +221,12 @@ start_replay() {
         local log_file="${LOG_DIR}/slice${slice_counter}${log_append}.log"
         local log=" | tee -a ${log_file}"
         local cmd="${REPO_DIR}/target/release/stacks-inspect --config ${REPO_DIR}/stackslib/conf/${NETWORK}-follower-conf.toml ${inspect_command}  ${SLICE_DIR}${slice_counter} index-range $start_block_count $end_block_count 2>/dev/null"
-        echo "  Creating tmux window: ${COLGREEN}replay:slice${slice_counter}${COLRESET} :: Blocks: ${COLYELLOW}${start_block_count}-${end_block_count}${COLRESET} || Logging to: ${log_file}"
+        echo "  Creating tmux window: ${COLGREEN}${TMUX_SESSION}:slice${slice_counter}${COLRESET} :: Blocks: ${COLYELLOW}${start_block_count}-${end_block_count}${COLRESET} || Logging to: ${log_file}"
         echo "Command: ${cmd}" > "${log_file}" ## log the command being run for the slice
-        echo "Replaying indexed blocks: ${start_block_count}-${end_block_count} (out of ${total_blocks})" >> "${log_file}"
-        ## send `cmd` to the tmux window where the replay will run
+        echo "Validating indexed blocks: ${start_block_count}-${end_block_count} (out of ${total_blocks})" >> "${log_file}"
+        ## send `cmd` to the tmux window where the validation will run
         tmux send-keys -t "${TMUX_SESSION}:slice${slice_counter}" "${cmd}${log}" Enter || {
-            echo "${COLRED}Error${COLRESET} sending replay command to tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
+            echo "${COLRED}Error${COLRESET} sending stacks-inspect command to tmux window ${COLYELLOW}slice${slice_counter}${COLRESET}"
             exit 1
         }
         ## log the return code as the last line
@@ -258,12 +253,12 @@ check_progress() {
         sleep 1
     done
     echo "************************************************************************"
-    echo "Checking Block Replay status"
+    echo "Checking Block Validation status"
     echo -e ' '
     while true; do
         count=$(pgrep  -c "stacks-inspect")
         if [ "${count}" -gt 0 ]; then
-            ${TERM_OUT} && printf "Block replay processes are currently active [ %s%s%s%s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "${COLYELLOW}" "${COLBOLD}" "${count}" "${COLRESET}"
+            ${TERM_OUT} && printf "Block validation processes are currently active [ %s%s%s%s ] ...  \b${sp:progress++%${#sp}:1}  \033[0K\r" "${COLYELLOW}" "${COLBOLD}" "${count}" "${COLRESET}"
         else
             ${TERM_OUT} && printf "\r\n"
             break
@@ -302,10 +297,10 @@ store_results() {
         return_code=$(tail -1 "${file}")
         case ${return_code} in
             0)
-                # block replay ran successfully
+                # block validation ran successfully
                 ;;
             1)
-                # block replay had some block failures
+                # block validation had some block failures
                 failed=1
                 ;;
             *)
@@ -355,10 +350,10 @@ store_results() {
         <div class="container">
 _EOF_
 
-    ## use the $failed var here in case there is a panic, then $failure_count may show zero, but the replay was not successful
+    ## use the $failed var here in case there is a panic, then $failure_count may show zero, but the validation was not successful
     if [ ${failed} == "1" ];then
         output=$(grep -r -h "Failed processing block" slice*.log)
-        IFS=$'\n' 
+        IFS=$'\n'
         for line in ${output}; do
             echo "        <div class=\"result fail\">${line}</div>" >> "${results_html}" || {
                 echo "${COLRED}Error${COLRESET} writing failure to: ${results_html}"
@@ -382,12 +377,12 @@ usage() {
     echo "    ${COLBOLD}${0}${COLRESET}"
     echo "        ${COLYELLOW}--testing${COLRESET}: only check a small number of blocks"
     echo "        ${COLYELLOW}-t|--terminal${COLRESET}: more terminal friendly output"
-    echo "        ${COLYELLOW}-n|--network${COLRESET}: run block replay against specific network (default: mainnet)"
+    echo "        ${COLYELLOW}-n|--network${COLRESET}: run block validation against specific network (default: mainnet)"
     echo "        ${COLYELLOW}-b|--branch${COLRESET}: branch of stacks-core to build stacks-inspect from (default: develop)"
     echo "        ${COLYELLOW}-c|--chainstate${COLRESET}: local chainstate copy to use instead of downloading a chainstaet snapshot"
     echo "        ${COLYELLOW}-l|--logdir${COLRESET}: use existing log directory"
     echo "        ${COLYELLOW}-r|--reserved${COLRESET}: how many cpu cores to reserve for system tasks"
-    echo 
+    echo
     echo "    ex: ${COLCYAN}${0} -t -u ${COLRESET}"
     echo
     exit 0
@@ -447,11 +442,11 @@ done
 while [ ${#} -gt 0 ]; do
     case ${1} in
         --testing)
-            # only replay 1_000 blocks
+            # only validate 1_000 blocks
             TESTING=true
             ;;
         -t|--terminal)
-            # update terminal with progress (it's just printf to show in real-time that the replays are running)
+            # update terminal with progress (it's just printf to show in real-time that the validations are running)
             TERM_OUT=true
             ;;
         -n|--network)
@@ -490,16 +485,16 @@ while [ ${#} -gt 0 ]; do
             LOG_DIR="${2}"
             shift
             ;;
-        -r|--RESERVED) 
+        -r|--RESERVED)
             # reserve this many cpus for the system (default is 10)
-            if [ "${2}" == "" ]; then 
+            if [ "${2}" == "" ]; then
                 echo "Missing required value for ${1}"
             fi
             if ! [[ "$2" =~ ^[0-9]+$ ]]; then
                 echo "ERROR: arg ($2) is not a number." >&2
                 exit 1
             fi
-            RESERVED=${2}    
+            RESERVED=${2}
             shift
             ;;
         -h|--help|--usage)
@@ -513,11 +508,11 @@ done
 
 ## clear display before starting
 tput reset
-echo "Replay Started: ${COLYELLOW}$(date)${COLRESET}"
-build_stacks_inspect        ## comment if using an existing chainstate/slice dir (ex: replay was performed already, and a second run is desired)
-configure_replay_slices     ## comment if using an existing chainstate/slice dir (ex: replay was performed already, and a second run is desired)
-setup_replay                ## configure logdir and tmux sessions
-start_replay                ## replay pre-nakamoto blocks (2.x)
-start_replay nakamoto       ## replay nakamoto blocks
-store_results               ## store aggregated results of replay
-echo "Replay finished: $(date)"
+echo "Validation Started: ${COLYELLOW}$(date)${COLRESET}"
+build_stacks_inspect        ## comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
+configure_validation_slices ## comment if using an existing chainstate/slice dir (ex: validation was performed already, and a second run is desired)
+setup_validation            ## configure logdir and tmux sessions
+start_validation            ## validate pre-nakamoto blocks (2.x)
+start_validation nakamoto   ## validate nakamoto blocks
+store_results               ## store aggregated results of validation
+echo "Validation finished: $(date)"

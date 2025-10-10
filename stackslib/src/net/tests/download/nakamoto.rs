@@ -400,10 +400,11 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
     let peer = make_nakamoto_peer_from_invs(function_name!(), &observer, rc_len as u32, 3, bitvecs);
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
-    peer.mine_malleablized_blocks = false;
+    peer.chain.mine_malleablized_blocks = false;
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
@@ -606,7 +607,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -617,7 +618,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -681,7 +682,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -692,7 +693,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -780,7 +781,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -791,7 +792,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -878,7 +879,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -889,7 +890,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -955,7 +956,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -966,7 +967,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -1018,7 +1019,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
             reward_cycle: tip_rc,
         };
 
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let sort_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         utd.try_accept_tenure_info(
             &sortdb,
@@ -1029,7 +1030,7 @@ fn test_nakamoto_unconfirmed_tenure_downloader() {
         )
         .unwrap();
 
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
 
         assert!(utd.unconfirmed_tenure_start_block.is_some());
 
@@ -1325,8 +1326,9 @@ fn test_make_tenure_downloaders() {
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
@@ -2107,8 +2109,9 @@ fn test_nakamoto_download_run_2_peers() {
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
@@ -2148,13 +2151,17 @@ fn test_nakamoto_download_run_2_peers() {
         );
         test_debug!("ops = {:?}", &ops);
         let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.burnchain,
+            &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestPeer::add_burnchain_block(
+            &boot_peer.config.chain_config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2216,8 +2223,9 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     let all_sortitions = peer.sortdb().get_all_snapshots().unwrap();
     let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb().conn()).unwrap();
@@ -2255,13 +2263,17 @@ fn test_nakamoto_unconfirmed_download_run_2_peers() {
         );
         test_debug!("ops = {:?}", &ops);
         let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.burnchain,
+            &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestPeer::add_burnchain_block(
+            &boot_peer.config.chain_config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2336,8 +2348,9 @@ fn test_nakamoto_microfork_download_run_2_peers() {
         });
     peer.refresh_burnchain_view();
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     // create a microfork
     let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
@@ -2435,13 +2448,17 @@ fn test_nakamoto_microfork_download_run_2_peers() {
         );
         test_debug!("ops = {:?}", &ops);
         let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.burnchain,
+            &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestPeer::add_burnchain_block(
+            &boot_peer.config.chain_config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2513,8 +2530,9 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     // create a shadow block
     let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
@@ -2610,21 +2628,25 @@ fn test_nakamoto_download_run_2_peers_with_one_shadow_block() {
         );
         test_debug!("ops = {:?}", &ops);
         let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.burnchain,
+            &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestPeer::add_burnchain_block(
+            &boot_peer.config.chain_config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
 
     {
-        let mut node = boot_peer.stacks_node.take().unwrap();
+        let mut node = boot_peer.chain.stacks_node.take().unwrap();
         let tx = node.chainstate.staging_db_tx_begin().unwrap();
         tx.add_shadow_block(&shadow_block).unwrap();
         tx.commit().unwrap();
-        boot_peer.stacks_node = Some(node);
+        boot_peer.chain.stacks_node = Some(node);
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2693,8 +2715,9 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     // create a shadow block
     let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
@@ -2812,22 +2835,26 @@ fn test_nakamoto_download_run_2_peers_shadow_prepare_phase() {
         );
         test_debug!("ops = {:?}", &ops);
         let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.burnchain,
+            &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestPeer::add_burnchain_block(
+            &boot_peer.config.chain_config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
     {
-        let mut node = boot_peer.stacks_node.take().unwrap();
+        let mut node = boot_peer.chain.stacks_node.take().unwrap();
         let tx = node.chainstate.staging_db_tx_begin().unwrap();
         for shadow_block in shadow_blocks.into_iter() {
             tx.add_shadow_block(&shadow_block).unwrap();
         }
         tx.commit().unwrap();
-        boot_peer.stacks_node = Some(node);
+        boot_peer.chain.stacks_node = Some(node);
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
@@ -2896,8 +2923,9 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
     let (mut peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     // create a shadow block
     let naka_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
@@ -3015,24 +3043,28 @@ fn test_nakamoto_download_run_2_peers_shadow_reward_cycles() {
             sn.block_height,
             &sn.burn_header_hash
         );
-        test_debug!("ops = {:?}", &ops);
+        test_debug!("ops = {ops:?}");
         let block_header = TestPeer::make_next_burnchain_block(
-            &boot_peer.config.burnchain,
+            &boot_peer.config.chain_config.burnchain,
             sn.block_height,
             &sn.burn_header_hash,
             ops.len() as u64,
             false,
         );
-        TestPeer::add_burnchain_block(&boot_peer.config.burnchain, &block_header, ops.clone());
+        TestPeer::add_burnchain_block(
+            &boot_peer.config.chain_config.burnchain,
+            &block_header,
+            ops.clone(),
+        );
     }
     {
-        let mut node = boot_peer.stacks_node.take().unwrap();
+        let mut node = boot_peer.chain.stacks_node.take().unwrap();
         let tx = node.chainstate.staging_db_tx_begin().unwrap();
         for shadow_block in shadow_blocks.into_iter() {
             tx.add_shadow_block(&shadow_block).unwrap();
         }
         tx.commit().unwrap();
-        boot_peer.stacks_node = Some(node);
+        boot_peer.chain.stacks_node = Some(node);
     }
 
     let (mut boot_dns_client, boot_dns_thread_handle) = dns_thread_start(100);
