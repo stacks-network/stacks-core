@@ -26,6 +26,7 @@ use rusqlite::{
     Transaction, TransactionBehavior,
 };
 use serde_json::Error as serde_error;
+use stacks_common::codec::Error as CodecError;
 use stacks_common::types::chainstate::{SortitionId, StacksAddress, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::types::Address;
@@ -80,6 +81,8 @@ pub enum Error {
     OldSchema(u64),
     /// Database is too old for epoch
     TooOldForEpoch,
+    /// Encoding error
+    CodecError(CodecError),
     /// Other error
     Other(String),
 }
@@ -105,6 +108,9 @@ impl fmt::Display for Error {
             Error::TooOldForEpoch => {
                 write!(f, "Database is not compatible with current system epoch")
             }
+            Error::CodecError(ref e) => {
+                write!(f, "Codec error: {e:?}")
+            }
             Error::Other(ref s) => fmt::Display::fmt(s, f),
         }
     }
@@ -129,6 +135,7 @@ impl error::Error for Error {
             Error::IndexError(ref e) => Some(e),
             Error::OldSchema(ref _s) => None,
             Error::TooOldForEpoch => None,
+            Error::CodecError(ref e) => Some(e),
             Error::Other(ref _s) => None,
         }
     }
@@ -152,6 +159,12 @@ impl From<MARFError> for Error {
     #[cfg_attr(test, mutants::skip)]
     fn from(e: MARFError) -> Self {
         Self::IndexError(e)
+    }
+}
+
+impl From<CodecError> for Error {
+    fn from(e: CodecError) -> Self {
+        Self::CodecError(e)
     }
 }
 
@@ -308,39 +321,6 @@ macro_rules! impl_byte_array_from_column_only {
 
 impl_byte_array_from_column_only!(SortitionId);
 impl_byte_array_from_column_only!(StacksBlockId);
-
-macro_rules! impl_byte_array_from_column {
-    ($thing:ident) => {
-        impl rusqlite::types::FromSql for $thing {
-            fn column_result(
-                value: rusqlite::types::ValueRef,
-            ) -> rusqlite::types::FromSqlResult<Self> {
-                let hex_str = value.as_str()?;
-                let byte_str = stacks_common::util::hash::hex_bytes(hex_str)
-                    .map_err(|_e| rusqlite::types::FromSqlError::InvalidType)?;
-                let inst = $thing::from_bytes(&byte_str)
-                    .ok_or(rusqlite::types::FromSqlError::InvalidType)?;
-                Ok(inst)
-            }
-        }
-
-        impl crate::util_lib::db::FromColumn<$thing> for $thing {
-            fn from_column(
-                row: &rusqlite::Row,
-                column_name: &str,
-            ) -> Result<Self, crate::util_lib::db::Error> {
-                Ok(row.get::<_, Self>(column_name)?)
-            }
-        }
-
-        impl rusqlite::types::ToSql for $thing {
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-                let hex_str = self.to_hex();
-                Ok(hex_str.into())
-            }
-        }
-    };
-}
 
 /// Load the path of the database from the connection
 #[cfg(test)]

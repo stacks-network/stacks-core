@@ -21,7 +21,7 @@ use stacks::burnchains::db::BurnchainDB;
 use stacks::burnchains::{Address, Burnchain, PoxConstants, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
+    BlockstackOperationType, BurnOpMemo, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
     VoteForAggregateKeyOp,
 };
 use stacks::chainstate::burn::ConsensusHash;
@@ -76,6 +76,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
@@ -2058,7 +2059,7 @@ fn stx_transfer_btc_integration_test() {
         sender: spender_stx_addr,
         recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
-        memo: vec![],
+        memo: vec![].into(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -2128,7 +2129,7 @@ fn stx_transfer_btc_integration_test() {
         sender: spender_2_stx_addr,
         recipient: recipient_addr.clone(),
         transfered_ustx: 100_000,
-        memo: vec![],
+        memo: vec![].into(),
         // to be filled in
         txid: Txid([0u8; 32]),
         vtxindex: 0,
@@ -7084,7 +7085,7 @@ fn atlas_stress_integration_test() {
             let indexes = query_rows::<u64, _>(
                 &atlasdb.conn,
                 "SELECT attachment_index FROM attachment_instances WHERE index_block_hash = ?1",
-                &[ibh],
+                params![ibh.sqlhex()],
             )
             .unwrap();
             if !indexes.is_empty() {
@@ -7095,7 +7096,7 @@ fn atlas_stress_integration_test() {
                 let mut hashes = query_row_columns::<Hash160, _>(
                     &atlasdb.conn,
                     "SELECT content_hash FROM attachment_instances WHERE index_block_hash = ?1 AND attachment_index = ?2",
-                    params![ibh, u64_to_sql(*index).unwrap()],
+                    params![ibh.sqlhex(), u64_to_sql(*index).unwrap()],
                     "content_hash")
                 .unwrap();
                 if !hashes.is_empty() {

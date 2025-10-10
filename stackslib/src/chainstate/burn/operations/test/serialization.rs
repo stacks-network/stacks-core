@@ -20,7 +20,7 @@ fn test_serialization_transfer_stx_op() {
         sender,
         recipient,
         transfered_ustx: 10,
-        memo: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05],
+        memo: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05].into(),
         txid: Txid([10u8; 32]),
         vtxindex: 10,
         block_height: 10,

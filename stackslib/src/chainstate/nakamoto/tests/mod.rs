@@ -34,6 +34,7 @@ use stacks_common::types::chainstate::{
     StacksPublicKey, StacksWorkScore, TrieHash, VRFSeed,
 };
 use stacks_common::types::{Address, PrivateKey, StacksEpoch, StacksEpochId};
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::{hex_bytes, Hash160, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
@@ -87,7 +88,8 @@ impl NakamotoStagingBlocksConnRef<'_> {
         let mut cursor = tip.clone();
         let qry = "SELECT data FROM nakamoto_staging_blocks WHERE index_block_hash = ?1";
         loop {
-            let Some(block_data): Option<Vec<u8>> = query_row(self, qry, params![cursor])? else {
+            let Some(block_data): Option<Vec<u8>> = query_row(self, qry, params![cursor.sqlhex()])?
+            else {
                 break;
             };
             let block = NakamotoBlock::consensus_deserialize(&mut block_data.as_slice())?;
@@ -2024,7 +2026,7 @@ fn test_make_miners_stackerdb_config() {
         let miner = LeaderKeyRegisterOp {
             consensus_hash: last_snapshot.consensus_hash.clone(),
             public_key: vrf_pubkey,
-            memo: miner_hash160.0.to_vec(),
+            memo: miner_hash160.0.to_vec().into(),
             txid: Txid([id; 32]),
             vtxindex: 1 + (id as u32),
             block_height: last_snapshot.block_height + 1,
@@ -2082,7 +2084,7 @@ fn test_make_miners_stackerdb_config() {
             // miners take turns winning
             key_block_ptr: miner.block_height as u32,
             key_vtxindex: miner.vtxindex as u16,
-            memo: vec![STACKS_EPOCH_3_0_MARKER],
+            memo: vec![STACKS_EPOCH_3_0_MARKER].into(),
             commit_outs: vec![],
 
             burn_fee: 12345,

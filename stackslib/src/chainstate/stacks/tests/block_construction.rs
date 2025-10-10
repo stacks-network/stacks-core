@@ -32,6 +32,7 @@ use mempool::MemPoolWalkStrategy;
 use rand::{thread_rng, Rng};
 use rusqlite::params;
 use stacks_common::address::*;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::MerkleTree;
 use stacks_common::util::secp256k1::Secp256k1PrivateKey;
 use stacks_common::util::{get_epoch_time_ms, sleep_ms};
@@ -4798,7 +4799,7 @@ fn paramaterized_mempool_walk_test(
                 mempool_tx
                     .execute(
                         "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                        params![Some(123.0), &txid],
+                        params![Some(123.0), &txid.sqlhex()],
                     )
                     .unwrap();
             } else {
@@ -4806,7 +4807,7 @@ fn paramaterized_mempool_walk_test(
                 mempool_tx
                     .execute(
                         "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                        params![none, &txid],
+                        params![none, &txid.sqlhex()],
                     )
                     .unwrap();
             }
@@ -5023,7 +5024,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
         mempool_tx
             .execute(
                 "UPDATE mempool SET fee_rate = ? WHERE txid = ?",
-                params![Some(fee_rate), &txid],
+                params![Some(fee_rate), &txid.sqlhex()],
             )
             .unwrap();
 

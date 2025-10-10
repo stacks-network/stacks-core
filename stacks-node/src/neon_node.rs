@@ -168,7 +168,7 @@ use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
 };
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, BurnOpMemo, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
@@ -1085,7 +1085,7 @@ impl BlockMinerThread {
             apparent_sender: sender,
             key_block_ptr: key.block_height as u32,
             key_vtxindex: key.op_vtxindex as u16,
-            memo: vec![STACKS_EPOCH_3_0_MARKER],
+            memo: vec![STACKS_EPOCH_3_0_MARKER].into(),
             new_seed: vrf_seed,
             parent_block_ptr,
             parent_vtxindex,
@@ -4988,7 +4988,7 @@ impl StacksNode {
                 block_height: 1,
                 op_vtxindex: 1,
                 vrf_public_key,
-                memo: vec![],
+                memo: vec![].into(),
             })
         } else {
             // Warn the user that they need to set up a miner key

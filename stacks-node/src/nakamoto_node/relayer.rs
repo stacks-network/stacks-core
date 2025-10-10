@@ -31,7 +31,7 @@ use stacks::chainstate::burn::operations::leader_block_commit::{
     RewardSetInfo, BURN_BLOCK_MINED_AT_MODULUS,
 };
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, LeaderKeyRegisterOp,
+    BlockstackOperationType, BurnOpMemo, LeaderBlockCommitOp, LeaderKeyRegisterOp,
 };
 use stacks::chainstate::burn::{BlockSnapshot, ConsensusHash};
 use stacks::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
@@ -935,7 +935,7 @@ impl RelayerThread {
     ) -> BlockstackOperationType {
         BlockstackOperationType::LeaderKeyRegister(LeaderKeyRegisterOp {
             public_key: vrf_public_key,
-            memo: miner_pkh.as_bytes().to_vec(),
+            memo: miner_pkh.as_bytes().to_vec().into(),
             consensus_hash: consensus_hash.clone(),
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -1149,7 +1149,7 @@ impl RelayerThread {
             key_block_ptr: u32::try_from(key.block_height)
                 .expect("FATAL: burn block height exceeded u32"),
             key_vtxindex: u16::try_from(key.op_vtxindex).expect("FATAL: vtxindex exceeded u16"),
-            memo: vec![STACKS_EPOCH_LATEST_MARKER],
+            memo: vec![STACKS_EPOCH_LATEST_MARKER].into(),
             new_seed: VRFSeed::from_proof(&tip_vrf_proof),
             parent_block_ptr: u32::try_from(commit_parent_block_burn_height)
                 .expect("FATAL: burn block height exceeded u32"),
@@ -2270,7 +2270,7 @@ pub mod test {
                 "1da75863a7e1ef86f0f550d92b1f77dc60af23694b884b2816b703137ff94e71",
             )
             .unwrap(),
-            memo: pubkey_hash.as_ref().to_vec(),
+            memo: pubkey_hash.as_ref().to_vec().into(),
         };
         let path = "/tmp/vrf_key.json";
         save_activated_vrf_key(path, &key);
@@ -2294,7 +2294,7 @@ pub mod test {
                 "1da75863a7e1ef86f0f550d92b1f77dc60af23694b884b2816b703137ff94e71",
             )
             .unwrap(),
-            memo: pubkey_hash.as_ref().to_vec(),
+            memo: pubkey_hash.as_ref().to_vec().into(),
         };
         let path = "/tmp/vrf_key.json";
         save_activated_vrf_key(path, &key);

@@ -19,6 +19,7 @@ use stacks_common::types::chainstate::{
     TenureBlockId, VRFSeed,
 };
 use stacks_common::types::Address;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::vrf::VRFProof;
 
 use crate::chainstate::burn::db::sortdb::{
@@ -677,7 +678,7 @@ pub fn get_stacks_header_column_from_table<F, R>(
 where
     F: Fn(&Row) -> R,
 {
-    let args = params![id_bhh];
+    let args = params![id_bhh.sqlhex()];
     let table_name = if nakamoto {
         "nakamoto_block_headers"
     } else {
@@ -777,7 +778,7 @@ fn get_miner_column<F, R>(
 where
     F: FnOnce(&Row) -> R,
 {
-    let args = params![id_bhh.0];
+    let args = params![id_bhh.0.sqlhex()];
     conn.query_row(
         &format!(
             "SELECT {} FROM payments WHERE index_block_hash = ? AND miner = 1",
@@ -809,7 +810,7 @@ fn get_matured_reward<GTS: GetTenureStartId>(
         .conn()
         .query_row(
             &format!("SELECT parent_block_id FROM {table_name} WHERE index_block_hash = ?"),
-            params![child_id_bhh.0],
+            params![child_id_bhh.0.sqlhex()],
             |x| {
                 Ok(StacksBlockId::from_column(x, "parent_block_id")
                     .expect("Bad parent_block_id in database"))

@@ -47,12 +47,14 @@ pub struct OpsHash(pub [u8; 32]);
 impl_array_newtype!(OpsHash, u8, 32);
 impl_array_hexstring_fmt!(OpsHash);
 impl_byte_array_newtype!(OpsHash, u8, 32);
+impl_byte_array_message_codec!(OpsHash, 32);
 
 // rolling hash of PoW outputs to mix with the VRF seed on sortition
 pub struct SortitionHash(pub [u8; 32]);
 impl_array_newtype!(SortitionHash, u8, 32);
 impl_array_hexstring_fmt!(SortitionHash);
 impl_byte_array_newtype!(SortitionHash, u8, 32);
+impl_byte_array_message_codec!(SortitionHash, 32);
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]

@@ -37,6 +37,7 @@ use stacks_common::types::chainstate::{
     StacksPrivateKey, StacksPublicKey, TrieHash, VRFSeed,
 };
 use stacks_common::types::{PrivateKey, SIP031EmissionInterval, StacksEpochId};
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::{to_hex, Hash160, MerkleHashFunc, MerkleTree, Sha512Trunc256Sum};
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::secp256k1::MessageSignature;
@@ -2584,7 +2585,7 @@ impl NakamotoChainState {
     ) -> Result<Option<ExecutionCost>, ChainstateError> {
         let qry = "SELECT total_tenure_cost FROM nakamoto_block_headers WHERE index_block_hash = ?";
         chainstate_conn
-            .query_row(qry, &[block], |row| row.get(0))
+            .query_row(qry, params![block.sqlhex()], |row| row.get(0))
             .optional()
             .map_err(ChainstateError::from)
     }
@@ -2596,7 +2597,7 @@ impl NakamotoChainState {
     ) -> Result<Option<ExecutionCost>, ChainstateError> {
         let qry = "SELECT total_tenure_cost FROM nakamoto_block_headers WHERE index_block_hash = ?";
         chainstate_conn
-            .query_row(qry, &[block], |row| row.get(0))
+            .query_row(qry, params![block.sqlhex()], |row| row.get(0))
             .optional()
             .map_err(ChainstateError::from)
     }
@@ -2609,7 +2610,7 @@ impl NakamotoChainState {
     ) -> Result<Option<u128>, ChainstateError> {
         let qry = "SELECT tenure_tx_fees FROM nakamoto_block_headers WHERE index_block_hash = ?";
         let tx_fees_str: Option<String> = chainstate_conn
-            .query_row(qry, &[block], |row| row.get(0))
+            .query_row(qry, params![block.sqlhex()], |row| row.get(0))
             .optional()?;
         tx_fees_str
             .map(|x| x.parse())
@@ -2661,7 +2662,7 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<u8>, ChainstateError> {
         let sql = "SELECT version FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let args = rusqlite::params![index_block_hash];
+        let args = rusqlite::params![index_block_hash.sqlhex()];
         let mut stmt = chainstate_conn.prepare(sql)?;
         let result = stmt
             .query_row(args, |row| {
@@ -2682,7 +2683,7 @@ impl NakamotoChainState {
         let mut result = query_row_columns(
             chainstate_conn,
             sql,
-            &[&index_block_hash],
+            &[&index_block_hash.sqlhex()],
             "parent_block_id",
         )?;
         if result.len() > 1 {
@@ -2699,7 +2700,7 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let sql = "SELECT * FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash.sqlhex()], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
         Ok(result)
@@ -2711,7 +2712,7 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<ConsensusHash>, ChainstateError> {
         let sql = "SELECT consensus_hash FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash.sqlhex()], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
         Ok(result)
@@ -2723,7 +2724,7 @@ impl NakamotoChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StacksHeaderInfo>, ChainstateError> {
         let sql = "SELECT * FROM block_headers WHERE index_block_hash = ?1";
-        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+        let result = query_row_panic(chainstate_conn, sql, &[&index_block_hash.sqlhex()], || {
             "FATAL: multiple rows for the same block hash".to_string()
         })?;
 
@@ -2751,7 +2752,7 @@ impl NakamotoChainState {
     ) -> Result<bool, ChainstateError> {
         let sql = "SELECT 1 FROM nakamoto_block_headers WHERE index_block_hash = ?1";
         let result: Option<i64> =
-            query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            query_row_panic(chainstate_conn, sql, &[&index_block_hash.sqlhex()], || {
                 "FATAL: multiple rows for the same block hash".to_string()
             })?;
         if result.is_some() {
@@ -2765,7 +2766,7 @@ impl NakamotoChainState {
         // check epoch 2
         let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1";
         let result: Option<i64> =
-            query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            query_row_panic(chainstate_conn, sql, &[&index_block_hash.sqlhex()], || {
                 "FATAL: multiple rows for the same block hash".to_string()
             })?;
 
@@ -2779,7 +2780,7 @@ impl NakamotoChainState {
     ) -> Result<bool, ChainstateError> {
         let sql = "SELECT 1 FROM block_headers WHERE index_block_hash = ?1";
         let result: Option<i64> =
-            query_row_panic(chainstate_conn, sql, &[&index_block_hash], || {
+            query_row_panic(chainstate_conn, sql, &[&index_block_hash.sqlhex()], || {
                 "FATAL: multiple rows for the same block hash".to_string()
             })?;
 
@@ -2926,7 +2927,7 @@ impl NakamotoChainState {
         WHERE h.consensus_hash = ?1
         ORDER BY h.block_height DESC, h.timestamp
         ";
-        let args = params![tenure_id];
+        let args = params![tenure_id.sqlhex()];
         let out = query_rows(db, qry, args)?;
         if !out.is_empty() {
             return Ok(out);
@@ -3039,7 +3040,7 @@ impl NakamotoChainState {
         WHERE h.burn_header_hash = ?1
         ORDER BY h.block_height DESC, h.timestamp
         ";
-        let args = params![tenure_block_hash];
+        let args = params![tenure_block_hash.sqlhex()];
         let out = query_rows(db, qry, args)?;
         if !out.is_empty() {
             return Ok(out);
@@ -3160,7 +3161,7 @@ impl NakamotoChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<(bool, bool)>, ChainstateError> {
         let sql = "SELECT processed, orphaned FROM nakamoto_staging_blocks WHERE consensus_hash = ?1 AND block_hash = ?2";
-        let args = params![consensus_hash, block_hash];
+        let args = params![consensus_hash.sqlhex(), block_hash.sqlhex()];
         let Some((processed, orphaned)) = query_row_panic(&staging_blocks_conn, sql, args, || {
             "FATAL: multiple rows for the same consensus hash and block hash".to_string()
         })
@@ -3199,7 +3200,7 @@ impl NakamotoChainState {
         tenure_start_block_id: &StacksBlockId,
     ) -> Result<Option<VRFProof>, ChainstateError> {
         let sql = r#"SELECT IFNULL(vrf_proof,"") FROM nakamoto_block_headers WHERE index_block_hash = ?1"#;
-        let args = params![tenure_start_block_id];
+        let args = params![tenure_start_block_id.sqlhex()];
         let proof_bytes: Option<String> = query_row(chainstate_conn, sql, args)?;
         if let Some(bytes) = proof_bytes {
             if bytes.is_empty() {
@@ -3241,7 +3242,7 @@ impl NakamotoChainState {
         let epoch_2_qry = "SELECT block_height FROM block_headers WHERE index_block_hash = ?1";
         let opt_height: Option<i64> = chainstate_conn
             .sqlite()
-            .query_row(epoch_2_qry, &[block], |row| row.get(0))
+            .query_row(epoch_2_qry, params![block.sqlhex()], |row| row.get(0))
             .optional()?;
         opt_height
             .map(u64::try_from)
@@ -3335,9 +3336,9 @@ impl NakamotoChainState {
 
         let args = params![
             u64_to_sql(*stacks_block_height)?,
-            index_root,
-            consensus_hash,
-            burn_header_hash,
+            index_root.sqlhex(),
+            consensus_hash.sqlhex(),
+            burn_header_hash.sqlhex(),
             burn_header_height,
             u64_to_sql(*burn_header_timestamp)?,
             block_size_str,
@@ -3345,30 +3346,33 @@ impl NakamotoChainState {
             header.version,
             u64_to_sql(header.chain_length)?,
             u64_to_sql(header.burn_spent)?,
-            header.miner_signature,
+            header.miner_signature.sqlhex(),
             signer_signature,
-            header.tx_merkle_root,
-            header.state_index_root,
+            header.tx_merkle_root.sqlhex(),
+            header.state_index_root.sqlhex(),
             u64_to_sql(header.timestamp)?,
-            block_hash,
-            index_block_hash,
+            block_hash.sqlhex(),
+            index_block_hash.sqlhex(),
             block_cost,
             total_tenure_cost,
             &tenure_tx_fees.to_string(),
-            &header.parent_block_id,
+            &header.parent_block_id.sqlhex(),
             if tenure_changed { &1i64 } else { &0i64 },
             &vrf_proof_bytes.as_ref(),
             &header.pox_treatment,
             &height_in_tenure,
-            tip_info.burn_view.as_ref().ok_or_else(|| {
-                error!(
-                    "Attempted to store nakamoto block header information without burnchain view";
-                    "block_id" => %index_block_hash,
-                );
-                ChainstateError::DBError(DBError::Other(
-                    "Nakamoto block StacksHeaderInfo did not set burnchain view".into(),
-                ))
-            })?,
+            tip_info.burn_view
+                .as_ref()
+                .map(|ch| ch.sqlhex())
+                .ok_or_else(|| {
+                    error!(
+                        "Attempted to store nakamoto block header information without burnchain view";
+                        "block_id" => %index_block_hash,
+                    );
+                    ChainstateError::DBError(DBError::Other(
+                        "Nakamoto block StacksHeaderInfo did not set burnchain view".into(),
+                    ))
+                })?,
         ];
 
         chainstate_tx.execute(
@@ -3654,7 +3658,7 @@ impl NakamotoChainState {
         if applied_epoch_transition {
             debug!("Block {} applied an epoch transition", &index_block_hash);
             let sql = "INSERT INTO epoch_transitions (block_id) VALUES (?)";
-            let args = params![index_block_hash];
+            let args = params![index_block_hash.sqlhex()];
             headers_tx.deref_mut().execute(sql, args)?;
         }
 
@@ -3667,7 +3671,7 @@ impl NakamotoChainState {
         reward_set: &RewardSet,
     ) -> Result<(), ChainstateError> {
         let sql = "INSERT INTO nakamoto_reward_sets (index_block_hash, reward_set) VALUES (?, ?)";
-        let args = params![block_id, reward_set.metadata_serialize(),];
+        let args = params![block_id.sqlhex(), reward_set.metadata_serialize(),];
         tx.execute(sql, args)?;
         Ok(())
     }
@@ -3678,7 +3682,7 @@ impl NakamotoChainState {
     ) -> Result<Option<RewardSet>, ChainstateError> {
         let sql = "SELECT reward_set FROM nakamoto_reward_sets WHERE index_block_hash = ?";
         chainstate_db
-            .query_row(sql, &[block_id], |row| {
+            .query_row(sql, params![block_id.sqlhex()], |row| {
                 let reward_set: String = row.get(0)?;
                 let reward_set = RewardSet::metadata_deserialize(&reward_set)
                     .map_err(|s| FromSqlError::Other(s.into()))?;
@@ -3717,7 +3721,7 @@ impl NakamotoChainState {
         let txid = tx_receipt.transaction.txid();
         let tx_hex = tx_receipt.transaction.serialize_to_dbstring();
         let result = tx_receipt.result.to_string();
-        let params = params![txid, block_id, tx_hex, result];
+        let params = params![txid.sqlhex(), block_id.sqlhex(), tx_hex, result];
         if let Err(e) = stacks_db_tx.execute(insert, params) {
             warn!("Failed to record TX: {}", e);
         }
@@ -3729,7 +3733,7 @@ impl NakamotoChainState {
         txid: &Txid,
     ) -> Result<Option<(StacksBlockId, String, String)>, ChainstateError> {
         let sql = "SELECT index_block_hash, tx_hex, result FROM transactions WHERE txid = ?";
-        let args = params![txid];
+        let args = params![txid.sqlhex()];
 
         let mut stmt = conn.prepare(sql)?;
         Ok(stmt

@@ -65,6 +65,7 @@ use rusqlite::{params, Connection};
 use stacks_common::consts::{FIRST_BURNCHAIN_CONSENSUS_HASH, MINER_REWARD_MATURITY};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId};
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::db::SqlEncoded;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle, SortitionHandleConn};
 use crate::chainstate::burn::BlockSnapshot;
@@ -421,12 +422,12 @@ impl NakamotoChainState {
         // NOTE: this is checked with check_nakamoto_tenure()
         assert_eq!(block_header.consensus_hash, tenure.tenure_consensus_hash);
         let args = params![
-            tenure.tenure_consensus_hash,
-            tenure.prev_tenure_consensus_hash,
-            tenure.burn_view_consensus_hash,
+            tenure.tenure_consensus_hash.sqlhex(),
+            tenure.prev_tenure_consensus_hash.sqlhex(),
+            tenure.burn_view_consensus_hash.sqlhex(),
             tenure.cause.as_u8(),
-            block_header.block_hash(),
-            block_header.block_id(),
+            block_header.block_hash().sqlhex(),
+            block_header.block_id().sqlhex(),
             u64_to_sql(coinbase_height)?,
             tenure.previous_tenure_blocks,
         ];
@@ -451,7 +452,7 @@ impl NakamotoChainState {
     ) -> Result<(), ChainstateError> {
         tx.execute(
             "DELETE FROM nakamoto_tenure_events WHERE tenure_id_consensus_hash = ?1",
-            &[ch],
+            params![ch.sqlhex()],
         )?;
         Ok(())
     }
@@ -476,7 +477,7 @@ impl NakamotoChainState {
     ) -> Result<u32, ChainstateError> {
         // at least one block in this tenure
         let sql = "SELECT height_in_tenure FROM nakamoto_block_headers WHERE index_block_hash = ?1";
-        let count = match query_int(chainstate_conn, sql, &[block_id]) {
+        let count = match query_int(chainstate_conn, sql, params![block_id.sqlhex()]) {
             Ok(count_i64) => {
                 let count: u32 = count_i64
                     .try_into()
@@ -498,7 +499,10 @@ impl NakamotoChainState {
     ) -> Result<Option<NakamotoTenureEvent>, ChainstateError> {
         let sql =
             "SELECT * FROM nakamoto_tenure_events WHERE burn_view_consensus_hash = ?1 AND block_id = ?2";
-        let args = rusqlite::params![tenure_id.burn_view_consensus_hash, tenure_id.block_id];
+        let args = rusqlite::params![
+            tenure_id.burn_view_consensus_hash.sqlhex(),
+            tenure_id.block_id.sqlhex()
+        ];
         Ok(query_row(headers_conn, sql, args)?)
     }
 

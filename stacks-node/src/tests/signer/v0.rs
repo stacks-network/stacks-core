@@ -39,7 +39,7 @@ use stacks::address::AddressHashMode;
 use stacks::burnchains::Txid;
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, LeaderBlockCommitOp, PreStxOp, TransferStxOp,
+    BlockstackOperationType, BurnOpMemo, LeaderBlockCommitOp, PreStxOp, TransferStxOp,
 };
 use stacks::chainstate::burn::ConsensusHash;
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -83,6 +83,7 @@ use stacks::util_lib::signed_structured_data::pox4::{
 };
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::TrieHash;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
@@ -3814,7 +3815,7 @@ fn tx_replay_btc_on_stx_invalidation() {
         sender: sender_addr,
         recipient: recipient_addr.clone(),
         transfered_ustx: recipient_balance.into(),
-        memo: vec![],
+        memo: vec![].into(),
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -12244,7 +12245,7 @@ fn no_reorg_due_to_successive_block_validation_ok() {
 
             let mut rows = stmt
                 .query(rusqlite::params![
-                    block_n_1_prime_signature_hash,
+                    block_n_1_prime_signature_hash.sqlhex(),
                     config.stacks_address
                 ])
                 .unwrap();

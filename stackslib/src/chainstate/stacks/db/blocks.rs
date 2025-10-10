@@ -36,6 +36,7 @@ use stacks_common::bitvec::BitVec;
 use stacks_common::codec::MAX_MESSAGE_LEN;
 use stacks_common::types::chainstate::{BurnchainHeaderHash, SortitionId, StacksBlockId};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::to_hex;
 use stacks_common::util::retry::BoundReader;
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
@@ -752,7 +753,7 @@ impl StacksChainState {
 
         for (consensus_hash, block_hash) in blocks.into_iter() {
             let list_microblock_sql = "SELECT * FROM staging_microblocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 ORDER BY sequence".to_string();
-            let list_microblock_args = params![block_hash, consensus_hash];
+            let list_microblock_args = params![block_hash.sqlhex(), consensus_hash.sqlhex()];
             let microblocks = query_rows::<StagingMicroblock, _>(
                 blocks_conn,
                 &list_microblock_sql,
@@ -910,7 +911,7 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<Vec<u8>>, Error> {
         let sql = format!("SELECT block_data FROM {table} WHERE block_hash = ?1");
-        let args = [&block_hash];
+        let args = [&block_hash.sqlhex()];
         let mut blobs = StacksChainState::load_block_data_blobs(block_conn, &sql, &args)?;
         let len = blobs.len();
         match len {
@@ -947,7 +948,7 @@ impl StacksChainState {
         minimum_block_height: i64,
     ) -> bool {
         let sql = "SELECT 1 FROM staging_blocks WHERE microblock_pubkey_hash = ?1 AND height >= ?2";
-        let args = params![pubkey_hash, minimum_block_height];
+        let args = params![pubkey_hash.sqlhex(), minimum_block_height];
         block_conn
             .query_row(sql, args, |_r| Ok(()))
             .optional()
@@ -963,7 +964,7 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<StagingBlock>, Error> {
         let sql = "SELECT * FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND orphaned = 0 AND processed = 0";
-        let args = params![block_hash, consensus_hash];
+        let args = params![block_hash.sqlhex(), consensus_hash.sqlhex()];
         let mut rows =
             query_rows::<StagingBlock, _>(block_conn, sql, args).map_err(Error::DBError)?;
         let len = rows.len();
@@ -992,7 +993,7 @@ impl StacksChainState {
         index_block_hash: &StacksBlockId,
     ) -> Result<Option<StagingBlock>, Error> {
         let sql = "SELECT * FROM staging_blocks WHERE index_block_hash = ?1 AND orphaned = 0";
-        let args = params![index_block_hash];
+        let args = params![index_block_hash.sqlhex()];
         query_row::<StagingBlock, _>(block_conn, sql, args).map_err(Error::DBError)
     }
 
@@ -1003,7 +1004,7 @@ impl StacksChainState {
     ) -> Result<Option<BlockHeaderHash>, Error> {
         let sql = "SELECT parent_microblock_hash FROM staging_blocks WHERE index_block_hash = ?1 AND orphaned = 0";
         block_conn
-            .query_row(sql, &[index_block_hash], |row| row.get(0))
+            .query_row(sql, params![index_block_hash.sqlhex()], |row| row.get(0))
             .optional()
             .map_err(|e| Error::DBError(db_error::from(e)))
     }
@@ -1042,7 +1043,7 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<Hash160>, Error> {
         let sql = "SELECT microblock_pubkey_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0";
-        let args = params![block_hash, consensus_hash];
+        let args = params![block_hash.sqlhex(), consensus_hash.sqlhex()];
         query_one_row_column(
             block_conn,
             sql,
@@ -1095,7 +1096,7 @@ impl StacksChainState {
         microblock_hash: &BlockHeaderHash,
     ) -> Result<Option<StagingMicroblock>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 AND orphaned = 0 LIMIT 1";
-        let args = params![parent_index_block_hash, microblock_hash];
+        let args = params![parent_index_block_hash.sqlhex(), microblock_hash.sqlhex()];
         query_row::<StagingMicroblock, _>(blocks_conn, sql, args).map_err(Error::DBError)
     }
 
@@ -1108,7 +1109,7 @@ impl StacksChainState {
         index_microblock_hash: &StacksBlockId,
     ) -> Result<Option<StagingMicroblock>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE index_microblock_hash = ?1 AND orphaned = 0 LIMIT 1";
-        let args = params![index_microblock_hash];
+        let args = params![index_microblock_hash.sqlhex()];
         query_row::<StagingMicroblock, _>(blocks_conn, sql, args).map_err(Error::DBError)
     }
 
@@ -1313,7 +1314,7 @@ impl StacksChainState {
             "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 AND sequence < ?3 AND orphaned = 0 ORDER BY sequence ASC"
         };
 
-        let args = params![parent_index_block_hash, start_seq, last_seq];
+        let args = params![parent_index_block_hash.sqlhex(), start_seq, last_seq];
         let staging_microblocks =
             query_rows::<StagingMicroblock, _>(blocks_conn, sql, args).map_err(Error::DBError)?;
 
@@ -1444,7 +1445,7 @@ impl StacksChainState {
     pub fn get_parent(&self, stacks_block: &StacksBlockId) -> Result<StacksBlockId, Error> {
         let sql = "SELECT parent_block_id FROM block_headers WHERE index_block_hash = ?";
         self.db()
-            .query_row(sql, &[stacks_block], |row| row.get(0))
+            .query_row(sql, params![stacks_block.sqlhex()], |row| row.get(0))
             .map_err(|e| Error::from(db_error::from(e)))
     }
 
@@ -1459,7 +1460,7 @@ impl StacksChainState {
         // find all blocks that we have that could be this block's parent
         let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
         let possible_parent_snapshots =
-            query_rows::<BlockSnapshot, _>(&sort_handle, sql, &[parent_block_hash])?;
+            query_rows::<BlockSnapshot, _>(&sort_handle, sql, params![parent_block_hash.sqlhex()])?;
         for possible_parent in possible_parent_snapshots.into_iter() {
             let burn_ancestor =
                 sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
@@ -1495,8 +1496,11 @@ impl StacksChainState {
 
         // find all blocks that we have that could be this block's parent
         let sql = "SELECT * FROM snapshots WHERE winning_stacks_block_hash = ?1";
-        let possible_parent_snapshots =
-            query_rows::<BlockSnapshot, _>(&sort_handle, sql, &[&header.parent_block])?;
+        let possible_parent_snapshots = query_rows::<BlockSnapshot, _>(
+            &sort_handle,
+            sql,
+            params![header.parent_block.sqlhex()],
+        )?;
         for possible_parent in possible_parent_snapshots.into_iter() {
             let burn_ancestor =
                 sort_handle.get_block_snapshot(&possible_parent.burn_header_hash)?;
@@ -1545,7 +1549,10 @@ impl StacksChainState {
             // if this block has an unprocessed staging parent, then it's not attachable until its parent is.
             let has_unprocessed_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 AND processed = 0 AND orphaned = 0 LIMIT 1";
             let has_parent_sql = "SELECT anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2 LIMIT 1";
-            let has_parent_args = params![block.header.parent_block, parent_consensus_hash];
+            let has_parent_args = params![
+                block.header.parent_block.sqlhex(),
+                parent_consensus_hash.sqlhex()
+            ];
             let has_unprocessed_parent_rows = query_row_columns::<BlockHeaderHash, _>(
                 tx,
                 has_unprocessed_parent_sql,
@@ -1598,20 +1605,20 @@ impl StacksChainState {
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)";
 
         let args = params![
-            block_hash,
-            block.header.parent_block,
-            consensus_hash,
-            parent_consensus_hash,
-            block.header.parent_microblock,
+            block_hash.sqlhex(),
+            block.header.parent_block.sqlhex(),
+            consensus_hash.sqlhex(),
+            parent_consensus_hash.sqlhex(),
+            block.header.parent_microblock.sqlhex(),
             block.header.parent_microblock_sequence,
-            block.header.microblock_pubkey_hash,
+            block.header.microblock_pubkey_hash.sqlhex(),
             u64_to_sql(block.header.total_work.work)?,
             attachable,
             0,
             0,
             u64_to_sql(commit_burn)?,
             u64_to_sql(sortition_burn)?,
-            index_block_hash,
+            index_block_hash.sqlhex(),
             u64_to_sql(get_epoch_time_secs())?,
             0,
             u64_to_sql(download_time)?,
@@ -1626,7 +1633,7 @@ impl StacksChainState {
         // this should be done across all burnchains.
         let children_sql =
             "UPDATE staging_blocks SET attachable = 0 WHERE parent_anchored_block_hash = ?1";
-        let children_args = [&block_hash];
+        let children_args = [&block_hash.sqlhex()];
 
         tx.execute(children_sql, &children_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1671,12 +1678,12 @@ impl StacksChainState {
         // store microblock metadata
         let sql = "INSERT OR REPLACE INTO staging_microblocks (anchored_block_hash, consensus_hash, index_block_hash, microblock_hash, parent_hash, index_microblock_hash, sequence, processed, orphaned) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
         let args = params![
-            parent_anchored_block_hash,
-            parent_consensus_hash,
-            index_block_hash,
-            microblock.block_hash(),
-            microblock.header.prev_block,
-            index_microblock_hash,
+            parent_anchored_block_hash.sqlhex(),
+            parent_consensus_hash.sqlhex(),
+            index_block_hash.sqlhex(),
+            microblock.block_hash().sqlhex(),
+            microblock.header.prev_block.sqlhex(),
+            index_microblock_hash.sqlhex(),
             microblock.header.sequence,
             0,
             0,
@@ -1689,7 +1696,7 @@ impl StacksChainState {
         let block_sql = "INSERT OR REPLACE INTO staging_microblocks_data \
                          (block_hash, block_data)
                          VALUES (?1, ?2)";
-        let block_args = params![microblock.block_hash(), microblock_bytes];
+        let block_args = params![microblock.block_hash().sqlhex(), microblock_bytes];
 
         tx.execute(block_sql, block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -1743,7 +1750,7 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<bool>, Error> {
-        StacksChainState::read_one_i64(blocks_conn, "SELECT processed FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
+        StacksChainState::read_one_i64(blocks_conn, "SELECT processed FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", params![block_hash.sqlhex(), consensus_hash.sqlhex()])
             .and_then(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
@@ -1761,7 +1768,7 @@ impl StacksChainState {
         query_rows::<ConsensusHash, _>(
             blocks_conn,
             "SELECT consensus_hash FROM staging_blocks WHERE anchored_block_hash = ?1",
-            &[block_hash],
+            params![block_hash.sqlhex()],
         )
         .map_err(|e| e.into())
     }
@@ -1772,7 +1779,7 @@ impl StacksChainState {
         consensus_hash: &ConsensusHash,
         block_hash: &BlockHeaderHash,
     ) -> Result<bool, Error> {
-        StacksChainState::read_one_i64(blocks_conn, "SELECT orphaned FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", &[block_hash, consensus_hash])
+        StacksChainState::read_one_i64(blocks_conn, "SELECT orphaned FROM staging_blocks WHERE anchored_block_hash = ?1 AND consensus_hash = ?2", params![block_hash.sqlhex(), consensus_hash.sqlhex()])
             .and_then(|orphaned| {
                 let Some(orphaned_head) = orphaned else {
                     // if empty, return false
@@ -1792,7 +1799,7 @@ impl StacksChainState {
         parent_block_hash: &BlockHeaderHash,
         microblock_hash: &BlockHeaderHash,
     ) -> Result<Option<bool>, Error> {
-        StacksChainState::read_one_i64(self.db(), "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND consensus_hash = ?3", &[&parent_block_hash, microblock_hash, &parent_consensus_hash])
+        StacksChainState::read_one_i64(self.db(), "SELECT processed FROM staging_microblocks WHERE anchored_block_hash = ?1 AND microblock_hash = ?2 AND consensus_hash = ?3", params![&parent_block_hash.sqlhex(), microblock_hash.sqlhex(), &parent_consensus_hash.sqlhex()])
             .and_then(|processed| {
                 let Some(processed_head) = processed else {
                     return Ok(None)
@@ -1838,7 +1845,10 @@ impl StacksChainState {
             };
 
         let sql = "SELECT 1 FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 AND processed = 1 AND orphaned = 0";
-        let args = params![parent_index_block_hash, parent_microblock_hash];
+        let args = params![
+            parent_index_block_hash.sqlhex(),
+            parent_microblock_hash.sqlhex()
+        ];
         let res = self
             .db()
             .query_row(sql, args, |_r| Ok(()))
@@ -1861,7 +1871,7 @@ impl StacksChainState {
     ) -> Result<bool, Error> {
         StacksChainState::read_one_i64(self.db(), "SELECT staging_microblocks.processed
                                                 FROM staging_blocks JOIN staging_microblocks ON staging_blocks.parent_anchored_block_hash = staging_microblocks.anchored_block_hash AND staging_blocks.parent_consensus_hash = staging_microblocks.consensus_hash
-                                                WHERE staging_blocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2 AND staging_microblocks.orphaned = 0", &[child_index_block_hash, &parent_microblock_hash])
+                                                WHERE staging_blocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2 AND staging_microblocks.orphaned = 0", params![child_index_block_hash.sqlhex(), &parent_microblock_hash.sqlhex()])
             .and_then(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
@@ -2133,7 +2143,7 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Vec<ConsensusHash>, Error> {
         let qry = "SELECT consensus_hash FROM staging_blocks WHERE anchored_block_hash = ?1";
-        let args = params![block_hash];
+        let args = params![block_hash.sqlhex()];
         query_rows(conn, qry, args).map_err(|e| e.into())
     }
 
@@ -2154,7 +2164,7 @@ impl StacksChainState {
         tx: &mut DBTx,
         microblock_hash: &BlockHeaderHash,
     ) -> Result<(), Error> {
-        let args = [&microblock_hash];
+        let args = [&microblock_hash.sqlhex()];
 
         // copy into the invalidated_microblocks_data table
         let copy_sql = "INSERT OR REPLACE INTO invalidated_microblocks_data SELECT * FROM staging_microblocks_data WHERE block_hash = ?1";
@@ -2177,16 +2187,17 @@ impl StacksChainState {
     ) -> Result<(), Error> {
         // This block is orphaned
         let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let update_block_args = params![consensus_hash, anchored_block_hash];
+        let update_block_args = params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
 
         // All descendants of this processed block are never attachable.
         // Indicate this by marking all children as orphaned (but not procesed), across all burnchain forks.
         let update_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_consensus_hash = ?1 AND parent_anchored_block_hash = ?2";
-        let update_children_args = params![consensus_hash, anchored_block_hash];
+        let update_children_args = params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
 
         // find all orphaned microblocks, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let find_orphaned_microblocks_args = params![consensus_hash, anchored_block_hash];
+        let find_orphaned_microblocks_args =
+            params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
             find_orphaned_microblocks_sql,
@@ -2196,7 +2207,8 @@ impl StacksChainState {
 
         // drop microblocks (this processes them)
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let update_microblock_children_args = params![consensus_hash, anchored_block_hash];
+        let update_microblock_children_args =
+            params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
 
         tx.execute(update_block_sql, update_block_args)?;
 
@@ -2243,7 +2255,7 @@ impl StacksChainState {
         );
 
         let sql = "DELETE FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 1 AND processed = 1";
-        let args = params![consensus_hash, anchored_block_hash];
+        let args = params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
 
         tx.execute(sql, args)?;
 
@@ -2267,7 +2279,7 @@ impl StacksChainState {
         accept: bool,
     ) -> Result<(), Error> {
         let sql = "SELECT * FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 0".to_string();
-        let args = params![consensus_hash, anchored_block_hash];
+        let args = params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
 
         let has_stored_block = StacksChainState::has_stored_block(
             tx,
@@ -2281,7 +2293,7 @@ impl StacksChainState {
             None => {
                 // not an error if this block was already orphaned
                 let orphan_sql = "SELECT * FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND orphaned = 1".to_string();
-                let orphan_args = params![consensus_hash, anchored_block_hash];
+                let orphan_args = params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
                 let orphan_rows = query_rows::<StagingBlock, _>(tx, &orphan_sql, orphan_args)
                     .map_err(Error::DBError)?;
                 if orphan_rows.len() == 1 {
@@ -2332,8 +2344,8 @@ impl StacksChainState {
         let update_sql = "UPDATE staging_blocks SET processed = 1, processed_time = ?1 WHERE consensus_hash = ?2 AND anchored_block_hash = ?3".to_string();
         let update_args = params![
             u64_to_sql(get_epoch_time_secs())?,
-            consensus_hash,
-            anchored_block_hash,
+            consensus_hash.sqlhex(),
+            anchored_block_hash.sqlhex(),
         ];
 
         tx.execute(&update_sql, update_args)
@@ -2345,7 +2357,7 @@ impl StacksChainState {
             let update_children_sql =
                 "UPDATE staging_blocks SET attachable = 1 WHERE parent_anchored_block_hash = ?1"
                     .to_string();
-            let update_children_args = [&anchored_block_hash];
+            let update_children_args = [&anchored_block_hash.sqlhex()];
 
             tx.execute(&update_children_sql, &update_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -2398,11 +2410,12 @@ impl StacksChainState {
             &index_block_hash
         );
         let update_block_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 1, attachable = 0 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
-        let update_block_args = params![consensus_hash, anchored_block_hash];
+        let update_block_args = params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
 
         // find all orphaned microblocks, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let find_orphaned_microblocks_args = params![consensus_hash, anchored_block_hash];
+        let find_orphaned_microblocks_args =
+            params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
             find_orphaned_microblocks_sql,
@@ -2419,7 +2432,8 @@ impl StacksChainState {
             &index_block_hash
         );
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE consensus_hash = ?1 AND anchored_block_hash = ?2".to_string();
-        let update_microblock_children_args = params![consensus_hash, anchored_block_hash];
+        let update_microblock_children_args =
+            params![consensus_hash.sqlhex(), anchored_block_hash.sqlhex()];
 
         tx.execute(&update_block_sql, update_block_args)
             .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -2455,7 +2469,11 @@ impl StacksChainState {
     ) -> Result<(), Error> {
         // find offending sequence
         let seq_sql = "SELECT sequence FROM staging_microblocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2 AND microblock_hash = ?3 AND processed = 0 AND orphaned = 0".to_string();
-        let seq_args = params![consensus_hash, anchored_block_hash, invalid_block_hash];
+        let seq_args = params![
+            consensus_hash.sqlhex(),
+            anchored_block_hash.sqlhex(),
+            invalid_block_hash.sqlhex()
+        ];
         let seq = match query_int::<_>(tx, &seq_sql, seq_args) {
             Ok(seq) => seq,
             Err(e) => match e {
@@ -2476,7 +2494,7 @@ impl StacksChainState {
 
         // drop staging children at and beyond the invalid block
         let update_microblock_children_sql = "UPDATE staging_microblocks SET orphaned = 1, processed = 1 WHERE anchored_block_hash = ?1 AND sequence >= ?2".to_string();
-        let update_microblock_children_args = params![anchored_block_hash, seq];
+        let update_microblock_children_args = params![anchored_block_hash.sqlhex(), seq];
 
         tx.execute(
             &update_microblock_children_sql,
@@ -2486,7 +2504,7 @@ impl StacksChainState {
 
         // find all orphaned microblocks hashes, and delete the block data
         let find_orphaned_microblocks_sql = "SELECT microblock_hash FROM staging_microblocks WHERE anchored_block_hash = ?1 AND sequence >= ?2";
-        let find_orphaned_microblocks_args = params![anchored_block_hash, seq];
+        let find_orphaned_microblocks_args = params![anchored_block_hash.sqlhex(), seq];
         let orphaned_microblock_hashes = query_row_columns::<BlockHeaderHash, _>(
             tx,
             find_orphaned_microblocks_sql,
@@ -2503,7 +2521,7 @@ impl StacksChainState {
         for mblock_hash in orphaned_microblock_hashes.iter() {
             // orphan any staging blocks that build on the now-invalid microblocks
             let update_block_children_sql = "UPDATE staging_blocks SET orphaned = 1, processed = 0, attachable = 0 WHERE parent_microblock_hash = ?1".to_string();
-            let update_block_children_args = [&mblock_hash];
+            let update_block_children_args = [&mblock_hash.sqlhex()];
 
             tx.execute(&update_block_children_sql, &update_block_children_args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
@@ -2541,7 +2559,11 @@ impl StacksChainState {
             test_debug!("Set {}-{} processed", &parent_index_hash, &mblock_hash);
 
             // confirm this microblock
-            let args = params![parent_consensus_hash, parent_block_hash, mblock_hash];
+            let args = params![
+                parent_consensus_hash.sqlhex(),
+                parent_block_hash.sqlhex(),
+                mblock_hash.sqlhex()
+            ];
             tx.execute(sql, args)
                 .map_err(|e| Error::DBError(db_error::SqliteError(e)))?;
 
@@ -2591,7 +2613,7 @@ impl StacksChainState {
             };
         let parent_index_block_hash =
             StacksBlockHeader::make_index_block_hash(&parent_consensus_hash, &parent_block_hash);
-        StacksChainState::read_one_i64(self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = ?2", &[&parent_index_block_hash, &seq])
+        StacksChainState::read_one_i64(self.db(), "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence = ?2", &[&parent_index_block_hash.sqlhex(), &seq])
             .and_then(|processed| {
                 let Some(processed_head) = processed else {
                     // if empty, return false
@@ -2608,7 +2630,7 @@ impl StacksChainState {
         index_microblock_hash: &StacksBlockId,
     ) -> Result<bool, Error> {
         let sql = "SELECT 1 FROM staging_microblocks WHERE index_microblock_hash = ?1 AND processed = 1 AND orphaned = 0";
-        let args = params![index_microblock_hash];
+        let args = params![index_microblock_hash.sqlhex()];
         let res = conn
             .query_row(sql, args, |_r| Ok(()))
             .optional()
@@ -2662,7 +2684,7 @@ impl StacksChainState {
         StacksChainState::has_any_i64(
             self.db(),
             "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND sequence >= ?2 LIMIT 1", 
-            &[&parent_index_block_hash, &min_seq]
+            params![parent_index_block_hash.sqlhex(), &min_seq]
         )
     }
 
@@ -2678,7 +2700,7 @@ impl StacksChainState {
         StacksChainState::has_any_i64(
             self.db(),
             "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 AND microblock_hash = ?2 LIMIT 1",
-            &[parent_index_block_hash, microblock_hash]
+            params![parent_index_block_hash.sqlhex(), microblock_hash.sqlhex()]
         )
     }
 
@@ -2692,7 +2714,7 @@ impl StacksChainState {
         StacksChainState::has_any_i64(
             self.db(),
             "SELECT processed FROM staging_microblocks WHERE index_block_hash = ?1 LIMIT 1",
-            &[&parent_index_block_hash],
+            params![parent_index_block_hash.sqlhex()],
         )
     }
 
@@ -2707,7 +2729,7 @@ impl StacksChainState {
             "SELECT {},{} FROM staging_blocks WHERE index_block_hash = ?1",
             consensus_hash_col, anchored_block_col
         );
-        let args = params![index_block_hash];
+        let args = params![index_block_hash.sqlhex()];
 
         blocks_db
             .query_row(&sql, args, |row| {
@@ -2759,7 +2781,7 @@ impl StacksChainState {
                    staging_microblocks JOIN staging_microblocks_data \
                    ON staging_microblocks.microblock_hash = staging_microblocks_data.block_hash \
                    WHERE staging_microblocks.index_block_hash = ?1 AND staging_microblocks.microblock_hash = ?2";
-        let args = params![parent_index_block_hash, microblock_hash,];
+        let args = params![parent_index_block_hash.sqlhex(), microblock_hash.sqlhex()];
         query_row(blocks_conn, sql, args).map_err(Error::DBError)
     }
 
@@ -2772,7 +2794,7 @@ impl StacksChainState {
     ) -> Result<Vec<StagingMicroblock>, Error> {
         let sql = "SELECT * FROM staging_microblocks WHERE index_block_hash = ?1 ORDER BY sequence"
             .to_string();
-        let args = params![parent_index_block_hash];
+        let args = params![parent_index_block_hash.sqlhex()];
         let microblock_info =
             query_rows::<StagingMicroblock, _>(blocks_conn, &sql, args).map_err(Error::DBError)?;
         Ok(microblock_info)
@@ -3051,7 +3073,8 @@ impl StacksChainState {
         let args = params![StacksBlockHeader::make_index_block_hash(
             parent_consensus_hash,
             parent_block_hash,
-        )];
+        )
+        .sqlhex()];
         let res = block_conn
             .query_row(sql, args, |_r| Ok(()))
             .optional()
@@ -3793,8 +3816,8 @@ impl StacksChainState {
                         // block in the headers database?
                         let hdr_sql = "SELECT * FROM block_headers WHERE block_hash = ?1 AND consensus_hash = ?2".to_string();
                         let hdr_args = params![
-                            candidate.parent_anchored_block_hash,
-                            candidate.parent_consensus_hash,
+                            candidate.parent_anchored_block_hash.sqlhex(),
+                            candidate.parent_consensus_hash.sqlhex(),
                         ];
                         let hdr_row = query_row_panic::<StacksHeaderInfo, _, _>(
                             blocks_tx,
@@ -4194,7 +4217,7 @@ impl StacksChainState {
                                 &sender.clone().into(),
                                 &recipient.clone().into(),
                                 transfered_ustx,
-                                &BuffData { data: memo },
+                                &BuffData { data: memo.clone().0 },
                             )
                         });
                         match result {
@@ -6417,7 +6440,7 @@ impl StacksChainState {
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let args = params![consensus_hash, block_bhh];
+        let args = params![consensus_hash.sqlhex(), block_bhh.sqlhex()];
         query_row(self.db(), sql, args).map_err(Error::DBError)
     }
 
@@ -6426,7 +6449,7 @@ impl StacksChainState {
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn())?;
         let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let args = params![consensus_hash, block_bhh];
+        let args = params![consensus_hash.sqlhex(), block_bhh.sqlhex()];
         let Some(staging_block): Option<StagingBlock> =
             query_row(self.db(), sql, args).map_err(Error::DBError)?
         else {
@@ -6450,8 +6473,8 @@ impl StacksChainState {
     ) -> Result<Option<StagingBlock>, Error> {
         let sql = "SELECT * FROM staging_blocks WHERE processed = 1 AND orphaned = 0 AND consensus_hash = ?1 AND anchored_block_hash = ?2";
         let args = params![
-            staging_block.parent_consensus_hash,
-            staging_block.parent_anchored_block_hash,
+            staging_block.parent_consensus_hash.sqlhex(),
+            staging_block.parent_anchored_block_hash.sqlhex(),
         ];
         query_row(self.db(), sql, args).map_err(Error::DBError)
     }
@@ -6463,7 +6486,7 @@ impl StacksChainState {
         block_hash: &BlockHeaderHash,
     ) -> Result<Option<u64>, Error> {
         let sql = "SELECT height FROM staging_blocks WHERE consensus_hash = ?1 AND anchored_block_hash = ?2";
-        let args = params![consensus_hash, block_hash];
+        let args = params![consensus_hash.sqlhex(), block_hash.sqlhex()];
         query_row(self.db(), sql, args).map_err(Error::DBError)
     }
 
@@ -10753,7 +10776,7 @@ pub mod test {
             sender: addr.clone(),
             recipient: recipient_addr.clone(),
             transfered_ustx: ((tenure_id + 1) * 1000) as u128,
-            memo: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05],
+            memo: vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05].into(),
 
             txid: Txid::from_test_data(
                 tenure_id as u64,

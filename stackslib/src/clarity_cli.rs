@@ -22,7 +22,7 @@ use std::{fs, io};
 use clarity::vm::coverage::CoverageReporter;
 use lazy_static::lazy_static;
 use rand::Rng;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{params, Connection, OpenFlags};
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::address::c32::c32_address;
@@ -31,6 +31,7 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 
@@ -311,7 +312,10 @@ fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u
         conn.prepare("SELECT id FROM cli_chain_tips WHERE block_hash = ?1"),
         "FATAL: could not prepare query",
     );
-    let mut rows = friendly_expect(stmt.query(&[block_id]), "FATAL: could not fetch rows");
+    let mut rows = friendly_expect(
+        stmt.query(params![block_id.sqlhex()]),
+        "FATAL: could not fetch rows",
+    );
     let mut row_opt = None;
 
     while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
@@ -612,7 +616,7 @@ impl CLIHeadersDB {
         friendly_expect(
             tx.execute(
                 "INSERT INTO cli_chain_tips (block_hash) VALUES (?1)",
-                &[&next_block_hash],
+                &[&next_block_hash.sqlhex()],
             ),
             &format!(
                 "FATAL: failed to store next block hash in '{}'",

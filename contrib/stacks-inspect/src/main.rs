@@ -58,6 +58,7 @@ use stacks_common::types::chainstate::{
 };
 use stacks_common::types::net::{PeerAddress, PeerHost};
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::{Hash160, hex_bytes, to_hex};
 use stacks_common::util::retry::LogReader;
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
@@ -942,7 +943,7 @@ check if the associated microblocks can be downloaded
             println!("{cur_burn}, {cur_tip}");
             let (next_burn, next_tip) = match
                 conn.query_row("SELECT parent_burn_header_hash, parent_anchored_block_hash FROM staging_blocks WHERE anchored_block_hash = ? and burn_header_hash = ?",
-                               params![cur_tip, cur_burn], |row| Ok((row.get_unwrap(0), row.get_unwrap(1)))) {
+                               params![cur_tip.sqlhex(), cur_burn.sqlhex()], |row| Ok((row.get_unwrap(0), row.get_unwrap(1)))) {
                     Ok(x) => x,
                     Err(e) => {
                         match e {

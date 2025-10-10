@@ -454,7 +454,7 @@ impl StacksMessageCodec for StacksWorkScore {
 
 impl_byte_array_message_codec!(TrieHash, TRIEHASH_ENCODED_SIZE as u32);
 impl_byte_array_message_codec!(Sha512Trunc256Sum, 32);
-
+impl_byte_array_message_codec!(VRFSeed, 32);
 impl_byte_array_message_codec!(ConsensusHash, 20);
 impl_byte_array_message_codec!(Hash160, 20);
 impl_byte_array_message_codec!(BurnchainHeaderHash, 32);

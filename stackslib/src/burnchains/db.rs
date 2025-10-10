@@ -22,6 +22,7 @@ use rusqlite::{params, Connection, OpenFlags, Row, Transaction};
 use serde_json;
 use stacks_common::types::chainstate::BurnchainHeaderHash;
 use stacks_common::types::sqlite::NO_PARAMS;
+use stacks_common::util::db::SqlEncoded;
 
 use crate::burnchains::{
     Burnchain, BurnchainBlock, BurnchainBlockHeader, Error as BurnchainError, Txid,
@@ -351,8 +352,8 @@ impl BurnchainDBTransaction<'_> {
                    VALUES (?, ?, ?, ?, ?)";
         let args = params![
             u64_to_sql(header.block_height)?,
-            header.block_hash,
-            header.parent_block_hash,
+            header.block_hash.sqlhex(),
+            header.parent_block_hash.sqlhex(),
             u64_to_sql(header.num_txs)?,
             u64_to_sql(header.timestamp)?,
         ];
@@ -382,8 +383,8 @@ impl BurnchainDBTransaction<'_> {
         let sql = "UPDATE block_commit_metadata SET anchor_block = ?1 WHERE burn_block_hash = ?2 AND txid = ?3";
         let args = params![
             u64_to_sql(target_reward_cycle)?,
-            block_commit.burn_header_hash,
-            block_commit.txid,
+            block_commit.burn_header_hash.sqlhex(),
+            block_commit.txid.sqlhex(),
         ];
         match self.sql_tx.execute(sql, args) {
             Ok(_) => {
@@ -417,8 +418,8 @@ impl BurnchainDBTransaction<'_> {
                                    VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
         let mut stmt = self.sql_tx.prepare(commit_metadata_sql)?;
         let args = params![
-            bcm.burn_block_hash,
-            bcm.txid,
+            bcm.burn_block_hash.sqlhex(),
+            bcm.txid.sqlhex(),
             u64_to_sql(bcm.block_height)?,
             bcm.vtxindex,
             opt_u64_to_sql(bcm.anchor_block)?,
@@ -439,7 +440,11 @@ impl BurnchainDBTransaction<'_> {
         for op in block_ops.iter() {
             let serialized_op =
                 serde_json::to_string(op).expect("Failed to serialize parsed BlockstackOp");
-            let args = params![block_header.block_hash, op.txid_ref(), serialized_op];
+            let args = params![
+                block_header.block_hash.sqlhex(),
+                op.txid_ref().sqlhex(),
+                serialized_op
+            ];
             stmt.execute(args)?;
         }
 
@@ -727,7 +732,7 @@ impl BurnchainDB {
 
     pub fn has_burnchain_block(&self, block: &BurnchainHeaderHash) -> Result<bool, BurnchainError> {
         let qry = "SELECT 1 FROM burnchain_db_block_headers WHERE block_hash = ?1";
-        let res: Option<i64> = query_row(&self.conn, qry, &[block])?;
+        let res: Option<i64> = query_row(&self.conn, qry, params![block.sqlhex()])?;
         Ok(res.is_some())
     }
 
@@ -740,7 +745,7 @@ impl BurnchainDB {
             return Ok(None);
         };
         let qry = "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ?1";
-        let args = params![hdr.block_hash];
+        let args = params![hdr.block_hash.sqlhex()];
         let res: Option<BurnchainBlockHeader> = query_row(conn, qry, args)?;
         Ok(res)
     }
@@ -753,9 +758,9 @@ impl BurnchainDB {
             "SELECT * FROM burnchain_db_block_headers WHERE block_hash = ? LIMIT 1";
         let block_ops_qry = "SELECT DISTINCT * FROM burnchain_db_block_ops WHERE block_hash = ?";
 
-        let block_header = query_row(conn, block_header_qry, params![block])?
+        let block_header = query_row(conn, block_header_qry, params![block.sqlhex()])?
             .ok_or_else(|| BurnchainError::UnknownBlock(block.clone()))?;
-        let block_ops = query_rows(conn, block_ops_qry, params![block])?;
+        let block_ops = query_rows(conn, block_ops_qry, params![block.sqlhex()])?;
 
         Ok(BurnchainBlockData {
             header: block_header,
@@ -770,7 +775,7 @@ impl BurnchainDB {
     ) -> Option<BlockstackOperationType> {
         let qry =
             "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1 AND block_hash = ?2";
-        let args = params![txid, burn_header_hash];
+        let args = params![txid.sqlhex(), burn_header_hash.sqlhex()];
 
         match query_row(conn, qry, args) {
             Ok(res) => res,
@@ -789,7 +794,7 @@ impl BurnchainDB {
         txid: &Txid,
     ) -> Option<BlockstackOperationType> {
         let qry = "SELECT DISTINCT op FROM burnchain_db_block_ops WHERE txid = ?1";
-        let args = params![txid];
+        let args = params![txid.sqlhex()];
 
         let ops: Vec<BlockstackOperationType> =
             query_rows(&self.conn, qry, args).expect("FATAL: burnchain DB query error");
@@ -862,7 +867,7 @@ impl BurnchainDB {
         txid: &Txid,
     ) -> Result<bool, DBError> {
         let sql = "SELECT 1 FROM block_commit_metadata WHERE anchor_block IS NOT NULL AND burn_block_hash = ?1 AND txid = ?2";
-        let args = params![burn_header_hash, txid];
+        let args = params![burn_header_hash.sqlhex(), txid.sqlhex()];
         query_row(conn, sql, args)?.ok_or(DBError::NotFoundError)
     }
 
@@ -930,7 +935,10 @@ impl BurnchainDB {
     ) -> Result<Option<(LeaderBlockCommitOp, BlockCommitMetadata)>, DBError> {
         let sql =
             "SELECT * FROM block_commit_metadata WHERE anchor_block = ?1 AND burn_block_hash = ?2";
-        let args = params![u64_to_sql(reward_cycle)?, anchor_block_burn_header_hash];
+        let args = params![
+            u64_to_sql(reward_cycle)?,
+            anchor_block_burn_header_hash.sqlhex()
+        ];
         if let Some(commit_metadata) = query_row::<BlockCommitMetadata, _>(conn, sql, args)? {
             let commit = BurnchainDB::get_block_commit(
                 conn,
@@ -1010,7 +1018,7 @@ impl BurnchainDB {
         vtxindex: u16,
     ) -> Result<Option<LeaderBlockCommitOp>, DBError> {
         let qry = "SELECT txid FROM block_commit_metadata WHERE block_height = ?1 AND vtxindex = ?2 AND burn_block_hash = ?3";
-        let args = params![block_ptr, vtxindex, header_hash];
+        let args = params![block_ptr, vtxindex, header_hash.sqlhex()];
         let txid = match query_row(conn, qry, args) {
             Ok(Some(txid)) => txid,
             Ok(None) => {
@@ -1056,7 +1064,7 @@ impl BurnchainDB {
         burn_block_hash: &BurnchainHeaderHash,
         txid: &Txid,
     ) -> Result<Option<BlockCommitMetadata>, DBError> {
-        let args = params![burn_block_hash, txid];
+        let args = params![burn_block_hash.sqlhex(), txid.sqlhex()];
         query_row_panic(
             conn,
             "SELECT * FROM block_commit_metadata WHERE burn_block_hash = ?1 AND txid = ?2",

@@ -3377,7 +3377,7 @@ fn test_stacks_on_burnchain_ops() {
                 sender: addr.clone(),
                 recipient: recipient_addr.clone(),
                 transfered_ustx: 1,
-                memo: vec![0x2],
+                memo: vec![0x2].into(),
 
                 // mocked
                 txid: Txid([i | 0x40; 32]),

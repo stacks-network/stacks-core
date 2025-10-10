@@ -17,7 +17,7 @@
 use rusqlite::{params, Connection, OptionalExtension};
 use stacks_common::types::chainstate::{BlockHeaderHash, StacksBlockId, TrieHash};
 use stacks_common::types::sqlite::NO_PARAMS;
-use stacks_common::util::db::tx_busy_handler;
+use stacks_common::util::db::{tx_busy_handler, SqlEncoded};
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::{make_contract_hash_key, ContractCommitment};
@@ -147,7 +147,7 @@ impl SqliteConnection {
         value: &str,
     ) -> Result<()> {
         let key = format!("clr-meta::{contract_hash}::{key}");
-        let params = params![bhh, key, value];
+        let params = params![bhh.sqlhex(), key, value];
 
         if let Err(e) = conn.execute(
             "INSERT INTO metadata_table (blockhash, key, value) VALUES (?, ?, ?)",
@@ -164,7 +164,7 @@ impl SqliteConnection {
         from: &StacksBlockId,
         to: &StacksBlockId,
     ) -> Result<()> {
-        let params = params![to, from];
+        let params = params![to.sqlhex(), from.sqlhex()];
         if let Err(e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
             params,
@@ -178,7 +178,7 @@ impl SqliteConnection {
     pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) -> Result<()> {
         if let Err(e) = conn.execute(
             "DELETE FROM metadata_table WHERE blockhash = ?",
-            params![from],
+            params![from.sqlhex()],
         ) {
             error!("Failed to drop metadata from {from}: {e:?}");
             return Err(InterpreterError::DBError(SQL_FAIL_MESSAGE.into()).into());
@@ -193,7 +193,7 @@ impl SqliteConnection {
         key: &str,
     ) -> Result<Option<String>> {
         let key = format!("clr-meta::{contract_hash}::{key}");
-        let params = params![bhh, key];
+        let params = params![bhh.sqlhex(), key];
 
         match conn
             .query_row(

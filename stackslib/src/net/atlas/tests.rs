@@ -21,6 +21,7 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite::params;
 use stacks_common::types::chainstate::StacksBlockId;
 use stacks_common::types::net::PeerHost;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::Hash160;
 
 use super::download::{
@@ -818,15 +819,15 @@ fn schema_2_migration() {
                 metadata, contract_id, tx_id)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                attachment.content_hash,
+                attachment.content_hash.sqlhex(),
                 0,
-                attachment.index_block_hash,
+                attachment.index_block_hash.sqlhex(),
                 attachment.attachment_index,
                 u64_to_sql(attachment.stacks_block_height).unwrap(),
                 true,
                 attachment.metadata,
                 attachment.contract_id.to_string(),
-                attachment.tx_id,
+                attachment.tx_id.sqlhex(),
             ],
         )
         .unwrap();

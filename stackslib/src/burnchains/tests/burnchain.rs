@@ -90,7 +90,7 @@ fn test_process_block_ops() {
             &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
         )
         .unwrap(),
-        memo: vec![1, 2, 3, 4, 5],
+        memo: vec![1, 2, 3, 4, 5].into(),
 
         txid: Txid::from_bytes(
             &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap(),
@@ -110,7 +110,7 @@ fn test_process_block_ops() {
             &hex_bytes("bb519494643f79f1dea0350e6fb9a1da88dfdb6137117fc2523824a8aa44fe1c").unwrap(),
         )
         .unwrap(),
-        memo: vec![1, 2, 3, 4, 5],
+        memo: vec![1, 2, 3, 4, 5].into(),
 
         txid: Txid::from_bytes(
             &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7").unwrap(),
@@ -130,7 +130,7 @@ fn test_process_block_ops() {
             &hex_bytes("de8af7037e522e65d2fe2d63fb1b764bfea829df78b84444338379df13144a02").unwrap(),
         )
         .unwrap(),
-        memo: vec![1, 2, 3, 4, 5],
+        memo: vec![1, 2, 3, 4, 5].into(),
 
         txid: Txid::from_bytes(
             &hex_bytes("eb54704f71d4a2d1128d60ffccced547054b52250ada6f3e7356165714f44d4c").unwrap(),
@@ -157,7 +157,7 @@ fn test_process_block_ops() {
         parent_vtxindex: 0,
         key_block_ptr: 123,
         key_vtxindex: 456,
-        memo: vec![0x80],
+        memo: vec![0x80].into(),
 
         burn_fee: 12345,
         input: (Txid([0; 32]), 0),
@@ -196,7 +196,7 @@ fn test_process_block_ops() {
         parent_vtxindex: 0,
         key_block_ptr: 122,
         key_vtxindex: 457,
-        memo: vec![0x80],
+        memo: vec![0x80].into(),
 
         burn_fee: 12345,
         input: (Txid([0; 32]), 0),
@@ -235,7 +235,7 @@ fn test_process_block_ops() {
         parent_vtxindex: 0,
         key_block_ptr: 121,
         key_vtxindex: 10,
-        memo: vec![0x80],
+        memo: vec![0x80].into(),
 
         burn_fee: 23456,
         input: (Txid([0; 32]), 0),
@@ -775,7 +775,7 @@ fn test_burn_snapshot_sequence() {
                 parent_vtxindex: (if i == 1 { 0 } else { 2 * (i - 1) }) as u16,
                 key_block_ptr: (first_block_height + (i as u64)) as u32,
                 key_vtxindex: (2 * (i - 1) + 1) as u16,
-                memo: vec![i],
+                memo: vec![i].into(),
 
                 burn_fee: i as u64,
                 input: (Txid([0; 32]), 0),
@@ -818,7 +818,7 @@ fn test_burn_snapshot_sequence() {
                 &hex_bytes(&leader_public_keys[i as usize]).unwrap(),
             )
             .unwrap(),
-            memo: vec![0, 0, 0, 0, i],
+            memo: vec![0, 0, 0, 0, i].into(),
 
             txid: Txid::from_bytes(&[
                 i, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

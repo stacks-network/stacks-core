@@ -42,7 +42,7 @@ use serial_test::serial;
 use stacks::burnchains::{MagicBytes, Txid};
 use stacks::chainstate::burn::db::sortdb::SortitionDB;
 use stacks::chainstate::burn::operations::{
-    BlockstackOperationType, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
+    BlockstackOperationType, BurnOpMemo, DelegateStxOp, PreStxOp, StackStxOp, TransferStxOp,
     VoteForAggregateKeyOp,
 };
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
@@ -107,6 +107,7 @@ use stacks_common::types::{
     set_test_coinbase_schedule, set_test_sip_031_emission_schedule, CoinbaseInterval,
     SIP031EmissionInterval, StacksPublicKeyBuffer,
 };
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::hash::{to_hex, Hash160, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_secs, sleep_ms};
@@ -4994,7 +4995,7 @@ fn burn_ops_integration_test() {
         sender: stacker_addr_1.clone(),
         recipient: stacker_addr_2.clone(),
         transfered_ustx: 10000,
-        memo: vec![],
+        memo: vec![].into(),
         txid: Txid([0u8; 32]),
         vtxindex: 0,
         block_height: 0,
@@ -10440,7 +10441,7 @@ fn sip029_coinbase_change() {
         }
         let coinbase = {
             let sql = "SELECT coinbase FROM payments WHERE consensus_hash = ?1";
-            let args = rusqlite::params![&sn.consensus_hash];
+            let args = rusqlite::params![&sn.consensus_hash.sqlhex()];
             let Some(coinbase) = chainstate
                 .db()
                 .query_row(sql, args, |r| {

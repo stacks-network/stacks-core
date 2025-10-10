@@ -37,6 +37,7 @@ use rusqlite::{params, Connection, Error as SqliteError, OpenFlags, OptionalExte
 use serde::{Deserialize, Serialize};
 use stacks_common::codec::{read_next, write_next, Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::ConsensusHash;
+use stacks_common::util::db::SqlEncoded;
 use stacks_common::util::get_epoch_time_secs;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
@@ -1123,7 +1124,7 @@ impl SignerDb {
     pub fn has_signed_block_in_tenure(&self, tenure: &ConsensusHash) -> Result<bool, DBError> {
         let query =
             "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 LIMIT 1";
-        let result: Option<String> = query_row(&self.db, query, [tenure])?;
+        let result: Option<String> = query_row(&self.db, query, [tenure.sqlhex()])?;
 
         Ok(result.is_some())
     }
@@ -1134,7 +1135,7 @@ impl SignerDb {
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ? AND signed_over = 1 ORDER BY stacks_height ASC LIMIT 1";
-        let result: Option<String> = query_row(&self.db, query, [tenure])?;
+        let result: Option<String> = query_row(&self.db, query, [tenure.sqlhex()])?;
 
         try_deserialize(result)
     }
@@ -1145,7 +1146,7 @@ impl SignerDb {
         tenure: &ConsensusHash,
     ) -> Result<u64, DBError> {
         let query = "SELECT COALESCE((MAX(stacks_height) - MIN(stacks_height) + 1), 0) AS block_count FROM blocks WHERE consensus_hash = ?1 AND state = ?2";
-        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let args = params![tenure.sqlhex(), &BlockState::GloballyAccepted.to_string()];
         let block_count_opt: Option<u64> = query_row(&self.db, query, args)?;
         match block_count_opt {
             Some(block_count) => Ok(block_count),
@@ -1160,7 +1161,7 @@ impl SignerDb {
     ) -> Result<Option<BlockInfo>, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state IN (?2, ?3) ORDER BY stacks_height DESC LIMIT 1";
         let args = params![
-            tenure,
+            tenure.sqlhex(),
             &BlockState::GloballyAccepted.to_string(),
             &BlockState::LocallyAccepted.to_string()
         ];
@@ -1175,7 +1176,7 @@ impl SignerDb {
         tenure: &ConsensusHash,
     ) -> Result<Option<BlockInfo>, DBError> {
         let query = "SELECT block_info FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC LIMIT 1";
-        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let args = params![tenure.sqlhex(), &BlockState::GloballyAccepted.to_string()];
         let result: Option<String> = query_row(&self.db, query, args)?;
 
         try_deserialize(result)
@@ -1195,7 +1196,7 @@ impl SignerDb {
             ORDER BY burn_block_height DESC
             LIMIT 1;
         "#;
-        let args = params![tenure, &BlockState::GloballyAccepted.to_string()];
+        let args = params![tenure.sqlhex(), &BlockState::GloballyAccepted.to_string()];
         let result: Option<u64> = query_row(&self.db, query, args)?;
         Ok(result.map(|signed_self| UNIX_EPOCH + Duration::from_secs(signed_self)))
     }
@@ -1232,11 +1233,11 @@ impl SignerDb {
         self.db.execute(
             "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time, parent_burn_block_hash) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
-                burn_hash,
-                consensus_hash,
+                burn_hash.sqlhex(),
+                consensus_hash.sqlhex(),
                 u64_to_sql(burn_height)?,
                 u64_to_sql(received_ts)?,
-                parent_burn_block_hash,
+                parent_burn_block_hash.sqlhex(),
             ],
         )?;
         Ok(())
@@ -1249,7 +1250,9 @@ impl SignerDb {
         burn_hash: &BurnchainHeaderHash,
     ) -> Result<Option<u64>, DBError> {
         let query = "SELECT received_time FROM burn_blocks WHERE block_hash = ? LIMIT 1";
-        let Some(receive_time_i64) = query_row::<i64, _>(&self.db, query, &[burn_hash])? else {
+        let Some(receive_time_i64) =
+            query_row::<i64, _>(&self.db, query, params![burn_hash.sqlhex()])?
+        else {
             return Ok(None);
         };
         let receive_time = u64::try_from(receive_time_i64).map_err(|e| {
@@ -1266,7 +1269,8 @@ impl SignerDb {
         ch: &ConsensusHash,
     ) -> Result<Option<u64>, DBError> {
         let query = "SELECT received_time FROM burn_blocks WHERE consensus_hash = ? LIMIT 1";
-        let Some(receive_time_i64) = query_row::<i64, _>(&self.db, query, &[ch])? else {
+        let Some(receive_time_i64) = query_row::<i64, _>(&self.db, query, params![ch.sqlhex()])?
+        else {
             return Ok(None);
         };
         let receive_time = u64::try_from(receive_time_i64).map_err(|e| {
@@ -1283,7 +1287,7 @@ impl SignerDb {
     ) -> Result<BurnBlockInfo, DBError> {
         let query =
             "SELECT block_hash, block_height, consensus_hash, parent_burn_block_hash FROM burn_blocks WHERE block_hash = ?";
-        let args = params![burn_block_hash];
+        let args = params![burn_block_hash.sqlhex()];
 
         query_row(&self.db, query, args)?.ok_or(DBError::NotFoundError)
     }
@@ -1291,7 +1295,7 @@ impl SignerDb {
     /// Lookup the burn block for a given consensus hash.
     pub fn get_burn_block_by_ch(&self, ch: &ConsensusHash) -> Result<BurnBlockInfo, DBError> {
         let query = "SELECT block_hash, block_height, consensus_hash, parent_burn_block_hash FROM burn_blocks WHERE consensus_hash = ?";
-        let args = params![ch];
+        let args = params![ch.sqlhex()];
 
         query_row(&self.db, query, args)?.ok_or(DBError::NotFoundError)
     }
@@ -1326,7 +1330,7 @@ impl SignerDb {
             &block_info.signed_over,
             &broadcasted,
             u64_to_sql(block_info.block.header.chain_length)?,
-            block_info.block.header.consensus_hash.to_hex(),
+            block_info.block.header.consensus_hash.sqlhex(),
             &block_info.valid, &block_info.state.to_string(),
             &block_info.signed_group,
             &block_info.signed_self,
@@ -1361,13 +1365,13 @@ impl SignerDb {
     ) -> Result<bool, DBError> {
         // Remove any block rejection entry for this signer and block hash
         let del_qry = "DELETE FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1 AND signer_addr = ?2";
-        let del_args = params![block_sighash, signer_addr.to_string()];
+        let del_args = params![block_sighash.sqlhex(), signer_addr.to_string()];
         self.db.execute(del_qry, del_args)?;
 
         // Insert the block signature
         let qry = "INSERT OR IGNORE INTO block_signatures (signer_signature_hash, signer_addr, signature) VALUES (?1, ?2, ?3);";
         let args = params![
-            block_sighash,
+            block_sighash.sqlhex(),
             signer_addr.to_string(),
             serde_json::to_string(signature).map_err(DBError::SerializationError)?
         ];
@@ -1396,7 +1400,7 @@ impl SignerDb {
         block_sighash: &Sha512Trunc256Sum,
     ) -> Result<Vec<MessageSignature>, DBError> {
         let qry = "SELECT signature FROM block_signatures WHERE signer_signature_hash = ?1";
-        let args = params![block_sighash];
+        let args = params![block_sighash.sqlhex()];
         let sigs_txt: Vec<String> = query_rows(&self.db, qry, args)?;
         sigs_txt
             .into_iter()
@@ -1413,7 +1417,7 @@ impl SignerDb {
     ) -> Result<bool, DBError> {
         // If this signer/block already has a signature, do not allow a rejection
         let sig_qry = "SELECT EXISTS(SELECT 1 FROM block_signatures WHERE signer_signature_hash = ?1 AND signer_addr = ?2)";
-        let sig_args = params![block_sighash, addr.to_string()];
+        let sig_args = params![block_sighash.sqlhex(), addr.to_string()];
         let exists = self.db.query_row(sig_qry, sig_args, |row| row.get(0))?;
         if exists {
             warn!("Cannot add block rejection because a signature already exists.";
@@ -1426,7 +1430,7 @@ impl SignerDb {
 
         // Check if a row exists for this sighash/signer combo
         let qry = "SELECT reject_code FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1 AND signer_addr = ?2 LIMIT 1";
-        let args = params![block_sighash, addr.to_string()];
+        let args = params![block_sighash.sqlhex(), addr.to_string()];
         let existing_code: Option<i64> =
             self.db.query_row(qry, args, |row| row.get(0)).optional()?;
 
@@ -1445,7 +1449,7 @@ impl SignerDb {
             Some(_) => {
                 // Row exists but with different reject_reason, update it
                 let update_qry = "UPDATE block_rejection_signer_addrs SET reject_code = ?1 WHERE signer_signature_hash = ?2 AND signer_addr = ?3";
-                let update_args = params![reject_code, block_sighash, addr.to_string()];
+                let update_args = params![reject_code, block_sighash.sqlhex(), addr.to_string()];
                 self.db.execute(update_qry, update_args)?;
                 debug!("Updated block rejection reason.";
                     "signer_signature_hash" => %block_sighash,
@@ -1457,7 +1461,7 @@ impl SignerDb {
             None => {
                 // Row does not exist, insert it
                 let insert_qry = "INSERT INTO block_rejection_signer_addrs (signer_signature_hash, signer_addr, reject_code) VALUES (?1, ?2, ?3)";
-                let insert_args = params![block_sighash, addr.to_string(), reject_code];
+                let insert_args = params![block_sighash.sqlhex(), addr.to_string(), reject_code];
                 self.db.execute(insert_qry, insert_args)?;
                 debug!("Inserted block rejection.";
                     "signer_signature_hash" => %block_sighash,
@@ -1476,7 +1480,7 @@ impl SignerDb {
     ) -> Result<Vec<(StacksAddress, RejectReasonPrefix)>, DBError> {
         let qry =
             "SELECT signer_addr, reject_code FROM block_rejection_signer_addrs WHERE signer_signature_hash = ?1";
-        let args = params![block_sighash];
+        let args = params![block_sighash.sqlhex()];
         let mut stmt = self.db.prepare(qry)?;
 
         let rows = stmt.query_map(args, |row| {
@@ -1511,7 +1515,7 @@ impl SignerDb {
         ts: u64,
     ) -> Result<(), DBError> {
         let qry = "UPDATE blocks SET broadcasted = ?1 WHERE signer_signature_hash = ?2";
-        let args = params![u64_to_sql(ts)?, block_sighash];
+        let args = params![u64_to_sql(ts)?, block_sighash.sqlhex()];
 
         debug!("Marking block {} as broadcasted at {}", block_sighash, ts);
         self.db.execute(qry, args)?;
@@ -1525,7 +1529,7 @@ impl SignerDb {
     ) -> Result<Option<u64>, DBError> {
         let qry =
             "SELECT IFNULL(broadcasted,0) AS broadcasted FROM blocks WHERE signer_signature_hash = ?";
-        let args = params![block_sighash];
+        let args = params![block_sighash.sqlhex()];
 
         let Some(broadcasted): Option<u64> = query_row(&self.db, qry, args)? else {
             return Ok(None);
@@ -1582,7 +1586,7 @@ impl SignerDb {
     /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
     fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
         let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
-        let args = params![tenure, BlockState::GloballyAccepted.to_string()];
+        let args = params![tenure.sqlhex(), BlockState::GloballyAccepted.to_string()];
         let mut stmt = self.db.prepare(query)?;
         let rows = stmt.query_map(args, |row| {
             let tenure_change_block: bool = row.get(0)?;
@@ -1668,7 +1672,7 @@ impl SignerDb {
         last_activity_time: u64,
     ) -> Result<(), DBError> {
         debug!("Updating last activity for tenure"; "consensus_hash" => %tenure, "last_activity_time" => last_activity_time);
-        self.db.execute("INSERT OR REPLACE INTO tenure_activity (consensus_hash, last_activity_time) VALUES (?1, ?2)", params![tenure, u64_to_sql(last_activity_time)?])?;
+        self.db.execute("INSERT OR REPLACE INTO tenure_activity (consensus_hash, last_activity_time) VALUES (?1, ?2)", params![tenure.sqlhex(), u64_to_sql(last_activity_time)?])?;
         Ok(())
     }
 
@@ -1676,7 +1680,9 @@ impl SignerDb {
     pub fn get_last_activity_time(&self, tenure: &ConsensusHash) -> Result<Option<u64>, DBError> {
         let query =
             "SELECT last_activity_time FROM tenure_activity WHERE consensus_hash = ? LIMIT 1";
-        let Some(last_activity_time_i64) = query_row::<i64, _>(&self.db, query, &[tenure])? else {
+        let Some(last_activity_time_i64) =
+            query_row::<i64, _>(&self.db, query, params![tenure.sqlhex()])?
+        else {
             return Ok(None);
         };
         let last_activity_time = u64::try_from(last_activity_time_i64).map_err(|e| {
@@ -1721,7 +1727,7 @@ impl SignerDb {
             VALUES (?1, ?2, ?3)",
             params![
                 address.to_string(),
-                burn_block_consensus_hash,
+                burn_block_consensus_hash.sqlhex(),
                 u64_to_sql(received_ts)?,
             ],
         )?;
@@ -1819,7 +1825,7 @@ impl SignerDb {
         "#;
 
         let mut stmt = self.db.prepare(query)?;
-        let rows = stmt.query_map(params![ch], |row| {
+        let rows = stmt.query_map(params![ch.sqlhex()], |row| {
             let signer_addr: String = row.get(0)?;
             let received_time: i64 = row.get(1)?;
             Ok((signer_addr, received_time))
@@ -1861,7 +1867,7 @@ impl SignerDb {
         address: &StacksAddress,
     ) -> Result<(), DBError> {
         let qry = "INSERT OR REPLACE INTO block_pre_commits (signer_signature_hash, signer_addr) VALUES (?1, ?2);";
-        let args = params![block_sighash, address.to_string()];
+        let args = params![block_sighash.sqlhex(), address.to_string()];
 
         debug!("Inserting block pre-commit.";
             "signer_signature_hash" => %block_sighash,
@@ -1886,7 +1892,7 @@ impl SignerDb {
             .db
             .query_row(
                 qry_check,
-                params![block_sighash, address.to_string()],
+                params![block_sighash.sqlhex(), address.to_string()],
                 |row| row.get(0),
             )
             .optional()?;
@@ -1900,7 +1906,7 @@ impl SignerDb {
         block_sighash: &Sha512Trunc256Sum,
     ) -> Result<Vec<StacksAddress>, DBError> {
         let qry = "SELECT signer_addr FROM block_pre_commits WHERE signer_signature_hash = ?1";
-        let args = params![block_sighash];
+        let args = params![block_sighash.sqlhex()];
         let addrs_txt: Vec<String> = query_rows(&self.db, qry, args)?;
 
         let res: Result<Vec<_>, _> = addrs_txt
@@ -1977,7 +1983,7 @@ impl SignerDb {
         sighash: &Sha512Trunc256Sum,
     ) -> Result<bool, DBError> {
         let qry = "SELECT signer_signature_hash FROM block_validations_pending WHERE signer_signature_hash = ?1";
-        let args = params![sighash.to_string()];
+        let args = params![sighash.sqlhex()];
         let sighash_opt: Option<String> = query_row(&self.db, qry, args)?;
         Ok(sighash_opt.is_some())
     }
@@ -3297,7 +3303,7 @@ pub mod tests {
                 conn.execute(
                     "INSERT OR REPLACE INTO burn_blocks (block_hash, block_height, received_time) VALUES (?1, ?2, ?3)",
                     params![
-                        burn_hash,
+                        burn_hash.sqlhex(),
                         u64_to_sql(burn_height.into()).unwrap(),
                         u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
                     ]
@@ -3306,8 +3312,8 @@ pub mod tests {
                 conn.execute(
                     "INSERT OR REPLACE INTO burn_blocks (block_hash, consensus_hash, block_height, received_time) VALUES (?1, ?2, ?3, ?4)",
                     params![
-                        burn_hash,
-                        consensus_hash,
+                        burn_hash.sqlhex(),
+                        consensus_hash.sqlhex(),
                         u64_to_sql(burn_height.into()).unwrap(),
                         u64_to_sql(received_ts + i as u64).unwrap(), // Ensure increasing received_time
                     ]

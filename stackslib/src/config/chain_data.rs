@@ -282,7 +282,7 @@ impl MinerStats {
                 parent_vtxindex: 1,
                 key_block_ptr: 1,
                 key_vtxindex: 1,
-                memo: vec![],
+                memo: vec![].into(),
                 commit_outs: decoded_pox_addrs,
                 burn_fee: unconfirmed_commit.burn,
                 input: (input_txid, unconfirmed_commit.input_index),
@@ -447,7 +447,7 @@ impl MinerStats {
                     parent_vtxindex: 2,
                     key_block_ptr: 2,
                     key_vtxindex: 2,
-                    memo: vec![],
+                    memo: vec![].into(),
                     commit_outs: expected_pox_addrs.to_vec(),
                     burn_fee: last_commit.burn_fee,
                     input: (last_commit.txid.clone(), expected_input_index),
@@ -555,7 +555,7 @@ pub mod tests {
             parent_vtxindex: 456,
             key_block_ptr: 123,
             key_vtxindex: 456,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
@@ -588,7 +588,7 @@ pub mod tests {
             parent_vtxindex: 111,
             key_block_ptr: 122,
             key_vtxindex: 457,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
@@ -624,7 +624,7 @@ pub mod tests {
             parent_vtxindex: 111,
             key_block_ptr: 121,
             key_vtxindex: 10,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
 
             burn_fee: 23456,
             input: (Txid([0; 32]), 0),
@@ -908,7 +908,7 @@ echo ]
                     parent_vtxindex: 456,
                     key_block_ptr: 123,
                     key_vtxindex: 456,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
 
                     burn_fee: 2,
                     input: (Txid([0; 32]), 0),
@@ -940,7 +940,7 @@ echo ]
                     parent_vtxindex: 111,
                     key_block_ptr: 122,
                     key_vtxindex: 457,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
 
                     burn_fee: 3,
                     input: (Txid([0; 32]), 0),
@@ -975,7 +975,7 @@ echo ]
                     parent_vtxindex: 111,
                     key_block_ptr: 121,
                     key_vtxindex: 10,
-                    memo: vec![0x80],
+                    memo: vec![0x80].into(),
 
                     burn_fee: 5,
                     input: (Txid([0; 32]), 0),
@@ -1010,7 +1010,7 @@ echo ]
                 parent_vtxindex: 456,
                 key_block_ptr: 123,
                 key_vtxindex: 456,
-                memo: vec![0x80],
+                memo: vec![0x80].into(),
 
                 burn_fee: 2,
                 input: (Txid([0; 32]), 0),
@@ -1037,7 +1037,7 @@ echo ]
                 parent_vtxindex: 444,
                 key_block_ptr: 123,
                 key_vtxindex: 456,
-                memo: vec![0x80],
+                memo: vec![0x80].into(),
 
                 burn_fee: 3,
                 input: (Txid([0; 32]), 0),
@@ -1064,7 +1064,7 @@ echo ]
                 parent_vtxindex: 445,
                 key_block_ptr: 123,
                 key_vtxindex: 456,
-                memo: vec![0x80],
+                memo: vec![0x80].into(),
 
                 burn_fee: 10,
                 input: (Txid([0; 32]), 0),
@@ -1091,7 +1091,7 @@ echo ]
                 parent_vtxindex: 445,
                 key_block_ptr: 123,
                 key_vtxindex: 456,
-                memo: vec![0x80],
+                memo: vec![0x80].into(),
 
                 burn_fee: 10,
                 input: (Txid([0; 32]), 0),

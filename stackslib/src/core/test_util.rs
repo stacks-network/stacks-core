@@ -9,6 +9,7 @@ use clarity::vm::costs::ExecutionCost;
 use clarity::vm::tests::BurnStateDB;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use stacks_common::util::db::SqlEncoded;
 
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
@@ -506,15 +507,15 @@ pub fn insert_tx_in_mempool(
             .txid()
     };
     let args = rusqlite::params![
-        txid,
+        txid.sqlhex(),
         origin_addr_str,
         origin_nonce,
         origin_addr_str,
         origin_nonce,
         fee,
         length,
-        consensus_hash,
-        block_header_hash,
+        consensus_hash.sqlhex(),
+        block_header_hash.sqlhex(),
         height,
         Utc::now().timestamp(),
         tx_hex,

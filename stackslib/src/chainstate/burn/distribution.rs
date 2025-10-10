@@ -503,7 +503,7 @@ mod tests {
             parent_vtxindex: 0,
             key_block_ptr: vrf_ident,
             key_vtxindex: 0,
-            memo: vec![],
+            memo: vec![].into(),
             burn_fee,
             input: (input_txid, 3),
             apparent_sender: BurnchainSigner::new_p2pkh(&StacksPublicKey::new()),
@@ -803,7 +803,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562")
@@ -828,7 +828,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("9410df84e2b440055c33acb075a0687752df63fe8fe84aeec61abe469f0448c7")
@@ -853,7 +853,7 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            memo: vec![1, 2, 3, 4, 5],
+            memo: vec![1, 2, 3, 4, 5].into(),
 
             txid: Txid::from_bytes_be(
                 &hex_bytes("eb54704f71d4a2d1128d60ffccced547054b52250ada6f3e7356165714f44d4c")
@@ -885,7 +885,7 @@ mod tests {
             parent_vtxindex: 456,
             key_block_ptr: 123,
             key_vtxindex: 456,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
@@ -931,7 +931,7 @@ mod tests {
             parent_vtxindex: 111,
             key_block_ptr: 122,
             key_vtxindex: 457,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
 
             burn_fee: 12345,
             input: (Txid([0; 32]), 0),
@@ -977,7 +977,7 @@ mod tests {
             parent_vtxindex: 111,
             key_block_ptr: 121,
             key_vtxindex: 10,
-            memo: vec![0x80],
+            memo: vec![0x80].into(),
 
             burn_fee: 23456,
             input: (Txid([0; 32]), 0),
