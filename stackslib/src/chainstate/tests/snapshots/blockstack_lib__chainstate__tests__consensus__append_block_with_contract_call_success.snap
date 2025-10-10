@@ -18,6 +18,7 @@ expression: result
           read_count: 1,
           runtime: 11968,
         ),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
       ),
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
@@ -31,6 +32,7 @@ expression: result
           read_count: 3,
           runtime: 499,
         ),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
       ),
     ],
     total_block_cost: ExecutionCost(
@@ -56,6 +58,7 @@ expression: result
           read_count: 1,
           runtime: 11968,
         ),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
       ),
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
@@ -69,6 +72,7 @@ expression: result
           read_count: 3,
           runtime: 499,
         ),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
       ),
     ],
     total_block_cost: ExecutionCost(
@@ -94,6 +98,7 @@ expression: result
           read_count: 1,
           runtime: 11968,
         ),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
       ),
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
@@ -107,6 +112,7 @@ expression: result
           read_count: 3,
           runtime: 499,
         ),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
       ),
     ],
     total_block_cost: ExecutionCost(
@@ -132,6 +138,7 @@ expression: result
           read_count: 1,
           runtime: 11968,
         ),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
       ),
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
@@ -145,6 +152,7 @@ expression: result
           read_count: 3,
           runtime: 499,
         ),
+        vm_error: "None [NON-CONSENSUS BREAKING]",
       ),
     ],
     total_block_cost: ExecutionCost(
