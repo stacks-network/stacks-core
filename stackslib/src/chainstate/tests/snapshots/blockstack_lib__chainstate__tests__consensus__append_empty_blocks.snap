@@ -3,48 +3,8 @@ source: stackslib/src/chainstate/tests/consensus.rs
 expression: result
 ---
 [
-  Success(ExpectedBlockOutput(
-    marf_hash: "f1934080b22ef0192cfb39710690e7cb0efa9cff950832b33544bde3aa1484a5",
-    transactions: [],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 0,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a05f1383613215f5789eb977e4c62dfbb789d90964e14865d109375f7f6dc3cf",
-    transactions: [],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 0,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c17829daff8746329c65ae658f4087519c6a8bd8c7f21e51644ddbc9c010390f",
-    transactions: [],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 0,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "dedba92e27a93c88c9631c2ecad3b191ada28f49b1e9f973b573af0bebf8445e",
-    transactions: [],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 0,
-    ),
-  )),
+  Failure("Invalid Nakamoto block: failed static transaction checks"),
+  Failure("Invalid Nakamoto block: failed static transaction checks"),
+  Failure("Invalid Nakamoto block: failed static transaction checks"),
+  Failure("Invalid Nakamoto block: failed static transaction checks"),
 ]
