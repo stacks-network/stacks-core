@@ -27,7 +27,7 @@ use clarity::vm::errors::Error as InterpreterError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use lazy_static::lazy_static;
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use stacks_common::address;
 use stacks_common::address::AddressHashMode;
 use stacks_common::consts::CHAIN_ID_TESTNET;
@@ -38,12 +38,15 @@ use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::StacksPublicKeyBuffer;
-use stacks_common::util::hash::Hash160;
+use stacks_common::util::db::SqlEncoded;
+use stacks_common::util::hash::{hex_bytes, Hash160};
+use stacks_common::util::uint::Uint256;
 use stacks_common::util::vrf::*;
 
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
 use crate::burnchains::db::*;
 use crate::burnchains::*;
+use crate::chainstate::burn::db::sortdb::tests::test_append_snapshot;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::distribution::BurnSamplePoint;
 use crate::chainstate::burn::operations::leader_block_commit::*;
@@ -71,6 +74,25 @@ lazy_static! {
     pub static ref TXIDS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
     pub static ref MBLOCK_PUBKHS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
     pub static ref STACKS_BLOCK_HEADERS: Arc<AtomicU64> = Arc::new(AtomicU64::new(1));
+}
+
+impl SortitionHandleTx<'_> {
+    /// Write or replace a burnchain state transition.
+    /// Used for testing only, so we can test reencoding.
+    fn store_or_replace_transition_ops(
+        &mut self,
+        new_sortition: &SortitionId,
+        transition: &BurnchainStateTransition,
+    ) {
+        let sql = "INSERT OR REPLACE INTO snapshot_transition_ops (sortition_id, accepted_ops, consumed_keys) VALUES (?, ?, ?)";
+        let args = params![
+            new_sortition.sql_encoded(self.context.column_encoding),
+            serde_json::to_string(&transition.accepted_ops).unwrap(),
+            serde_json::to_string(&transition.consumed_leader_keys).unwrap(),
+        ];
+        self.execute(sql, args).unwrap();
+        self.store_burn_distribution(new_sortition, transition);
+    }
 }
 
 fn test_path(name: &str) -> String {
@@ -136,7 +158,7 @@ pub fn produce_burn_block<'a, I: Iterator<Item = &'a mut BurnchainDB>>(
 fn get_burn_distribution(conn: &Connection, sortition: &SortitionId) -> Vec<BurnSamplePoint> {
     conn.query_row(
         "SELECT data FROM snapshot_burn_distributions WHERE sortition_id = ?",
-        &[sortition],
+        params![sortition.sqlhex()],
         |row| {
             let data_str: String = row.get_unwrap(0);
             Ok(serde_json::from_str(&data_str).unwrap())
@@ -306,7 +328,7 @@ pub fn setup_states_with_epochs(
                     LeaderKeyRegisterOp {
                         public_key,
                         consensus_hash,
-                        memo,
+                        memo: memo.into(),
                         vtxindex,
                         block_height,
                         burn_header_hash,
@@ -673,7 +695,7 @@ fn make_genesis_block_with_recipients(
         ),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_4_MARKER],
+        memo: vec![STACKS_EPOCH_2_4_MARKER].into(),
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -945,7 +967,7 @@ fn make_stacks_block_with_input(
         ),
         key_block_ptr: 1, // all registers happen in block height 1
         key_vtxindex: (1 + key_index) as u16,
-        memo: vec![STACKS_EPOCH_2_4_MARKER],
+        memo: vec![STACKS_EPOCH_2_4_MARKER].into(),
         new_seed: VRFSeed::from_proof(&proof),
         commit_outs,
 
@@ -3126,7 +3148,7 @@ fn test_stx_transfer_btc_ops() {
                 sender: stacker.clone(),
                 recipient: recipient.clone(),
                 transfered_ustx: transfer_amt,
-                memo: vec![],
+                memo: vec![].into(),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -3138,7 +3160,7 @@ fn test_stx_transfer_btc_ops() {
                 sender: recipient.clone(),
                 recipient: stacker.clone(),
                 transfered_ustx: transfer_amt + 1,
-                memo: vec![],
+                memo: vec![].into(),
                 txid: next_txid(),
                 vtxindex: 5,
                 block_height: 0,
@@ -6464,4 +6486,730 @@ fn test_check_chainstate_db_versions() {
 
     // should fail in epoch 2.05
     assert!(!check_chainstate_db_versions(&[epoch_2_05], &sortdb_path, &chainstate_path).unwrap());
+}
+
+/// Macro for tests to verify that a particular struct's SqlEncoded implementation can load its
+/// legacy representation and its SIP003 representation.
+/// Pertains to structures besides those declared by impl_byte_array_newtype!().
+macro_rules! impl_reencoding_test {
+    ($func_name:ident, $type:ty, $db_sample:expr, $expected:expr, $encoding:expr) => {
+        #[test]
+        fn $func_name() {
+            let pathdir = test_path(function_name!());
+            let _ = std::fs::remove_dir_all(&pathdir);
+            std::fs::create_dir_all(&pathdir).unwrap();
+            let path = format!("{}/test.db", &pathdir);
+
+            test_debug!("Create test database '{}'...", &path);
+
+            let mut db = $crate::util_lib::db::sqlite_open(
+                &path,
+                rusqlite::OpenFlags::SQLITE_OPEN_CREATE
+                    | rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
+                false,
+            )
+            .unwrap();
+            let sql = "CREATE TABLE test(instance TEXT NOT NULL)";
+            {
+                let tx = $crate::util_lib::db::tx_begin_immediate(&mut db).unwrap();
+                tx.execute(sql, rusqlite::params![]).unwrap();
+                tx.commit().unwrap();
+            }
+
+            test_debug!("Insert old form...");
+
+            // insert old form
+            let sql = "INSERT INTO test (instance) VALUES (?1)";
+            {
+                let tx = $crate::util_lib::db::tx_begin_immediate(&mut db).unwrap();
+                let mut stmt = tx.prepare(sql).unwrap();
+                stmt.raw_bind_parameter(1, $db_sample).unwrap();
+                stmt.raw_execute().unwrap();
+                drop(stmt);
+                tx.commit().unwrap();
+            }
+
+            test_debug!("Query old form...");
+
+            // query old form
+            let sql = "SELECT instance FROM test";
+            {
+                let mut stmt = db.prepare(sql).unwrap();
+                let mut rows = stmt.query(params![]).unwrap();
+                let row = rows.next().unwrap().unwrap();
+                let val = <$type>::sql_decoded(&row, "instance", None).unwrap();
+
+                assert_eq!($expected, val);
+            }
+
+            test_debug!("Reencode form...");
+
+            // reencode
+            let sql = "UPDATE test SET instance = ?1 WHERE instance = ?2";
+            {
+                let tx = $crate::util_lib::db::tx_begin_immediate(&mut db).unwrap();
+                let mut stmt = tx.prepare(sql).unwrap();
+                stmt.raw_bind_parameter(1, $expected.sql_encoded($encoding))
+                    .unwrap();
+                stmt.raw_bind_parameter(2, $db_sample).unwrap();
+                stmt.raw_execute().unwrap();
+                drop(stmt);
+                tx.commit().unwrap();
+            }
+
+            test_debug!("Query new form...");
+
+            // query new form
+            let sql = "SELECT instance FROM test";
+            {
+                let mut stmt = db.prepare(sql).unwrap();
+                let mut rows = stmt.query(params![]).unwrap();
+                let row = rows.next().unwrap().unwrap();
+                let val = <$type>::sql_decoded(&row, "instance", $encoding).unwrap();
+
+                assert_eq!($expected, val);
+            }
+        }
+    };
+}
+
+impl_reencoding_test!(
+    test_burn_op_memo_legacy,
+    BurnOpMemo,
+    "010203",
+    BurnOpMemo(vec![1, 2, 3]),
+    None
+);
+impl_reencoding_test!(
+    test_burn_op_memo_sip003,
+    BurnOpMemo,
+    "010203",
+    BurnOpMemo(vec![1, 2, 3]),
+    Some(ColumnEncoding::SIP003)
+);
+
+/// Generic test harness for verifying that data stored to the sortition DB can be loaded after a
+/// reencoding
+fn test_sortitiondb_reencoding<L, S, R>(test_name: &str, storer: S, mut loader: L)
+where
+    S: FnOnce(&mut SortitionDB),
+    L: FnMut(&mut SortitionDB) -> R,
+    R: std::cmp::PartialEq + std::fmt::Debug,
+{
+    let path = &test_path(test_name);
+    let _ = std::fs::remove_dir_all(path);
+
+    let sortdb_path = format!("{}/sortdb", &path);
+    let burnchain_path = format!("{}/burnchain", &path);
+
+    std::fs::create_dir_all(&burnchain_path).unwrap();
+
+    let pox_constants = PoxConstants::new(
+        5,
+        3,
+        3,
+        25,
+        5,
+        u64::MAX,
+        u64::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+        u32::MAX,
+    );
+    let burnchain = Burnchain::regtest(&burnchain_path);
+    let _burnchain_blocks_db =
+        BurnchainDB::connect(&burnchain.get_burnchaindb_path(), &burnchain, true).unwrap();
+
+    let mut boot_data = ChainStateBootData::new(&burnchain, vec![], None);
+
+    let post_flight_callback = move |clarity_tx: &mut ClarityTx| {
+        let contract = boot_code_id("pox", false);
+        let sender = PrincipalData::from(contract.clone());
+
+        clarity_tx.connection().as_transaction(|conn| {
+            conn.run_contract_call(
+                &sender,
+                None,
+                &contract,
+                "set-burnchain-parameters",
+                &[
+                    Value::UInt(burnchain.first_block_height as u128),
+                    Value::UInt(burnchain.pox_constants.prepare_length as u128),
+                    Value::UInt(burnchain.pox_constants.reward_cycle_length as u128),
+                    Value::UInt(burnchain.pox_constants.pox_rejection_fraction as u128),
+                ],
+                |_, _| None,
+                None,
+            )
+            .expect("Failed to set burnchain parameters in PoX contract");
+        });
+    };
+
+    boot_data.post_flight_callback = Some(Box::new(post_flight_callback));
+
+    let (chainstate, _) = StacksChainState::open_and_exec(
+        false,
+        0x80000000,
+        &format!("{path}/chainstate/"),
+        Some(&mut boot_data),
+        None,
+    )
+    .unwrap();
+
+    let mut sortdb = SortitionDB::connect(
+        &sortdb_path,
+        100,
+        &BurnchainHeaderHash([0x00; 32]),
+        0,
+        &StacksEpoch::all(0, 0, 0),
+        pox_constants,
+        None,
+        true,
+    )
+    .unwrap();
+
+    storer(&mut sortdb);
+    let obj = loader(&mut sortdb);
+
+    let migrator = SortitionDBMigrator::new(burnchain, &chainstate.root_path, None)
+        .unwrap()
+        .with_column_encoding(ColumnEncoding::SIP003);
+
+    migrator.reencode_tables(&mut sortdb).unwrap();
+
+    let reencoded_obj = loader(&mut sortdb);
+    assert_eq!(obj, reencoded_obj);
+}
+
+/// Test that the SortitionDBMigrator can reencode the first snapshot
+#[test]
+fn test_first_snapshot_reencoding() {
+    test_sortitiondb_reencoding(
+        "first_snapshot",
+        |_sortdb| {},
+        |sortdb| SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap(),
+    );
+}
+
+/// Test that the SortitionDB migrator can reencode an arbitrary snapshot
+#[test]
+fn test_snapshot_reencoding() {
+    test_sortitiondb_reencoding(
+        "snapshot",
+        |sortdb| {
+            let first_snapshot = SortitionDB::get_first_block_snapshot(sortdb.conn()).unwrap();
+            let snapshot = BlockSnapshot {
+                accumulated_coinbase_ustx: 0,
+                pox_valid: true,
+                block_height: first_snapshot.block_height + 1,
+                burn_header_timestamp: get_epoch_time_secs(),
+                burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+                sortition_id: SortitionId([0x02; 32]),
+                parent_sortition_id: first_snapshot.sortition_id.clone(),
+                parent_burn_header_hash: first_snapshot.burn_header_hash.clone(),
+                consensus_hash: ConsensusHash([0x03; 20]),
+                ops_hash: OpsHash([0x04; 32]),
+                total_burn: 0,
+                sortition: true,
+                sortition_hash: SortitionHash([0x05; 32]),
+                winning_block_txid: Txid([0x06; 32]),
+                winning_stacks_block_hash: BlockHeaderHash([0x07; 32]),
+                index_root: TrieHash([0x08; 32]),
+                num_sortitions: first_snapshot.num_sortitions + 1,
+                stacks_block_accepted: false,
+                stacks_block_height: 0,
+                arrival_index: 0,
+                canonical_stacks_tip_height: 0,
+                canonical_stacks_tip_hash: BlockHeaderHash([0x09; 32]),
+                canonical_stacks_tip_consensus_hash: ConsensusHash([0x0a; 20]),
+                miner_pk_hash: None,
+            };
+            let mut tx = SortitionHandleTx::begin(sortdb, &first_snapshot.sortition_id).unwrap();
+            let _index_root = tx
+                .append_chain_tip_snapshot(&first_snapshot, &snapshot, &[], &[], None, None, None)
+                .unwrap();
+            tx.commit().unwrap();
+        },
+        |sortdb| {
+            SortitionDB::get_block_snapshot(sortdb.conn(), &SortitionId([0x02; 32]))
+                .unwrap()
+                .unwrap()
+        },
+    );
+}
+
+/// Test that the SortitionDB migrator can reencode:
+/// * a block-commit
+/// * a block-commit parent record
+/// * a VRF key registration
+#[test]
+fn test_block_commit_reencoding() {
+    let block_height = 100;
+    let vtxindex = 456;
+    let leader_key = LeaderKeyRegisterOp {
+        consensus_hash: ConsensusHash::from_bytes(
+            &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
+        )
+        .unwrap(),
+        public_key: VRFPublicKey::from_bytes(
+            &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
+        )
+        .unwrap(),
+        memo: vec![1, 2, 3, 4, 5].into(),
+
+        txid: Txid::from_bytes_be(
+            &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap(),
+        )
+        .unwrap(),
+        vtxindex,
+        block_height: block_height + 1,
+        burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+    };
+
+    let block_commit = LeaderBlockCommitOp {
+        sunset_burn: 0,
+        block_header_hash: BlockHeaderHash::from_bytes(
+            &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap(),
+        )
+        .unwrap(),
+        new_seed: VRFSeed::from_bytes(
+            &hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap(),
+        )
+        .unwrap(),
+        parent_block_ptr: 0x43424140,
+        parent_vtxindex: 0x5150,
+        key_block_ptr: (block_height + 1) as u32,
+        key_vtxindex: vtxindex as u16,
+        memo: vec![0x80].into(),
+
+        commit_outs: vec![],
+        burn_fee: 12345,
+        input: (Txid([0; 32]), 0),
+        apparent_sender: BurnchainSigner::mock_parts(
+            AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_hex(
+                "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+            )
+            .unwrap()],
+        ),
+
+        txid: Txid([0x55; 32]),
+        vtxindex,
+        block_height: block_height + 2,
+        burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+        burn_header_hash: BurnchainHeaderHash([0x03; 32]),
+        treatment: vec![],
+    };
+
+    test_sortitiondb_reencoding(
+        "block_commit",
+        |sortdb| {
+            let snapshot = test_append_snapshot(
+                sortdb,
+                BurnchainHeaderHash([0x01; 32]),
+                &[BlockstackOperationType::LeaderKeyRegister(
+                    leader_key.clone(),
+                )],
+            );
+
+            let snapshot_consumed = test_append_snapshot(
+                sortdb,
+                BurnchainHeaderHash([0x03; 32]),
+                &[BlockstackOperationType::LeaderBlockCommit(
+                    block_commit.clone(),
+                )],
+            );
+
+            // sanity check
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let sort_handle = sortdb.index_handle(&tip.sortition_id);
+            let commit = sort_handle
+                .get_block_commit_by_txid(&tip.sortition_id, &Txid([0x55; 32]))
+                .unwrap()
+                .unwrap();
+            assert_eq!(commit, block_commit);
+
+            // check parent commit
+            {
+                let conn = sortdb.conn();
+                let sql = "SELECT block_commit_txid, block_commit_sortition_id, parent_sortition_id FROM block_commit_parents";
+                let mut stmt = conn.prepare(sql).unwrap();
+                let mut qry = stmt.query(params![]).unwrap();
+                let row = qry.next().unwrap().unwrap();
+                let parent_commit_txid: Txid = row.get("block_commit_txid").unwrap();
+                let parent_commit_sort_id: SortitionId =
+                    row.get("block_commit_sortition_id").unwrap();
+                let parent_sortition_id: SortitionId = row.get("parent_sortition_id").unwrap();
+
+                assert_eq!(parent_commit_sort_id, tip.sortition_id);
+                assert_eq!(parent_commit_txid, commit.txid);
+                assert_eq!(parent_sortition_id, SortitionId([0x00; 32]));
+            }
+
+            // check leader key registration
+            {
+                let ic = sortdb.index_conn();
+                let key_register = SortitionDB::get_leader_key_at(
+                    &ic,
+                    commit.key_block_ptr.into(),
+                    commit.key_vtxindex.into(),
+                    &tip.sortition_id,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(key_register, leader_key);
+            }
+
+            test_debug!("Stored leader key and block commit");
+        },
+        |sortdb| {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let sort_handle = sortdb.index_handle(&tip.sortition_id);
+            let commit = sort_handle
+                .get_block_commit_by_txid(&tip.sortition_id, &Txid([0x55; 32]))
+                .unwrap()
+                .unwrap();
+
+            // check parent as well
+            {
+                let conn = sortdb.conn();
+                let sql = "SELECT block_commit_txid, block_commit_sortition_id, parent_sortition_id FROM block_commit_parents";
+                let mut stmt = conn.prepare(sql).unwrap();
+                let mut qry = stmt.query(params![]).unwrap();
+                let row = qry.next().unwrap().unwrap();
+                let parent_commit_txid: Txid = row.get("block_commit_txid").unwrap();
+                let parent_commit_sort_id: SortitionId =
+                    row.get("block_commit_sortition_id").unwrap();
+                let parent_sortition_id: SortitionId = row.get("parent_sortition_id").unwrap();
+
+                assert_eq!(parent_commit_sort_id, tip.sortition_id);
+                assert_eq!(parent_commit_txid, commit.txid);
+                assert_eq!(parent_sortition_id, SortitionId([0x00; 32]));
+            }
+            // check leader key registration as well
+            {
+                let ic = sortdb.index_conn();
+                let key_register = SortitionDB::get_leader_key_at(
+                    &ic,
+                    commit.key_block_ptr.into(),
+                    commit.key_vtxindex.into(),
+                    &tip.sortition_id,
+                )
+                .unwrap()
+                .unwrap();
+                assert_eq!(key_register, leader_key);
+            }
+            commit
+        },
+    );
+}
+
+/// Test reencoding for
+/// * delegate-stx
+/// * stack-stx
+/// * transfer-stx
+/// * vote-aggregate-key
+#[test]
+fn test_burnchain_ops_reencoding() {
+    let block_height = 100;
+    let first_burn_hash = BurnchainHeaderHash::from_hex(
+        "0000000000000000000000000000000000000000000000000000000000000000",
+    )
+    .unwrap();
+    let vote_pubkey = StacksPublicKey::from_hex(
+        "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+    )
+    .unwrap();
+    let vote_key: StacksPublicKeyBuffer = vote_pubkey.to_bytes_compressed().as_slice().into();
+
+    let fixture_ops = vec![
+        BlockstackOperationType::TransferStx(TransferStxOp {
+            sender: StacksAddress::new(1, Hash160([1u8; 20])).unwrap(),
+            recipient: StacksAddress::new(2, Hash160([2u8; 20])).unwrap(),
+            transfered_ustx: 123,
+            memo: vec![0x00, 0x01, 0x02, 0x03, 0x04].into(),
+
+            txid: Txid([0x01; 32]),
+            vtxindex: 1,
+            block_height,
+            burn_header_hash: first_burn_hash.clone(),
+        }),
+        BlockstackOperationType::StackStx(StackStxOp {
+            sender: StacksAddress::new(3, Hash160([3u8; 20])).unwrap(),
+            reward_addr: PoxAddress::Standard(
+                StacksAddress::new(4, Hash160([4u8; 20])).unwrap(),
+                None,
+            ),
+            stacked_ustx: 456,
+            num_cycles: 6,
+            signer_key: Some(StacksPublicKeyBuffer([0x02; 33])),
+            max_amount: Some(u128::MAX),
+            auth_id: Some(0u32),
+
+            txid: Txid([0x02; 32]),
+            vtxindex: 2,
+            block_height,
+            burn_header_hash: first_burn_hash.clone(),
+        }),
+        BlockstackOperationType::DelegateStx(DelegateStxOp {
+            sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
+            delegate_to: StacksAddress::new(7, Hash160([7u8; 20])).unwrap(),
+            reward_addr: Some((
+                123,
+                PoxAddress::Standard(
+                    StacksAddress::new(8, Hash160([8u8; 20])).unwrap(),
+                    Some(AddressHashMode::SerializeP2PKH),
+                ),
+            )),
+            delegated_ustx: 789,
+            until_burn_height: Some(1000),
+
+            txid: Txid([0x04; 32]),
+            vtxindex: 3,
+            block_height,
+            burn_header_hash: first_burn_hash.clone(),
+        }),
+        BlockstackOperationType::VoteForAggregateKey(VoteForAggregateKeyOp {
+            sender: StacksAddress::new(6, Hash160([6u8; 20])).unwrap(),
+            aggregate_key: vote_key.clone(),
+            signer_key: vote_key,
+            round: 1,
+            reward_cycle: 2,
+            signer_index: 3,
+
+            txid: Txid([0x05; 32]),
+            vtxindex: 4,
+            block_height,
+            burn_header_hash: first_burn_hash.clone(),
+        }),
+    ];
+
+    test_sortitiondb_reencoding(
+        "burnchain_ops",
+        |sortdb| {
+            let mut tx = sortdb.tx_begin_at_tip();
+            for op in fixture_ops.iter() {
+                tx.store_burnchain_transaction(op, &SortitionId::stubbed(&first_burn_hash))
+                    .unwrap();
+            }
+            tx.commit().unwrap();
+        },
+        |sortdb| {
+            let ops = SortitionDB::get_transfer_stx_ops(sortdb.conn(), &first_burn_hash).unwrap();
+            assert_eq!(ops.len(), 1);
+            assert_eq!(
+                BlockstackOperationType::TransferStx(ops[0].clone()),
+                fixture_ops[0]
+            );
+
+            let ops = SortitionDB::get_stack_stx_ops(sortdb.conn(), &first_burn_hash).unwrap();
+            assert_eq!(ops.len(), 1);
+            assert_eq!(
+                BlockstackOperationType::StackStx(ops[0].clone()),
+                fixture_ops[1]
+            );
+
+            let ops = SortitionDB::get_delegate_stx_ops(sortdb.conn(), &first_burn_hash).unwrap();
+            assert_eq!(ops.len(), 1);
+            assert_eq!(
+                BlockstackOperationType::DelegateStx(ops[0].clone()),
+                fixture_ops[2]
+            );
+
+            let ops = SortitionDB::get_vote_for_aggregate_key_ops(sortdb.conn(), &first_burn_hash)
+                .unwrap();
+            assert_eq!(ops.len(), 1);
+            assert_eq!(
+                BlockstackOperationType::VoteForAggregateKey(ops[0].clone()),
+                fixture_ops[3]
+            );
+        },
+    );
+}
+
+/// Test reencoding of missed_commits
+#[test]
+fn test_missed_commits_reencoding() {
+    let missed_commit = MissedBlockCommit {
+        txid: Txid([0x01; 32]),
+        input: (Txid([0x02; 32]), 1),
+        intended_sortition: SortitionId([0x03; 32]),
+    };
+    test_sortitiondb_reencoding(
+        "missed_commits",
+        |sortdb| {
+            let mut tx = SortitionHandleTx::begin(sortdb, &SortitionId([0x03; 32])).unwrap();
+            tx.insert_missed_block_commit(&missed_commit).unwrap();
+            tx.commit().unwrap();
+        },
+        |sortdb| {
+            let mut missed = SortitionDB::get_missed_commits_by_intended(
+                sortdb.conn(),
+                &SortitionId([0x03; 32]),
+            )
+            .unwrap();
+            assert_eq!(missed.len(), 1);
+            missed.pop().unwrap()
+        },
+    );
+}
+
+/// Test reencoding of preprocessed reward sets
+#[test]
+fn test_preprocessed_reward_sets_reencoding() {
+    let reward_cycle_info = RewardCycleInfo {
+        reward_cycle: 0,
+        anchor_status: PoxAnchorBlockStatus::NotSelected,
+    };
+    test_sortitiondb_reencoding(
+        "preprocessed_reward_set",
+        |sortdb| {
+            let mut tx = sortdb.tx_begin().unwrap();
+            SortitionDB::store_preprocessed_reward_set(
+                &mut tx,
+                &SortitionId([0x01; 32]),
+                &reward_cycle_info,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        },
+        |sortdb| {
+            let preprocessed_reward_set =
+                SortitionDB::get_preprocessed_reward_set(sortdb.conn(), &SortitionId([0x01; 32]))
+                    .unwrap()
+                    .unwrap();
+            preprocessed_reward_set
+        },
+    );
+}
+
+/// Test reencoding of snapshot_transition_ops
+#[test]
+fn test_transition_ops_reencoding() {
+    let block_height = 100;
+    let vtxindex = 456;
+    let leader_key = LeaderKeyRegisterOp {
+        consensus_hash: ConsensusHash::from_bytes(
+            &hex_bytes("2222222222222222222222222222222222222222").unwrap(),
+        )
+        .unwrap(),
+        public_key: VRFPublicKey::from_bytes(
+            &hex_bytes("a366b51292bef4edd64063d9145c617fec373bceb0758e98cd72becd84d54c7a").unwrap(),
+        )
+        .unwrap(),
+        memo: vec![1, 2, 3, 4, 5].into(),
+
+        txid: Txid::from_bytes_be(
+            &hex_bytes("1bfa831b5fc56c858198acb8e77e5863c1e9d8ac26d49ddb914e24d8d4083562").unwrap(),
+        )
+        .unwrap(),
+        vtxindex,
+        block_height: block_height + 1,
+        burn_header_hash: BurnchainHeaderHash([0x01; 32]),
+    };
+    let block_commit = LeaderBlockCommitOp {
+        sunset_burn: 0,
+        block_header_hash: BlockHeaderHash::from_bytes(
+            &hex_bytes("2222222222222222222222222222222222222222222222222222222222222222").unwrap(),
+        )
+        .unwrap(),
+        new_seed: VRFSeed::from_bytes(
+            &hex_bytes("3333333333333333333333333333333333333333333333333333333333333333").unwrap(),
+        )
+        .unwrap(),
+        parent_block_ptr: 0x43424140,
+        parent_vtxindex: 0x5150,
+        key_block_ptr: (block_height + 1) as u32,
+        key_vtxindex: vtxindex as u16,
+        memo: vec![0x80].into(),
+
+        commit_outs: vec![],
+        burn_fee: 12345,
+        input: (Txid([0; 32]), 0),
+        apparent_sender: BurnchainSigner::mock_parts(
+            AddressHashMode::SerializeP2PKH,
+            1,
+            vec![StacksPublicKey::from_hex(
+                "02d8015134d9db8178ac93acbc43170a2f20febba5087a5b0437058765ad5133d0",
+            )
+            .unwrap()],
+        ),
+
+        txid: Txid([0x55; 32]),
+        vtxindex,
+        block_height: block_height + 2,
+        burn_parent_modulus: ((block_height + 1) % BURN_BLOCK_MINED_AT_MODULUS) as u8,
+        burn_header_hash: BurnchainHeaderHash([0x03; 32]),
+        treatment: vec![],
+    };
+
+    let burn_sample_point = BurnSamplePoint {
+        burns: 123,
+        median_burn: 456,
+        frequency: 3,
+        range_start: Uint256::from_u128(789),
+        range_end: Uint256::from_u128(123456789),
+        candidate: block_commit.clone(),
+    };
+    let missed_commit = MissedBlockCommit {
+        txid: Txid([0x01; 32]),
+        input: (Txid([0x02; 32]), 1),
+        intended_sortition: SortitionId([0x03; 32]),
+    };
+
+    let transition = BurnchainStateTransition {
+        burn_dist: vec![burn_sample_point],
+        accepted_ops: vec![BlockstackOperationType::LeaderBlockCommit(
+            block_commit.clone(),
+        )],
+        consumed_leader_keys: vec![leader_key.clone()],
+        windowed_block_commits: vec![vec![block_commit.clone()]],
+        windowed_missed_commits: vec![vec![missed_commit.clone()]],
+    };
+    test_sortitiondb_reencoding(
+        "snapshot_transition_ops",
+        |sortdb| {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let mut tx = SortitionHandleTx::begin(sortdb, &tip.sortition_id).unwrap();
+            tx.store_or_replace_transition_ops(&tip.sortition_id, &transition);
+            tx.commit().unwrap();
+        },
+        |sortdb| {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let (_, transition_ops) = sortdb
+                .get_sortition_result(&tip.sortition_id)
+                .unwrap()
+                .unwrap();
+            transition_ops
+        },
+    );
+}
+
+#[test]
+fn test_stacks_chain_tips_reencoding() {
+    test_sortitiondb_reencoding(
+        "stacks_chain_tips",
+        |sortdb| {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let mut tx = SortitionHandleTx::begin(sortdb, &tip.sortition_id).unwrap();
+            tx.update_canonical_stacks_tip(
+                &tip.sortition_id,
+                &ConsensusHash([0x22; 20]),
+                &BlockHeaderHash([0x33; 32]),
+                4,
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        },
+        |sortdb| {
+            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let (ch, bhh, height) =
+                SortitionDB::get_canonical_nakamoto_tip_hash_and_height(sortdb.conn(), &tip)
+                    .unwrap()
+                    .unwrap();
+            (ch, bhh, height)
+        },
+    );
 }

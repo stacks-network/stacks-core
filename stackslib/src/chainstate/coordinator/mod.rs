@@ -20,10 +20,12 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use clarity::vm::costs::ExecutionCost;
+use rusqlite::params;
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::{
-    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
+    BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId, TrieHash, VRFSeed,
 };
+use stacks_common::util::db::ColumnEncoding;
 use stacks_common::util::get_epoch_time_secs;
 
 pub use self::comm::CoordinatorCommunication;
@@ -35,8 +37,8 @@ use crate::burnchains::{
 };
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleTx};
 use crate::chainstate::burn::operations::leader_block_commit::RewardSetInfo;
-use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::burn::{BlockSnapshot, ConsensusHash};
+use crate::chainstate::burn::operations::{BlockstackOperationType, BurnOpMemo};
+use crate::chainstate::burn::{BlockSnapshot, ConsensusHash, OpsHash, SortitionHash};
 use crate::chainstate::coordinator::comm::{
     ArcCounterCoordinatorNotices, CoordinatorEvents, CoordinatorNotices, CoordinatorReceivers,
 };
@@ -1834,11 +1836,95 @@ pub fn check_chainstate_db_versions(
 
 /// Sortition DB migrator.
 /// This is an opaque struct that is meant to assist migrating an epoch 2.1-2.4 chainstate to epoch
-/// 2.5.  It will not work for 2.5 to 3.0+
+/// 2.5 for nodes that are not yet in epoch 2.5.
+/// It also will re-encode all hex strings and JSON blobs into SIP003 byte strings if asked.
 pub struct SortitionDBMigrator {
     chainstate: Option<StacksChainState>,
     burnchain: Burnchain,
     burnchain_db: BurnchainDB,
+    column_encoding: Option<ColumnEncoding>,
+}
+
+/// Macro to create a function to change the encoding of a given list of rows with the given types,
+/// Each type must implement SqlEncoded.
+macro_rules! impl_table_reencode {
+    ($func_name:ident, $table_name:expr; $($column_name:expr => $type:ty),+) => {
+        fn $func_name(tx: &DBTx, current_encoding: Option<ColumnEncoding>, new_encoding: Option<ColumnEncoding>) -> Result<(), DBError> {
+            use crate::stacks_common::util::db::SqlEncoded;
+
+            info!("Reencoding table `{}`...", $table_name);
+
+            let mut column_names : Vec<String> = vec![];
+            $({
+                column_names.push($column_name.into());
+            })+
+
+            let qry = format!("SELECT rowid,{} FROM {}", column_names.join(","), $table_name);
+            let mut stmt = tx.prepare(&qry)?;
+            let mut rows = stmt.query([])?;
+
+            let mut reencoded_rows : Vec<(i64, Vec<Vec<u8>>)> = vec![];
+            let mut loaded_rows = 0usize;
+
+            while let Some(row) = rows.next()? {
+                let mut decoded_row = vec![];
+                let rowid: i64 = row.get("rowid")?;
+                $({
+                    let decoded = <$type>::sql_decoded(&row, $column_name, current_encoding)?;
+                    let reencoded = decoded.sql_encoded(new_encoding);
+
+                    test_debug!("Column '{}' value '{:?}' re-encoded from encoding {:?} to '{:?}' (encoding {:?})", $column_name, &decoded, current_encoding, &reencoded, new_encoding);
+                    decoded_row.push(reencoded);
+                })+
+
+                reencoded_rows.push((rowid, decoded_row));
+
+                loaded_rows = loaded_rows.saturating_add(1);
+                if loaded_rows % 100 == 0 {
+                    info!("Decoded {loaded_rows}...");
+                }
+            }
+
+            debug!("Decoded {} rows from `{}`", loaded_rows, $table_name);
+
+            let mut field_counter = 1i64;
+            let qry = format!("UPDATE {} SET {} WHERE rowid = ?{}",
+                // table name
+                $table_name,
+                // SET list
+                {
+                    column_names
+                        .iter()
+                        .map(|column_name| {
+                            let ret = format!("{} = ?{}", column_name, field_counter);
+                            field_counter += 1;
+                            ret
+                        })
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                },
+                // rowid
+                field_counter
+            );
+
+            let mut stmt = tx.prepare(&qry)?;
+
+            for (row_count, (rowid, reencoded_row)) in reencoded_rows.into_iter().enumerate() {
+                for (i, arg) in reencoded_row.iter().enumerate() {
+                    // NB: SQLite's parameter indexing is 1-indexed
+                    stmt.raw_bind_parameter(i + 1, arg)?;
+                }
+                stmt.raw_bind_parameter(reencoded_row.len() + 1, rowid)?;
+                let _ = stmt.raw_execute()?;
+
+                if row_count > 0 && row_count % 100 == 0 {
+                    info!("Stored {} reencoded rows...", row_count);
+                }
+            }
+
+            Ok(())
+        }
+    }
 }
 
 impl SortitionDBMigrator {
@@ -1862,12 +1948,24 @@ impl SortitionDBMigrator {
             chainstate: Some(chainstate),
             burnchain,
             burnchain_db,
+            column_encoding: None,
         })
+    }
+
+    /// Additive constructor for column encoding
+    pub fn with_column_encoding(mut self, encoding: ColumnEncoding) -> Self {
+        self.column_encoding = Some(encoding);
+        self
     }
 
     /// Get the burnchain reference
     pub fn get_burnchain(&self) -> &Burnchain {
         &self.burnchain
+    }
+
+    /// Get the default column encoding
+    pub fn get_column_encoding(&self) -> Option<ColumnEncoding> {
+        self.column_encoding
     }
 
     /// Regenerate a reward cycle.  Do this by re-calculating the RewardSetInfo for the given
@@ -1915,6 +2013,153 @@ impl SortitionDBMigrator {
         let rc_info = rc_info_opt_res?
             .expect("FATAL: No reward cycle info calculated at a reward-cycle start");
         Ok(rc_info)
+    }
+
+    impl_table_reencode!(reencode_block_commit_parents,
+        "block_commit_parents";
+        "block_commit_txid" => Txid,
+        "block_commit_sortition_id" => SortitionId,
+        "parent_sortition_id" => SortitionId
+    );
+
+    // TODO: commit_outs
+    // TODO: input
+    // TODO: punished
+    impl_table_reencode!(reencode_block_commits,
+        "block_commits";
+        "txid" => Txid,
+        "burn_header_hash" => BurnchainHeaderHash,
+        "sortition_id" => SortitionId,
+        "block_header_hash" => BlockHeaderHash,
+        "new_seed" => VRFSeed,
+        "memo" => BurnOpMemo
+    );
+
+    // TODO: sender_addr
+    // TODO: delegate_to
+    // TODO: reward_addr
+    impl_table_reencode!(reencode_delegate_stx,
+        "delegate_stx";
+        "txid" => Txid,
+        "burn_header_hash" => BurnchainHeaderHash
+    );
+
+    // TODO: public_key
+    impl_table_reencode!(reencode_leader_keys,
+        "leader_keys";
+        "txid" => Txid,
+        "burn_header_hash" => BurnchainHeaderHash,
+        "sortition_id" => SortitionId,
+        "consensus_hash" => ConsensusHash,
+        "memo" => BurnOpMemo
+    );
+
+    // TODO: input
+    impl_table_reencode!(reencode_missed_commits,
+        "missed_commits";
+        "txid" => Txid,
+        "intended_sortition_id" => SortitionId
+    );
+
+    // TODO: reward_set
+    impl_table_reencode!(reencode_preprocessed_reward_sets,
+        "preprocessed_reward_sets";
+        "sortition_id" => SortitionId
+    );
+
+    // TODO: accepted_ops
+    // TODO: consumed_keys
+    impl_table_reencode!(reencode_snapshot_transition_ops,
+        "snapshot_transition_ops";
+        "sortition_id" => SortitionId
+    );
+
+    // TODO: total_burn
+    // TODO: pox_payouts
+    impl_table_reencode!(reencode_snapshots,
+        "snapshots";
+        "burn_header_hash" => BurnchainHeaderHash,
+        "sortition_id" => SortitionId,
+        "parent_sortition_id" => SortitionId,
+        "parent_burn_header_hash" => BurnchainHeaderHash,
+        "consensus_hash" => ConsensusHash,
+        "ops_hash" => OpsHash,
+        "sortition_hash" => SortitionHash,
+        "winning_block_txid" => Txid,
+        "winning_stacks_block_hash" => BlockHeaderHash,
+        "index_root" => TrieHash,
+        "canonical_stacks_tip_hash" => BlockHeaderHash,
+        "canonical_stacks_tip_consensus_hash" => ConsensusHash
+    );
+
+    // TODO: sender_addr
+    // TODO: reward_addr
+    // TODO: signer_key
+    // TODO: max_amount
+    impl_table_reencode!(reencode_stack_stx,
+        "stack_stx";
+        "burn_header_hash" => BurnchainHeaderHash
+    );
+
+    impl_table_reencode!(reencode_stacks_chain_tips,
+        "stacks_chain_tips";
+        "sortition_id" => SortitionId,
+        "consensus_hash" => ConsensusHash,
+        "block_hash" => BlockHeaderHash
+    );
+
+    // TODO: sender_addr
+    // TODO: recipient_addr
+    // TODO: transferred_ustx
+    impl_table_reencode!(reencode_transfer_stx,
+        "transfer_stx";
+        "burn_header_hash" => BurnchainHeaderHash,
+        "memo" => BurnOpMemo
+    );
+
+    // TODO: sender_addr
+    // TODO: aggregate_key
+    // TODO: signer_key
+    impl_table_reencode!(reencode_vote_for_aggregate_key,
+        "vote_for_aggregate_key";
+        "txid" => Txid,
+        "burn_header_hash" => BurnchainHeaderHash
+    );
+
+    /// Reencode all hex strings and JSON blobs into SIP003 data
+    pub fn reencode_tables(&self, sortdb: &mut SortitionDB) -> Result<(), DBError> {
+        // sanity check -- we must not yet have the given encoding
+        let db_encoding = SortitionDB::get_column_encoding(sortdb.conn())?;
+        let new_encoding = self.column_encoding;
+        if db_encoding == new_encoding {
+            return Ok(());
+        }
+        if db_encoding.is_some() {
+            // some other unsupported encoding
+            return Err(DBError::NotImplemented);
+        }
+
+        let tx = sortdb.tx_begin()?;
+        tx.execute("PRAGMA defer_foreign_keys = 1", params![])?;
+        Self::reencode_block_commits(&tx, db_encoding, new_encoding)?;
+        Self::reencode_block_commit_parents(&tx, db_encoding, new_encoding)?;
+        Self::reencode_delegate_stx(&tx, db_encoding, new_encoding)?;
+        Self::reencode_leader_keys(&tx, db_encoding, new_encoding)?;
+        Self::reencode_missed_commits(&tx, db_encoding, new_encoding)?;
+        Self::reencode_preprocessed_reward_sets(&tx, db_encoding, new_encoding)?;
+        Self::reencode_snapshots(&tx, db_encoding, new_encoding)?;
+        Self::reencode_snapshot_transition_ops(&tx, db_encoding, new_encoding)?;
+        Self::reencode_stack_stx(&tx, db_encoding, new_encoding)?;
+        Self::reencode_stacks_chain_tips(&tx, db_encoding, new_encoding)?;
+        Self::reencode_transfer_stx(&tx, db_encoding, new_encoding)?;
+        Self::reencode_vote_for_aggregate_key(&tx, db_encoding, new_encoding)?;
+        tx.execute("PRAGMA defer_foreign_keys = 0", params![])?;
+
+        SortitionDB::set_column_encoding(&tx, new_encoding)?;
+        tx.commit()?;
+
+        sortdb.column_encoding = new_encoding;
+        Ok(())
     }
 }
 
