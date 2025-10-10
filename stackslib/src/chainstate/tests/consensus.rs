@@ -31,7 +31,7 @@ use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{Value as ClarityValue, MAX_CALL_STACK_DEPTH};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 
 use crate::burnchains::PoxConstants;
@@ -154,6 +154,19 @@ fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
     ])
 }
 
+/// Serialize an optional string field appending a non-consensus breaking info message.
+fn serialize_opt_string_ncb<S>(
+    value: &Option<String>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let original = value.clone().unwrap_or("None".to_string());
+    let changed = format!("{original} [NON-CONSENSUS BREAKING]");
+    serializer.serialize_str(&changed)
+}
+
 /// Represents the expected output of a transaction in a test.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ExpectedTransactionOutput {
@@ -161,6 +174,9 @@ pub struct ExpectedTransactionOutput {
     pub return_type: ClarityValue,
     /// The expected execution cost of the transaction.
     pub cost: ExecutionCost,
+    /// The possible Clarity VM error message associated to the transaction (non-consensus breaking)
+    #[serde(serialize_with = "serialize_opt_string_ncb")]
+    pub vm_error: Option<String>,
 }
 
 /// Represents the expected outputs for a block's execution.
@@ -198,6 +214,7 @@ impl ExpectedResult {
                     .map(|r| ExpectedTransactionOutput {
                         return_type: r.result.clone(),
                         cost: r.execution_cost.clone(),
+                        vm_error: r.vm_error.clone(),
                     })
                     .collect();
                 let total_block_cost = epoch_receipt.anchored_block_cost.clone();
@@ -738,6 +755,7 @@ fn test_append_block_with_contract_upload_success() {
               read_count: 1,
               runtime: 8114,
             ),
+            vm_error: "None [NON-CONSENSUS BREAKING]",
           ),
         ],
         total_block_cost: ExecutionCost(
@@ -763,6 +781,7 @@ fn test_append_block_with_contract_upload_success() {
               read_count: 1,
               runtime: 8114,
             ),
+            vm_error: "None [NON-CONSENSUS BREAKING]",
           ),
         ],
         total_block_cost: ExecutionCost(
@@ -788,6 +807,7 @@ fn test_append_block_with_contract_upload_success() {
               read_count: 1,
               runtime: 8114,
             ),
+            vm_error: "None [NON-CONSENSUS BREAKING]",
           ),
         ],
         total_block_cost: ExecutionCost(
@@ -813,6 +833,7 @@ fn test_append_block_with_contract_upload_success() {
               read_count: 1,
               runtime: 8114,
             ),
+            vm_error: "None [NON-CONSENSUS BREAKING]",
           ),
         ],
         total_block_cost: ExecutionCost(
