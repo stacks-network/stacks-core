@@ -2270,7 +2270,10 @@ fn parse_vote_for_aggregate_public_key_valid() {
     let signer_index = thread_rng().next_u64();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key.clone()).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2316,7 +2319,10 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2498,7 +2504,10 @@ fn valid_vote_transaction() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2548,7 +2557,10 @@ fn valid_vote_transaction_malformed_transactions() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2782,7 +2794,10 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2910,7 +2925,10 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);

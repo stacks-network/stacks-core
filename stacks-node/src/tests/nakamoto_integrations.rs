@@ -15050,7 +15050,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
 
 #[test]
 #[ignore]
-/// Verify the block timestamp using `block-time`.
+/// Verify the block timestamp using `stacks-block-time`.
 fn check_block_time_keyword() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -15157,25 +15157,25 @@ fn check_block_time_keyword() {
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
     let contract = r#"
-(define-constant deploy-time block-time)
+(define-constant deploy-time stacks-block-time)
 (define-constant deploy-height stacks-block-height)
 (define-read-only (get-current-time)
-  block-time
+  stacks-block-time
 )
 (define-read-only (get-ihh (height uint)) (get-stacks-block-info? id-header-hash height))
 (define-read-only (get-time (height uint)) (get-stacks-block-info? time height))
 (define-read-only (get-height) stacks-block-height)
 (define-read-only (get-previous-time (height uint))
   (ok (at-block (unwrap! (get-stacks-block-info? id-header-hash height) (err u100))
-    block-time
+    stacks-block-time
   ))
 )
 (define-public (get-current-time-call)
-  (ok block-time)
+  (ok stacks-block-time)
 )
 (define-public (get-previous-time-call (height uint))
   (ok (at-block (unwrap! (get-stacks-block-info? id-header-hash height) (err u100))
-    block-time
+    stacks-block-time
   ))
 )
 "#;
@@ -15221,7 +15221,7 @@ fn check_block_time_keyword() {
     let current_time = current_time_value.expect_u128().unwrap();
     assert!(
         current_time > deploy_time,
-        "block-time should be greater than the time at deployment"
+        "stacks-block-time should be greater than the time at deployment"
     );
 
     let previous_time_result = call_read_only(
@@ -15292,13 +15292,16 @@ fn check_block_time_keyword() {
                 match contract_call.function_name.as_str() {
                     "get-current-time-call" => {
                         info!("Current time: {}", time);
-                        assert!(time > current_time, "block-time should have advanced");
+                        assert!(
+                            time > current_time,
+                            "stacks-block-time should have advanced"
+                        );
                     }
                     "get-previous-time-call" => {
                         info!("Previous time: {}", time);
                         assert_eq!(
                             time, deploy_time,
-                            "block-time should be the same as at deployment"
+                            "stacks-block-time should be the same as at deployment"
                         );
                     }
                     _ => panic!("Unexpected contract call"),

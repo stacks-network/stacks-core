@@ -13,6 +13,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Changed
 
+- Renamed Clarity 4's new `block-time` to `stacks-block-time`
 - Replaced `libsecp256k1` with `k256` and `p256` from RustCrypto and removed separate Wasm implementations.
 
 ## [3.2.0.0.2]
