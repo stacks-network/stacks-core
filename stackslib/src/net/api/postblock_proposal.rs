@@ -46,6 +46,7 @@ use crate::chainstate::stacks::{
     Error as ChainError, StacksTransaction, TenureChangeCause, TransactionPayload,
 };
 use crate::clarity_vm::clarity::Error as ClarityError;
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::mempool::ProposalCallbackReceiver;
 use crate::net::http::{
     http_reason, parse_json, Error, HttpContentType, HttpRequest, HttpRequestContents,
@@ -579,6 +580,7 @@ impl NakamotoBlockProposal {
             self.block.header.pox_treatment.len(),
             None,
             None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )?;
 
         let mut miner_tenure_info =
@@ -725,6 +727,7 @@ impl NakamotoBlockProposal {
             self.block.header.pox_treatment.len(),
             None,
             None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )?;
         let (mut replay_chainstate, _) =
             StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;

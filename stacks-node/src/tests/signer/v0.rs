@@ -2854,6 +2854,7 @@ fn forked_tenure_testing(
         burn_header_timestamp: tip_sn.burn_header_timestamp,
         anchored_block_size: tip_b_block.serialize_to_vec().len() as u64,
         burn_view: Some(tip_b_block.header.consensus_hash),
+        total_tenure_size: 0,
     };
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
@@ -17572,6 +17573,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         burn_header_timestamp: tip_sn.burn_header_timestamp,
         anchored_block_size: tenure_b_block.serialize_to_vec().len() as u64,
         burn_view: Some(tenure_b_block.header.consensus_hash),
+        total_tenure_size: 0,
     };
 
     // Block B was built atop block A
