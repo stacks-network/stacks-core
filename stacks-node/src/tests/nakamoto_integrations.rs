@@ -5301,8 +5301,8 @@ fn burn_ops_integration_test() {
 /// Miner B starts its tenure, Miner B produces a Stacks block b_0, but miner C submits its block commit before b_0 is broadcasted.
 /// Bitcoin block C, containing Miner C's block commit, is mined BEFORE miner C has a chance to update their block commit with b_0's information.
 /// This test asserts:
-///  * tenure C ignores b_0, and correctly builds off of block a_x.
-fn forked_tenure_is_ignored() {
+///  * tenure C correctly extends b_0, building off of block B despite the commit being submitted before b_0 was broadcasted.
+fn bad_commit_does_not_trigger_fork() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
     }
@@ -5494,27 +5494,46 @@ fn forked_tenure_is_ignored() {
             .lock()
             .expect("Mutex poisoned")
             .get_stacks_blocks_processed();
-        let block_in_tenure = get_last_block_in_current_tenure(&sortdb, &chainstate).is_some();
+        // We don't expect a block in this tenure, because the miner should instead be building off
+        // of a previous tenure
+        let no_block_in_tenure = get_last_block_in_current_tenure(&sortdb, &chainstate).is_none();
         Ok(commits_count > commits_before
             && blocks_count > blocks_before
             && blocks_processed > blocks_processed_before
-            && block_in_tenure)
+            && no_block_in_tenure)
     })
-    .unwrap();
+    .unwrap_or_else(|_| {
+        let commits_count = commits_submitted.load(Ordering::SeqCst);
+        let blocks_count = mined_blocks.load(Ordering::SeqCst);
+        let blocks_processed = coord_channel
+            .lock()
+            .expect("Mutex poisoned")
+            .get_stacks_blocks_processed();
+        let no_block_in_tenure = get_last_block_in_current_tenure(&sortdb, &chainstate).is_none();
+        error!("Tenure C shouldn't have produced a block";
+            "commits_count" => commits_count,
+            "commits_before" => commits_before,
+            "blocks_count" => blocks_count,
+            "blocks_before" => blocks_before,
+            "blocks_processed" => blocks_processed,
+            "blocks_processed_before" => blocks_processed_before,
+            "no_block_in_tenure" => no_block_in_tenure,
+        );
+        panic!("Tenure C shouldn't have produced a block");
+    });
 
-    info!("Tenure C produced a block!");
+    info!("Tenure C did not produce a block");
 
-    let block_tenure_c = get_last_block_in_current_tenure(&sortdb, &chainstate).unwrap();
+    let block_tenure_c = get_last_block_in_current_tenure(&sortdb, &chainstate);
+    assert!(block_tenure_c.is_none());
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_c = blocks.last().unwrap();
-    info!("Tenure C tip block: {}", &block_tenure_c.index_block_hash());
     info!("Tenure C last block: {}", &block_c.block_id);
-    assert_ne!(block_tenure_b.block_id(), block_tenure_c.index_block_hash());
 
     // Block C was built AFTER Block B was built, but BEFORE it was broadcasted (processed), so it should be built off of Block A
     assert_eq!(
-        block_tenure_c.stacks_block_height,
-        block_tenure_a.stacks_block_height + 1
+        block_c.stacks_height,
+        block_tenure_b.header.chain_length + 1
     );
 
     // Now let's produce a second block for tenure C and ensure it builds off of block C.
@@ -5557,14 +5576,11 @@ fn forked_tenure_is_ignored() {
 
     info!("Tenure C produced a second block!");
 
-    let block_2_tenure_c = get_last_block_in_current_tenure(&sortdb, &chainstate).unwrap();
+    let block_2_tenure_c = get_last_block_in_current_tenure(&sortdb, &chainstate);
+    assert!(block_2_tenure_c.is_none());
     let blocks = test_observer::get_mined_nakamoto_blocks();
     let block_2_c = blocks.last().unwrap();
 
-    info!(
-        "Tenure C tip block: {}",
-        &block_2_tenure_c.index_block_hash()
-    );
     info!("Tenure C last block: {}", &block_2_c.block_id);
 
     info!("Starting tenure D.");
@@ -5596,8 +5612,6 @@ fn forked_tenure_is_ignored() {
     info!("Tenure D last block: {}", block_d.block_id);
 
     assert_ne!(block_tenure_b.block_id(), block_tenure_a.index_block_hash());
-    assert_ne!(block_tenure_b.block_id(), block_tenure_c.index_block_hash());
-    assert_ne!(block_tenure_c, block_tenure_a);
 
     // Block B was built atop block A
     assert_eq!(
@@ -5609,39 +5623,29 @@ fn forked_tenure_is_ignored() {
         block_tenure_a.index_block_hash().to_string()
     );
 
-    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block A
+    // Block C was built AFTER Block B was built, but BEFORE it was broadcasted, so it should be built off of Block B
     assert_eq!(
-        block_tenure_c.stacks_block_height,
-        block_tenure_a.stacks_block_height + 1
+        block_c.stacks_height,
+        block_tenure_b.header.chain_length + 1
     );
     assert_eq!(
         block_c.parent_block_id,
-        block_tenure_a.index_block_hash().to_string()
+        block_tenure_b.header.block_id().to_string()
     );
-
-    assert_ne!(block_tenure_c, block_2_tenure_c);
-    assert_ne!(block_2_tenure_c, block_tenure_d);
-    assert_ne!(block_tenure_c, block_tenure_d);
 
     // Second block of tenure C builds off of block C
     assert_eq!(
-        block_2_tenure_c.stacks_block_height,
-        block_tenure_c.stacks_block_height + 1,
+        block_2_c.stacks_height,
+        block_tenure_b.header.chain_length + 2,
     );
-    assert_eq!(
-        block_2_c.parent_block_id,
-        block_tenure_c.index_block_hash().to_string()
-    );
+    assert_eq!(block_2_c.parent_block_id, block_c.block_id);
 
     // Tenure D builds off of the second block of tenure C
     assert_eq!(
         block_tenure_d.stacks_block_height,
-        block_2_tenure_c.stacks_block_height + 1,
+        block_2_c.stacks_height + 1,
     );
-    assert_eq!(
-        block_d.parent_block_id,
-        block_2_tenure_c.index_block_hash().to_string()
-    );
+    assert_eq!(block_d.parent_block_id, block_2_c.block_id);
 
     coord_channel
         .lock()
@@ -15047,7 +15051,7 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
 
 #[test]
 #[ignore]
-/// Verify the block timestamp using `block-time`.
+/// Verify the block timestamp using `stacks-block-time`.
 fn check_block_time_keyword() {
     if env::var("BITCOIND_TEST") != Ok("1".into()) {
         return;
@@ -15154,25 +15158,25 @@ fn check_block_time_keyword() {
     let mut sender_nonce = 0;
     let contract_name = "test-contract";
     let contract = r#"
-(define-constant deploy-time block-time)
+(define-constant deploy-time stacks-block-time)
 (define-constant deploy-height stacks-block-height)
 (define-read-only (get-current-time)
-  block-time
+  stacks-block-time
 )
 (define-read-only (get-ihh (height uint)) (get-stacks-block-info? id-header-hash height))
 (define-read-only (get-time (height uint)) (get-stacks-block-info? time height))
 (define-read-only (get-height) stacks-block-height)
 (define-read-only (get-previous-time (height uint))
   (ok (at-block (unwrap! (get-stacks-block-info? id-header-hash height) (err u100))
-    block-time
+    stacks-block-time
   ))
 )
 (define-public (get-current-time-call)
-  (ok block-time)
+  (ok stacks-block-time)
 )
 (define-public (get-previous-time-call (height uint))
   (ok (at-block (unwrap! (get-stacks-block-info? id-header-hash height) (err u100))
-    block-time
+    stacks-block-time
   ))
 )
 "#;
@@ -15218,7 +15222,7 @@ fn check_block_time_keyword() {
     let current_time = current_time_value.expect_u128().unwrap();
     assert!(
         current_time > deploy_time,
-        "block-time should be greater than the time at deployment"
+        "stacks-block-time should be greater than the time at deployment"
     );
 
     let previous_time_result = call_read_only(
@@ -15289,13 +15293,16 @@ fn check_block_time_keyword() {
                 match contract_call.function_name.as_str() {
                     "get-current-time-call" => {
                         info!("Current time: {}", time);
-                        assert!(time > current_time, "block-time should have advanced");
+                        assert!(
+                            time > current_time,
+                            "stacks-block-time should have advanced"
+                        );
                     }
                     "get-previous-time-call" => {
                         info!("Previous time: {}", time);
                         assert_eq!(
                             time, deploy_time,
-                            "block-time should be the same as at deployment"
+                            "stacks-block-time should be the same as at deployment"
                         );
                     }
                     _ => panic!("Unexpected contract call"),

@@ -413,7 +413,7 @@ impl StacksChainState {
 
         block_path.push(to_hex(&block_hash_bytes[0..2]));
         block_path.push(to_hex(&block_hash_bytes[2..4]));
-        block_path.push(format!("{}", index_block_hash));
+        block_path.push(index_block_hash.to_string());
 
         block_path
     }
@@ -9769,7 +9769,7 @@ pub mod test {
             assert_eq!(mblock_info.len(), mblocks.len());
 
             let this_mblock_info = &mblock_info[i];
-            test_debug!("Pass {} (seq {})", &i, &this_mblock_info.sequence);
+            test_debug!("Pass {i} (seq {})", &this_mblock_info.sequence);
 
             assert_eq!(this_mblock_info.consensus_hash, consensus_hash);
             assert_eq!(this_mblock_info.anchored_block_hash, block.block_hash());
@@ -9822,7 +9822,7 @@ pub mod test {
         let mut parent_consensus_hashes = vec![];
 
         for i in 0..32 {
-            test_debug!("Making block {}", i);
+            test_debug!("Making block {i}");
             let privk = StacksPrivateKey::random();
             let block = make_empty_coinbase_block(&privk);
 
@@ -9837,7 +9837,7 @@ pub mod test {
         }
 
         for i in 0..blocks.len() {
-            test_debug!("Making microblock stream {}", i);
+            test_debug!("Making microblock stream {i}");
             // make a sample microblock stream for block i
             let mut mblocks = make_sample_microblock_stream(&privks[i], &blocks[i].block_hash());
             mblocks.truncate(3);
@@ -9875,7 +9875,7 @@ pub mod test {
             .zip(&microblocks)
             .enumerate()
         {
-            test_debug!("Store microblock stream {} to staging", i);
+            test_debug!("Store microblock stream {i} to staging");
             for mblock in mblocks.iter() {
                 test_debug!("Store microblock {}", &mblock.block_hash());
                 store_staging_microblock(
@@ -10048,27 +10048,29 @@ pub mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        peer_config.initial_balances = vec![(addr.to_account_principal(), initial_balance)];
+        peer_config.chain_config.initial_balances =
+            vec![(addr.to_account_principal(), initial_balance)];
         let recv_addr =
             StacksAddress::from_string("ST1H1B54MY50RMBRRKS7GV2ZWG79RZ1RQ1ETW4E01").unwrap();
 
         let mut peer = TestPeer::new(peer_config.clone());
 
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         // NOTE: first_stacks_block_height is the burnchain height at which the node starts mining.
         // The burnchain block at this height will have the VRF key register, but no block-commit.
         // The first burnchain block with a Stacks block is at first_stacks_block_height + 1.
         let (first_stacks_block_height, canonical_sort_id) = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             (sn.block_height, sn.sortition_id)
         };
 
         let mut header_hashes = vec![];
         for i in 0..(first_stacks_block_height + 1) {
-            let ic = peer.sortdb.as_ref().unwrap().index_conn();
+            let ic = peer.chain.sortdb.as_ref().unwrap().index_conn();
             let sn = SortitionDB::get_ancestor_snapshot(&ic, i, &canonical_sort_id)
                 .unwrap()
                 .unwrap();
@@ -10083,16 +10085,22 @@ pub mod test {
         }
 
         let last_stacks_block_height = first_stacks_block_height
-            + ((peer_config.burnchain.pox_constants.reward_cycle_length as u64) * 5)
+            + ((peer_config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .reward_cycle_length as u64)
+                * 5)
             + 2;
 
         let mut mblock_nonce = 0;
 
         // make some blocks, up to and including a fractional reward cycle
         for tenure_id in 0..(last_stacks_block_height - first_stacks_block_height) {
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(tip.block_height, first_stacks_block_height + tenure_id);
 
@@ -10145,7 +10153,7 @@ pub mod test {
                         &coinbase_tx,
                         BlockBuilderSettings::max_value(),
                         None,
-                        &peer_config.burnchain,
+                        &peer_config.chain_config.burnchain,
                     )
                     .unwrap();
 
@@ -10204,6 +10212,7 @@ pub mod test {
         }
 
         let total_reward_cycles = peer_config
+            .chain_config
             .burnchain
             .block_height_to_reward_cycle(last_stacks_block_height)
             .unwrap();
@@ -10220,14 +10229,20 @@ pub mod test {
 
         // everything is stored, so check each reward cycle
         for i in 0..total_reward_cycles {
-            let start_range = peer_config.burnchain.reward_cycle_to_block_height(i);
+            let start_range = peer_config
+                .chain_config
+                .burnchain
+                .reward_cycle_to_block_height(i);
             let end_range = cmp::min(
                 header_hashes.len() as u64,
-                peer_config.burnchain.reward_cycle_to_block_height(i + 1),
+                peer_config
+                    .chain_config
+                    .burnchain
+                    .reward_cycle_to_block_height(i + 1),
             );
             let blocks_inv = chainstate
                 .get_blocks_inventory_for_reward_cycle(
-                    &peer_config.burnchain,
+                    &peer_config.chain_config.burnchain,
                     i,
                     &header_hashes[(start_range as usize)..(end_range as usize)],
                 )
@@ -10271,10 +10286,16 @@ pub mod test {
 
         // orphan blocks
         for i in 0..total_reward_cycles {
-            let start_range = peer_config.burnchain.reward_cycle_to_block_height(i);
+            let start_range = peer_config
+                .chain_config
+                .burnchain
+                .reward_cycle_to_block_height(i);
             let end_range = cmp::min(
                 header_hashes.len() as u64,
-                peer_config.burnchain.reward_cycle_to_block_height(i + 1),
+                peer_config
+                    .chain_config
+                    .burnchain
+                    .reward_cycle_to_block_height(i + 1),
             );
             for block_height in start_range..end_range {
                 if let Some(hdr_hash) = &header_hashes[block_height as usize].1 {
@@ -10295,14 +10316,20 @@ pub mod test {
         }
 
         for i in 0..total_reward_cycles {
-            let start_range = peer_config.burnchain.reward_cycle_to_block_height(i);
+            let start_range = peer_config
+                .chain_config
+                .burnchain
+                .reward_cycle_to_block_height(i);
             let end_range = cmp::min(
                 header_hashes.len() as u64,
-                peer_config.burnchain.reward_cycle_to_block_height(i + 1),
+                peer_config
+                    .chain_config
+                    .burnchain
+                    .reward_cycle_to_block_height(i + 1),
             );
             let blocks_inv = chainstate
                 .get_blocks_inventory_for_reward_cycle(
-                    &peer_config.burnchain,
+                    &peer_config.chain_config.burnchain,
                     i,
                     &header_hashes[(start_range as usize)..(end_range as usize)],
                 )
@@ -10325,25 +10352,27 @@ pub mod test {
     #[test]
     fn test_get_parent_block_header() {
         let peer_config = TestPeerConfig::new(function_name!(), 21313, 21314);
-        let burnchain = peer_config.burnchain.clone();
+        let burnchain = peer_config.chain_config.burnchain.clone();
         let mut peer = TestPeer::new(peer_config);
 
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let num_blocks = 10;
         let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height
         };
 
         let mut last_block_ch: Option<ConsensusHash> = None;
         let mut last_parent_opt: Option<StacksBlock> = None;
         for tenure_id in 0..num_blocks {
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -10410,7 +10439,7 @@ pub mod test {
 
             if tenure_id == 0 {
                 let parent_header_opt = StacksChainState::load_parent_block_header(
-                    &peer.sortdb.as_ref().unwrap().index_conn(),
+                    &peer.chain.sortdb.as_ref().unwrap().index_conn(),
                     &blocks_path,
                     &consensus_hash,
                     &stacks_block.block_hash(),
@@ -10418,7 +10447,7 @@ pub mod test {
                 assert!(parent_header_opt.is_err());
             } else {
                 let parent_header_opt = StacksChainState::load_parent_block_header(
-                    &peer.sortdb.as_ref().unwrap().index_conn(),
+                    &peer.chain.sortdb.as_ref().unwrap().index_conn(),
                     &blocks_path,
                     &consensus_hash,
                     &stacks_block.block_hash(),
@@ -10867,31 +10896,37 @@ pub mod test {
             .map(|addr| (addr.to_account_principal(), initial_balance))
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
-        peer_config.initial_balances = init_balances;
+        peer_config.chain_config.initial_balances = init_balances;
         let mut epochs = StacksEpoch::unit_test_2_1(0);
         let last_epoch = epochs.last_mut().unwrap();
         last_epoch.block_limit.runtime = 10_000_000;
-        peer_config.epochs = Some(epochs);
-        peer_config.burnchain.pox_constants.v1_unlock_height = 26;
-        let burnchain = peer_config.burnchain.clone();
+        peer_config.chain_config.epochs = Some(epochs);
+        peer_config
+            .chain_config
+            .burnchain
+            .pox_constants
+            .v1_unlock_height = 26;
+        let burnchain = peer_config.chain_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height
         };
 
         let mut last_block_id = StacksBlockId([0x00; 32]);
         for tenure_id in 0..num_blocks {
             let del_addr = &del_addrs[tenure_id];
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -11047,11 +11082,12 @@ pub mod test {
                 );
             }
 
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) =
@@ -11084,12 +11120,12 @@ pub mod test {
                 assert_eq!(transfer_stx_ops, expected_transfer_ops);
                 assert_eq!(delegate_stx_ops, expected_del_ops);
             }
-            peer.sortdb.replace(sortdb);
+            peer.chain.sortdb.replace(sortdb);
         }
 
         // all burnchain transactions mined, even if there was no sortition in the burn block in
         // which they were mined.
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
 
         // definitely missing some blocks -- there are empty sortitions
         let stacks_tip =
@@ -11108,7 +11144,7 @@ pub mod test {
                 StacksChainState::get_account(conn, &addr.to_account_principal())
             })
             .unwrap();
-        peer.sortdb.replace(sortdb);
+        peer.chain.sortdb.replace(sortdb);
 
         assert_eq!(
             account.stx_balance.get_total_balance().unwrap(),
@@ -11189,32 +11225,38 @@ pub mod test {
             .map(|addr| (addr.to_account_principal(), initial_balance))
             .collect();
         init_balances.push((addr.to_account_principal(), initial_balance));
-        peer_config.initial_balances = init_balances;
+        peer_config.chain_config.initial_balances = init_balances;
         let mut epochs = StacksEpoch::unit_test_2_1(0);
         let last_epoch = epochs.last_mut().unwrap();
         last_epoch.block_limit.runtime = 10_000_000;
         last_epoch.block_limit.read_length = 10_000_000;
-        peer_config.epochs = Some(epochs);
-        peer_config.burnchain.pox_constants.v1_unlock_height = 26;
-        let burnchain = peer_config.burnchain.clone();
+        peer_config.chain_config.epochs = Some(epochs);
+        peer_config
+            .chain_config
+            .burnchain
+            .pox_constants
+            .v1_unlock_height = 26;
+        let burnchain = peer_config.chain_config.burnchain.clone();
 
         let mut peer = TestPeer::new(peer_config);
 
-        let chainstate_path = peer.chainstate_path.clone();
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let first_stacks_block_height = {
-            let sn =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let sn = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
             sn.block_height
         };
 
         let mut last_block_id = StacksBlockId([0x00; 32]);
         for tenure_id in 0..num_blocks {
             let del_addr = &del_addrs[tenure_id];
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             assert_eq!(
                 tip.block_height,
@@ -11727,11 +11769,12 @@ pub mod test {
                 );
             }
 
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
-            let sortdb = peer.sortdb.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
             {
                 let chainstate = peer.chainstate();
                 let (mut chainstate_tx, clarity_instance) =
@@ -11764,12 +11807,12 @@ pub mod test {
                 assert_eq!(transfer_stx_ops, expected_transfer_ops);
                 assert_eq!(delegate_stx_ops, expected_delegate_ops);
             }
-            peer.sortdb.replace(sortdb);
+            peer.chain.sortdb.replace(sortdb);
         }
 
         // all burnchain transactions mined, even if there was no sortition in the burn block in
         // which they were mined.
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
 
         // definitely missing some blocks -- there are empty sortitions
         let stacks_tip =
@@ -11791,7 +11834,7 @@ pub mod test {
                 StacksChainState::get_account(conn, &addr.to_account_principal())
             })
             .unwrap();
-        peer.sortdb.replace(sortdb);
+        peer.chain.sortdb.replace(sortdb);
 
         // skipped tenure 6's TransferSTX
         assert_eq!(
