@@ -159,6 +159,7 @@ define_named_enum!(ClarityCostFunction {
     BitwiseRShift("cost_bitwise_right_shift"),
     ContractHash("cost_contract_hash"),
     ToAscii("cost_to_ascii"),
+    Secp256r1verify("cost_secp256r1verify"),
     Unimplemented("cost_unimplemented"),
 });
 
@@ -330,6 +331,7 @@ pub trait CostValues {
     fn cost_bitwise_right_shift(n: u64) -> InterpreterResult<ExecutionCost>;
     fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost>;
     fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost>;
+    fn cost_secp256r1verify(n: u64) -> InterpreterResult<ExecutionCost>;
 }
 
 impl ClarityCostFunction {
@@ -484,6 +486,7 @@ impl ClarityCostFunction {
             ClarityCostFunction::BitwiseRShift => C::cost_bitwise_right_shift(n),
             ClarityCostFunction::ContractHash => C::cost_contract_hash(n),
             ClarityCostFunction::ToAscii => C::cost_to_ascii(n),
+            ClarityCostFunction::Secp256r1verify => C::cost_secp256r1verify(n),
             ClarityCostFunction::Unimplemented => Err(RuntimeErrorType::NotImplemented.into()),
         }
     }

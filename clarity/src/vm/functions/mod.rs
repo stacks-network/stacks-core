@@ -193,6 +193,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     GetTenureInfo("get-tenure-info?", ClarityVersion::Clarity3, None),
     ContractHash("contract-hash?", ClarityVersion::Clarity4, None),
     ToAscii("to-ascii?", ClarityVersion::Clarity4, None),
+    Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
 });
 
 ///
@@ -565,6 +566,9 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 SpecialFunction("special_contract_hash", &database::special_contract_hash)
             }
             ToAscii => SpecialFunction("special_to_ascii", &conversions::special_to_ascii),
+            Secp256r1Verify => {
+                SpecialFunction("native_secp256r1-verify", &crypto::special_secp256r1_verify)
+            }
         };
         Some(callable)
     } else {

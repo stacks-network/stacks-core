@@ -506,4 +506,79 @@ mod tests {
 
         assert_eq!(pubk_from_compressed.key, pubk_from_uncompressed.key);
     }
+
+    #[test]
+    fn test_high_s_signature() {
+        use crate::util::hash::Sha256Sum;
+
+        let privk = Secp256r1PrivateKey::random();
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+
+        let msg = b"stacks secp256r1 high-s test____";
+        let msg_hash = Sha256Sum::from_data(msg).as_bytes().to_vec();
+
+        // Sign the message
+        let sig = privk.sign(&msg_hash).unwrap();
+        let pubkey_bytes = pubk.to_bytes();
+
+        // Get the underlying P256Signature to work with r,s components
+        let original_sig = P256Signature::from_slice(&sig.0).unwrap();
+
+        // Always get the low-s version first
+        let low_sig = if let Some(normalized) = original_sig.normalize_s() {
+            normalized // Original was high-s, use the normalized (low-s) version
+        } else {
+            original_sig // Original was already low-s
+        };
+
+        // Now create high-s version from the low-s signature
+        let (r, s) = (low_sig.r(), low_sig.s());
+        let high_sig = {
+            // Make high-s by negating s (s' = -s mod n)
+            let s_hi = -(*s);
+            P256Signature::from_scalars(*r, s_hi).expect("valid (r, -s)")
+        };
+
+        let low_bytes = low_sig.to_bytes();
+        let high_bytes = high_sig.to_bytes();
+
+        // Verify our assumptions about which is which
+        let low_is_low_s = low_sig.normalize_s().is_none();
+        let high_is_high_s = high_sig.normalize_s().is_some();
+
+        assert!(low_is_low_s, "Low signature should be low-s");
+        assert!(high_is_high_s, "High signature should be high-s");
+
+        // Low-s signature should pass verification
+        let low_result = secp256r1_verify(&msg_hash, &low_bytes, &pubkey_bytes);
+        assert!(
+            low_result.is_ok(),
+            "Low-s signature should pass verification"
+        );
+
+        // High-s signature should pass verification
+        let high_result = secp256r1_verify(&msg_hash, &high_bytes, &pubkey_bytes);
+        assert!(
+            high_result.is_ok(),
+            "High-s signature should pass verification"
+        );
+
+        // Test normalization: high-s should pass when normalized to low-s
+        if let Some(normalized_sig) = high_sig.normalize_s() {
+            let normalized_bytes = normalized_sig.to_bytes();
+            let normalized_result = secp256r1_verify(&msg_hash, &normalized_bytes, &pubkey_bytes);
+            assert!(
+                normalized_result.is_ok(),
+                "Normalized (low-s) signature should pass verification"
+            );
+
+            // The normalized signature should be the same as our low signature
+            assert_eq!(
+                normalized_bytes, low_bytes,
+                "Normalized signature should match our low signature"
+            );
+        } else {
+            panic!("High-s signature should normalize to low-s");
+        }
+    }
 }

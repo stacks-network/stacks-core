@@ -725,6 +725,18 @@ fn check_secp256k1_verify(
     Ok(TypeSignature::BoolType)
 }
 
+fn check_secp256r1_verify(
+    checker: &mut TypeChecker,
+    args: &[SymbolicExpression],
+    context: &TypingContext,
+) -> Result<TypeSignature, CheckError> {
+    check_argument_count(3, args)?;
+    checker.type_check_expects(&args[0], context, &TypeSignature::BUFFER_32)?;
+    checker.type_check_expects(&args[1], context, &TypeSignature::BUFFER_64)?;
+    checker.type_check_expects(&args[2], context, &TypeSignature::BUFFER_33)?;
+    Ok(TypeSignature::BoolType)
+}
+
 fn check_get_block_info(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
@@ -1210,6 +1222,7 @@ impl TypedNativeFunction {
                     CheckErrors::Expects("FATAL: Legal Clarity response type marked invalid".into())
                 })?,
             ))),
+            Secp256r1Verify => Special(SpecialNativeFunction(&check_secp256r1_verify)),
         };
 
         Ok(out)
