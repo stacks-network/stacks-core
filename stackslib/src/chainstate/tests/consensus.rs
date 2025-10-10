@@ -208,33 +208,6 @@ fn run_contract_consensus_test(
     ConsensusTest::new(function_name!(), test_vector).run()
 }
 
-fn filter_contract_consensus_test_results(
-    results: &[ExpectedResult],
-) -> (Vec<ExpectedResult>, Vec<ExpectedResult>) {
-    let mut contract_deploy_results = vec![];
-    let mut contract_call_results = vec![];
-    for res in results {
-        if let ExpectedResult::Success(ExpectedBlockOutput { transactions, .. }) = res {
-            assert!(
-                transactions.len() == 1,
-                "Each block is expected to have exactly one transaction"
-            );
-            let tx_payload = &transactions[0]
-                .tx
-                .as_ref()
-                .expect("Only Stacks transactions are expected in this test");
-            match tx_payload {
-                TransactionPayload::SmartContract(..) => contract_deploy_results.push(res.clone()),
-                TransactionPayload::ContractCall(..) => contract_call_results.push(res.clone()),
-                _ => panic!("Only contract deploys and calls are expected in this test"),
-            }
-        } else {
-            panic!("All blocks must succeed when `expect_same_result` is true");
-        }
-    }
-    (contract_deploy_results, contract_call_results)
-}
-
 /// Generates a consensus test for a contract function call across multiple epochs.
 ///
 /// This macro automates deploying a contract and executing a function across different
@@ -257,7 +230,6 @@ fn filter_contract_consensus_test_results(
 /// * `deploy_success`: (optional): Expected deployment success flag. Defaults to `true`.
 /// * `deploy_epochs` (optional): Epochs to deploy the contract in. Defaults to all epochs >= 3.0.
 /// * `call_epochs` (optional): Epochs to call the function in. Defaults to [`EPOCHS_TO_TEST`].
-/// * `expect_same_result` (optional): If `true`, allows duplicate snapshots. Defaults to `false`.
 ///
 /// # Example
 ///
@@ -281,7 +253,6 @@ macro_rules! contract_call_consensus_test {
         $(deploy_success: $deploy_success:expr,)?
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
-        $(expect_same_result: $expect_same_result:expr,)?
     ) => {
         #[tag(consensus)]
         #[test]
@@ -300,10 +271,6 @@ macro_rules! contract_call_consensus_test {
             let deploy_success = true;
             $(let deploy_success = $deploy_success;)?
 
-            // Handle expect_same_result parameter (default to false if not provided)
-            let expect_same = false;
-            $(let expect_same = $expect_same_result;)?
-
             let result = run_contract_consensus_test(
                 contract_name,
                 $contract_code,
@@ -315,34 +282,7 @@ macro_rules! contract_call_consensus_test {
                 $call_success,
             );
 
-            if expect_same {
-                let (contract_deploy_results, contract_call_results) =
-                    filter_contract_consensus_test_results(&result);
-                // Compare all contract deploy results together to avoid snapshot bloat
-                insta::allow_duplicates! {
-                    for res in contract_deploy_results {
-                        insta::assert_ron_snapshot!("contract_deploys", res, {
-                            // redact contract name, as it changes per epoch and clarity version
-                            r#".transactions[].tx[0].name"# => contract_name,
-                            r#".transactions[].tx[0].code_body"# => "[contract code]",
-                            // redact contract code, as it may take too much space needlessly
-                            r#".transactions[].tx[1]"# => "[clarity version]",
-                        });
-                    }
-                }
-                insta::allow_duplicates! {
-                    for res in contract_call_results {
-                        insta::assert_ron_snapshot!("contract_calls", res, {
-                            // redact contract name, as it changes per epoch and clarity version
-                            r#".transactions[].tx.*.name"# => contract_name,
-                        });
-                    }
-                }
-            } else {
-                insta::assert_ron_snapshot!(result, {
-                    r#".transactions[].tx[0].code_body"# => "[contract code]",
-                });
-            }
+            insta::assert_ron_snapshot!(result);
         }
     };
 }
@@ -359,7 +299,6 @@ macro_rules! contract_call_consensus_test {
 /// * `contract_code`: The contract's source code.
 /// * `deploy_success`: Expected deployment success flag.
 /// * `deploy_epochs` (optional): Epochs to deploy in. Defaults to [`EPOCHS_TO_TEST`].
-/// * `expect_same_result` (optional): If `true`, merges identical results in snapshots.
 ///
 /// # Example
 ///
@@ -378,7 +317,6 @@ macro_rules! contract_deploy_consensus_test {
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         deploy_success: $deploy_success:expr,
-        $(expect_same_result: $expect_same_result:expr,)?
     ) => {
         contract_deploy_consensus_test!(
             $name,
@@ -386,7 +324,6 @@ macro_rules! contract_deploy_consensus_test {
             contract_code: $contract_code,
             deploy_success: $deploy_success,
             deploy_epochs: EPOCHS_TO_TEST,
-            $(expect_same_result: $expect_same_result,)?
         );
     };
     (
@@ -395,7 +332,6 @@ macro_rules! contract_deploy_consensus_test {
         contract_code: $contract_code:expr,
         deploy_success: $deploy_success:expr,
         deploy_epochs: $deploy_epochs:expr,
-        $(expect_same_result: $expect_same_result:expr,)?
     ) => {
         contract_call_consensus_test!(
             $name,
@@ -407,7 +343,6 @@ macro_rules! contract_deploy_consensus_test {
             deploy_success: $deploy_success,
             deploy_epochs: $deploy_epochs,
             call_epochs: &[],    // No function calls, just deploys
-            $(expect_same_result: $expect_same_result,)?
         );
     };
 }
