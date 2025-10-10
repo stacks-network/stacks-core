@@ -577,14 +577,14 @@ fn test_secp256k1_errors() {
     ];
 
     let expectations: &[VmExecutionError] = &[
-        CheckErrorKind::TypeValueError(Box::new(BUFF_32.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        CheckErrorKind::TypeValueError(Box::new(BUFF_65.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
+        CheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
+        CheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130100").unwrap() })))).into(),
         CheckErrorKind::IncorrectArgumentCount(2, 1).into(),
         CheckErrorKind::IncorrectArgumentCount(2, 3).into(),
 
-        CheckErrorKind::TypeValueError(Box::new(BUFF_32.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
-        CheckErrorKind::TypeValueError(Box::new(BUFF_65.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
-        CheckErrorKind::TypeValueError(Box::new(BUFF_33.clone()), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
+        CheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_32), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("de5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f").unwrap() })))).into(),
+        CheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_65), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a130111").unwrap() })))).into(),
+        CheckErrorKind::TypeValueError(Box::new(TypeSignature::BUFFER_33), Box::new(Value::Sequence(SequenceData::Buffer(BuffData { data: hex_bytes("03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7").unwrap() })))).into(),
         CheckErrorKind::IncorrectArgumentCount(3, 2).into(),
 
         CheckErrorKind::IncorrectArgumentCount(1, 2).into(),
@@ -1010,9 +1010,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Int(0)),
         )
@@ -1021,9 +1021,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Int(0)),
         )
@@ -1044,9 +1044,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -1059,9 +1059,9 @@ fn test_sequence_comparisons_mismatched_types() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_string_ascii().unwrap(),
-                TypeSignature::max_string_utf8().unwrap(),
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
                 ASCIIData {
@@ -1471,7 +1471,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
@@ -1480,7 +1480,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
@@ -1489,7 +1489,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
@@ -1498,7 +1498,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
@@ -1508,7 +1508,7 @@ fn test_hash_errors() {
             vec![
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
-                TypeSignature::max_buffer().unwrap(),
+                TypeSignature::BUFFER_MAX,
             ],
             Box::new(Value::Bool(true)),
         )
