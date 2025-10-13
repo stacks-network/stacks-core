@@ -72,7 +72,7 @@ fn test_secp256r1_verify_valid_signature_returns_true() {
 }
 
 #[test]
-fn test_secp256r1_verify_valid_high_s_signature_returns_false() {
+fn test_secp256r1_verify_valid_high_s_signature_returns_true() {
     let message = "0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8";
     let signature = "0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd31f153a6d5c3dc192a5574f3a261b1b70570971b92d8ebf86c17b7670d13591c4e";
     let pubkey = "0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e";
@@ -80,7 +80,7 @@ fn test_secp256r1_verify_valid_high_s_signature_returns_false() {
     let program = format!("(secp256r1-verify {message} {signature} {pubkey})");
 
     assert_eq!(
-        Value::Bool(false),
+        Value::Bool(true),
         execute_with_parameters(
             program.as_str(),
             ClarityVersion::Clarity4,
