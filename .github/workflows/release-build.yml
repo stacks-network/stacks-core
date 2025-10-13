@@ -1,0 +1,82 @@
+## Github workflow to create a github release and upload binary artifacts
+
+name: test release build matrix
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: github-release-${{ github.head_ref || github.ref }}
+  ## Always cancel duplicate jobs
+  cancel-in-progress: true
+
+run-name: test release build matrix
+
+jobs:
+  ## Build arch dependent binaries from source
+  ##
+  ## Runs when the following is true:
+  ##  - either node or signer tag is provided
+  build-binaries:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
+      max-parallel: 10
+      matrix:
+        arch:
+          - linux-musl
+          - linux-glibc
+          - macos
+          - windows
+        cpu:
+          - arm64
+          - x86-64 ## defaults to x86-64-v3 variant - intel haswell (2013) and newer
+          # - x86-64-v2 ## intel nehalem (2008) and newer
+          # - x86-64-v3 ## intel haswell (2013) and newer
+          # - x86-64-v4 ## intel skylake (2017) and newer
+        os:
+            - ubuntu-latest
+            - macos-latest-large
+        exclude:
+        ############################################
+        # exclude linux on macos
+        # exclude linux-musl on macos
+          - arch: linux-musl
+          - os: macos-latest-large
+        # exclude linux-glibc on macos
+          - arch: linux-glibc
+          - os: macos-latest-large
+        ############################################
+        # excludes windows-arm64
+          - arch: windows
+            cpu: arm64
+        # excludes windows-armv7
+          - arch: windows
+            cpu: armv7
+        # excludes macos-armv7
+          - arch: macos
+            cpu: armv7
+        # excludes macos-x64
+          - arch: macos
+            cpu: x86-64
+    steps:
+      ## echo what we're doing
+      - name: Set Vars
+        id: set_vars
+        shell: bash
+        run: |
+          echo "arch: ${{ matrix.arch }}"
+          echo "cpu: ${{ matrix.cpu }}"
+          echo "os: ${{ matrix.os }}"
+          exit 0
+
+      # - name: Build Binary (${{ matrix.arch }}_${{ matrix.cpu }})
+      #   uses: stacks-network/actions/stacks-core/release/create-source-binary@main
+      #   with:
+      #     arch: ${{ matrix.arch }}
+      #     cpu: ${{ matrix.cpu }}
+      #     node_tag: ${{ inputs.node_tag }}
+      #     signer_tag: ${{ inputs.signer_tag }}
+      #     signer_docker_tag: ${{ inputs.signer_docker_tag }}
+      #     is_node_release: ${{ inputs.is_node_release }}
