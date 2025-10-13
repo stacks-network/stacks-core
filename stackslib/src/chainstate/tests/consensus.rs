@@ -155,14 +155,14 @@ fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
 }
 
 /// Serialize an optional string field appending a non-consensus breaking info message.
-fn serialize_opt_string_ncb<S>(
-    value: &Option<String>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
+fn serialize_opt_string_ncb<S>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    let original = value.clone().unwrap_or("None".to_string());
+    let original = match value.as_deref() {
+        Some(str) => format!("Some({str})"),
+        None => "None".to_string(),
+    };
     let changed = format!("{original} [NON-CONSENSUS BREAKING]");
     serializer.serialize_str(&changed)
 }
