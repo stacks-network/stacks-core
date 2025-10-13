@@ -94,34 +94,44 @@ const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVe
     }
 }
 
-/// Helper for contract consensus tests to run a contract function across multiple epochs.
+/// Executes a consensus test for a contract function across multiple Stacks epochs.
 ///
-/// This function orchestrates deploying a contract and calling a function across different
-/// Stacks epochs and Clarity versions. It is designed for consensus-critical testing.
+/// This helper automates deploying a contract and invoking one of its public functions
+/// across different epochs and Clarity versions, ensuring consistent consensus behavior.
 ///
-/// It first deploys the contract in `deploy_epochs` for each applicable Clarity version,
-/// then calls the function in `call_epochs` on all previously deployed contracts. The
-/// entire operation is run as a single `ConsensusTest`.
+/// # Behavior
+///
+/// The function performs two main phases:
+/// 1. **Deployment:** Deploys `contract_code` in each epoch listed in `deploy_epochs` for all
+///    applicable Clarity versions.
+/// 2. **Execution:** Calls `function_name` in each epoch listed in `call_epochs` on every
+///    previously deployed contract.
+///
+/// ## Example
+/// If `deploy_epochs` = `[2.0, 3.0]` and `call_epochs` = `[3.1]`, the following sequence occurs:
+/// - Deploy contract in epoch 2.0 with Clarity 1.
+/// - Deploy contract in epoch 3.0 with Clarity 1, 2, and 3.
+/// - Call the function in epoch 3.1 on all four deployed contracts.
 ///
 /// # Arguments
 ///
 /// * `contract_name` - Base name for the contract.
-/// * `contract_code` - The Clarity source code.
-/// * `function_name` - The public function to call.
-/// * `function_args` - Arguments for the function call.
-/// * `deploy_epochs` - Epochs for contract deployment.
-/// * `call_epochs` - Epochs for function execution.
-/// * `deploy_success` - Whether deployments blocks are expected to succeed.
-/// * `call_success` - Whether function call blocks are expected to succeed.
+/// * `contract_code` - Clarity source code of the contract.
+/// * `function_name` - Public function to invoke.
+/// * `function_args` - Arguments to pass to the function call.
+/// * `deploy_epochs` - Epochs during which the contract should be deployed.
+/// * `call_epochs` - Epochs during which the function should be executed.
+/// * `deploy_success` - Whether deployment blocks are expected to succeed.
+/// * `call_success` - Whether call blocks are expected to succeed.
 ///
 /// # Returns
 ///
-/// A `Vec<ExpectedResult>` with the outcome of each transaction block for snapshot testing.
+/// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
 ///
 /// # Panics
 ///
 /// * If `deploy_epochs` is empty.
-/// * If any `call_epoch` is earlier than the minimum `deploy_epoch`.
+/// * If any `call_epoch` precedes the earliest `deploy_epoch`.
 fn run_contract_consensus_test(
     contract_name: &str,
     contract_code: &str,
@@ -207,28 +217,32 @@ fn run_contract_consensus_test(
     ConsensusTest::new(function_name!(), test_vector).run()
 }
 
-/// Generates a consensus test for a contract function call across multiple epochs.
+/// Generates a consensus test for executing a contract function across multiple Stacks epochs.
 ///
-/// This macro automates deploying a contract and executing a function across different
-/// Stacks epochs and Clarity versions.
+/// This macro automates both contract deployment and function invocation across different
+/// epochs and Clarity versions.
+/// It simplifies the setup of consensus-critical tests involving versioned smart contracts.
 ///
 /// # Behavior
 ///
-/// - Deployment: Deploys `contract_code` in each epoch from `deploy_epochs`
+/// - **Deployment:** Deploys `contract_code` in each epoch specified in `deploy_epochs`
 ///   for every applicable [`ClarityVersion`].
-/// - Execution: Calls `function_name` in each epoch from `call_epochs` on all
-///   contracts deployed up to that point.
-/// - Structure: Each transaction (deploy or call) is placed in a separate block.
+/// - **Execution:** Calls `function_name` in each epoch from `call_epochs` on all previously
+///   deployed contract instances.
+/// - **Structure:** Each deployment and function call is executed in its own block, ensuring
+///   clear separation between transactions.
 ///
 /// # Arguments
 ///
-/// * `$name`: The test function's name.
-/// * `contract_name`, `contract_code`: The contract's name and source.
-/// * `function_name`, `function_args`: The function to call and its arguments.
-/// * `call_success`: Expected function call success flag.
-/// * `deploy_success`: (optional): Expected deployment success flag. Defaults to `true`.
-/// * `deploy_epochs` (optional): Epochs to deploy the contract in. Defaults to all epochs >= 3.0.
-/// * `call_epochs` (optional): Epochs to call the function in. Defaults to [`EPOCHS_TO_TEST`].
+/// * `$name` — Name of the generated test function.
+/// * `contract_name` — The name of the contract.
+/// * `contract_code` — The Clarity source code for the contract.
+/// * `function_name` — The public function to call.
+/// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
+/// * `call_success` — Whether function call blocks are expected to succeed.
+/// * `deploy_success` — *(optional)* Whether deployment blocks are expected to succeed. Defaults to `true`.
+/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 3.0.
+/// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
 ///
 /// # Example
 ///
@@ -239,6 +253,7 @@ fn run_contract_consensus_test(
 ///     contract_code: "(define-public (get-message) (ok \"hello\"))",
 ///     function_name: "get-message",
 ///     function_args: &[],
+///     call_success: true,
 /// );
 /// ```
 macro_rules! contract_call_consensus_test {
@@ -285,18 +300,27 @@ macro_rules! contract_call_consensus_test {
     };
 }
 
-/// Generates a consensus test for contract deployment across multiple epochs.
+/// Generates a consensus test for contract deployment across multiple Stacks epochs.
 ///
-/// This macro automates deploying a contract in different Stacks epochs and
-/// Clarity versions, validating deployment success and comparing results.
+/// This macro automates deploying a contract across different Stacks epochs and
+/// Clarity versions, validating deployment success and ensuring consistent results
+/// across protocol upgrades. It is primarily used for consensus-critical testing of
+/// contract deployment behavior.
+///
+/// # Behavior
+///
+/// - **Deployment:** Deploys `contract_code` in each epoch specified by `deploy_epochs`
+///   for all applicable [`ClarityVersion`]s.
+/// - **Structure:** Each deployment is executed in its own block, ensuring clear
+///   separation between transactions.
 ///
 /// # Arguments
 ///
-/// * `$name`: The test function's name.
-/// * `contract_name`: The contract's name.
-/// * `contract_code`: The contract's source code.
-/// * `deploy_success`: Expected deployment success flag.
-/// * `deploy_epochs` (optional): Epochs to deploy in. Defaults to [`EPOCHS_TO_TEST`].
+/// * `$name` — Name of the generated test function.
+/// * `contract_name` — Name of the contract being tested.
+/// * `contract_code` — The Clarity source code of the contract.
+/// * `deploy_success` — Whether deployment blocks are expected to succeed.
+/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
 ///
 /// # Example
 ///
