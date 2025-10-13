@@ -1,9 +1,10 @@
-## Github workflow to create a github release and upload binary artifacts
+## Github workflow to create reusable caches
 
-name: test release build matrix
+name: TEST Release workflow
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: github-release-${{ github.head_ref || github.ref }}
