@@ -253,7 +253,6 @@ macro_rules! contract_call_consensus_test {
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
     ) => {
-        #[tag(consensus)]
         #[test]
         fn $name() {
             let contract_name = $contract_name;
