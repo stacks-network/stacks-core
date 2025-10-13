@@ -50,9 +50,9 @@ lazy_static! {
         boot_code_id("cost-voting", false);
 }
 
-pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
+pub fn get_simple_test(function: &NativeFunctions) -> Option<&'static str> {
     use clarity::vm::functions::NativeFunctions::*;
-    match function {
+    let s = match function {
         Add => "(+ 1 1)",
         ToUInt => "(to-uint 1)",
         ToInt => "(to-int u1)",
@@ -165,8 +165,14 @@ pub fn get_simple_test(function: &NativeFunctions) -> &'static str {
         GetTenureInfo => "(get-tenure-info? time u1)",
         ContractHash => "(contract-hash? .contract-other)",
         ToAscii => "(to-ascii? 65)",
+        RestrictAssets => "(restrict-assets? tx-sender () (+ u1 u2))",
+        AsContractSafe => "(as-contract? () (+ u1 u2))",
         Secp256r1Verify => "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8 0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd310eac59293c23e6d6aa8b0c5d9e4e48fa4c4fdf1ace2ba618dc0263b5e90a0903 0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e)",
-    }
+        // These expressions are not usable in this context, since they are
+        // only allowed within `restrict-assets?` or `as-contract?`
+        AllowanceWithStx | AllowanceWithFt | AllowanceWithNft | AllowanceWithStacking | AllowanceAll => return None,
+    };
+    Some(s)
 }
 
 fn execute_transaction(
@@ -1036,11 +1042,16 @@ fn epoch_20_205_test_all(use_mainnet: bool, epoch: StacksEpochId) {
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: The 2.0 and 2.05 test assumes Clarity1.
-            if f.get_min_version() == ClarityVersion::Clarity1 {
-                let test = get_simple_test(f);
-                let cost =
-                    test_program_cost(test, ClarityVersion::Clarity1, &mut owned_env, ix + 1);
-                assert!(cost.exceeds(&baseline));
+            if f.get_min_version() == ClarityVersion::Clarity1
+                && f.get_max_version()
+                    .map(|max| max >= ClarityVersion::Clarity1)
+                    .unwrap_or(true)
+            {
+                if let Some(test) = get_simple_test(f) {
+                    let cost =
+                        test_program_cost(test, ClarityVersion::Clarity1, &mut owned_env, ix + 1);
+                    assert!(cost.exceeds(&baseline));
+                }
             }
         }
     })
@@ -1078,13 +1089,14 @@ fn epoch_21_test_all(use_mainnet: bool) {
             // Note: Include Clarity2 functions for Epoch21.
             if f.get_min_version() <= ClarityVersion::Clarity2
                 && f.get_max_version()
-                    .map(|max| max < ClarityVersion::Clarity2)
+                    .map(|max| max >= ClarityVersion::Clarity2)
                     .unwrap_or(true)
             {
-                let test = get_simple_test(f);
-                let cost =
-                    test_program_cost(test, ClarityVersion::Clarity2, &mut owned_env, ix + 1);
-                assert!(cost.exceeds(&baseline));
+                if let Some(test) = get_simple_test(f) {
+                    let cost =
+                        test_program_cost(test, ClarityVersion::Clarity2, &mut owned_env, ix + 1);
+                    assert!(cost.exceeds(&baseline));
+                }
             }
         }
     })
@@ -1115,10 +1127,11 @@ fn epoch_30_test_all(use_mainnet: bool) {
                     .map(|max| max >= ClarityVersion::Clarity3)
                     .unwrap_or(true)
             {
-                let test = get_simple_test(f);
-                let cost =
-                    test_program_cost(test, ClarityVersion::Clarity3, &mut owned_env, ix + 1);
-                assert!(cost.exceeds(&baseline));
+                if let Some(test) = get_simple_test(f) {
+                    let cost =
+                        test_program_cost(test, ClarityVersion::Clarity3, &mut owned_env, ix + 1);
+                    assert!(cost.exceeds(&baseline));
+                }
             }
         }
     })
@@ -1149,10 +1162,11 @@ fn epoch_33_test_all(use_mainnet: bool) {
                     .map(|max| max >= ClarityVersion::Clarity4)
                     .unwrap_or(true)
             {
-                let test = get_simple_test(f);
-                let cost =
-                    test_program_cost(test, ClarityVersion::Clarity4, &mut owned_env, ix + 1);
-                assert!(cost.exceeds(&baseline));
+                if let Some(test) = get_simple_test(f) {
+                    let cost =
+                        test_program_cost(test, ClarityVersion::Clarity4, &mut owned_env, ix + 1);
+                    assert!(cost.exceeds(&baseline));
+                }
             }
         }
     })

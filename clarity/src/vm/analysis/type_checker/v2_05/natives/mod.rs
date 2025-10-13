@@ -777,12 +777,43 @@ impl TypedNativeFunction {
             IsNone => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             IsSome => Special(SpecialNativeFunction(&options::check_special_is_optional)),
             AtBlock => Special(SpecialNativeFunction(&check_special_at_block)),
-            ElementAtAlias | IndexOfAlias | BuffToIntLe | BuffToUIntLe | BuffToIntBe
-            | BuffToUIntBe | IsStandard | PrincipalDestruct | PrincipalConstruct | StringToInt
-            | StringToUInt | IntToAscii | IntToUtf8 | GetBurnBlockInfo | StxTransferMemo
-            | StxGetAccount | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift
-            | BitwiseRShift | BitwiseXor2 | Slice | ToConsensusBuff | FromConsensusBuff
-            | ReplaceAt | GetStacksBlockInfo | GetTenureInfo | ContractHash | ToAscii
+            ElementAtAlias
+            | IndexOfAlias
+            | BuffToIntLe
+            | BuffToUIntLe
+            | BuffToIntBe
+            | BuffToUIntBe
+            | IsStandard
+            | PrincipalDestruct
+            | PrincipalConstruct
+            | StringToInt
+            | StringToUInt
+            | IntToAscii
+            | IntToUtf8
+            | GetBurnBlockInfo
+            | StxTransferMemo
+            | StxGetAccount
+            | BitwiseAnd
+            | BitwiseOr
+            | BitwiseNot
+            | BitwiseLShift
+            | BitwiseRShift
+            | BitwiseXor2
+            | Slice
+            | ToConsensusBuff
+            | FromConsensusBuff
+            | ReplaceAt
+            | GetStacksBlockInfo
+            | GetTenureInfo
+            | ContractHash
+            | ToAscii
+            | RestrictAssets
+            | AsContractSafe
+            | AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll
             | Secp256r1Verify => {
                 return Err(CheckErrors::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),

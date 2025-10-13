@@ -39,6 +39,7 @@ mod assets;
 mod conversions;
 mod maps;
 mod options;
+pub(crate) mod post_conditions;
 mod sequences;
 
 #[allow(clippy::large_enum_variant)]
@@ -1222,6 +1223,15 @@ impl TypedNativeFunction {
                     CheckErrors::Expects("FATAL: Legal Clarity response type marked invalid".into())
                 })?,
             ))),
+            RestrictAssets => Special(SpecialNativeFunction(
+                &post_conditions::check_restrict_assets,
+            )),
+            AsContractSafe => Special(SpecialNativeFunction(&post_conditions::check_as_contract)),
+            AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => Special(SpecialNativeFunction(&post_conditions::check_allowance_err)),
             Secp256r1Verify => Special(SpecialNativeFunction(&check_secp256r1_verify)),
         };
 

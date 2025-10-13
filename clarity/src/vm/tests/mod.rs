@@ -32,6 +32,8 @@ mod conversions;
 mod crypto;
 mod datamaps;
 mod defines;
+#[cfg(test)]
+mod post_conditions;
 mod principals;
 #[cfg(test)]
 mod representations;
