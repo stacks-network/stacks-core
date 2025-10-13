@@ -3369,7 +3369,6 @@ dependencies = [
  "mutants",
  "nix",
  "percent-encoding",
- "pinny",
  "pox-locking 2.4.0",
  "prometheus",
  "proptest",
