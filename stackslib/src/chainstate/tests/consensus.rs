@@ -94,7 +94,7 @@ const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVe
     }
 }
 
-/// Helper for [`contract_consensus_test!`] to run a contract function across multiple epochs.
+/// Helper for contract consensus tests to run a contract function across multiple epochs.
 ///
 /// This function orchestrates deploying a contract and calling a function across different
 /// Stacks epochs and Clarity versions. It is designed for consensus-critical testing.
@@ -1080,7 +1080,7 @@ fn test_append_stx_transfers_success() {
     insta::assert_ron_snapshot!(result);
 }
 
-// Example of using the `contract_consensus_test!` macro
+// Example of using the `contract_call_consensus_test!` macro
 // Deploys a contract to each epoch, for each Clarity version,
 // then calls a function in that contract and snapshots the results.
 contract_call_consensus_test!(
