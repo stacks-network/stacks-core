@@ -5,6 +5,7 @@ name: TEST Release workflow
 on:
   workflow_dispatch:
   workflow_call:
+  pull_request:
 
 concurrency:
   group: github-release-${{ github.head_ref || github.ref }}
