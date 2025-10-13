@@ -292,7 +292,7 @@ pub fn special_secp256r1_verify(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    // (secp256r1-verify? message-hash signature public-key)
+    // (secp256r1-verify message-hash signature public-key)
     // message-hash: (buff 32), signature: (buff 64), public-key: (buff 33)
     check_argument_count(3, args)?;
 
