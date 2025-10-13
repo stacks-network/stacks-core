@@ -192,34 +192,34 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
-            end_height: 201,
+            end_height: 101,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_4
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
-            start_height: 201,
-            end_height: 231,
+            start_height: 101,
+            end_height: 114,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: 231,
-            end_height: 241,
+            start_height: 114,
+            end_height: 115,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
-            start_height: 241,
-            end_height: 251,
+            start_height: 115,
+            end_height: 116,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
-            start_height: 251,
+            start_height: 116,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_2
@@ -271,41 +271,41 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
-            end_height: 201,
+            end_height: 101,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_4
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
-            start_height: 201,
-            end_height: 231,
+            start_height: 101,
+            end_height: 114,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: 231,
-            end_height: 232,
+            start_height: 114,
+            end_height: 115,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
-            start_height: 232,
-            end_height: 233,
+            start_height: 115,
+            end_height: 116,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
-            start_height: 233,
-            end_height: 234,
+            start_height: 116,
+            end_height: 117,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
-            start_height: 234,
+            start_height: 117,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
             network_epoch: PEER_VERSION_EPOCH_3_2
@@ -786,8 +786,8 @@ pub fn naka_neon_integration_conf(seed: Option<&[u8]>) -> (Config, StacksAddress
 
     let miner_account = keychain.origin_address(conf.is_mainnet()).unwrap();
 
-    conf.burnchain.pox_prepare_length = Some(5);
-    conf.burnchain.pox_reward_length = Some(20);
+    conf.burnchain.pox_prepare_length = Some(3);
+    conf.burnchain.pox_reward_length = Some(10);
 
     conf.connection_options.inv_sync_interval = 1;
 
@@ -1681,7 +1681,13 @@ fn simple_neon_integration() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -1742,14 +1748,15 @@ fn simple_neon_integration() {
     wait_for_first_naka_block_commit(60, &node_counters.naka_submitted_commits);
 
     let prior_commits = node_counters.naka_submitted_commits.load(Ordering::SeqCst);
+    let num_tenures = 5;
     // Mine 15 nakamoto tenures
-    let tenures_count = 15;
+    let tenures_count = num_tenures;
     for _i in 0..tenures_count {
         next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &node_counters)
             .unwrap();
     }
     let post_commits = node_counters.naka_submitted_commits.load(Ordering::SeqCst);
-    assert_eq!(prior_commits + 15, post_commits, "There should have been exactly {tenures_count} submitted commits during the {tenures_count} tenures");
+    assert_eq!(prior_commits + num_tenures, post_commits, "There should have been exactly {tenures_count} submitted commits during the {tenures_count} tenures");
 
     // Submit a TX
     let transfer_tx = make_stacks_transfer_serialized(
@@ -1795,7 +1802,7 @@ fn simple_neon_integration() {
     .expect("Timed out waiting for submitted transaction to be included in a block");
 
     // Mine 15 more nakamoto tenures
-    for _i in 0..15 {
+    for _i in 0..tenures_count {
         next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &node_counters)
             .unwrap();
     }
@@ -1825,11 +1832,13 @@ fn simple_neon_integration() {
     );
 
     assert!(tip.anchored_header.as_stacks_nakamoto().is_some());
-    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 30);
+    assert!(tip.stacks_block_height >= block_height_pre_3_0 + 2 * tenures_count);
 
     // Check that we aren't missing burn blocks (except during the Nakamoto transition)
     let bhh = u64::from(tip.burn_header_height);
-    check_nakamoto_no_missing_blocks(&naka_conf, 220..=bhh);
+    let epoch30_start =
+        naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch30].start_height;
+    check_nakamoto_no_missing_blocks(&naka_conf, epoch30_start..=bhh);
 
     // make sure prometheus returns an updated number of processed blocks
     #[cfg(feature = "monitoring_prom")]
@@ -1906,7 +1915,13 @@ fn restarting_miner() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -2131,7 +2146,13 @@ fn flash_blocks_on_epoch_3_FLAKY() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -2378,7 +2399,13 @@ fn mine_multiple_per_tenure_integration() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -2594,8 +2621,14 @@ fn multiple_miners() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    let epoch24 = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .clone();
     btc_regtest_controller.bootstrap_chain_to_pks(
-        201,
+        epoch24.start_height,
         &[
             Secp256k1PublicKey::from_hex(
                 naka_conf
@@ -2836,7 +2869,13 @@ fn correct_burn_outs() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -3149,7 +3188,13 @@ fn block_proposal_api_endpoint() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -3526,7 +3571,13 @@ fn miner_writes_proposed_block_to_stackerdb() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -3630,7 +3681,13 @@ fn vote_for_aggregate_key_burn_op() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -3859,7 +3916,13 @@ fn follower_bootup_simple() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -4180,7 +4243,13 @@ fn follower_bootup_across_multiple_cycles() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -4407,7 +4476,13 @@ fn follower_bootup_custom_chain_id() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -4755,7 +4830,13 @@ fn burn_ops_integration_test() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
 
@@ -5342,7 +5423,13 @@ fn bad_commit_does_not_trigger_fork() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -5701,7 +5788,13 @@ fn check_block_heights() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -6158,7 +6251,13 @@ fn nakamoto_attempt_time() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -6462,7 +6561,13 @@ fn clarity_burn_state() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -6737,7 +6842,13 @@ fn signer_chainstate() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -7330,7 +7441,13 @@ fn continue_tenure_extend() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -7791,7 +7908,13 @@ fn check_block_times() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -8185,7 +8308,13 @@ fn check_block_info() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -8822,7 +8951,13 @@ fn check_block_info_rewards() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -9173,7 +9308,13 @@ fn mock_mining() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -9535,7 +9676,13 @@ fn v3_signer_api_endpoint() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -9698,7 +9845,13 @@ fn v3_blockbyheight_api_endpoint() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -9817,7 +9970,13 @@ fn nakamoto_lockup_events() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -9995,7 +10154,13 @@ fn skip_mining_long_tx() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -10357,7 +10522,13 @@ fn sip029_coinbase_change() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -10578,7 +10749,13 @@ fn clarity_cost_spend_down() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -10839,7 +11016,13 @@ fn consensus_hash_event_dispatcher() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -11280,7 +11463,13 @@ fn mine_invalid_principal_from_consensus_buff() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -11399,7 +11588,13 @@ fn reload_miner_config() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let conf_path =
         std::env::temp_dir().join(format!("miner-config-test-{}.toml", rand::random::<u64>()));
@@ -11545,7 +11740,13 @@ fn rbf_on_config_change() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let conf_path =
         std::env::temp_dir().join(format!("miner-config-test-{}.toml", rand::random::<u64>()));
@@ -11725,7 +11926,13 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -12066,7 +12273,13 @@ fn larger_mempool() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -12340,7 +12553,13 @@ fn v3_transaction_api_endpoint() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -12509,7 +12728,13 @@ fn handle_considered_txs_foreign_key_failure() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -12651,7 +12876,13 @@ fn empty_mempool_sleep_ms() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -12780,7 +13011,13 @@ fn miner_constructs_replay_block() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -13054,7 +13291,13 @@ fn test_sip_031_activation() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -13384,7 +13627,13 @@ fn test_sip_031_last_phase() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -13708,7 +13957,13 @@ fn test_sip_031_last_phase_out_of_epoch() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -13906,7 +14161,13 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -14258,7 +14519,13 @@ fn test_epoch_3_3_activation() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -14448,7 +14715,13 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -14785,7 +15058,13 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
@@ -15093,7 +15372,13 @@ fn check_block_time_keyword() {
         .start_bitcoind()
         .expect("Failed starting bitcoind");
     let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
-    btc_regtest_controller.bootstrap_chain(201);
+    let epoch24_start = naka_conf
+        .burnchain
+        .get_epoch_list()
+        .get(StacksEpochId::Epoch24)
+        .unwrap()
+        .start_height;
+    btc_regtest_controller.bootstrap_chain(epoch24_start);
 
     let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
     let run_loop_stopper = run_loop.get_termination_switch();
