@@ -310,7 +310,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30)); // empty blocks not allowed
@@ -320,8 +323,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -333,8 +342,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![coinbase_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -347,8 +362,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone(), invalid_coinbase_tx],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -364,8 +385,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             coinbase_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -377,8 +404,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![coinbase_tx.clone(), tenure_change_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -394,8 +427,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             tenure_change_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -411,8 +450,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             coinbase_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -425,8 +470,11 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone(), coinbase_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(true));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(block.is_wellformed_tenure_start_block(), Ok(true)));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), Some(&coinbase_tx));
     assert_eq!(
         block.get_tenure_change_tx_payload(),
@@ -442,8 +490,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(true));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Ok(false)
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(true)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(
@@ -459,8 +513,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone(), stx_transfer.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(true));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Ok(false)
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(true)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(
@@ -475,8 +535,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone(), tenure_extend_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -488,8 +554,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![stx_transfer, tenure_extend_tx],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -501,8 +573,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header,
         txs: vec![tenure_change_tx.clone(), tenure_change_tx, coinbase_tx],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);

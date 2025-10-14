@@ -598,12 +598,7 @@ impl NakamotoStagingBlocksTx<'_> {
         signing_weight: u32,
         obtain_method: NakamotoBlockObtainMethod,
     ) -> Result<(), ChainstateError> {
-        let Ok(tenure_start) = block.is_wellformed_tenure_start_block() else {
-            return Err(ChainstateError::InvalidStacksBlock(
-                "Tried to store a tenure-start block that is not well-formed".into(),
-            ));
-        };
-
+        let tenure_start = block.is_wellformed_tenure_start_block()?;
         let burn_attachable = burn_attachable || {
             // if it's burn_attachable before, it's burn_attachable always
             self.conn()
