@@ -733,7 +733,7 @@ fn test_append_block_with_contract_upload_success() {
         ),
       )),
       Success(ExpectedBlockOutput(
-        marf_hash: "c72ff94259d531c853a2b3a5ae3d8a8d5a87014337451a09cbce09fa6c43e228",
+        marf_hash: "c8c46dd15963fc096561127588893c4250444833e42067c7b075a0707347a9f8",
         transactions: [
           ExpectedTransactionOutput(
             return_type: Response(ResponseData(

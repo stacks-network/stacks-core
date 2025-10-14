@@ -118,7 +118,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c2e7ab1e81196330a7c375ee676efd05e1c162b5667ec2d5fd2e072ebebc8fd5",
+    marf_hash: "e4a65933b8497b39f0db58240d7338a21789587abc7efc90a5b865493c38acbd",
     transactions: [
       ExpectedTransactionOutput(
         return_type: Response(ResponseData(
