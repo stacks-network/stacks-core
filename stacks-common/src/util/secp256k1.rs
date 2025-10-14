@@ -254,19 +254,19 @@ impl Secp256k1PublicKey {
 
     /// Recovers message and signature to public key (will be compressed).
     pub fn recover_to_pubkey(
-        _msg: &[u8],
-        _sig: &MessageSignature,
+        msg: &[u8],
+        sig: &MessageSignature,
     ) -> Result<Secp256k1PublicKey, &'static str> {
-        if _msg.len() != 32 {
+        if msg.len() != 32 {
             return Err("Invalid message: failed to decode data hash: must be a 32-byte hash");
         }
 
-        let recoverable_sig = _sig
+        let recoverable_sig = sig
             .to_secp256k1_recoverable()
             .ok_or("Invalid signature: failed to decode recoverable signature")?;
 
         let recovered_key = K256VerifyingKey::recover_from_prehash(
-            _msg,
+            msg,
             &recoverable_sig.signature,
             recoverable_sig.recovery_id,
         )
