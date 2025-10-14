@@ -87,7 +87,7 @@ fn setup_peer_config(
     conf.connection_opts.disable_block_download = true;
 
     let j = i as u32;
-    conf.burnchain.peer_version = PEER_VERSION_TESTNET | (j << 16) | (j << 8) | j; // different non-major versions for each peer
+    conf.chain_config.burnchain.peer_version = PEER_VERSION_TESTNET | (j << 16) | (j << 8) | j; // different non-major versions for each peer
 
     // even-number peers support stacker DBs.
     // odd-number peers do not

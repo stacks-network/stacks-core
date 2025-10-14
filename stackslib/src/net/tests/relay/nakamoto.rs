@@ -33,6 +33,7 @@ use crate::chainstate::nakamoto::NakamotoBlockHeader;
 use crate::chainstate::stacks::test::{make_codec_test_block, make_codec_test_microblock};
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::*;
+use crate::chainstate::tests::TestChainstate;
 use crate::core::*;
 use crate::net::relay::{AcceptedNakamotoBlocks, ProcessedNetReceipts, Relayer};
 use crate::net::stackerdb::StackerDBs;
@@ -60,13 +61,13 @@ impl ExitedPeer {
         Self {
             config: peer.config,
             network: peer.network,
-            sortdb: peer.sortdb,
-            miner: peer.miner,
-            stacks_node: peer.stacks_node,
+            sortdb: peer.chain.sortdb,
+            miner: peer.chain.miner,
+            stacks_node: peer.chain.stacks_node,
             relayer: peer.relayer,
             mempool: peer.mempool,
-            chainstate_path: peer.chainstate_path,
-            indexer: peer.indexer,
+            chainstate_path: peer.chain.chainstate_path,
+            indexer: peer.chain.indexer,
         }
     }
 
@@ -91,7 +92,7 @@ impl ExitedPeer {
             ibd,
             100,
             &RPCHandlerArgs::default(),
-            self.config.txindex,
+            self.config.chain_config.txindex,
         )?;
         let receipts_res = self.relayer.process_network_result(
             self.network.get_local_peer(),
@@ -180,8 +181,8 @@ impl SeedNode {
         )
         .unwrap();
 
-        let mut test_signers = peer.config.test_signers.take().unwrap();
-        let test_stackers = peer.config.test_stackers.take().unwrap();
+        let mut test_signers = peer.config.chain_config.test_signers.take().unwrap();
+        let test_stackers = peer.config.chain_config.test_stackers.take().unwrap();
 
         let mut all_blocks: Vec<NakamotoBlock> = vec![];
 
@@ -208,9 +209,10 @@ impl SeedNode {
             tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
             let tenure_change_tx = peer
+                .chain
                 .miner
                 .make_nakamoto_tenure_change(tenure_change.clone());
-            let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+            let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
             let num_blocks: usize = (thread_rng().gen::<usize>() % 10) + 1;
 
@@ -264,8 +266,8 @@ impl SeedNode {
 
             // relay these blocks
             let local_peer = peer.network.get_local_peer().clone();
-            let sortdb = peer.sortdb.take().unwrap();
-            let stacks_node = peer.stacks_node.take().unwrap();
+            let sortdb = peer.chain.sortdb.take().unwrap();
+            let stacks_node = peer.chain.stacks_node.take().unwrap();
 
             peer.relayer.relay_epoch3_blocks(
                 &local_peer,
@@ -276,8 +278,8 @@ impl SeedNode {
                 }],
             );
 
-            peer.sortdb = Some(sortdb);
-            peer.stacks_node = Some(stacks_node);
+            peer.chain.sortdb = Some(sortdb);
+            peer.chain.stacks_node = Some(stacks_node);
 
             // send the blocks to the unit test as well
             if comms
@@ -291,11 +293,12 @@ impl SeedNode {
 
             // if we're starting a new reward cycle, then save the current one
             let tip = {
-                let sort_db = peer.sortdb.as_mut().unwrap();
+                let sort_db = peer.chain.sortdb.as_mut().unwrap();
                 SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap()
             };
             if peer
                 .config
+                .chain_config
                 .burnchain
                 .is_reward_cycle_start(tip.block_height)
             {
@@ -305,8 +308,8 @@ impl SeedNode {
             all_blocks.append(&mut blocks);
         }
 
-        peer.config.test_signers = Some(test_signers);
-        peer.config.test_stackers = Some(test_stackers);
+        peer.config.chain_config.test_signers = Some(test_signers);
+        peer.config.chain_config.test_stackers = Some(test_stackers);
 
         let exited_peer = ExitedPeer::from_test_peer(peer);
 
@@ -534,7 +537,7 @@ fn test_no_buffer_ready_nakamoto_blocks() {
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 
-    let test_path = TestPeer::make_test_path(&follower.config);
+    let test_path = TestChainstate::make_test_path(&follower.config.chain_config);
     let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
     let follower_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
     let mut follower_relayer = Relayer::from_p2p(&mut follower.network, follower_stacker_dbs);
@@ -570,8 +573,8 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                 Some(SeedData::Blocks(blocks)) => {
                     debug!("Follower got Nakamoto blocks {:?}", &blocks);
 
-                    let mut sortdb = follower.sortdb.take().unwrap();
-                    let mut node = follower.stacks_node.take().unwrap();
+                    let mut sortdb = follower.chain.sortdb.take().unwrap();
+                    let mut node = follower.chain.stacks_node.take().unwrap();
 
                     let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
 
@@ -728,8 +731,8 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                         ));
                     }
 
-                    follower.stacks_node = Some(node);
-                    follower.sortdb = Some(sortdb);
+                    follower.chain.stacks_node = Some(node);
+                    follower.chain.sortdb = Some(sortdb);
                 }
                 Some(SeedData::Exit(exited)) => {
                     debug!("Follower got seed exit");
@@ -739,20 +742,24 @@ fn test_no_buffer_ready_nakamoto_blocks() {
                 }
             }
 
-            follower.coord.handle_new_burnchain_block().unwrap();
-            follower.coord.handle_new_stacks_block().unwrap();
-            follower.coord.handle_new_nakamoto_stacks_block().unwrap();
+            follower.chain.coord.handle_new_burnchain_block().unwrap();
+            follower.chain.coord.handle_new_stacks_block().unwrap();
+            follower
+                .chain
+                .coord
+                .handle_new_nakamoto_stacks_block()
+                .unwrap();
         }
 
         // compare chain tips
-        let sortdb = follower.sortdb.take().unwrap();
-        let stacks_node = follower.stacks_node.take().unwrap();
+        let sortdb = follower.chain.sortdb.take().unwrap();
+        let stacks_node = follower.chain.stacks_node.take().unwrap();
         let follower_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let follower_stacks_tip =
             NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
                 .unwrap();
-        follower.stacks_node = Some(stacks_node);
-        follower.sortdb = Some(sortdb);
+        follower.chain.stacks_node = Some(stacks_node);
+        follower.chain.sortdb = Some(sortdb);
 
         let mut exited_peer = exited_peer.unwrap();
         let sortdb = exited_peer.sortdb.take().unwrap();
@@ -785,7 +792,7 @@ fn test_buffer_nonready_nakamoto_blocks() {
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 
-    let test_path = TestPeer::make_test_path(&follower.config);
+    let test_path = TestChainstate::make_test_path(&follower.config.chain_config);
     let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
     let follower_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
     let mut follower_relayer = Relayer::from_p2p(&mut follower.network, follower_stacker_dbs);
@@ -850,8 +857,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
                     debug!("Follower got Nakamoto blocks {:?}", &blocks);
                     all_blocks.push(blocks.clone());
 
-                    let sortdb = follower.sortdb.take().unwrap();
-                    let node = follower.stacks_node.take().unwrap();
+                    let sortdb = follower.chain.sortdb.take().unwrap();
+                    let node = follower.chain.stacks_node.take().unwrap();
 
                     // we will need to buffer this since the sortition for these blocks hasn't been
                     // processed yet
@@ -908,8 +915,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
                         true,
                     );
 
-                    follower.stacks_node = Some(node);
-                    follower.sortdb = Some(sortdb);
+                    follower.chain.stacks_node = Some(node);
+                    follower.chain.sortdb = Some(sortdb);
                 }
                 Some(SeedData::Exit(exited)) => {
                     debug!("Follower got seed exit");
@@ -928,8 +935,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
                     }
 
                     // process the last buffered messages
-                    let mut sortdb = follower.sortdb.take().unwrap();
-                    let mut node = follower.stacks_node.take().unwrap();
+                    let mut sortdb = follower.chain.sortdb.take().unwrap();
+                    let mut node = follower.chain.stacks_node.take().unwrap();
 
                     if let Some(mut network_result) = network_result.take() {
                         follower_relayer.process_new_epoch3_blocks(
@@ -943,8 +950,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
                         );
                     }
 
-                    follower.stacks_node = Some(node);
-                    follower.sortdb = Some(sortdb);
+                    follower.chain.stacks_node = Some(node);
+                    follower.chain.sortdb = Some(sortdb);
 
                     network_result = follower
                         .step_with_ibd_and_dns(true, Some(&mut follower_dns_client))
@@ -957,8 +964,8 @@ fn test_buffer_nonready_nakamoto_blocks() {
             }
 
             if let Some(mut network_result) = network_result.take() {
-                let mut sortdb = follower.sortdb.take().unwrap();
-                let mut node = follower.stacks_node.take().unwrap();
+                let mut sortdb = follower.chain.sortdb.take().unwrap();
+                let mut node = follower.chain.stacks_node.take().unwrap();
                 let num_processed = follower_relayer.process_new_epoch3_blocks(
                     follower.network.get_local_peer(),
                     &mut network_result,
@@ -969,24 +976,28 @@ fn test_buffer_nonready_nakamoto_blocks() {
                     None,
                 );
                 info!("Processed {} unsolicited Nakamoto blocks", num_processed);
-                follower.stacks_node = Some(node);
-                follower.sortdb = Some(sortdb);
+                follower.chain.stacks_node = Some(node);
+                follower.chain.sortdb = Some(sortdb);
             }
 
-            follower.coord.handle_new_burnchain_block().unwrap();
-            follower.coord.handle_new_stacks_block().unwrap();
-            follower.coord.handle_new_nakamoto_stacks_block().unwrap();
+            follower.chain.coord.handle_new_burnchain_block().unwrap();
+            follower.chain.coord.handle_new_stacks_block().unwrap();
+            follower
+                .chain
+                .coord
+                .handle_new_nakamoto_stacks_block()
+                .unwrap();
         }
 
         // compare chain tips
-        let sortdb = follower.sortdb.take().unwrap();
-        let stacks_node = follower.stacks_node.take().unwrap();
+        let sortdb = follower.chain.sortdb.take().unwrap();
+        let stacks_node = follower.chain.stacks_node.take().unwrap();
         let follower_burn_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let follower_stacks_tip =
             NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
                 .unwrap();
-        follower.stacks_node = Some(stacks_node);
-        follower.sortdb = Some(sortdb);
+        follower.chain.stacks_node = Some(stacks_node);
+        follower.chain.sortdb = Some(sortdb);
 
         let mut exited_peer = exited_peer.unwrap();
         let sortdb = exited_peer.sortdb.take().unwrap();
@@ -1024,7 +1035,7 @@ fn test_nakamoto_boot_node_from_block_push() {
     let peer_nk = peer.to_neighbor().addr;
     let mut follower = followers.pop().unwrap();
 
-    let test_path = TestPeer::make_test_path(&follower.config);
+    let test_path = TestChainstate::make_test_path(&follower.config.chain_config);
     let stackerdb_path = format!("{}/stacker_db.sqlite", &test_path);
     let follower_stacker_dbs = StackerDBs::connect(&stackerdb_path, true).unwrap();
 
@@ -1074,9 +1085,13 @@ fn test_nakamoto_boot_node_from_block_push() {
                 }
             }
 
-            follower.coord.handle_new_burnchain_block().unwrap();
-            follower.coord.handle_new_stacks_block().unwrap();
-            follower.coord.handle_new_nakamoto_stacks_block().unwrap();
+            follower.chain.coord.handle_new_burnchain_block().unwrap();
+            follower.chain.coord.handle_new_stacks_block().unwrap();
+            follower
+                .chain
+                .coord
+                .handle_new_nakamoto_stacks_block()
+                .unwrap();
         }
 
         // recover exited peer and get its chain tips
@@ -1100,8 +1115,8 @@ fn test_nakamoto_boot_node_from_block_push() {
                 .unwrap();
 
             // compare chain tips
-            let sortdb = follower.sortdb.take().unwrap();
-            let stacks_node = follower.stacks_node.take().unwrap();
+            let sortdb = follower.chain.sortdb.take().unwrap();
+            let stacks_node = follower.chain.stacks_node.take().unwrap();
             let follower_burn_tip =
                 SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
             let follower_stacks_tip = NakamotoChainState::get_canonical_block_header(
@@ -1109,8 +1124,8 @@ fn test_nakamoto_boot_node_from_block_push() {
                 &sortdb,
             )
             .unwrap();
-            follower.stacks_node = Some(stacks_node);
-            follower.sortdb = Some(sortdb);
+            follower.chain.stacks_node = Some(stacks_node);
+            follower.chain.sortdb = Some(sortdb);
 
             debug!("{}: Follower sortition tip: {:?}", i, &follower_burn_tip);
             debug!("{}: Seed sortition tip: {:?}", i, &exited_peer_burn_tip);

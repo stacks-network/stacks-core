@@ -154,13 +154,13 @@ At the start of epoch 3.0, `tenure-height` will return the same value as `block-
 };
 
 const BLOCK_TIME_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
-    name: "block-time",
-    snippet: "block-time",
+    name: "stacks-block-time",
+    snippet: "stacks-block-time",
     output_type: "uint",
     description: "Returns the Unix timestamp (in seconds) of the current Stacks block. Introduced
 in Clarity 4. Provides access to the timestamp of the current block, which is
 not available with `get-stacks-block-info?`.",
-    example: "(>= block-time u1755820800) ;; returns true if current block timestamp is at or after 2025-07-22.",
+    example: "(>= stacks-block-time u1755820800) ;; returns true if current block timestamp is at or after 2025-07-22.",
 };
 
 const TX_SENDER_KEYWORD: SimpleKeywordAPI = SimpleKeywordAPI {
@@ -2700,7 +2700,7 @@ pub fn make_keyword_reference(variable: &NativeVariables) -> Option<KeywordAPI> 
         NativeVariables::ChainId => CHAINID_KEYWORD.clone(),
         NativeVariables::TxSponsor => TX_SPONSOR_KEYWORD.clone(),
         NativeVariables::CurrentContract => CURRENT_CONTRACT_KEYWORD.clone(),
-        NativeVariables::BlockTime => BLOCK_TIME_KEYWORD.clone(),
+        NativeVariables::StacksBlockTime => BLOCK_TIME_KEYWORD.clone(),
     };
     Some(KeywordAPI {
         name: keyword.name,
@@ -2806,7 +2806,7 @@ mod test {
         BurnStateDB, ClarityDatabase, HeadersDB, MemoryBackingStore, STXBalance,
     };
     use crate::vm::docs::get_output_type_string;
-    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature, ASCII_40};
+    use crate::vm::types::signatures::{FunctionArgSignature, FunctionReturnsSignature};
     use crate::vm::types::{
         FunctionType, PrincipalData, QualifiedContractIdentifier, TupleData, TypeSignature,
     };
@@ -3330,7 +3330,10 @@ mod test {
 
         function_type = FunctionType::Binary(
             FunctionArgSignature::Single(TypeSignature::IntType),
-            FunctionArgSignature::Union(vec![ASCII_40, TypeSignature::IntType]),
+            FunctionArgSignature::Union(vec![
+                TypeSignature::STRING_ASCII_40,
+                TypeSignature::IntType,
+            ]),
             ret.clone(),
         );
         result = get_input_type_string(&function_type);
@@ -3474,7 +3477,7 @@ mod test {
                 TypeSignature::IntType,
                 TypeSignature::UIntType,
                 TypeSignature::PrincipalType,
-                ASCII_40,
+                TypeSignature::STRING_ASCII_40,
             ]),
             FunctionReturnsSignature::TypeOfArgAtPosition(1),
         );

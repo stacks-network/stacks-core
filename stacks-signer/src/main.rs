@@ -30,7 +30,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use blockstack_lib::util_lib::signed_structured_data::pox4::make_pox_4_signer_key_signature;
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use clarity::types::chainstate::StacksPublicKey;
 use clarity::util::sleep_ms;
 use libsigner::{SignerSession, VERSION_STRING};
@@ -215,6 +215,15 @@ fn handle_monitor_signers(args: MonitorSignersArgs) {
 }
 
 fn main() {
+    // If no args were passed, exit 0.
+    // This differs from the default behavior, which exits with code 2.
+    if std::env::args_os().len() == 1 {
+        let mut cmd = Cli::command();
+        cmd.print_help().ok();
+        println!();
+        std::process::exit(0);
+    }
+
     let cli = Cli::parse();
 
     tracing_subscriber::registry()

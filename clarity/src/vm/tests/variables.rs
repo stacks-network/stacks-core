@@ -1114,7 +1114,7 @@ fn test_block_time(
     epoch: StacksEpochId,
     mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
 ) {
-    let contract = "(define-read-only (test-func) block-time)";
+    let contract = "(define-read-only (test-func) stacks-block-time)";
 
     let placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
@@ -1129,11 +1129,11 @@ fn test_block_time(
         type_check_version(&contract_identifier, &mut exprs, db, true, epoch, version)
     });
 
-    // block-time should only be available in Clarity 4
+    // stacks-block-time should only be available in Clarity 4
     if version < ClarityVersion::Clarity4 {
         let err = analysis.unwrap_err();
         assert_eq!(
-            CheckErrorKind::UndefinedVariable("block-time".to_string()),
+            CheckErrorKind::UndefinedVariable("stacks-block-time".to_string()),
             *err.err
         );
     } else {
@@ -1161,7 +1161,7 @@ fn test_block_time(
         let err = eval_result.unwrap_err();
         assert_eq!(
             VmExecutionError::Unchecked(CheckErrorKind::UndefinedVariable(
-                "block-time".to_string(),
+                "stacks-block-time".to_string(),
             )),
             err
         );
@@ -1179,11 +1179,11 @@ fn test_block_time_in_expressions() {
 
     let contract = r#"
         (define-read-only (time-comparison (threshold uint))
-            (>= block-time threshold))
+            (>= stacks-block-time threshold))
         (define-read-only (time-arithmetic)
-            (+ block-time u100))
+            (+ stacks-block-time u100))
         (define-read-only (time-in-response)
-            (ok block-time))
+            (ok stacks-block-time))
     "#;
 
     let placeholder_context =
