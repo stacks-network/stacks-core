@@ -178,9 +178,7 @@ impl MessageSignature {
     /// Converts to a secp256k1::ecdsa::RecoverableSignature.
     pub fn to_secp256k1_recoverable(&self) -> Option<RecoverableSignature> {
         let recovery_id = K256RecoveryId::from_byte(self.0[0])?;
-        let mut sig_bytes = [0u8; 64];
-        sig_bytes[..64].copy_from_slice(&self.0[1..=64]);
-        let signature = K256Signature::from_slice(&sig_bytes).ok()?;
+        let signature = K256Signature::from_slice(&self.0[1..65]).ok()?;
         Some(RecoverableSignature {
             signature,
             recovery_id,
