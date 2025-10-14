@@ -384,6 +384,13 @@ fn check_allowances(
     allowances: Vec<Allowance>,
     assets: &AssetMap,
 ) -> InterpreterResult<Option<u128>> {
+    let mut earliest_violation: Option<u128> = None;
+    let mut record_violation = |candidate: u128| {
+        if earliest_violation.map_or(true, |current| candidate < current) {
+            earliest_violation = Some(candidate);
+        }
+    };
+
     // Elements are (index in allowances, amount)
     let mut stx_allowances: Vec<(usize, u128)> = Vec::new();
     // Map assets to a vector of (index in allowances, amount)
@@ -428,34 +435,30 @@ fn check_allowances(
 
     // Check STX movements
     if let Some(stx_moved) = assets.get_stx(owner) {
-        // If there are no allowances for STX, any movement is a violation
         if stx_allowances.is_empty() {
-            return Ok(Some(MAX_ALLOWANCES as u128));
-        }
-
-        // Check against the STX allowances
-        for (index, allowance) in &stx_allowances {
-            if stx_moved > *allowance {
-                return Ok(Some(u128::try_from(*index).map_err(|_| {
-                    InterpreterError::Expect("failed to convert index to u128".into())
-                })?));
+            // If there are no allowances for STX, any movement is a violation
+            record_violation(MAX_ALLOWANCES as u128);
+        } else {
+            for (index, allowance) in &stx_allowances {
+                if stx_moved > *allowance {
+                    record_violation(*index as u128);
+                    break;
+                }
             }
         }
     }
 
     // Check STX burns
     if let Some(stx_burned) = assets.get_stx_burned(owner) {
-        // If there are no allowances for STX, any burn is a violation
         if stx_allowances.is_empty() {
-            return Ok(Some(MAX_ALLOWANCES as u128));
-        }
-
-        // Check against the STX allowances
-        for (index, allowance) in &stx_allowances {
-            if stx_burned > *allowance {
-                return Ok(Some(u128::try_from(*index).map_err(|_| {
-                    InterpreterError::Expect("failed to convert index to u128".into())
-                })?));
+            // If there are no allowances for STX, any burn is a violation
+            record_violation(MAX_ALLOWANCES as u128);
+        } else {
+            for (index, allowance) in &stx_allowances {
+                if stx_burned > *allowance {
+                    record_violation(*index as u128);
+                    break;
+                }
             }
         }
     }
@@ -479,7 +482,8 @@ fn check_allowances(
 
             if merged.is_empty() {
                 // No allowance for this asset, any movement is a violation
-                return Ok(Some(MAX_ALLOWANCES as u128));
+                record_violation(MAX_ALLOWANCES as u128);
+                continue;
             }
 
             // Sort by allowance index so we check allowances in order
@@ -487,9 +491,8 @@ fn check_allowances(
 
             for (index, allowance) in merged {
                 if *amount_moved > allowance {
-                    return Ok(Some(u128::try_from(index).map_err(|_| {
-                        InterpreterError::Expect("failed to convert index to u128".into())
-                    })?));
+                    record_violation(index as u128);
+                    break;
                 }
             }
         }
@@ -512,20 +515,17 @@ fn check_allowances(
 
             if merged.is_empty() {
                 // No allowance for this asset, any movement is a violation
-                return Ok(Some(MAX_ALLOWANCES as u128));
+                record_violation(MAX_ALLOWANCES as u128);
+                continue;
             }
 
             // Sort by allowance index so we check allowances in order
             merged.sort_by_key(|(idx, _)| *idx);
 
             for (index, allowance_vec) in merged {
-                // Check against the NFT allowances
-                for id_moved in ids_moved {
-                    if !allowance_vec.contains(id_moved) {
-                        return Ok(Some(u128::try_from(index).map_err(|_| {
-                            InterpreterError::Expect("failed to convert index to u128".into())
-                        })?));
-                    }
+                if ids_moved.iter().any(|id| !allowance_vec.contains(id)) {
+                    record_violation(index as u128);
+                    break;
                 }
             }
         }
@@ -535,20 +535,18 @@ fn check_allowances(
     if let Some(stx_stacked) = assets.get_stacking(owner) {
         // If there are no allowances for stacking, any stacking is a violation
         if stacking_allowances.is_empty() {
-            return Ok(Some(MAX_ALLOWANCES as u128));
-        }
-
-        // Check against the stacking allowances
-        for (index, allowance) in &stacking_allowances {
-            if stx_stacked > *allowance {
-                return Ok(Some(u128::try_from(*index).map_err(|_| {
-                    InterpreterError::Expect("failed to convert index to u128".into())
-                })?));
+            record_violation(MAX_ALLOWANCES as u128);
+        } else {
+            for (index, allowance) in &stacking_allowances {
+                if stx_stacked > *allowance {
+                    record_violation(*index as u128);
+                    break;
+                }
             }
         }
     }
 
-    Ok(None)
+    Ok(earliest_violation)
 }
 
 /// Handles all allowance functions, always returning an error, since these are
