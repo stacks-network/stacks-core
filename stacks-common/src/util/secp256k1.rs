@@ -439,6 +439,7 @@ impl Secp256k1PrivateKey {
     }
 }
 
+#[cfg(feature = "rand")]
 impl Default for Secp256k1PrivateKey {
     fn default() -> Self {
         Self::new()
