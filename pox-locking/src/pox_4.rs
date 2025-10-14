@@ -181,6 +181,11 @@ fn handle_stack_lockup_pox_v4(
         unlock_height,
     ) {
         Ok(_) => {
+            // For direct stacking, we log the locked amount in the asset map.
+            if function_name == "stack-stx" {
+                global_context.log_stacking(&stacker, locked_amount)?;
+            }
+
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
                     locked_amount,
@@ -243,6 +248,11 @@ fn handle_stack_lockup_extension_pox_v4(
 
     match pox_lock_extend_v4(&mut global_context.database, &stacker, unlock_height) {
         Ok(locked_amount) => {
+            // For direct stacking, we log the locked amount in the asset map.
+            if function_name == "stack-extend" {
+                global_context.log_stacking(&stacker, locked_amount)?;
+            }
+
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
                     locked_amount,
@@ -298,6 +308,11 @@ fn handle_stack_lockup_increase_pox_v4(
     };
     match pox_lock_increase_v4(&mut global_context.database, &stacker, total_locked) {
         Ok(new_balance) => {
+            // For direct stacking, we log the locked amount in the asset map.
+            if function_name == "stack-increase" {
+                global_context.log_stacking(&stacker, new_balance.amount_locked())?;
+            }
+
             let event =
                 StacksTransactionEvent::STXEvent(STXEventType::STXLockEvent(STXLockEventData {
                     locked_amount: new_balance.amount_locked(),
@@ -378,6 +393,24 @@ pub fn handle_contract_call(
     } else {
         None
     };
+
+    if function_name == "delegate-stx" {
+        // Update the asset map to reflect the delegation
+        match (sender_opt, args.first()) {
+            (Some(sender), Some(Value::UInt(amount))) => {
+                global_context.log_stacking(sender, *amount)?;
+            }
+            _ => {
+                // This should be unreachable!
+                error!(
+                    "Unreachable: failed to log STX delegation in PoX-4 delegate-stx call";
+                    "sender" => ?sender_opt,
+                    "arg0" => ?args.first(),
+                );
+                return Err(VmExecutionError::Runtime(RuntimeError::Unreachable, None));
+            }
+        }
+    }
 
     // append the lockup event, so it looks as if the print event happened before the lock-up
     if let Some(batch) = global_context.event_batches.last_mut() {
