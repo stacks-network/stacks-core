@@ -17,7 +17,7 @@
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
-use k256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
+use k256::ecdsa::signature::hazmat::PrehashVerifier;
 use k256::ecdsa::{
     RecoveryId as K256RecoveryId, Signature as K256Signature, SigningKey as K256SigningKey,
     VerifyingKey as K256VerifyingKey,
@@ -461,31 +461,19 @@ impl PrivateKey for Secp256k1PrivateKey {
             return Err("Invalid message: failed to decode data hash: must be a 32-byte hash");
         }
 
-        let signature: K256Signature = self
+        let (signature, recovery_id) = self
             .key
-            .sign_prehash(data_hash)
+            .sign_prehash_recoverable(data_hash)
             .map_err(|_| "Signing failed")?;
 
-        // Try each recovery ID to find the correct one
-        for recovery_id in 0..4 {
-            if let Some(recovery_id) = K256RecoveryId::from_byte(recovery_id) {
-                if let Ok(recovered_key) =
-                    K256VerifyingKey::recover_from_prehash(data_hash, &signature, recovery_id)
-                {
-                    if recovered_key == *self.key.verifying_key() {
-                        let recoverable_sig = RecoverableSignature {
-                            signature,
-                            recovery_id,
-                        };
-                        return Ok(MessageSignature::from_secp256k1_recoverable(
-                            &recoverable_sig,
-                        ));
-                    }
-                }
-            }
-        }
+        let recoverable_sig = RecoverableSignature {
+            signature,
+            recovery_id,
+        };
 
-        Err("Failed to determine recovery ID")
+        Ok(MessageSignature::from_secp256k1_recoverable(
+            &recoverable_sig,
+        ))
     }
 }
 
