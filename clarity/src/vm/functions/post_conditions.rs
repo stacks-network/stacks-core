@@ -386,7 +386,7 @@ fn check_allowances(
 ) -> InterpreterResult<Option<u128>> {
     let mut earliest_violation: Option<u128> = None;
     let mut record_violation = |candidate: u128| {
-        if earliest_violation.map_or(true, |current| candidate < current) {
+        if earliest_violation.is_none_or(|current| candidate < current) {
             earliest_violation = Some(candidate);
         }
     };
