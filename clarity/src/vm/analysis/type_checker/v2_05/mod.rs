@@ -330,9 +330,9 @@ fn type_reserved_variable(variable_name: &str) -> Result<Option<TypeSignature>, 
             NativeFalse => TypeSignature::BoolType,
             TotalLiquidMicroSTX => TypeSignature::UIntType,
             Regtest => TypeSignature::BoolType,
-            TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight | BlockTime | CurrentContract => {
+            TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight | StacksBlockTime | CurrentContract => {
                 return Err(CheckErrors::Expects(
-                    "tx-sponsor, mainnet, chain-id, stacks-block-height, tenure-height, block-time, and current-contract should not reach here in 2.05".into(),
+                    "tx-sponsor, mainnet, chain-id, stacks-block-height, tenure-height, stacks-block-time, and current-contract should not reach here in 2.05".into(),
                 )
                 .into())
             }
