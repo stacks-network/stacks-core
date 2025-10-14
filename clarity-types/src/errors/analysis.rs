@@ -482,6 +482,16 @@ pub enum CheckErrorKind {
     WriteAttemptedInReadOnly,
     /// `at-block` closure must be read-only but contains write operations.
     AtBlockClosureMustBeReadOnly,
+
+    // contract post-conditions
+    ExpectedListOfAllowances(String, i32),
+    AllowanceExprNotAllowed,
+    ExpectedAllowanceExpr(String),
+    WithAllAllowanceNotAllowed,
+    WithAllAllowanceNotAlone,
+    WithNftExpectedListOfIdentifiers,
+    MaxIdentifierLengthExceeded(u32, u32),
+    TooManyAllowances(usize, usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -792,6 +802,14 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
             CheckErrorKind::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
             CheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
+            CheckErrorKind::ExpectedListOfAllowances(fn_name, arg_num) => format!("{fn_name} expects a list of asset allowances as argument {arg_num}"),
+            CheckErrorKind::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
+            CheckErrorKind::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
+            CheckErrorKind::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
+            CheckErrorKind::WithAllAllowanceNotAlone => "with-all-assets-unsafe must not be used along with other allowances".into(),
+            CheckErrorKind::WithNftExpectedListOfIdentifiers => "with-nft allowance must include a list of asset identifiers".into(),
+            CheckErrorKind::MaxIdentifierLengthExceeded(max_len, len) => format!("with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
+            CheckErrorKind::TooManyAllowances(max_allowed, found) => format!("too many allowances specified, the maximum is {max_allowed}, found {found}"),
         }
     }
 
