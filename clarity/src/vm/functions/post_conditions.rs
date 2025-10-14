@@ -486,13 +486,9 @@ fn check_allowances(
                 continue;
             }
 
-            // Sort by allowance index so we check allowances in order
-            merged.sort_by_key(|(idx, _)| *idx);
-
             for (index, allowance) in merged {
                 if *amount_moved > allowance {
                     record_violation(index as u128);
-                    break;
                 }
             }
         }
@@ -519,13 +515,9 @@ fn check_allowances(
                 continue;
             }
 
-            // Sort by allowance index so we check allowances in order
-            merged.sort_by_key(|(idx, _)| *idx);
-
             for (index, allowance_vec) in merged {
                 if ids_moved.iter().any(|id| !allowance_vec.contains(id)) {
                     record_violation(index as u128);
-                    break;
                 }
             }
         }
