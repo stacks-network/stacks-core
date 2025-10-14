@@ -98,6 +98,7 @@
                 ../tools/config-docs-generator)
               (craneLib.fileset.commonCargoSources ../../contrib/stacks-inspect)
               (craneLib.fileset.commonCargoSources ../../contrib/stacks-cli)
+              (craneLib.fileset.commonCargoSources ../../contrib/clarity-cli)
               (craneLib.fileset.commonCargoSources ../../stacks-signer)
             ];
           };
@@ -135,6 +136,13 @@
           src = fileSetForCrate ../../contrib/stacks-cli;
         });
 
+        clarity-cli = craneLib.buildPackage (individualCrateArgs // rec {
+          inherit version;
+          pname = "clarity-cli";
+          cargoExtraArgs = "-p ${pname}";
+          src = fileSetForCrate ../../contrib/clarity-cli;
+        });
+
         stacks-node-app = {
           type = "app";
           program = "${stacks-core}/bin/stacks-node";
@@ -158,7 +166,7 @@
         };
       in with pkgs; {
         packages = {
-          inherit stacks-signer stacks-core stacks-cli stacks-inspect;
+          inherit stacks-signer stacks-core stacks-cli clarity-cli stacks-inspect;
           default = stacks-core;
         };
 
