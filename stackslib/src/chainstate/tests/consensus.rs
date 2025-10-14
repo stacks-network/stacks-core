@@ -37,8 +37,8 @@ use stacks_common::bitvec::BitVec;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::boot::RewardSet;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
+use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksTransaction, TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH,
     MINER_BLOCK_HEADER_HASH,
@@ -53,6 +53,13 @@ use crate::net::tests::NakamotoBootPlan;
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
 pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
+
+const EPOCHS_TO_TEST: [StacksEpochId; 4] = [
+    StacksEpochId::Epoch30,
+    StacksEpochId::Epoch31,
+    StacksEpochId::Epoch32,
+    StacksEpochId::Epoch33,
+];
 
 /// The private key for the faucet account.
 pub const FAUCET_PRIV_KEY: LazyCell<StacksPrivateKey> = LazyCell::new(|| {
@@ -298,9 +305,15 @@ impl ConsensusTest<'_> {
             let tenure_change_tx = self.chain.miner.make_nakamoto_tenure_change(tenure_change);
             let coinbase_tx = self.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
-            let _blocks_and_sizes =
-                self.chain
-                    .make_nakamoto_tenure(tenure_change_tx, coinbase_tx, Some(0));
+            let blocks_and_sizes = self
+                .chain
+                .make_nakamoto_tenure(tenure_change_tx, coinbase_tx, Some(0))
+                .unwrap();
+            assert_eq!(
+                blocks_and_sizes.len(),
+                1,
+                "Mined more than one Nakamoto block"
+            );
             let burn_block_height = self.chain.get_burn_block_height();
             current_epoch =
                 SortitionDB::get_stacks_epoch(self.chain.sortdb().conn(), burn_block_height)
@@ -331,59 +344,38 @@ impl ConsensusTest<'_> {
             for (i, block) in epoch_blocks.iter().enumerate() {
                 debug!("--------- Running block {i} for epoch {epoch:?} ---------");
                 let (nakamoto_block, block_size) = self.construct_nakamoto_block(&block);
-                let sortdb = self.chain.sortdb.take().unwrap();
+                let mut sortdb = self.chain.sortdb.take().unwrap();
+                let mut stacks_node = self.chain.stacks_node.take().unwrap();
                 let chain_tip = NakamotoChainState::get_canonical_block_header(
-                    self.chain.stacks_node().chainstate.db(),
+                    stacks_node.chainstate.db(),
                     &sortdb,
                 )
                 .unwrap()
                 .unwrap();
                 let pox_constants = PoxConstants::test_default();
+                let sig_hash = nakamoto_block.header.signer_signature_hash();
                 debug!(
-                    "--------- Appending block {} ---------",
-                    nakamoto_block.header.signer_signature_hash();
+                    "--------- Processing block {sig_hash} ---------";
                     "block" => ?nakamoto_block
                 );
-                {
-                    let (mut chainstate_tx, clarity_instance) = self
-                        .chain
-                        .stacks_node()
-                        .chainstate
-                        .chainstate_tx_begin()
-                        .unwrap();
-
-                    let mut burndb_conn = sortdb.index_handle_at_tip();
-
-                    let result = NakamotoChainState::append_block(
-                        &mut chainstate_tx,
-                        clarity_instance,
-                        &mut burndb_conn,
-                        &chain_tip.consensus_hash,
-                        &pox_constants,
-                        &chain_tip,
-                        &chain_tip.burn_header_hash,
-                        chain_tip.burn_header_height,
-                        chain_tip.burn_header_timestamp,
-                        &nakamoto_block,
-                        block_size.try_into().unwrap(),
-                        nakamoto_block.header.burn_spent,
-                        1500,
-                        &RewardSet::empty(),
-                        false,
-                    );
-
-                    debug!("--------- Appended block: {} ---------", result.is_ok());
-                    let remapped_result = result.map(|(receipt, clarity_commit, _, _)| {
-                        clarity_commit.commit();
-                        receipt
-                    });
-                    let expected_marf = nakamoto_block.header.state_index_root;
-                    results.push(ExpectedResult::create_from(remapped_result, expected_marf));
-                    chainstate_tx.commit().unwrap();
-                }
-
+                let expected_marf = nakamoto_block.header.state_index_root;
+                let res = TestStacksNode::process_pushed_next_ready_block(
+                    &mut stacks_node,
+                    &mut sortdb,
+                    &mut self.chain.miner,
+                    &chain_tip.consensus_hash,
+                    &mut self.chain.coord,
+                    nakamoto_block.clone(),
+                );
+                debug!(
+                    "--------- Processed block: {sig_hash} ---------";
+                    "block" => ?nakamoto_block
+                );
+                let remapped_result = res.map(|receipt| receipt.unwrap()).into();
+                results.push(ExpectedResult::create_from(remapped_result, expected_marf));
                 // Restore chainstate for the next block
                 self.chain.sortdb = Some(sortdb);
+                self.chain.stacks_node = Some(stacks_node);
             }
         }
         results
@@ -523,31 +515,13 @@ impl ConsensusTest<'_> {
 
 #[test]
 fn test_append_empty_blocks() {
+    let empty_test_blocks = vec![TestBlock {
+        transactions: vec![],
+    }];
     let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            transactions: vec![],
-        }],
-    );
+    for epoch in EPOCHS_TO_TEST {
+        epoch_blocks.insert(epoch, empty_test_blocks.clone());
+    }
 
     let test_vector = ConsensusTestVector {
         initial_balances: vec![],
@@ -564,53 +538,42 @@ fn test_append_stx_transfers_success() {
         StacksPrivateKey::from_hex(SK_2).unwrap(),
         StacksPrivateKey::from_hex(SK_3).unwrap(),
     ];
+    let total_epochs = EPOCHS_TO_TEST.len() as u64;
     let send_amount = 1_000;
     let tx_fee = 180;
+    // initialize balances
     let mut initial_balances = Vec::new();
-    let transactions: Vec<_> = sender_privks
-        .iter()
-        .map(|sender_privk| {
-            initial_balances.push((
-                StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk)).into(),
-                send_amount + tx_fee,
-            ));
-            // Interestingly, it doesn't seem to care about nonce...
-            make_stacks_transfer_tx(
-                sender_privk,
-                0,
-                tx_fee,
-                CHAIN_ID_TESTNET,
-                &boot_code_addr(false).into(),
-                send_amount,
-            )
-        })
-        .collect();
+    for sender_privk in &sender_privks {
+        let sender_addr =
+            StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk)).into();
+        // give them enough to cover all transfers across all epochs
+        initial_balances.push((sender_addr, (send_amount + tx_fee) * total_epochs));
+    }
 
+    // build transactions per epoch, incrementing nonce per sender
     let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            transactions: transactions.clone(),
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            transactions: transactions.clone(),
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            transactions: transactions.clone(),
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            transactions: transactions.clone(),
-        }],
-    );
+    let mut nonces = vec![0u64; sender_privks.len()]; // track nonce per sender
+
+    for epoch in EPOCHS_TO_TEST {
+        let transactions: Vec<_> = sender_privks
+            .iter()
+            .enumerate()
+            .map(|(i, sender_privk)| {
+                let tx = make_stacks_transfer_tx(
+                    sender_privk,
+                    nonces[i], // use current nonce
+                    tx_fee,
+                    CHAIN_ID_TESTNET,
+                    &boot_code_addr(false).into(),
+                    send_amount,
+                );
+                nonces[i] += 1; // increment for next epoch
+                tx
+            })
+            .collect();
+
+        epoch_blocks.insert(epoch, vec![TestBlock { transactions }]);
+    }
 
     let test_vector = ConsensusTestVector {
         initial_balances,
@@ -639,32 +602,13 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
     );
 
     let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-
+    let test_blocks = vec![TestBlock {
+        transactions: vec![tx.clone()],
+    }];
     let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            transactions: vec![tx.clone()],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            transactions: vec![tx.clone()],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            transactions: vec![tx.clone()],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            transactions: vec![tx.clone()],
-        }],
-    );
+    for epoch in EPOCHS_TO_TEST {
+        epoch_blocks.insert(epoch, test_blocks.clone());
+    }
 
     let test_vector = ConsensusTestVector {
         initial_balances: vec![],
@@ -676,45 +620,35 @@ fn test_append_chainstate_error_expression_stack_depth_too_deep() {
 
 #[test]
 fn test_append_block_with_contract_upload_success() {
-    let contract_name = "test-contract";
-    let contract_content = "(/ 1 1)";
-    let tx_fee = (contract_content.len() * 100) as u64;
-
-    let tx_bytes = make_contract_publish(
-        &FAUCET_PRIV_KEY,
-        0,
-        tx_fee,
-        CHAIN_ID_TESTNET,
-        contract_name,
-        &contract_content,
-    );
-    let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-
+    // build transactions per epoch, incrementing nonce per sender
     let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            transactions: vec![tx.clone()],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            transactions: vec![tx.clone()],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            transactions: vec![tx.clone()],
-        }],
-    );
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            transactions: vec![tx.clone()],
-        }],
-    );
+
+    EPOCHS_TO_TEST
+        .into_iter()
+        .enumerate()
+        .for_each(|(nonce, epoch)| {
+            // Can't deploy to the same contract location so make sure contract name changes
+            let contract_name = format!("test-contract-{nonce}");
+            let contract_content = "(/ 1 1)";
+            let tx_fee = (contract_content.len() * 100) as u64;
+
+            let tx_bytes = make_contract_publish(
+                &FAUCET_PRIV_KEY,
+                nonce as u64,
+                tx_fee,
+                CHAIN_ID_TESTNET,
+                &contract_name,
+                contract_content,
+            );
+            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
+            epoch_blocks.insert(
+                epoch,
+                vec![TestBlock {
+                    transactions: vec![tx],
+                }],
+            );
+        });
+
     let test_vector = ConsensusTestVector {
         initial_balances: vec![],
         epoch_blocks,
@@ -724,7 +658,7 @@ fn test_append_block_with_contract_upload_success() {
     insta::assert_ron_snapshot!(result, @r#"
     [
       Success(ExpectedBlockOutput(
-        marf_hash: "b45acd35f4c48a834a2f898ca8bb6c48416ac6bec9d8a3f3662b61ab97b1edde",
+        marf_hash: "ace4d5c5ffb440418fb30fe1999769ab7fff5a243b775b9961a1dfa77d7a1fab",
         transactions: [
           ExpectedTransactionOutput(
             return_type: Response(ResponseData(
@@ -749,7 +683,7 @@ fn test_append_block_with_contract_upload_success() {
         ),
       )),
       Success(ExpectedBlockOutput(
-        marf_hash: "521d75234ec6c64f68648b6b0f6f385d89b58efb581211a411e0e88aa71f3371",
+        marf_hash: "cf7a58c3c15ae61b0861a77a9909e9b05fe35a8d23f974461fd1317693413d3c",
         transactions: [
           ExpectedTransactionOutput(
             return_type: Response(ResponseData(
@@ -774,7 +708,7 @@ fn test_append_block_with_contract_upload_success() {
         ),
       )),
       Success(ExpectedBlockOutput(
-        marf_hash: "511e1cc37e83ef3de4ea56962574d6ddd2d8840d24d9238f19eee5a35127df6a",
+        marf_hash: "ad7f9b2130fda2ca8f5c75237755ab7055f69f91d937b2d0653d52f515765e6f",
         transactions: [
           ExpectedTransactionOutput(
             return_type: Response(ResponseData(
@@ -799,7 +733,7 @@ fn test_append_block_with_contract_upload_success() {
         ),
       )),
       Success(ExpectedBlockOutput(
-        marf_hash: "3520c2dd96f7d91e179c4dcd00f3c49c16d6ec21434fb16921922558282eab26",
+        marf_hash: "c72ff94259d531c853a2b3a5ae3d8a8d5a87014337451a09cbce09fa6c43e228",
         transactions: [
           ExpectedTransactionOutput(
             return_type: Response(ResponseData(
@@ -830,59 +764,45 @@ fn test_append_block_with_contract_upload_success() {
 #[test]
 fn test_append_block_with_contract_call_success() {
     let tx_fee = (FOO_CONTRACT.len() * 100) as u64;
-
-    let tx_bytes = make_contract_publish(
-        &FAUCET_PRIV_KEY,
-        0,
-        tx_fee,
-        CHAIN_ID_TESTNET,
-        "foo_contract",
-        FOO_CONTRACT,
-    );
-    let tx_contract_deploy =
-        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-
-    let tx_bytes = make_contract_call(
-        &FAUCET_PRIV_KEY,
-        1,
-        200,
-        CHAIN_ID_TESTNET,
-        &to_addr(&FAUCET_PRIV_KEY),
-        "foo_contract",
-        "bar",
-        &[ClarityValue::UInt(1)],
-    );
-    let tx_contract_call =
-        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
-
+    let mut nonce = 0;
+    // build transactions per epoch, incrementing nonce per sender
     let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(
-        StacksEpochId::Epoch30,
-        vec![TestBlock {
-            transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
-        }],
-    );
+    EPOCHS_TO_TEST.into_iter().for_each(|epoch| {
+        // we need to change the contract name across deploys since same sender
+        let contract_name = format!("foo_contract_{nonce}");
+        let tx_bytes = make_contract_publish(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            tx_fee,
+            CHAIN_ID_TESTNET,
+            &contract_name,
+            FOO_CONTRACT,
+        );
+        nonce += 1;
+        let tx_contract_deploy =
+            StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
 
-    epoch_blocks.insert(
-        StacksEpochId::Epoch31,
-        vec![TestBlock {
-            transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
-        }],
-    );
+        let tx_bytes = make_contract_call(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            200,
+            CHAIN_ID_TESTNET,
+            &to_addr(&FAUCET_PRIV_KEY),
+            &contract_name,
+            "bar",
+            &[ClarityValue::UInt(1)],
+        );
+        nonce += 1;
+        let tx_contract_call =
+            StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap();
 
-    epoch_blocks.insert(
-        StacksEpochId::Epoch32,
-        vec![TestBlock {
-            transactions: vec![tx_contract_deploy.clone(), tx_contract_call.clone()],
-        }],
-    );
-
-    epoch_blocks.insert(
-        StacksEpochId::Epoch33,
-        vec![TestBlock {
-            transactions: vec![tx_contract_deploy, tx_contract_call],
-        }],
-    );
+        epoch_blocks.insert(
+            epoch,
+            vec![TestBlock {
+                transactions: vec![tx_contract_deploy, tx_contract_call],
+            }],
+        );
+    });
 
     let test_vector = ConsensusTestVector {
         initial_balances: vec![],

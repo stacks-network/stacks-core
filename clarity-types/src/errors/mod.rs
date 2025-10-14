@@ -101,6 +101,7 @@ pub enum RuntimeErrorType {
     PoxAlreadyLocked,
 
     BlockTimeNotAvailable,
+    Unreachable,
 }
 
 #[derive(Debug, PartialEq)]

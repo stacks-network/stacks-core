@@ -1060,6 +1060,105 @@ impl TestStacksNode {
         let cost = builder.tenure_finish(tenure_tx).unwrap();
         Ok((block, size, cost))
     }
+
+    /// Insert a staging Nakamoto block as a pushed block and
+    /// then process it as the next ready block
+    /// NOTE: Will panic if called with unprocessed staging
+    /// blocks already in the queue.
+    pub fn process_pushed_next_ready_block<'a>(
+        stacks_node: &mut TestStacksNode,
+        sortdb: &mut SortitionDB,
+        miner: &mut TestMiner,
+        tenure_id_consensus_hash: &ConsensusHash,
+        coord: &mut ChainsCoordinator<
+            'a,
+            TestEventObserver,
+            (),
+            OnChainRewardSetProvider<'a, TestEventObserver>,
+            (),
+            (),
+            BitcoinIndexer,
+        >,
+        nakamoto_block: NakamotoBlock,
+    ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
+        // Before processeding, make sure the caller did not accidentally construct a test with unprocessed blocks already in the queue
+        let nakamoto_blocks_db = stacks_node.chainstate.nakamoto_blocks_db();
+        assert!(nakamoto_blocks_db
+            .next_ready_nakamoto_block(stacks_node.chainstate.db())
+            .unwrap().is_none(), "process_pushed_next_ready_block can only be called if the staging blocks queue is empty");
+
+        let tenure_sn =
+            SortitionDB::get_block_snapshot_consensus(sortdb.conn(), tenure_id_consensus_hash)?
+                .ok_or_else(|| ChainstateError::NoSuchBlockError)?;
+
+        let cycle = sortdb
+            .pox_constants
+            .block_height_to_reward_cycle(sortdb.first_block_height, tenure_sn.block_height)
+            .unwrap();
+
+        // Get the reward set
+        let sort_tip_sn = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())?;
+        let reward_set = load_nakamoto_reward_set(
+            miner
+                .burnchain
+                .block_height_to_reward_cycle(sort_tip_sn.block_height)
+                .expect("FATAL: no reward cycle for sortition"),
+            &sort_tip_sn.sortition_id,
+            &miner.burnchain,
+            &mut stacks_node.chainstate,
+            &nakamoto_block.header.parent_block_id,
+            sortdb,
+            &OnChainRewardSetProvider::new(),
+        )
+        .expect("Failed to load reward set")
+        .expect("Expected a reward set")
+        .0
+        .known_selected_anchor_block_owned()
+        .expect("Unknown reward set");
+
+        let block_id = nakamoto_block.block_id();
+
+        debug!(
+            "Process Nakamoto block {block_id} ({:?}",
+            &nakamoto_block.header
+        );
+
+        let sort_tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+        let mut sort_handle = sortdb.index_handle(&sort_tip);
+
+        // Force the block to be added to the nakamoto_staging_blocks table
+        let config = stacks_node.chainstate.config();
+        let (headers_conn, staging_db_tx) =
+            stacks_node.chainstate.headers_conn_and_staging_tx_begin()?;
+        let accepted = NakamotoChainState::accept_block(
+            &config,
+            &nakamoto_block,
+            &mut sort_handle,
+            &staging_db_tx,
+            headers_conn,
+            &reward_set,
+            NakamotoBlockObtainMethod::Pushed,
+        )?;
+        staging_db_tx.commit()?;
+        debug!("Accepted Nakamoto block {}", &nakamoto_block.block_id());
+        // Actually attempt to process the accepted block added to nakamoto_staging_blocks
+        // Will attempt to execute the transactions via a call to append_block
+        let res = NakamotoChainState::process_next_nakamoto_block(
+            &mut coord.chain_state_db,
+            &mut coord.sortition_db,
+            &coord.canonical_sortition_tip.clone().expect(
+                "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
+            ),
+            coord.dispatcher,
+            coord.config.txindex,
+        )?;
+        if res.is_some() {
+            // If we successfully processed the block, make sure we append the block to our current tenure
+            // so subsequent blocks do not attempt to reorg it.
+            stacks_node.add_nakamoto_extended_blocks(vec![nakamoto_block]);
+        }
+        Ok(res)
+    }
 }
 
 /// Get the Nakamoto parent linkage data for building atop the last-produced tenure or
