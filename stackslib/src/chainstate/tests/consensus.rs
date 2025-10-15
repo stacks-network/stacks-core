@@ -634,19 +634,6 @@ fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
     ])
 }
 
-/// Represents the expected output of a transaction in a test.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct ExpectedTransactionOutput {
-    /// The transaction that was executed.
-    /// `None` for bitcoin transactions.
-    #[serde(serialize_with = "serialize_opt_tx_payload")]
-    pub tx: Option<TransactionPayload>,
-    /// The expected return value of the transaction.
-    pub return_type: ClarityValue,
-    /// The expected execution cost of the transaction.
-    pub cost: ExecutionCost,
-}
-
 /// Custom serializer for `Option<TransactionPayload>` to improve snapshot readability.
 /// This avoids large diffs in snapshots due to code body changes and focuses on key fields.
 fn serialize_opt_tx_payload<S>(
@@ -680,6 +667,35 @@ where
         }
     };
     serializer.serialize_str(&changed)
+}
+
+/// Serialize an optional string field appending a non-consensus breaking info message.
+fn serialize_opt_string_ncb<S>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let original = match value.as_deref() {
+        Some(str) => format!("Some({str})"),
+        None => "None".to_string(),
+    };
+    let changed = format!("{original} [NON-CONSENSUS BREAKING]");
+    serializer.serialize_str(&changed)
+}
+
+/// Represents the expected output of a transaction in a test.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ExpectedTransactionOutput {
+    /// The transaction that was executed.
+    /// `None` for bitcoin transactions.
+    #[serde(serialize_with = "serialize_opt_tx_payload")]
+    pub tx: Option<TransactionPayload>,
+    /// The possible Clarity VM error message associated to the transaction (non-consensus breaking)
+    #[serde(serialize_with = "serialize_opt_string_ncb")]
+    pub vm_error: Option<String>,
+    /// The expected return value of the transaction.
+    pub return_type: ClarityValue,
+    /// The expected execution cost of the transaction.
+    pub cost: ExecutionCost,
 }
 
 /// Represents the expected outputs for a block's execution.
@@ -723,6 +739,7 @@ impl ExpectedResult {
                             tx,
                             return_type: r.result.clone(),
                             cost: r.execution_cost.clone(),
+                            vm_error: r.vm_error.clone(),
                         }
                     })
                     .collect();
