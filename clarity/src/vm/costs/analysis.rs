@@ -5,14 +5,16 @@ use std::collections::HashMap;
 use crate::vm::Value;
 use clarity_types::types::{CharType, SequenceData, TraitIdentifier};
 
-use crate::vm::ast::parser::v2::parse;
+use crate::vm::ast::build_ast;
 use crate::vm::costs::cost_functions::{linear, CostValues};
 use crate::vm::costs::costs_3::Costs3;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::errors::InterpreterResult;
 use crate::vm::functions::NativeFunctions;
-use crate::vm::representations::{ClarityName, PreSymbolicExpression, PreSymbolicExpressionType};
+use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
+use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::ClarityVersion;
+use stacks_common::types::StacksEpochId;
 
 // TODO:
 // contract-call? - get source from database
@@ -178,28 +180,39 @@ impl SummingExecutionCost {
 ///
 /// theoretically you could inspect the tree at any node to get the spot cost
 pub fn static_cost(source: &str, clarity_version: &ClarityVersion) -> Result<StaticCost, String> {
-    let pre_expressions = parse(source).map_err(|e| format!("Parse error: {:?}", e))?;
+    let contract_identifier = QualifiedContractIdentifier::transient();
+    let mut cost_tracker = ();
+    let epoch = StacksEpochId::latest(); // XXX this should be matched with the clarity version
 
-    if pre_expressions.is_empty() {
+    let ast = build_ast(
+        &contract_identifier,
+        source,
+        &mut cost_tracker,
+        *clarity_version,
+        epoch,
+    )
+    .map_err(|e| format!("Parse error: {:?}", e))?;
+
+    if ast.expressions.is_empty() {
         return Err("No expressions found".to_string());
     }
 
     // TODO what happens if multiple expressions are selected?
-    let pre_expr = &pre_expressions[0];
+    let expr = &ast.expressions[0];
     let user_args = UserArgumentsContext::new();
-    let cost_analysis_tree = build_cost_analysis_tree(&pre_expr, &user_args, clarity_version)?;
+    let cost_analysis_tree = build_cost_analysis_tree(expr, &user_args, clarity_version)?;
 
     let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
     Ok(summing_cost.into())
 }
 
 fn build_cost_analysis_tree(
-    expr: &PreSymbolicExpression,
+    expr: &SymbolicExpression,
     user_args: &UserArgumentsContext,
     clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
-    match &expr.pre_expr {
-        PreSymbolicExpressionType::List(list) => {
+    match &expr.expr {
+        SymbolicExpressionType::List(list) => {
             if let Some(function_name) = list.first().and_then(|first| first.match_atom()) {
                 if function_name.as_str() == "define-public"
                     || function_name.as_str() == "define-private"
@@ -214,43 +227,33 @@ fn build_cost_analysis_tree(
             }
             build_listlike_cost_analysis_tree(list, "list", user_args, clarity_version)
         }
-        PreSymbolicExpressionType::AtomValue(value) => {
+        SymbolicExpressionType::AtomValue(value) => {
             let cost = calculate_value_cost(value)?;
             Ok(CostAnalysisNode::leaf(
                 CostExprNode::AtomValue(value.clone()),
                 cost,
             ))
         }
-        PreSymbolicExpressionType::Atom(name) => {
+        SymbolicExpressionType::LiteralValue(value) => {
+            let cost = calculate_value_cost(value)?;
+            Ok(CostAnalysisNode::leaf(
+                CostExprNode::AtomValue(value.clone()),
+                cost,
+            ))
+        }
+        SymbolicExpressionType::Atom(name) => {
             let expr_node = parse_atom_expression(name, user_args)?;
             Ok(CostAnalysisNode::leaf(expr_node, StaticCost::ZERO))
         }
-        PreSymbolicExpressionType::Tuple(tuple) => {
-            build_listlike_cost_analysis_tree(tuple, "tuple", user_args, clarity_version)
-        }
-        PreSymbolicExpressionType::SugaredContractIdentifier(_contract_name) => {
+        SymbolicExpressionType::Field(field_identifier) => Ok(CostAnalysisNode::leaf(
+            CostExprNode::FieldIdentifier(field_identifier.clone()),
+            StaticCost::ZERO,
+        )),
+        SymbolicExpressionType::TraitReference(trait_name, _trait_definition) => {
             Ok(CostAnalysisNode::leaf(
-                CostExprNode::Atom(ClarityName::from("contract-identifier")),
+                CostExprNode::TraitReference(trait_name.clone()),
                 StaticCost::ZERO,
             ))
-        }
-        PreSymbolicExpressionType::SugaredFieldIdentifier(_contract_name, field_name) => Ok(
-            CostAnalysisNode::leaf(CostExprNode::Atom(field_name.clone()), StaticCost::ZERO),
-        ),
-        PreSymbolicExpressionType::FieldIdentifier(field_name) => Ok(CostAnalysisNode::leaf(
-            CostExprNode::FieldIdentifier(field_name.clone()),
-            StaticCost::ZERO,
-        )),
-        PreSymbolicExpressionType::TraitReference(trait_name) => Ok(CostAnalysisNode::leaf(
-            CostExprNode::TraitReference(trait_name.clone()),
-            StaticCost::ZERO,
-        )),
-        // Comments and placeholders should be filtered out during traversal
-        PreSymbolicExpressionType::Comment(_comment) => {
-            Err("hit an irrelevant comment expr type".to_string())
-        }
-        PreSymbolicExpressionType::Placeholder(_placeholder) => {
-            Err("hit an irrelevant placeholder expr type".to_string())
         }
     }
 }
@@ -274,7 +277,7 @@ fn parse_atom_expression(
 
 /// Build an expression tree for function definitions like (define-public (foo (a u64)) (ok a))
 fn build_function_definition_cost_analysis_tree(
-    list: &[PreSymbolicExpression],
+    list: &[SymbolicExpression],
     _user_args: &UserArgumentsContext,
     clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
@@ -297,9 +300,12 @@ fn build_function_definition_cost_analysis_tree(
                     .match_atom()
                     .ok_or("Expected atom for argument name")?;
 
-                let arg_type = match &arg_list[1].pre_expr {
-                    PreSymbolicExpressionType::Atom(type_name) => type_name.clone(),
-                    PreSymbolicExpressionType::AtomValue(value) => {
+                let arg_type = match &arg_list[1].expr {
+                    SymbolicExpressionType::Atom(type_name) => type_name.clone(),
+                    SymbolicExpressionType::AtomValue(value) => {
+                        ClarityName::from(value.to_string().as_str())
+                    }
+                    SymbolicExpressionType::LiteralValue(value) => {
                         ClarityName::from(value.to_string().as_str())
                     }
                     _ => return Err("Argument type must be an atom or atom value".to_string()),
@@ -331,13 +337,13 @@ fn build_function_definition_cost_analysis_tree(
 
 /// Helper function to build expression trees for both lists and tuples
 fn build_listlike_cost_analysis_tree(
-    items: &[PreSymbolicExpression],
+    items: &[SymbolicExpression],
     container_type: &str,
     user_args: &UserArgumentsContext,
     clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
-    let function_name = match &items[0].pre_expr {
-        PreSymbolicExpressionType::Atom(name) => name,
+    let function_name = match &items[0].expr {
+        SymbolicExpressionType::Atom(name) => name,
         _ => {
             return Err(format!(
                 "First element of {} must be an atom (function name)",
@@ -349,17 +355,9 @@ fn build_listlike_cost_analysis_tree(
     let args = &items[1..];
     let mut children = Vec::new();
 
-    // Build children for all arguments, skipping comments and placeholders
+    // Build children for all arguments
     for arg in args {
-        match &arg.pre_expr {
-            PreSymbolicExpressionType::Comment(_) | PreSymbolicExpressionType::Placeholder(_) => {
-                // Skip comments and placeholders
-                continue;
-            }
-            _ => {
-                children.push(build_cost_analysis_tree(arg, user_args, clarity_version)?);
-            }
-        }
+        children.push(build_cost_analysis_tree(arg, user_args, clarity_version)?);
     }
 
     // Try to lookup the function as a native function first
@@ -649,11 +647,26 @@ fn get_costs(
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
+
+    fn build_test_ast(src: &str) -> crate::vm::ast::ContractAST {
+        let contract_identifier = QualifiedContractIdentifier::transient();
+        let mut cost_tracker = ();
+        let ast = build_ast(
+            &contract_identifier,
+            src,
+            &mut cost_tracker,
+            ClarityVersion::Clarity1,
+            StacksEpochId::latest(),
+        )
+        .unwrap();
+        ast
+    }
 
     #[test]
     fn test_constant() {
-        let source = "42";
+        let source = "9001";
         let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
         assert_eq!(cost.min.runtime, 0);
         assert_eq!(cost.max.runtime, 0);
@@ -725,12 +738,12 @@ mod tests {
     //  ----  ExprTreee building specific tests
     #[test]
     fn test_build_cost_analysis_tree_if_expression() {
-        let source = "(if (> 3 0) (ok true) (ok false))";
-        let pre_expressions = parse(source).unwrap();
-        let pre_expr = &pre_expressions[0];
+        let src = "(if (> 3 0) (ok true) (ok false))";
+        let ast = build_test_ast(src);
+        let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_tree =
-            build_cost_analysis_tree(pre_expr, &user_args, &ClarityVersion::Clarity1).unwrap();
+            build_cost_analysis_tree(expr, &user_args, &ClarityVersion::Clarity1).unwrap();
 
         // Root should be an If node with branching=true
         assert!(matches!(
@@ -769,12 +782,12 @@ mod tests {
 
     #[test]
     fn test_build_cost_analysis_tree_arithmetic() {
-        let source = "(+ (* 2 3) (- 5 1))";
-        let pre_expressions = parse(source).unwrap();
-        let pre_expr = &pre_expressions[0];
+        let src = "(+ (* 2 3) (- 5 1))";
+        let ast = build_test_ast(src);
+        let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_tree =
-            build_cost_analysis_tree(pre_expr, &user_args, &ClarityVersion::Clarity1).unwrap();
+            build_cost_analysis_tree(expr, &user_args, &ClarityVersion::Clarity1).unwrap();
 
         assert!(matches!(
             cost_tree.expr,
@@ -800,12 +813,12 @@ mod tests {
 
     #[test]
     fn test_build_cost_analysis_tree_with_comments() {
-        let source = "(+ 1 ;; this is a comment\n 2)";
-        let pre_expressions = parse(source).unwrap();
-        let pre_expr = &pre_expressions[0];
+        let src = ";; This is a comment\n(+ 5 ;; another comment\n7)";
+        let ast = build_test_ast(src);
+        let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_tree =
-            build_cost_analysis_tree(pre_expr, &user_args, &ClarityVersion::Clarity1).unwrap();
+            build_cost_analysis_tree(expr, &user_args, &ClarityVersion::Clarity1).unwrap();
 
         assert!(matches!(
             cost_tree.expr,
@@ -821,22 +834,22 @@ mod tests {
 
     #[test]
     fn test_function_with_multiple_arguments() {
-        let src = r#"(define-public (add-two (x u64) (y u64)) (+ x y))"#;
-        let pre_expressions = parse(src).unwrap();
-        let pre_expr = &pre_expressions[0];
+        let src = r#"(define-public (add-two (x uint) (y uint)) (+ x y))"#;
+        let ast = build_test_ast(src);
+        let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_tree =
-            build_cost_analysis_tree(pre_expr, &user_args, &ClarityVersion::Clarity1).unwrap();
+            build_cost_analysis_tree(expr, &user_args, &ClarityVersion::Clarity1).unwrap();
 
-        // Should have 3 children: UserArgument for (x u64), UserArgument for (y u64), and the body (+ x y)
+        // Should have 3 children: UserArgument for (x uint), UserArgument for (y uint), and the body (+ x y)
         assert_eq!(cost_tree.children.len(), 3);
 
-        // First child should be UserArgument for (x u64)
+        // First child should be UserArgument for (x uint)
         let user_arg_x = &cost_tree.children[0];
         assert!(matches!(user_arg_x.expr, CostExprNode::UserArgument(_, _)));
         if let CostExprNode::UserArgument(arg_name, arg_type) = &user_arg_x.expr {
             assert_eq!(arg_name.as_str(), "x");
-            assert_eq!(arg_type.as_str(), "u64");
+            assert_eq!(arg_type.as_str(), "uint");
         }
 
         // Second child should be UserArgument for (y u64)
@@ -844,7 +857,7 @@ mod tests {
         assert!(matches!(user_arg_y.expr, CostExprNode::UserArgument(_, _)));
         if let CostExprNode::UserArgument(arg_name, arg_type) = &user_arg_y.expr {
             assert_eq!(arg_name.as_str(), "y");
-            assert_eq!(arg_type.as_str(), "u64");
+            assert_eq!(arg_type.as_str(), "uint");
         }
 
         // Third child should be the function body (+ x y)
@@ -863,11 +876,11 @@ mod tests {
 
         if let CostExprNode::UserArgument(name, arg_type) = &arg_x_ref.expr {
             assert_eq!(name.as_str(), "x");
-            assert_eq!(arg_type.as_str(), "u64");
+            assert_eq!(arg_type.as_str(), "uint");
         }
         if let CostExprNode::UserArgument(name, arg_type) = &arg_y_ref.expr {
             assert_eq!(name.as_str(), "y");
-            assert_eq!(arg_type.as_str(), "u64");
+            assert_eq!(arg_type.as_str(), "uint");
         }
     }
 }
