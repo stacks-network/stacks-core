@@ -590,7 +590,28 @@ pub fn secp256k1_verify(
 
 #[cfg(test)]
 mod tests {
+    use rand::RngCore;
+
     use super::*;
+    use crate::util::get_epoch_time_ms;
+
+    struct KeyFixture<I, R> {
+        input: I,
+        result: R,
+    }
+
+    #[derive(Debug)]
+    struct VerifyFixture<R> {
+        public_key: &'static str,
+        data: &'static str,
+        signature: &'static str,
+        result: R,
+    }
+
+    fn verifying_key_from_hex(hex: &str) -> K256VerifyingKey {
+        let bytes = hex_bytes(hex).unwrap();
+        K256VerifyingKey::from_sec1_bytes(&bytes).expect("valid verifying key bytes")
+    }
 
     #[test]
     fn test_parse_serialize_compressed() {
@@ -620,6 +641,224 @@ mod tests {
         t1.set_compress_public(true);
 
         assert_eq!(Secp256k1PrivateKey::from_hex(&h_comp), Ok(t1));
+    }
+
+    #[test]
+    /// Test the behavior of from_seed using hard-coded values from previous existing integration tests
+    fn sk_from_seed() {
+        let sk = Secp256k1PrivateKey::from_seed(&[2; 32]);
+        assert_eq!(
+            Secp256k1PublicKey::from_private(&sk).to_hex(),
+            "024d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766"
+        );
+        assert_eq!(
+            sk.to_hex(),
+            "020202020202020202020202020202020202020202020202020202020202020201"
+        );
+
+        let sk = Secp256k1PrivateKey::from_seed(&[0]);
+        assert_eq!(
+            Secp256k1PublicKey::from_private(&sk).to_hex(),
+            "0243311589af63c2adda04fcd7792c038a05c12a4fe40351b3eb1612ff6b2e5a0e"
+        );
+        assert_eq!(
+            sk.to_hex(),
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d01"
+        );
+    }
+
+    #[test]
+    fn test_parse_serialize() {
+        let fixtures = vec![
+            KeyFixture {
+                input: "0233d78f74de8ef4a1de815b6d5c5c129c073786305c0826c499b1811c9a12cee5",
+                result: Some(Secp256k1PublicKey {
+                    key: verifying_key_from_hex("0233d78f74de8ef4a1de815b6d5c5c129c073786305c0826c499b1811c9a12cee5"),
+                    compressed: true
+                })
+            },
+            KeyFixture {
+                input: "044a83ad59dbae1e2335f488dbba5f8604d00f612a43ebaae784b5b7124cc38c3aaf509362787e1a8e25131724d57fec81b87889aabb4edf7bd89f5c4daa4f8aa7",
+                result: Some(Secp256k1PublicKey {
+                    key: verifying_key_from_hex("044a83ad59dbae1e2335f488dbba5f8604d00f612a43ebaae784b5b7124cc38c3aaf509362787e1a8e25131724d57fec81b87889aabb4edf7bd89f5c4daa4f8aa7"),
+                    compressed: false
+                })
+            },
+            KeyFixture {
+                input: "0233d78f74de8ef4a1de815b6d5c5c129c073786305c0826c499b1811c9a12ce",
+                result: None,
+            },
+            KeyFixture {
+                input: "044a83ad59dbae1e2335f488dbba5f8604d00f612a43ebaae784b5b7124cc38c3aaf509362787e1a8e25131724d57fec81b87889aabb4edf7bd89f5c4daa4f8a",
+                result: None,
+            }
+        ];
+
+        for fixture in fixtures {
+            let key_res = Secp256k1PublicKey::from_hex(fixture.input);
+            match (key_res, fixture.result) {
+                (Ok(key), Some(key_result)) => {
+                    assert_eq!(key, key_result);
+
+                    let key_from_slice =
+                        Secp256k1PublicKey::from_slice(&hex_bytes(fixture.input).unwrap()[..])
+                            .unwrap();
+                    assert_eq!(key_from_slice, key_result);
+
+                    let key_bytes = key.to_bytes();
+                    assert_eq!(key_bytes, hex_bytes(fixture.input).unwrap());
+                }
+                (Err(_e), None) => {}
+                (_, _) => {
+                    // either got a key when we didn't expect one, or didn't get a key when we did
+                    // expect one.
+                    panic!("Unexpected result: we either got a key when we didn't expect one, or didn't get a key when we did expect one.");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_verify() {
+        let fixtures : Vec<VerifyFixture<Result<bool, &'static str>>> = vec![
+            VerifyFixture {
+                public_key: "0385f2e2867524289d6047d0d9c5e764c5d413729fc32291ad2c353fbc396a4219",
+                signature: "00354445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb445b97de5b632582d31704f86706a780886e6e381bfed65228267358262d203fe6",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",       // sha256 hash of "hello world"
+                result: Ok(true)
+            },
+            VerifyFixture {
+                public_key: "0385f2e2867524289d6047d0d9c5e764c5d413729fc32291ad2c353fbc396a4219",
+                signature: "00354445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb445b97de5b632582d31704f86706a780886e6e381bfed65228267358262d203fe6",
+                data: "ca3704aa0b06f5954c79ee837faa152d84d6b2d42838f0637a15eda8337dbdce",       // sha256 hash of "nope"
+                result: Ok(false)
+            },
+            VerifyFixture {
+                public_key: "034c35b09b758678165d6ed84a50b329900c99986cf8e9a358ceae0d03af91f5b6",   // wrong key
+                signature: "00354445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb445b97de5b632582d31704f86706a780886e6e381bfed65228267358262d203fe6",
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",       // sha256 hash of "hello world"
+                result: Ok(false)
+            },
+            VerifyFixture {
+                public_key: "0385f2e2867524289d6047d0d9c5e764c5d413729fc32291ad2c353fbc396a4219",
+                signature: "00354445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb445b97de5b632582d31704f86706a780886e6e381bfed65228267358262d203fe7",  // wrong sig (bad s)
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",       // sha256 hash of "hello world"
+                result: Ok(false)
+            },
+            VerifyFixture {
+                public_key: "0385f2e2867524289d6047d0d9c5e764c5d413729fc32291ad2c353fbc396a4219",
+                signature: "00454445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb445b97de5b632582d31704f86706a780886e6e381bfed65228267358262d203fe6",  // wrong sig (bad r)
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",       // sha256 hash of "hello world"
+                result: Ok(false)
+            },
+            VerifyFixture {
+                public_key: "0385f2e2867524289d6047d0d9c5e764c5d413729fc32291ad2c353fbc396a4219",
+                signature: "01354445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb445b97de5b632582d31704f86706a780886e6e381bfed65228267358262d203fe6",  // wrong sig (bad recovery)
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",       // sha256 hash of "hello world"
+                result: Ok(false)
+            },
+            VerifyFixture {
+                public_key: "0385f2e2867524289d6047d0d9c5e764c5d413729fc32291ad2c353fbc396a4219",
+                signature: "02354445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb445b97de5b632582d31704f86706a780886e6e381bfed65228267358262d203fe6",  // wrong sig (bad recovery)
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",       // sha256 hash of "hello world"
+                result: Err("Invalid signature: failed to recover public key"),
+            },
+            VerifyFixture {
+                public_key: "0385f2e2867524289d6047d0d9c5e764c5d413729fc32291ad2c353fbc396a4219",
+                signature: "03354445a1dc98a1bd27984dbe69979a5cd77886b4d9134af5c40e634d96e1cb445b97de5b632582d31704f86706a780886e6e381bfed65228267358262d203fe6",  // wrong sig (bad recovery)
+                data: "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",       // sha256 hash of "hello world"
+                result: Err("Invalid signature: failed to recover public key"),
+            }
+        ];
+
+        for fixture in fixtures {
+            let key = Secp256k1PublicKey::from_hex(fixture.public_key).unwrap();
+            let signature = MessageSignature::from_raw(&hex_bytes(fixture.signature).unwrap());
+            let ver_res = key.verify(&hex_bytes(fixture.data).unwrap(), &signature);
+            match (ver_res, fixture.result) {
+                (Ok(true), Ok(true)) => {}
+                (Ok(false), Ok(false)) => {}
+                (Err(e1), Err(e2)) => assert_eq!(e1, e2),
+                (Err(e1), _) => {
+                    test_debug!("Failed to verify signature: {}", e1);
+                    panic!(
+                        "failed fixture (verification: {:?}): {:#?}",
+                        &ver_res, &fixture
+                    );
+                }
+                (_, _) => {
+                    panic!(
+                        "failed fixture (verification: {:?}): {:#?}",
+                        &ver_res, &fixture
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_verify_benchmark_roundtrip() {
+        let mut runtime_sign = 0;
+        let mut runtime_verify = 0;
+        let mut runtime_recover = 0;
+        let mut rng = rand::thread_rng();
+
+        for i in 0..100 {
+            let privk = Secp256k1PrivateKey::random();
+            let pubk = Secp256k1PublicKey::from_private(&privk);
+
+            let mut msg = [0u8; 32];
+            rng.fill_bytes(&mut msg);
+
+            let sign_start = get_epoch_time_ms();
+            for i in 0..1000 {
+                let sig = privk.sign(&msg).unwrap();
+            }
+            let sign_end = get_epoch_time_ms();
+
+            let sig = privk.sign(&msg).unwrap();
+            let recoverable_sig = sig.to_secp256k1_recoverable().unwrap();
+
+            let recovered_pubk =
+                Secp256k1PublicKey::recover_benchmark(&msg, &recoverable_sig).unwrap();
+            assert_eq!(recovered_pubk, pubk.key);
+
+            let recover_start = get_epoch_time_ms();
+            for i in 0..1000 {
+                let recovered_pubk =
+                    Secp256k1PublicKey::recover_benchmark(&msg, &recoverable_sig).unwrap();
+            }
+            let recover_end = get_epoch_time_ms();
+
+            let verify_start = get_epoch_time_ms();
+            for i in 0..1000 {
+                let valid = pubk.verify(&msg, &sig).unwrap();
+            }
+            let verify_end = get_epoch_time_ms();
+
+            let valid = pubk.verify(&msg, &sig).unwrap();
+            assert!(valid);
+
+            test_debug!(
+                "Runtime: {:?} sign, {:?} recover, {:?} verify",
+                ((sign_end - sign_start) as f64) / 1000.0,
+                ((recover_end - recover_start) as f64) / 1000.0,
+                ((verify_end - verify_start) as f64) / 1000.0
+            );
+
+            runtime_sign += sign_end - sign_start;
+            runtime_verify += verify_end - verify_start;
+            runtime_recover += recover_end - recover_start;
+        }
+
+        test_debug!(
+            "Total Runtime: {:?} sign, {:?} verify, {:?} recover, {:?} verify - recover",
+            runtime_sign,
+            runtime_verify,
+            runtime_recover,
+            runtime_verify - runtime_recover
+        );
     }
 
     #[test]
