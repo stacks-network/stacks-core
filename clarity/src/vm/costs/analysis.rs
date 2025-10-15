@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 
 use crate::vm::Value;
-use clarity_types::representations::ContractName;
 use clarity_types::types::{CharType, SequenceData, TraitIdentifier};
 
 use crate::vm::ast::parser::v2::parse;
@@ -11,7 +10,9 @@ use crate::vm::costs::cost_functions::{linear, CostValues};
 use crate::vm::costs::costs_3::Costs3;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::errors::InterpreterResult;
+use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{ClarityName, PreSymbolicExpression, PreSymbolicExpressionType};
+use crate::vm::ClarityVersion;
 
 // TODO:
 // contract-call? - get source from database
@@ -27,35 +28,23 @@ const STRING_COST_MULTIPLIER: u64 = 3;
 const FUNCTIONS_WITH_ZERO_STRING_ARG_COST: &[&str] = &["concat", "len"];
 
 #[derive(Debug, Clone)]
-pub enum ExprNode {
-    If,
-    Match,
-    Unwrap,
-    Ok,
-    Err,
-    GT,
-    LT,
-    GE,
-    LE,
-    EQ,
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Function(ClarityName),
+pub enum CostExprNode {
+    // Native Clarity functions
+    NativeFunction(NativeFunctions),
+    // Non-native expressions
     AtomValue(Value),
     Atom(ClarityName),
-    SugaredContractIdentifier(ContractName),
-    SugaredFieldIdentifier(ContractName, ClarityName),
     FieldIdentifier(TraitIdentifier),
     TraitReference(ClarityName),
     // User function arguments
     UserArgument(ClarityName, ClarityName), // (argument_name, argument_type)
+    // User-defined functions
+    UserFunction(ClarityName),
 }
 
 #[derive(Debug, Clone)]
 pub struct CostAnalysisNode {
-    pub expr: ExprNode,
+    pub expr: CostExprNode,
     pub cost: StaticCost,
     pub children: Vec<CostAnalysisNode>,
     pub branching: bool,
@@ -63,7 +52,7 @@ pub struct CostAnalysisNode {
 
 impl CostAnalysisNode {
     pub fn new(
-        expr: ExprNode,
+        expr: CostExprNode,
         cost: StaticCost,
         children: Vec<CostAnalysisNode>,
         branching: bool,
@@ -76,7 +65,7 @@ impl CostAnalysisNode {
         }
     }
 
-    pub fn leaf(expr: ExprNode, cost: StaticCost) -> Self {
+    pub fn leaf(expr: CostExprNode, cost: StaticCost) -> Self {
         Self {
             expr,
             cost,
@@ -196,7 +185,7 @@ impl SummingExecutionCost {
 /// Parse Clarity source code and calculate its static execution cost
 ///
 /// theoretically you could inspect the tree at any node to get the spot cost
-pub fn static_cost(source: &str) -> Result<StaticCost, String> {
+pub fn static_cost(source: &str, clarity_version: &ClarityVersion) -> Result<StaticCost, String> {
     let pre_expressions = parse(source).map_err(|e| format!("Parse error: {:?}", e))?;
 
     if pre_expressions.is_empty() {
@@ -206,7 +195,7 @@ pub fn static_cost(source: &str) -> Result<StaticCost, String> {
     // TODO what happens if multiple expressions are selected?
     let pre_expr = &pre_expressions[0];
     let user_args = UserArgumentsContext::new();
-    let cost_analysis_tree = build_cost_analysis_tree(pre_expr, &user_args)?;
+    let cost_analysis_tree = build_cost_analysis_tree(&pre_expr, &user_args, clarity_version)?;
 
     let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
     Ok(summing_cost.into())
@@ -215,6 +204,7 @@ pub fn static_cost(source: &str) -> Result<StaticCost, String> {
 fn build_cost_analysis_tree(
     expr: &PreSymbolicExpression,
     user_args: &UserArgumentsContext,
+    clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
     match &expr.pre_expr {
         PreSymbolicExpressionType::List(list) => {
@@ -223,15 +213,19 @@ fn build_cost_analysis_tree(
                     || function_name.as_str() == "define-private"
                     || function_name.as_str() == "define-read-only"
                 {
-                    return build_function_definition_cost_analysis_tree(list, user_args);
+                    return build_function_definition_cost_analysis_tree(
+                        list,
+                        user_args,
+                        clarity_version,
+                    );
                 }
             }
-            build_listlike_cost_analysis_tree(list, "list", user_args)
+            build_listlike_cost_analysis_tree(list, "list", user_args, clarity_version)
         }
         PreSymbolicExpressionType::AtomValue(value) => {
             let cost = calculate_value_cost(value)?;
             Ok(CostAnalysisNode::leaf(
-                ExprNode::AtomValue(value.clone()),
+                CostExprNode::AtomValue(value.clone()),
                 cost,
             ))
         }
@@ -240,30 +234,23 @@ fn build_cost_analysis_tree(
             Ok(CostAnalysisNode::leaf(expr_node, StaticCost::ZERO))
         }
         PreSymbolicExpressionType::Tuple(tuple) => {
-            build_listlike_cost_analysis_tree(tuple, "tuple", user_args)
+            build_listlike_cost_analysis_tree(tuple, "tuple", user_args, clarity_version)
         }
-        PreSymbolicExpressionType::SugaredContractIdentifier(contract_name) => {
+        PreSymbolicExpressionType::SugaredContractIdentifier(_contract_name) => {
             Ok(CostAnalysisNode::leaf(
-                ExprNode::SugaredContractIdentifier(contract_name.clone()),
-                // TODO: Look up source
+                CostExprNode::Atom(ClarityName::from("contract-identifier")),
                 StaticCost::ZERO,
             ))
         }
-        PreSymbolicExpressionType::SugaredFieldIdentifier(contract_name, field_name) => {
-            Ok(CostAnalysisNode::leaf(
-                ExprNode::SugaredFieldIdentifier(contract_name.clone(), field_name.clone()),
-                // TODO: Look up source
-                StaticCost::ZERO,
-            ))
-        }
+        PreSymbolicExpressionType::SugaredFieldIdentifier(_contract_name, field_name) => Ok(
+            CostAnalysisNode::leaf(CostExprNode::Atom(field_name.clone()), StaticCost::ZERO),
+        ),
         PreSymbolicExpressionType::FieldIdentifier(field_name) => Ok(CostAnalysisNode::leaf(
-            ExprNode::FieldIdentifier(field_name.clone()),
-            // TODO: Look up source
+            CostExprNode::FieldIdentifier(field_name.clone()),
             StaticCost::ZERO,
         )),
         PreSymbolicExpressionType::TraitReference(trait_name) => Ok(CostAnalysisNode::leaf(
-            ExprNode::TraitReference(trait_name.clone()),
-            // TODO: Look up source
+            CostExprNode::TraitReference(trait_name.clone()),
             StaticCost::ZERO,
         )),
         // Comments and placeholders should be filtered out during traversal
@@ -280,16 +267,16 @@ fn build_cost_analysis_tree(
 fn parse_atom_expression(
     name: &ClarityName,
     user_args: &UserArgumentsContext,
-) -> Result<ExprNode, String> {
+) -> Result<CostExprNode, String> {
     // Check if this atom is a user-defined function argument
     if user_args.is_user_argument(name) {
         if let Some(arg_type) = user_args.get_argument_type(name) {
-            Ok(ExprNode::UserArgument(name.clone(), arg_type.clone()))
+            Ok(CostExprNode::UserArgument(name.clone(), arg_type.clone()))
         } else {
-            Ok(ExprNode::Atom(name.clone()))
+            Ok(CostExprNode::Atom(name.clone()))
         }
     } else {
-        Ok(ExprNode::Atom(name.clone()))
+        Ok(CostExprNode::Atom(name.clone()))
     }
 }
 
@@ -297,6 +284,7 @@ fn parse_atom_expression(
 fn build_function_definition_cost_analysis_tree(
     list: &[PreSymbolicExpression],
     _user_args: &UserArgumentsContext,
+    clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
     let define_type = list[0]
         .match_atom()
@@ -330,7 +318,7 @@ fn build_function_definition_cost_analysis_tree(
 
                 // Create UserArgument node
                 children.push(CostAnalysisNode::leaf(
-                    ExprNode::UserArgument(arg_name.clone(), arg_type),
+                    CostExprNode::UserArgument(arg_name.clone(), arg_type),
                     StaticCost::ZERO,
                 ));
             }
@@ -338,12 +326,12 @@ fn build_function_definition_cost_analysis_tree(
     }
 
     // Process the function body with the function's user arguments context
-    let body_tree = build_cost_analysis_tree(body, &function_user_args)?;
+    let body_tree = build_cost_analysis_tree(body, &function_user_args, clarity_version)?;
     children.push(body_tree);
 
     // Create the function definition node with zero cost (function definitions themselves don't have execution cost)
     Ok(CostAnalysisNode::new(
-        ExprNode::Function(define_type.clone()),
+        CostExprNode::UserFunction(define_type.clone()),
         StaticCost::ZERO,
         children,
         false,
@@ -355,6 +343,7 @@ fn build_listlike_cost_analysis_tree(
     items: &[PreSymbolicExpression],
     container_type: &str,
     user_args: &UserArgumentsContext,
+    clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
     let function_name = match &items[0].pre_expr {
         PreSymbolicExpressionType::Atom(name) => name,
@@ -377,19 +366,28 @@ fn build_listlike_cost_analysis_tree(
                 continue;
             }
             _ => {
-                children.push(build_cost_analysis_tree(arg, user_args)?);
+                children.push(build_cost_analysis_tree(arg, user_args, clarity_version)?);
             }
         }
     }
 
+    // Try to lookup the function as a native function first
+    let expr_node = if let Some(native_function) =
+        NativeFunctions::lookup_by_name_at_version(function_name.as_str(), clarity_version)
+    {
+        CostExprNode::NativeFunction(native_function)
+    } else {
+        // If not a native function, treat as user-defined function
+        CostExprNode::UserFunction(function_name.clone())
+    };
+
     let branching = is_branching_function(function_name);
-    let expr_node = map_function_to_expr_node(function_name.as_str());
     let cost = calculate_function_cost_from_name(function_name.as_str(), children.len() as u64)?;
 
     // Handle special cases for string arguments to functions that include their processing cost
     if FUNCTIONS_WITH_ZERO_STRING_ARG_COST.contains(&function_name.as_str()) {
         for child in &mut children {
-            if let ExprNode::AtomValue(Value::Sequence(SequenceData::String(_))) = &child.expr {
+            if let CostExprNode::AtomValue(Value::Sequence(SequenceData::String(_))) = &child.expr {
                 child.cost = StaticCost::ZERO;
             }
         }
@@ -398,26 +396,8 @@ fn build_listlike_cost_analysis_tree(
     Ok(CostAnalysisNode::new(expr_node, cost, children, branching))
 }
 
-/// Maps function names to their corresponding ExprNode variants
-fn map_function_to_expr_node(function_name: &str) -> ExprNode {
-    match function_name {
-        "if" => ExprNode::If,
-        "match" => ExprNode::Match,
-        "unwrap!" | "unwrap-err!" | "unwrap-panic" | "unwrap-err-panic" => ExprNode::Unwrap,
-        "ok" => ExprNode::Ok,
-        "err" => ExprNode::Err,
-        ">" => ExprNode::GT,
-        "<" => ExprNode::LT,
-        ">=" => ExprNode::GE,
-        "<=" => ExprNode::LE,
-        "=" | "is-eq" | "eq" => ExprNode::EQ,
-        "+" | "add" => ExprNode::Add,
-        "-" | "sub" => ExprNode::Sub,
-        "*" | "mul" => ExprNode::Mul,
-        "/" | "div" => ExprNode::Div,
-        _ => ExprNode::Function(ClarityName::from(function_name)),
-    }
-}
+/// This function is no longer needed - we now use NativeFunctions::lookup_by_name_at_version
+/// directly in build_listlike_cost_analysis_tree
 
 /// Determine if a function name represents a branching function
 fn is_branching_function(function_name: &ClarityName) -> bool {
@@ -597,7 +577,8 @@ fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> SummingExecut
 
     if node.branching {
         match &node.expr {
-            ExprNode::If | ExprNode::Match => {
+            CostExprNode::NativeFunction(NativeFunctions::If)
+            | CostExprNode::NativeFunction(NativeFunctions::Match) => {
                 // TODO match?
                 if node.children.len() >= 2 {
                     let condition_cost = calculate_total_cost_with_summing(&node.children[0]);
@@ -668,16 +649,16 @@ mod tests {
 
     #[test]
     fn test_constant() {
-        let source = "u2";
-        let cost = static_cost(source).unwrap();
+        let source = "42";
+        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
         assert_eq!(cost.min.runtime, 0);
         assert_eq!(cost.max.runtime, 0);
     }
 
     #[test]
     fn test_simple_addition() {
-        let source = "(+ u1 u2)";
-        let cost = static_cost(source).unwrap();
+        let source = "(+ 1 2)";
+        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
 
         // Min: linear(2, 11, 125) = 11*2 + 125 = 147
         assert_eq!(cost.min.runtime, 147);
@@ -687,7 +668,7 @@ mod tests {
     #[test]
     fn test_arithmetic() {
         let source = "(- u4 (+ u1 u2))";
-        let cost = static_cost(source).unwrap();
+        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
         assert_eq!(cost.min.runtime, 147 + 147);
         assert_eq!(cost.max.runtime, 147 + 147);
     }
@@ -695,7 +676,7 @@ mod tests {
     #[test]
     fn test_nested_operations() {
         let source = "(* (+ u1 u2) (- u3 u4))";
-        let cost = static_cost(source).unwrap();
+        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
         // multiplication: 13*2 + 125 = 151
         assert_eq!(cost.min.runtime, 151 + 147 + 147);
         assert_eq!(cost.max.runtime, 151 + 147 + 147);
@@ -703,8 +684,8 @@ mod tests {
 
     #[test]
     fn test_string_concat_min_max() {
-        let source = "(concat \"hello\" \"world\")";
-        let cost = static_cost(source).unwrap();
+        let source = r#"(concat "hello" "world")"#;
+        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
 
         // For concat with 2 arguments:
         // linear(2, 37, 220) = 37*2 + 220 = 294
@@ -714,8 +695,8 @@ mod tests {
 
     #[test]
     fn test_string_len_min_max() {
-        let source = "(len \"hello\")";
-        let cost = static_cost(source).unwrap();
+        let source = r#"(len "hello")"#;
+        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
 
         // cost: 429 (constant) - len doesn't depend on string size
         assert_eq!(cost.min.runtime, 429);
@@ -725,7 +706,7 @@ mod tests {
     #[test]
     fn test_branching() {
         let source = "(if (> 3 0) (ok (concat \"hello\" \"world\")) (ok \"asdf\"))";
-        let cost = static_cost(source).unwrap();
+        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
         // min: 147 raw string
         // max: 294 (concat)
 
@@ -744,28 +725,41 @@ mod tests {
         let pre_expressions = parse(source).unwrap();
         let pre_expr = &pre_expressions[0];
         let user_args = UserArgumentsContext::new();
-        let cost_tree = build_cost_analysis_tree(pre_expr, &user_args).unwrap();
+        let cost_tree =
+            build_cost_analysis_tree(pre_expr, &user_args, &ClarityVersion::Clarity1).unwrap();
 
         // Root should be an If node with branching=true
-        assert!(matches!(cost_tree.expr, ExprNode::If));
+        assert!(matches!(
+            cost_tree.expr,
+            CostExprNode::NativeFunction(NativeFunctions::If)
+        ));
         assert!(cost_tree.branching);
         assert_eq!(cost_tree.children.len(), 3);
 
         let gt_node = &cost_tree.children[0];
-        assert!(matches!(gt_node.expr, ExprNode::GT));
+        assert!(matches!(
+            gt_node.expr,
+            CostExprNode::NativeFunction(NativeFunctions::CmpGreater)
+        ));
         assert_eq!(gt_node.children.len(), 2);
 
         let left_val = &gt_node.children[0];
         let right_val = &gt_node.children[1];
-        assert!(matches!(left_val.expr, ExprNode::AtomValue(_)));
-        assert!(matches!(right_val.expr, ExprNode::AtomValue(_)));
+        assert!(matches!(left_val.expr, CostExprNode::AtomValue(_)));
+        assert!(matches!(right_val.expr, CostExprNode::AtomValue(_)));
 
         let ok_true_node = &cost_tree.children[1];
-        assert!(matches!(ok_true_node.expr, ExprNode::Ok));
+        assert!(matches!(
+            ok_true_node.expr,
+            CostExprNode::NativeFunction(NativeFunctions::ConsOkay)
+        ));
         assert_eq!(ok_true_node.children.len(), 1);
 
         let ok_false_node = &cost_tree.children[2];
-        assert!(matches!(ok_false_node.expr, ExprNode::Ok));
+        assert!(matches!(
+            ok_false_node.expr,
+            CostExprNode::NativeFunction(NativeFunctions::ConsOkay)
+        ));
         assert_eq!(ok_false_node.children.len(), 1);
     }
 
@@ -775,18 +769,28 @@ mod tests {
         let pre_expressions = parse(source).unwrap();
         let pre_expr = &pre_expressions[0];
         let user_args = UserArgumentsContext::new();
-        let cost_tree = build_cost_analysis_tree(pre_expr, &user_args).unwrap();
+        let cost_tree =
+            build_cost_analysis_tree(pre_expr, &user_args, &ClarityVersion::Clarity1).unwrap();
 
-        assert!(matches!(cost_tree.expr, ExprNode::Add));
+        assert!(matches!(
+            cost_tree.expr,
+            CostExprNode::NativeFunction(NativeFunctions::Add)
+        ));
         assert!(!cost_tree.branching);
         assert_eq!(cost_tree.children.len(), 2);
 
         let mul_node = &cost_tree.children[0];
-        assert!(matches!(mul_node.expr, ExprNode::Mul));
+        assert!(matches!(
+            mul_node.expr,
+            CostExprNode::NativeFunction(NativeFunctions::Multiply)
+        ));
         assert_eq!(mul_node.children.len(), 2);
 
         let sub_node = &cost_tree.children[1];
-        assert!(matches!(sub_node.expr, ExprNode::Sub));
+        assert!(matches!(
+            sub_node.expr,
+            CostExprNode::NativeFunction(NativeFunctions::Subtract)
+        ));
         assert_eq!(sub_node.children.len(), 2);
     }
 
@@ -796,14 +800,18 @@ mod tests {
         let pre_expressions = parse(source).unwrap();
         let pre_expr = &pre_expressions[0];
         let user_args = UserArgumentsContext::new();
-        let cost_tree = build_cost_analysis_tree(pre_expr, &user_args).unwrap();
+        let cost_tree =
+            build_cost_analysis_tree(pre_expr, &user_args, &ClarityVersion::Clarity1).unwrap();
 
-        assert!(matches!(cost_tree.expr, ExprNode::Add));
+        assert!(matches!(
+            cost_tree.expr,
+            CostExprNode::NativeFunction(NativeFunctions::Add)
+        ));
         assert!(!cost_tree.branching);
         assert_eq!(cost_tree.children.len(), 2);
 
         for child in &cost_tree.children {
-            assert!(matches!(child.expr, ExprNode::AtomValue(_)));
+            assert!(matches!(child.expr, CostExprNode::AtomValue(_)));
         }
     }
 
@@ -813,43 +821,47 @@ mod tests {
         let pre_expressions = parse(src).unwrap();
         let pre_expr = &pre_expressions[0];
         let user_args = UserArgumentsContext::new();
-        let cost_tree = build_cost_analysis_tree(pre_expr, &user_args).unwrap();
+        let cost_tree =
+            build_cost_analysis_tree(pre_expr, &user_args, &ClarityVersion::Clarity1).unwrap();
 
         // Should have 3 children: UserArgument for (x u64), UserArgument for (y u64), and the body (+ x y)
         assert_eq!(cost_tree.children.len(), 3);
 
         // First child should be UserArgument for (x u64)
         let user_arg_x = &cost_tree.children[0];
-        assert!(matches!(user_arg_x.expr, ExprNode::UserArgument(_, _)));
-        if let ExprNode::UserArgument(arg_name, arg_type) = &user_arg_x.expr {
+        assert!(matches!(user_arg_x.expr, CostExprNode::UserArgument(_, _)));
+        if let CostExprNode::UserArgument(arg_name, arg_type) = &user_arg_x.expr {
             assert_eq!(arg_name.as_str(), "x");
             assert_eq!(arg_type.as_str(), "u64");
         }
 
         // Second child should be UserArgument for (y u64)
         let user_arg_y = &cost_tree.children[1];
-        assert!(matches!(user_arg_y.expr, ExprNode::UserArgument(_, _)));
-        if let ExprNode::UserArgument(arg_name, arg_type) = &user_arg_y.expr {
+        assert!(matches!(user_arg_y.expr, CostExprNode::UserArgument(_, _)));
+        if let CostExprNode::UserArgument(arg_name, arg_type) = &user_arg_y.expr {
             assert_eq!(arg_name.as_str(), "y");
             assert_eq!(arg_type.as_str(), "u64");
         }
 
         // Third child should be the function body (+ x y)
-        let body = &cost_tree.children[2];
-        assert!(matches!(body.expr, ExprNode::Add));
-        assert_eq!(body.children.len(), 2);
+        let body_node = &cost_tree.children[2];
+        assert!(matches!(
+            body_node.expr,
+            CostExprNode::NativeFunction(NativeFunctions::Add)
+        ));
+        assert_eq!(body_node.children.len(), 2);
 
         // Both arguments in the body should be UserArguments
-        let arg_x_ref = &body.children[0];
-        let arg_y_ref = &body.children[1];
-        assert!(matches!(arg_x_ref.expr, ExprNode::UserArgument(_, _)));
-        assert!(matches!(arg_y_ref.expr, ExprNode::UserArgument(_, _)));
+        let arg_x_ref = &body_node.children[0];
+        let arg_y_ref = &body_node.children[1];
+        assert!(matches!(arg_x_ref.expr, CostExprNode::UserArgument(_, _)));
+        assert!(matches!(arg_y_ref.expr, CostExprNode::UserArgument(_, _)));
 
-        if let ExprNode::UserArgument(name, arg_type) = &arg_x_ref.expr {
+        if let CostExprNode::UserArgument(name, arg_type) = &arg_x_ref.expr {
             assert_eq!(name.as_str(), "x");
             assert_eq!(arg_type.as_str(), "u64");
         }
-        if let ExprNode::UserArgument(name, arg_type) = &arg_y_ref.expr {
+        if let CostExprNode::UserArgument(name, arg_type) = &arg_y_ref.expr {
             assert_eq!(name.as_str(), "y");
             assert_eq!(arg_type.as_str(), "u64");
         }
