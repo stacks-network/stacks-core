@@ -47,21 +47,14 @@ pub struct CostAnalysisNode {
     pub expr: CostExprNode,
     pub cost: StaticCost,
     pub children: Vec<CostAnalysisNode>,
-    pub branching: bool,
 }
 
 impl CostAnalysisNode {
-    pub fn new(
-        expr: CostExprNode,
-        cost: StaticCost,
-        children: Vec<CostAnalysisNode>,
-        branching: bool,
-    ) -> Self {
+    pub fn new(expr: CostExprNode, cost: StaticCost, children: Vec<CostAnalysisNode>) -> Self {
         Self {
             expr,
             cost,
             children,
-            branching,
         }
     }
 
@@ -70,7 +63,6 @@ impl CostAnalysisNode {
             expr,
             cost,
             children: vec![],
-            branching: false,
         }
     }
 }
@@ -334,7 +326,6 @@ fn build_function_definition_cost_analysis_tree(
         CostExprNode::UserFunction(define_type.clone()),
         StaticCost::ZERO,
         children,
-        false,
     ))
 }
 
@@ -381,7 +372,6 @@ fn build_listlike_cost_analysis_tree(
         CostExprNode::UserFunction(function_name.clone())
     };
 
-    let branching = is_branching_function(function_name);
     let cost = calculate_function_cost_from_name(function_name.as_str(), children.len() as u64)?;
 
     // Handle special cases for string arguments to functions that include their processing cost
@@ -393,7 +383,7 @@ fn build_listlike_cost_analysis_tree(
         }
     }
 
-    Ok(CostAnalysisNode::new(expr_node, cost, children, branching))
+    Ok(CostAnalysisNode::new(expr_node, cost, children))
 }
 
 /// This function is no longer needed - we now use NativeFunctions::lookup_by_name_at_version
@@ -406,6 +396,17 @@ fn is_branching_function(function_name: &ClarityName) -> bool {
         "unwrap!" | "unwrap-err!" => false, // XXX: currently unwrap and
         // unwrap-err traverse both branches regardless of result, so until this is
         // fixed in clarity we'll set this to false
+        _ => false,
+    }
+}
+
+/// Helper function to determine if a node represents a branching operation
+/// This is used in tests and cost calculation
+fn is_node_branching(node: &CostAnalysisNode) -> bool {
+    match &node.expr {
+        CostExprNode::NativeFunction(NativeFunctions::If)
+        | CostExprNode::NativeFunction(NativeFunctions::Match) => true,
+        CostExprNode::UserFunction(name) => is_branching_function(name),
         _ => false,
     }
 }
@@ -575,7 +576,10 @@ fn calculate_total_cost_with_summing(node: &CostAnalysisNode) -> SummingExecutio
 fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> SummingExecutionCost {
     let mut summing_cost = SummingExecutionCost::new();
 
-    if node.branching {
+    // Check if this is a branching function by examining the node's expression
+    let is_branching = is_node_branching(node);
+
+    if is_branching {
         match &node.expr {
             CostExprNode::NativeFunction(NativeFunctions::If)
             | CostExprNode::NativeFunction(NativeFunctions::Match) => {
@@ -733,7 +737,7 @@ mod tests {
             cost_tree.expr,
             CostExprNode::NativeFunction(NativeFunctions::If)
         ));
-        assert!(cost_tree.branching);
+        assert!(is_node_branching(&cost_tree));
         assert_eq!(cost_tree.children.len(), 3);
 
         let gt_node = &cost_tree.children[0];
@@ -776,7 +780,7 @@ mod tests {
             cost_tree.expr,
             CostExprNode::NativeFunction(NativeFunctions::Add)
         ));
-        assert!(!cost_tree.branching);
+        assert!(!is_node_branching(&cost_tree));
         assert_eq!(cost_tree.children.len(), 2);
 
         let mul_node = &cost_tree.children[0];
@@ -807,7 +811,7 @@ mod tests {
             cost_tree.expr,
             CostExprNode::NativeFunction(NativeFunctions::Add)
         ));
-        assert!(!cost_tree.branching);
+        assert!(!is_node_branching(&cost_tree));
         assert_eq!(cost_tree.children.len(), 2);
 
         for child in &cost_tree.children {
