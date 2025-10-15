@@ -89,7 +89,7 @@ pub enum AssetMapEntry {
 The AssetMap is used to track which assets have been transfered from whom
 during the execution of a transaction.
 */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetMap {
     /// Sum of all STX transfers by principal
     stx_map: HashMap<PrincipalData, u128>,

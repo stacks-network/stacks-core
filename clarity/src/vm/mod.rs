@@ -549,6 +549,44 @@ where
     })
 }
 
+/// Runs `program` in a test environment, first calling `global_context_function`.
+/// Returns the final evaluated result along with the asset map.
+#[cfg(any(test, feature = "testing"))]
+pub fn execute_call_in_global_context_and_return_asset_map<F>(
+    program: &str,
+    clarity_version: ClarityVersion,
+    epoch: StacksEpochId,
+    use_mainnet: bool,
+    mut global_context_function: F,
+) -> Result<(Option<Value>, crate::vm::contexts::AssetMap)>
+where
+    F: FnMut(&mut GlobalContext) -> Result<()>,
+{
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::tests::test_only_mainnet_to_chain_id;
+    use crate::vm::types::QualifiedContractIdentifier;
+
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let chain_id = test_only_mainnet_to_chain_id(use_mainnet);
+    let mut global_context = GlobalContext::new(
+        use_mainnet,
+        chain_id,
+        conn,
+        LimitedCostTracker::new_free(),
+        epoch,
+    );
+    global_context.execute(|g| {
+        global_context_function(g)?;
+        let parsed =
+            ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
+            .map(|r| (r, g.get_readonly_asset_map().cloned().unwrap_or_default()))
+    })
+}
+
 #[cfg(any(test, feature = "testing"))]
 pub fn execute_with_parameters(
     program: &str,
