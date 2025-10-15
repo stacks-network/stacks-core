@@ -155,19 +155,54 @@ impl StacksMessageCodec for TenureChangePayload {
         write_next(fd, &self.burn_view_consensus_hash)?;
         write_next(fd, &self.previous_tenure_end)?;
         write_next(fd, &self.previous_tenure_blocks)?;
-        write_next(fd, &self.cause)?;
+        let cause_byte: u8 = match self.cause {
+            TenureChangeCause::BlockFound => 0,
+            TenureChangeCause::Extended => match self.extend_dimension {
+                ExtendDimension::All => 1,
+                ExtendDimension::ReadCount => 2,
+                ExtendDimension::ReadLength => 3,
+                ExtendDimension::Runtime => 4,
+                ExtendDimension::WriteCount => 5,
+                ExtendDimension::WriteLength => 6,
+            },
+        };
+
+        write_next(fd, &cause_byte)?;
         write_next(fd, &self.pubkey_hash)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let tenure_consensus_hash = read_next(fd)?;
+        let prev_tenure_consensus_hash = read_next(fd)?;
+        let burn_view_consensus_hash = read_next(fd)?;
+        let previous_tenure_end = read_next(fd)?;
+        let previous_tenure_blocks = read_next(fd)?;
+        let cause_field: u8 = read_next(fd)?;
+        let (cause, extend_dimension) = match cause_field {
+            0 => (TenureChangeCause::BlockFound, ExtendDimension::All),
+            1 => (TenureChangeCause::Extended, ExtendDimension::All),
+            2 => (TenureChangeCause::Extended, ExtendDimension::ReadCount),
+            3 => (TenureChangeCause::Extended, ExtendDimension::Runtime),
+            4 => (TenureChangeCause::Extended, ExtendDimension::ReadLength),
+            5 => (TenureChangeCause::Extended, ExtendDimension::WriteCount),
+            6 => (TenureChangeCause::Extended, ExtendDimension::WriteLength),
+            byte => {
+                return Err(codec_error::DeserializeError(format!(
+                    "Unknown cause byte in TenureChange payload: {byte}"
+                )))
+            }
+        };
+        let pubkey_hash = read_next(fd)?;
+
         Ok(Self {
-            tenure_consensus_hash: read_next(fd)?,
-            prev_tenure_consensus_hash: read_next(fd)?,
-            burn_view_consensus_hash: read_next(fd)?,
-            previous_tenure_end: read_next(fd)?,
-            previous_tenure_blocks: read_next(fd)?,
-            cause: read_next(fd)?,
-            pubkey_hash: read_next(fd)?,
+            tenure_consensus_hash,
+            prev_tenure_consensus_hash,
+            burn_view_consensus_hash,
+            previous_tenure_end,
+            previous_tenure_blocks,
+            cause,
+            pubkey_hash,
+            extend_dimension,
         })
     }
 }

@@ -755,6 +755,18 @@ pub struct TenureChangePayload {
     pub cause: TenureChangeCause,
     /// The ECDSA public key hash of the current tenure
     pub pubkey_hash: Hash160,
+    /// Extend dimension
+    pub extend_dimension: ExtendDimension,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
+pub enum ExtendDimension {
+    All,
+    ReadCount,
+    ReadLength,
+    Runtime,
+    WriteCount,
+    WriteLength,
 }
 
 impl TenureChangePayload {
@@ -772,6 +784,7 @@ impl TenureChangePayload {
             previous_tenure_blocks: num_blocks_so_far,
             cause: TenureChangeCause::Extended,
             pubkey_hash: self.pubkey_hash.clone(),
+            extend_dimension: ExtendDimension::All,
         }
     }
 }

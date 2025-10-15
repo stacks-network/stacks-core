@@ -45,6 +45,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 
+use super::miner::MinerTenureInfoCause;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfo, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{
@@ -62,9 +63,9 @@ use crate::chainstate::stacks::miner::{
     TransactionSkipped,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, Error, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
-    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
-    TransactionVersion,
+    CoinbasePayload, Error, ExtendDimension, StacksTransaction, StacksTransactionSigner,
+    TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionAuth,
+    TransactionPayload, TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::ClarityInstance;
@@ -373,7 +374,7 @@ impl NakamotoChainState {
         tenure_block_snapshot: &BlockSnapshot,
         new_tenure: bool,
         coinbase_height: u64,
-        tenure_extend: bool,
+        tenure_extend: Option<ExtendDimension>,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let burn_header_hash = &tenure_block_snapshot.burn_header_hash;
         let burn_header_height =
@@ -431,7 +432,7 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
+        cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
         self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true, false)
     }
@@ -467,9 +468,13 @@ impl NakamotoBlockBuilder {
             &info.parent_header_hash,
             info.parent_burn_block_height,
             &tenure_snapshot,
-            info.cause == Some(TenureChangeCause::BlockFound),
+            info.cause == MinerTenureInfoCause::BlockFound,
             info.coinbase_height,
-            info.cause == Some(TenureChangeCause::Extended),
+            if let MinerTenureInfoCause::Extend(extend_dimension) = info.cause {
+                Some(extend_dimension)
+            } else {
+                None
+            },
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
         Ok(clarity_tx)
@@ -513,12 +518,12 @@ impl NakamotoBlockBuilder {
         );
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
-        let mut tenure_cause = None;
+        let mut tenure_cause = MinerTenureInfoCause::NoTenureChange;
         for tx in txs.iter() {
             let TransactionPayload::TenureChange(payload) = &tx.payload else {
                 continue;
             };
-            tenure_cause = Some(payload.cause);
+            tenure_cause = MinerTenureInfoCause::from(payload);
             break;
         }
 
@@ -667,6 +672,7 @@ impl NakamotoBlockBuilder {
                 as u32,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner_key)),
+            extend_dimension: ExtendDimension::All,
         };
 
         // tenure-change tx

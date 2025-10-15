@@ -510,6 +510,23 @@ impl StacksEpochId {
         }
     }
 
+    pub fn supports_specific_budget_extends(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
+        }
+    }
+
     /// Whether or not this epoch supports the punishment of PoX reward
     /// recipients using the bitvec scheme
     pub fn allows_pox_punishment(&self) -> bool {

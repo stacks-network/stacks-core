@@ -58,7 +58,7 @@ use super::stacks::db::{
 };
 use super::stacks::events::StacksTransactionReceipt;
 use super::stacks::{
-    Error as ChainstateError, StacksBlock, StacksTransaction, TenureChangePayload,
+    Error as ChainstateError, ExtendDimension, StacksBlock, StacksTransaction, TenureChangePayload,
     TokenTransferMemo, TransactionPayload, TransactionVersion,
 };
 use crate::burnchains::{PoxConstants, Txid};
@@ -3838,7 +3838,7 @@ impl NakamotoChainState {
         burn_header_height: u32,
         new_tenure: bool,
         coinbase_height: u64,
-        tenure_extend: bool,
+        tenure_extend: Option<ExtendDimension>,
         block_bitvec: &BitVec<4000>,
         tenure_block_commit: &LeaderBlockCommitOp,
         active_reward_set: &RewardSet,
@@ -3880,7 +3880,7 @@ impl NakamotoChainState {
         burn_header_height: u32,
         new_tenure: bool,
         coinbase_height: u64,
-        tenure_extend: bool,
+        tenure_extend: Option<ExtendDimension>,
         block_bitvec: &BitVec<4000>,
         tenure_block_commit: &LeaderBlockCommitOp,
         active_reward_set: &RewardSet,
@@ -3925,7 +3925,7 @@ impl NakamotoChainState {
         block: &NakamotoBlock,
         new_tenure: bool,
         coinbase_height: u64,
-        tenure_extend: bool,
+        tenure_extend: Option<ExtendDimension>,
         block_bitvec: &BitVec<4000>,
         active_reward_set: &RewardSet,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
@@ -4049,7 +4049,7 @@ impl NakamotoChainState {
         burn_header_height: u32,
         new_tenure: bool,
         coinbase_height: u64,
-        tenure_extend: bool,
+        tenure_extend: Option<ExtendDimension>,
         timestamp: Option<u64>,
         ephemeral: bool,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
@@ -4087,10 +4087,10 @@ impl NakamotoChainState {
 
         // Nakamoto must load block cost from parent if this block isn't a tenure change.
         // If this is a tenure-extend, then the execution cost is reset.
-        let initial_cost = if new_tenure || tenure_extend {
+        let initial_cost = if new_tenure || tenure_extend == Some(ExtendDimension::All) {
             ExecutionCost::ZERO
         } else {
-            let parent_cost_total =
+            let mut parent_cost_total =
                 Self::get_total_tenure_cost_at(chainstate_tx.as_tx(), &parent_index_hash)?
                     .ok_or_else(|| {
                         ChainstateError::InvalidStacksBlock(format!(
@@ -4098,6 +4098,40 @@ impl NakamotoChainState {
                     &parent_index_hash
                 ))
                     })?;
+            if tenure_extend.is_some() {
+                let epoch = sortition_dbconn
+                    .get_stacks_epoch(burn_header_height)
+                    .ok_or_else(|| {
+                        ChainstateError::InvalidStacksBlock(format!(
+                            "Failed to load epoch at height = {}",
+                            burn_header_height
+                        ))
+                    })?;
+                if !epoch.epoch_id.supports_specific_budget_extends() {
+                    return Err(ChainstateError::InvalidStacksBlock(format!(
+                        "Included tenure change payload with specific extend budget dimension, but unsupported by epoch"
+                    )));
+                }
+            }
+            match tenure_extend {
+                Some(ExtendDimension::All) => parent_cost_total = ExecutionCost::ZERO,
+                Some(ExtendDimension::ReadCount) => {
+                    parent_cost_total.read_count = 0;
+                }
+                Some(ExtendDimension::WriteCount) => {
+                    parent_cost_total.write_count = 0;
+                }
+                Some(ExtendDimension::Runtime) => {
+                    parent_cost_total.runtime = 0;
+                }
+                Some(ExtendDimension::ReadLength) => {
+                    parent_cost_total.read_length = 0;
+                }
+                Some(ExtendDimension::WriteLength) => {
+                    parent_cost_total.write_length = 0;
+                }
+                None => {}
+            }
             parent_cost_total
         };
 
@@ -4557,6 +4591,15 @@ impl NakamotoChainState {
                 "Both started and extended tenure".into(),
             ));
         }
+
+        let tenure_extend = if tenure_extend {
+            // NOTE: should always be Some()
+            block
+                .try_get_tenure_change_payload()
+                .map(|payload| payload.extend_dimension)
+        } else {
+            None
+        };
 
         let parent_coinbase_height = if block.is_first_mined() {
             0

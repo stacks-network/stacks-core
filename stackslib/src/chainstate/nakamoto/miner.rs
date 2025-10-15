@@ -55,11 +55,14 @@ pub struct NakamotoTenureInfo {
 }
 
 impl NakamotoTenureInfo {
-    pub fn cause(&self) -> Option<TenureChangeCause> {
-        self.tenure_change_tx
-            .as_ref()
-            .map(|tx| tx.try_as_tenure_change())?
-            .map(|payload| payload.cause)
+    pub fn cause(&self) -> MinerTenureInfoCause {
+        let Some(tenure_change_tx) = self.tenure_change_tx.as_ref() else {
+            return MinerTenureInfoCause::NoTenureChange;
+        };
+        let Some(tenure_change_tx) = tenure_change_tx.try_as_tenure_change() else {
+            return MinerTenureInfoCause::NoTenureChange;
+        };
+        MinerTenureInfoCause::from(tenure_change_tx)
     }
 
     pub fn tenure_change_tx(&self) -> Option<&StacksTransaction> {
@@ -95,6 +98,22 @@ pub struct NakamotoBlockBuilder {
     contract_limit_percentage: Option<u8>,
 }
 
+#[derive(PartialEq, Debug, Clone)]
+pub enum MinerTenureInfoCause {
+    NoTenureChange,
+    BlockFound,
+    Extend(ExtendDimension),
+}
+
+impl From<&TenureChangePayload> for MinerTenureInfoCause {
+    fn from(tx: &TenureChangePayload) -> Self {
+        match &tx.cause {
+            TenureChangeCause::BlockFound => MinerTenureInfoCause::BlockFound,
+            TenureChangeCause::Extended => MinerTenureInfoCause::Extend(tx.extend_dimension),
+        }
+    }
+}
+
 pub struct MinerTenureInfo<'a> {
     pub chainstate_tx: ChainstateTx<'a>,
     pub clarity_instance: &'a mut ClarityInstance,
@@ -108,7 +127,7 @@ pub struct MinerTenureInfo<'a> {
     pub parent_stacks_block_height: u64,
     pub parent_burn_block_height: u32,
     pub coinbase_height: u64,
-    pub cause: Option<TenureChangeCause>,
+    pub cause: MinerTenureInfoCause,
     pub active_reward_set: boot::RewardSet,
     pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
     pub ephemeral: bool,
@@ -228,7 +247,7 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
+        cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
         self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, false)
     }
@@ -241,7 +260,7 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
+        cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
         self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, true)
     }
@@ -254,7 +273,7 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
+        cause: MinerTenureInfoCause,
         shadow_block: bool,
         ephemeral: bool,
     ) -> Result<MinerTenureInfo<'a>, Error> {
@@ -367,7 +386,7 @@ impl NakamotoBlockBuilder {
                 .flatten()
                 .unwrap_or(0);
 
-        let new_tenure = cause == Some(TenureChangeCause::BlockFound);
+        let new_tenure = cause == MinerTenureInfoCause::BlockFound;
         let coinbase_height = if new_tenure {
             parent_coinbase_height
                 .checked_add(1)
@@ -429,9 +448,13 @@ impl NakamotoBlockBuilder {
                 info.parent_burn_block_height,
                 &info.burn_tip,
                 info.burn_tip_height,
-                info.cause == Some(TenureChangeCause::BlockFound),
+                info.cause == MinerTenureInfoCause::BlockFound,
                 info.coinbase_height,
-                info.cause == Some(TenureChangeCause::Extended),
+                if let MinerTenureInfoCause::Extend(extend_dimension) = info.cause {
+                    Some(extend_dimension)
+                } else {
+                    None
+                },
                 &self.header.pox_treatment,
                 block_commit,
                 &info.active_reward_set,
@@ -449,9 +472,13 @@ impl NakamotoBlockBuilder {
                 info.parent_burn_block_height,
                 &info.burn_tip,
                 info.burn_tip_height,
-                info.cause == Some(TenureChangeCause::BlockFound),
+                info.cause == MinerTenureInfoCause::BlockFound,
                 info.coinbase_height,
-                info.cause == Some(TenureChangeCause::Extended),
+                if let MinerTenureInfoCause::Extend(extend_dimension) = info.cause {
+                    Some(extend_dimension)
+                } else {
+                    None
+                },
                 &self.header.pox_treatment,
                 block_commit,
                 &info.active_reward_set,

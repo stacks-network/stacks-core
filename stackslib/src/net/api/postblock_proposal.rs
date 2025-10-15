@@ -35,7 +35,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::tests::TestFlag;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::{
@@ -43,7 +43,7 @@ use crate::chainstate::stacks::miner::{
     TransactionSkipped,
 };
 use crate::chainstate::stacks::{
-    Error as ChainError, StacksTransaction, TenureChangeCause, TransactionPayload,
+    Error as ChainError, StacksTransaction, TransactionPayload,
 };
 use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::mempool::ProposalCallbackReceiver;
@@ -554,16 +554,18 @@ impl NakamotoBlockProposal {
             .txs
             .iter()
             .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-        let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-            TransactionPayload::TenureChange(tc) => Some(tc.cause),
-            _ => None,
-        });
+        let tenure_cause = tenure_change
+            .and_then(|tx| match &tx.payload {
+                TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc)),
+                _ => None,
+            })
+            .unwrap_or_else(|| MinerTenureInfoCause::NoTenureChange);
 
         let replay_tx_exhausted = self.validate_replay(
             &parent_stacks_header,
             tenure_change,
             coinbase,
-            tenure_cause,
+            tenure_cause.clone(),
             chainstate.mainnet,
             chainstate.chain_id,
             &chainstate.root_path.clone(),
@@ -703,7 +705,7 @@ impl NakamotoBlockProposal {
         parent_stacks_header: &StacksHeaderInfo,
         tenure_change: Option<&StacksTransaction>,
         coinbase: Option<&StacksTransaction>,
-        tenure_cause: Option<TenureChangeCause>,
+        tenure_cause: MinerTenureInfoCause,
         mainnet: bool,
         chain_id: u32,
         chainstate_path: &str,
