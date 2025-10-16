@@ -803,10 +803,8 @@ impl ConsensusTest<'_> {
         }
 
         // Set up chainstate to start at Epoch 3.0
-        // We don't really ever want the reward cycle to force a new signer set...
-        // so for now just set the cycle length to a high value (100)
         let mut boot_plan = NakamotoBootPlan::new(test_name)
-            .with_pox_constants(100, 3)
+            .with_pox_constants(7, 1)
             .with_initial_balances(test_vector.initial_balances.clone())
             .with_private_key(FAUCET_PRIV_KEY.clone());
         let epochs = epoch_3_0_onwards(
