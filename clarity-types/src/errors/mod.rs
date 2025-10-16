@@ -192,7 +192,6 @@ pub enum RuntimeError {
     PoxAlreadyLocked,
     /// Block time unavailable during execution.
     BlockTimeNotAvailable,
-    Unreachable,
 }
 
 #[derive(Debug, PartialEq)]
