@@ -69,9 +69,16 @@ fn execute(snippet: &str) -> InterpreterResult<Option<Value>> {
 }
 
 fn execute_and_return_asset_map(snippet: &str) -> InterpreterResult<(Option<Value>, AssetMap)> {
+    execute_and_return_asset_map_versioned(snippet, ClarityVersion::Clarity4)
+}
+
+fn execute_and_return_asset_map_versioned(
+    snippet: &str,
+    version: ClarityVersion,
+) -> InterpreterResult<(Option<Value>, AssetMap)> {
     execute_call_in_global_context_and_return_asset_map(
         snippet,
-        ClarityVersion::Clarity4,
+        version,
         StacksEpochId::Epoch33,
         false,
         |g| {
@@ -1771,6 +1778,134 @@ proptest! {
             // And the asset maps should be identical
             prop_assert_eq!(asset_map, unrestricted_asset_map);
           }
+        }
+      }
+    }
+
+    /// Property: as-contract? should return `(ok <value>)` where `<value>` is the
+    /// result of evaluating the body if no assets are moved in the body.
+    #[test]
+    fn prop_as_contract_returns_body_value_when_pure(body_value in clarity_values_no_response()) {
+      let body_literal = value_to_string(&body_value);
+      let snippet = format!("(as-contract? () {body_literal})");
+
+      let evaluation = execute(&snippet)
+        .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
+        .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"));
+
+      let expected = Value::okay(body_value.clone())
+        .unwrap_or_else(|e| panic!("Wrapping body value failed for snippet `{snippet}`: {e:?}"));
+
+      prop_assert!(evaluation == expected);
+    }
+
+    /// Property: as-contract? should return an error if there are no
+    /// allowances and the body moves assets
+    #[test]
+    fn prop_as_contract_errors_when_no_allowances_and_body_moves_assets(body in begin_block()) {
+      let snippet = format!("(as-contract? () {body})");
+      let c3_snippet = format!("(as-contract {body})");
+
+      let body_execution = execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3);
+      let snippet_execution = execute_and_return_asset_map(&snippet);
+
+      match (body_execution, snippet_execution) {
+        (Err(body_err), snippet_outcome) => {
+          match snippet_outcome {
+            Err(snippet_err) => {
+              prop_assert_eq!(snippet_err, body_err);
+            }
+            Ok((Some(result_value), _)) => {
+              if let ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected)) = &body_err {
+                prop_assert_eq!(result_value, *expected.clone());
+              } else {
+                panic!("Body `{body}` failed with {body_err:?} but snippet `{snippet}` returned value {result_value:?}");
+              }
+            }
+            Ok((None, _)) => {
+              panic!("Snippet `{snippet}` returned no value while body `{body}` failed with {body_err:?}");
+            }
+          }
+        }
+        (Ok(_), Err(snippet_err)) => {
+          panic!("Body `{body}` succeeded but snippet `{snippet}` failed with {snippet_err:?}");
+        }
+        (Ok((body_result, unrestricted_asset_map)), Ok((result, asset_map))) => {
+          let body_value = body_result
+            .unwrap_or_else(|| panic!("Execution returned no value for body `{body}`"));
+          let result_value = result
+            .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"));
+
+          // If the body moves any STX from the contract, the restricted version should error
+          let contract_id = QualifiedContractIdentifier::transient();
+          let contract_principal = PrincipalData::Contract(contract_id);
+          if let Some(stx_moved) = unrestricted_asset_map.get_stx(&contract_principal) {
+            let expected_err = Value::error(Value::UInt(MAX_ALLOWANCES as u128))
+              .unwrap_or_else(|e| panic!("Wrapping expected error failed for snippet `{snippet}`: {e:?}"));
+
+            prop_assert_eq!(result_value, expected_err);
+
+            // And the asset map should show that no STX was moved
+            let stx_moved_in_restricted = asset_map.get_stx(&contract_principal).unwrap_or(0);
+            prop_assert_eq!(stx_moved_in_restricted, 0);
+          } else {
+            // If the body doesn't move any STX, the restricted version should return the same value as the body
+            let expected = Value::okay(body_value.clone())
+              .unwrap_or_else(|e| panic!("Wrapping body value failed for snippet `{snippet}`: {e:?}"));
+
+            prop_assert_eq!(result_value, expected);
+
+            // And the asset maps should be identical
+            prop_assert_eq!(asset_map, unrestricted_asset_map);
+          }
+        }
+      }
+    }
+
+    /// Property: as-contract? with `with-all-assets-unsafe` should always return the
+    /// same as the Clarity3 `as-contract`.
+    #[test]
+    fn prop_as_contract_with_all_assets_unsafe_matches_clarity3(body in begin_block()) {
+      let snippet = format!("(as-contract? ((with-all-assets-unsafe)) {body})");
+      let c3_snippet = format!("(as-contract {body})");
+
+      let c3_execution = execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3);
+      let snippet_execution = execute_and_return_asset_map(&snippet);
+
+      match (c3_execution, snippet_execution) {
+        (Err(body_err), snippet_outcome) => {
+          match snippet_outcome {
+            Err(snippet_err) => {
+              prop_assert_eq!(snippet_err, body_err);
+            }
+            Ok((Some(result_value), _)) => {
+              if let ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected)) = &body_err {
+                prop_assert_eq!(result_value, *expected.clone());
+              } else {
+                panic!("Body `{body}` failed with {body_err:?} but snippet `{snippet}` returned value {result_value:?}");
+              }
+            }
+            Ok((None, _)) => {
+              panic!("Snippet `{snippet}` returned no value while body `{body}` failed with {body_err:?}");
+            }
+          }
+        }
+        (Ok(_), Err(snippet_err)) => {
+          panic!("Body `{body}` succeeded but snippet `{snippet}` failed with {snippet_err:?}");
+        }
+        (Ok((body_result, unrestricted_asset_map)), Ok((result, asset_map))) => {
+          let body_value = body_result
+            .unwrap_or_else(|| panic!("Execution returned no value for body `{body}`"));
+          let result_value = result
+            .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"));
+
+          let expected = Value::okay(body_value.clone())
+            .unwrap_or_else(|e| panic!("Wrapping body value failed for snippet `{snippet}`: {e:?}"));
+
+          prop_assert_eq!(result_value, expected);
+
+          // And the asset maps should be identical
+          prop_assert_eq!(asset_map, unrestricted_asset_map);
         }
       }
     }
