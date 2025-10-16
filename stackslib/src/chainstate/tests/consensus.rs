@@ -414,6 +414,10 @@ impl TestTxFactory {
     ///
     /// * `tx_spec` - The original specification of the transaction whose sender's
     ///   nonce should be incremented.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sender's address is not found in the nonce counter map.
     pub fn increase_nonce_for_tx(&mut self, tx_spec: &TestTxSpec) {
         let sender_privk = match tx_spec {
             TestTxSpec::Transfer { from, .. } => from,
@@ -421,7 +425,10 @@ impl TestTxFactory {
             TestTxSpec::ContractCall { sender, .. } => sender,
         };
         let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk));
-        let nonce = self.nonce_counter.entry(address).or_insert(0);
+        let nonce = self
+            .nonce_counter
+            .get_mut(&address)
+            .unwrap_or_else(|| panic!("Nonce not found for address {address}"));
         *nonce += 1;
     }
 
