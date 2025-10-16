@@ -17,9 +17,13 @@
 //! `restrict-assets?` expressions. The `with-stacking` allowances are tested
 //! in integration tests, since they require changes made outside of the VM.
 
+use std::convert::TryFrom;
+
 use clarity_types::errors::{Error as ClarityError, InterpreterResult, ShortReturnType};
-use clarity_types::types::{PrincipalData, QualifiedContractIdentifier, StandardPrincipalData};
-use clarity_types::Value;
+use clarity_types::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+};
+use clarity_types::{ClarityName, Value};
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 
@@ -29,6 +33,10 @@ use super::proptest_utils::{
 };
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
+use crate::vm::tests::proptest_utils::{
+    allowance_list_snippets, ft_mint_snippets, ft_transfer_snippets, match_response_snippets,
+    nft_mint_snippets, nft_transfer_snippets, try_response_snippets,
+};
 use crate::vm::ClarityVersion;
 
 // ---------- Tests for as-contract? ----------
@@ -1382,11 +1390,6 @@ fn test_restrict_assets_with_error_in_body() {
 
 // ---------- Property Tests ----------
 
-pub fn no_allowance_error() -> Value {
-    Value::error(Value::UInt(MAX_ALLOWANCES as u128))
-        .expect("error response construction never fails")
-}
-
 /// Given the results of running a snippet with and without asset restrictions,
 /// assert that the results match and verify that the asset movements are as
 /// expected. `asset_check` is a closure that takes the unrestricted and
@@ -1423,7 +1426,10 @@ where
         (Ok(_), Err(restricted_err)) => Err(TestCaseError::fail(format!(
             "Unrestricted execution succeeded but restricted execution failed with {restricted_err:?}"
         ))),
-        (Ok((unrestricted_value, unrestricted_assets)), Ok((restricted_value, restricted_assets))) => {
+        (
+            Ok((unrestricted_value, unrestricted_assets)),
+            Ok((restricted_value, restricted_assets)),
+        ) => {
             let Some(unrestricted_value) = unrestricted_value else {
                 panic!("Unrestricted execution returned no value");
             };
@@ -1442,6 +1448,13 @@ where
             Ok(())
         }
     }
+}
+
+/// Construct the error value returned when assets move without matching
+/// allowances.
+fn no_allowance_error() -> Value {
+    Value::error(Value::UInt(MAX_ALLOWANCES as u128))
+        .expect("error response construction never fails")
 }
 
 proptest! {
@@ -1463,7 +1476,25 @@ proptest! {
     }
 
     #[test]
-    fn prop_restrict_assets_errors_when_no_allowances_and_body_moves_assets(
+    fn prop_restrict_assets_returns_value_with_allowances(
+        allowances in allowance_list_snippets(),
+        body_value in clarity_values_no_response(),
+    ) {
+        let body_literal = value_to_clarity_literal(&body_value);
+        let snippet = format!("(restrict-assets? tx-sender {allowances} {body_literal})");
+
+        let evaluation = execute(&snippet)
+            .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
+            .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"));
+
+        let expected = Value::okay(body_value.clone())
+            .unwrap_or_else(|e| panic!("Wrapping body value failed for snippet `{snippet}`: {e:?}"));
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_restrict_assets_errors_when_no_allowances_and_body_moves_stx(
         body in begin_block(),
     ) {
         let snippet = format!("(restrict-assets? tx-sender () {body})");
@@ -1474,6 +1505,81 @@ proptest! {
                 let sender = PrincipalData::Standard(StandardPrincipalData::transient());
                 let stx_moved = unrestricted_assets.get_stx(&sender).unwrap_or(0);
                 if stx_moved > 0 {
+                    prop_assert_eq!(&AssetMap::new(), restricted_assets);
+                    Ok(Some(no_allowance_error()))
+                } else {
+                    prop_assert_eq!(unrestricted_assets, restricted_assets);
+                    Ok(None)
+                }
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn prop_restrict_assets_errors_when_no_ft_allowance(
+        ft_mint in match_response_snippets(ft_mint_snippets()), ft_transfer in try_response_snippets(ft_transfer_snippets())
+    ) {
+        let setup_code = format!("(define-fungible-token stackaroo) {ft_mint}");
+        let body_program = format!(
+            "{setup_code} {ft_transfer}",
+        );
+        let wrapper_program = format!(
+            "{setup_code} (restrict-assets? tx-sender () {ft_transfer})",
+        );
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: QualifiedContractIdentifier::transient(),
+            asset_name: ClarityName::try_from("stackaroo".to_string())
+                .expect("valid fungible token name"),
+        };
+
+        assert_results_match(
+            execute_and_return_asset_map(&body_program),
+            execute_and_return_asset_map(&wrapper_program),
+            move |unrestricted_assets, restricted_assets| {
+                let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+                let moved = unrestricted_assets
+                    .get_fungible_tokens(&sender, &asset_identifier)
+                    .unwrap_or(0);
+                if moved > 0 {
+                    prop_assert_eq!(&AssetMap::new(), restricted_assets);
+                    Ok(Some(no_allowance_error()))
+                } else {
+                    prop_assert_eq!(unrestricted_assets, restricted_assets);
+                    Ok(None)
+                }
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn prop_restrict_assets_errors_when_no_nft_allowance(
+        nft_mint in match_response_snippets(nft_mint_snippets()), nft_transfer in try_response_snippets(nft_transfer_snippets())
+    ) {
+        let setup_code = format!("(define-non-fungible-token stackaroo uint) {nft_mint}");
+        let body_program = format!(
+            "{setup_code} {nft_transfer}",
+        );
+        let wrapper_program = format!(
+            "{setup_code} (restrict-assets? tx-sender () {nft_transfer})",
+        );
+        let asset_identifier = AssetIdentifier {
+            contract_identifier: QualifiedContractIdentifier::transient(),
+            asset_name: ClarityName::try_from("stackaroo".to_string())
+                .expect("valid non-fungible token name"),
+        };
+
+        assert_results_match(
+            execute_and_return_asset_map(&body_program),
+            execute_and_return_asset_map(&wrapper_program),
+            move |unrestricted_assets, restricted_assets| {
+                let sender = PrincipalData::Standard(StandardPrincipalData::transient());
+                let moved = unrestricted_assets
+                    .get_nonfungible_tokens(&sender, &asset_identifier)
+                    .map(|l| l.len())
+                    .unwrap_or(0);
+                if moved > 0 {
                     prop_assert_eq!(&AssetMap::new(), restricted_assets);
                     Ok(Some(no_allowance_error()))
                 } else {
@@ -1503,7 +1609,25 @@ proptest! {
     }
 
     #[test]
-    fn prop_as_contract_errors_when_no_allowances_and_body_moves_assets(
+    fn prop_as_contract_returns_value_with_allowances(
+        allowances in allowance_list_snippets(),
+        body_value in clarity_values_no_response(),
+    ) {
+        let body_literal = value_to_clarity_literal(&body_value);
+        let snippet = format!("(as-contract? {allowances} {body_literal})");
+
+        let evaluation = execute(&snippet)
+            .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
+            .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"));
+
+        let expected = Value::okay(body_value.clone())
+            .unwrap_or_else(|e| panic!("Wrapping body value failed for snippet `{snippet}`: {e:?}"));
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_as_contract_errors_when_no_allowances_and_body_moves_stx(
         body in begin_block(),
     ) {
         let snippet = format!("(as-contract? () {body})");
