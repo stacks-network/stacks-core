@@ -140,16 +140,24 @@ fn test_get_block_info_eval(
             (
                 "case-7",
                 "(define-private (test-func) (get-block-info? time (- 1)))",
-                Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Int(-1)).into()),
+                Err(CheckErrors::TypeValueError(
+                    Box::new(TypeSignature::UIntType),
+                    Box::new(Value::Int(-1)),
+                )
+                .into()),
             ),
             (
                 "case-8",
                 "(define-private (test-func) (get-block-info? time true))",
-                Err(CheckErrors::TypeValueError(TypeSignature::UIntType, Value::Bool(true)).into()),
+                Err(CheckErrors::TypeValueError(
+                    Box::new(TypeSignature::UIntType),
+                    Box::new(Value::Bool(true)),
+                )
+                .into()),
             ),
         ]);
     }
-    let expected = [
+    let expected: [Result<Value, Error>; 8] = [
         Ok(Value::none()),
         Ok(Value::none()),
         Ok(Value::none()),

@@ -1097,8 +1097,13 @@ fn epoch_20_205_test_all(use_mainnet: bool, epoch: StacksEpochId) {
                     .unwrap_or(true)
             {
                 if let Some(test) = get_simple_test(f) {
-                    let cost =
-                        test_program_cost(test, ClarityVersion::Clarity1, &mut owned_env, ix + 1);
+                    let cost = test_program_cost_with_db(
+                        test,
+                        ClarityVersion::Clarity1,
+                        &mut owned_env,
+                        ix + 1,
+                        &mut analysis_db,
+                    );
                     assert!(cost.exceeds(&baseline));
                 }
             }
@@ -1157,8 +1162,13 @@ fn epoch_21_test_all(use_mainnet: bool) {
                     .unwrap_or(true)
             {
                 if let Some(test) = get_simple_test(f) {
-                    let cost =
-                        test_program_cost(test, ClarityVersion::Clarity2, &mut owned_env, ix + 1);
+                    let cost = test_program_cost_with_db(
+                        test,
+                        ClarityVersion::Clarity2,
+                        &mut owned_env,
+                        ix + 1,
+                        &mut analysis_db,
+                    );
                     assert!(cost.exceeds(&baseline));
                 }
             }
@@ -1180,9 +1190,24 @@ fn epoch_21_test_all_testnet() {
 //  Clarity code executes in Epoch 3.0 (includes Clarity 3)
 fn epoch_30_test_all(use_mainnet: bool) {
     with_owned_env(StacksEpochId::Epoch30, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity3, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
 
-        let baseline = test_program_cost("1", ClarityVersion::Clarity3, &mut owned_env, 0);
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity3,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let baseline = test_program_cost_with_db(
+            "1",
+            ClarityVersion::Clarity3,
+            &mut owned_env,
+            0,
+            &mut analysis_db,
+        );
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: Include Clarity3 functions for Epoch30.
@@ -1192,8 +1217,13 @@ fn epoch_30_test_all(use_mainnet: bool) {
                     .unwrap_or(true)
             {
                 if let Some(test) = get_simple_test(f) {
-                    let cost =
-                        test_program_cost(test, ClarityVersion::Clarity3, &mut owned_env, ix + 1);
+                    let cost = test_program_cost_with_db(
+                        test,
+                        ClarityVersion::Clarity3,
+                        &mut owned_env,
+                        ix + 1,
+                        &mut analysis_db,
+                    );
                     assert!(cost.exceeds(&baseline));
                 }
             }
@@ -1215,9 +1245,24 @@ fn epoch_30_test_all_testnet() {
 //  Clarity code executes in Epoch 3.3 (includes Clarity 4)
 fn epoch_33_test_all(use_mainnet: bool) {
     with_owned_env(StacksEpochId::Epoch33, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity4, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
 
-        let baseline = test_program_cost("1", ClarityVersion::Clarity4, &mut owned_env, 0);
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity4,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let baseline = test_program_cost_with_db(
+            "1",
+            ClarityVersion::Clarity4,
+            &mut owned_env,
+            0,
+            &mut analysis_db,
+        );
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: Include Clarity4 functions for Epoch33.
@@ -1227,8 +1272,13 @@ fn epoch_33_test_all(use_mainnet: bool) {
                     .unwrap_or(true)
             {
                 if let Some(test) = get_simple_test(f) {
-                    let cost =
-                        test_program_cost(test, ClarityVersion::Clarity4, &mut owned_env, ix + 1);
+                    let cost = test_program_cost_with_db(
+                        test,
+                        ClarityVersion::Clarity4,
+                        &mut owned_env,
+                        ix + 1,
+                        &mut analysis_db,
+                    );
                     assert!(cost.exceeds(&baseline));
                 }
             }

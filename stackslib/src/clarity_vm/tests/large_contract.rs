@@ -190,7 +190,7 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 .unwrap();
             }
             StacksEpochId::Epoch33 => {
-                let (ast, _analysis) = tx
+                let (mut ast, analysis) = tx
                     .analyze_smart_contract(
                         &boot_code_id("costs-4", false),
                         ClarityVersion::Clarity2,
@@ -200,7 +200,8 @@ fn test_simple_token_system(#[case] version: ClarityVersion, #[case] epoch: Stac
                 tx.initialize_smart_contract(
                     &boot_code_id("costs-4", false),
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     BOOT_CODE_COSTS_4,
                     None,
                     |_, _| None,

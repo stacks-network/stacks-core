@@ -8,7 +8,6 @@ use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::*;
 use clarity::vm::errors::{CheckErrors, Error};
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use clarity::vm::tooling::mem_type_check;
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TupleData, Value,

@@ -7539,7 +7539,7 @@ mod tests {
         let read = read_from_wasm_indirect(
             memory,
             &mut store,
-            &TypeSignature::max_string_ascii().unwrap(),
+            &TypeSignature::STRING_ASCII_MAX,
             offset as i32,
             StacksEpochId::latest(),
         )
@@ -7627,7 +7627,7 @@ mod tests {
 
         let offset = 6;
         let expected = Value::buff_from(vec![0x01, 0x02, 0x03, 0x04]).unwrap();
-        let expected_ty = TypeSignature::max_buffer().unwrap();
+        let expected_ty = TypeSignature::BUFFER_MAX;
 
         write_to_wasm(
             &mut store,
@@ -7662,7 +7662,7 @@ mod tests {
         let offset = 7;
         let expected =
             Value::string_ascii_from_bytes("Party on, Wayne!".as_bytes().to_vec()).unwrap();
-        let expected_ty = TypeSignature::max_string_ascii().unwrap();
+        let expected_ty = TypeSignature::STRING_ASCII_MAX;
 
         write_to_wasm(
             &mut store,
@@ -8320,7 +8320,7 @@ mod tests {
 
         let offset = 6;
         let expected = Value::buff_from(vec![0x01, 0x02, 0x03, 0x04]).unwrap();
-        let expected_ty = TypeSignature::max_buffer().unwrap();
+        let expected_ty = TypeSignature::BUFFER_MAX;
 
         write_to_wasm(
             &mut store,
@@ -8354,7 +8354,7 @@ mod tests {
         let offset = 7;
         let expected =
             Value::string_ascii_from_bytes("Party on, Wayne!".as_bytes().to_vec()).unwrap();
-        let expected_ty = TypeSignature::max_string_ascii().unwrap();
+        let expected_ty = TypeSignature::STRING_ASCII_MAX;
 
         write_to_wasm(
             &mut store,
