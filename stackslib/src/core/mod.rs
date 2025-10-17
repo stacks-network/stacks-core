@@ -262,7 +262,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: BITCOIN_MAINNET_STACKS_2_05_BURN_HEIGHT,
             end_height: BITCOIN_MAINNET_STACKS_21_BURN_HEIGHT,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
@@ -351,7 +351,7 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: BITCOIN_TESTNET_STACKS_2_05_BURN_HEIGHT,
             end_height: BITCOIN_TESTNET_STACKS_21_BURN_HEIGHT,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {

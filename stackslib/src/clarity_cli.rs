@@ -232,7 +232,7 @@ fn run_analysis<C: ClarityStorage>(
         mainnet,
         default_chain_id(mainnet),
         if mainnet {
-            BLOCK_LIMIT_MAINNET_205.clone()
+            BLOCK_LIMIT_MAINNET_205
         } else {
             HELIUM_BLOCK_LIMIT_20.clone()
         },
@@ -420,7 +420,7 @@ where
         mainnet,
         default_chain_id(mainnet),
         if mainnet {
-            BLOCK_LIMIT_MAINNET_205.clone()
+            BLOCK_LIMIT_MAINNET_205
         } else {
             HELIUM_BLOCK_LIMIT_20.clone()
         },
