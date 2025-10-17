@@ -42,9 +42,7 @@ use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
     TransactionSkipped,
 };
-use crate::chainstate::stacks::{
-    Error as ChainError, StacksTransaction, TransactionPayload,
-};
+use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::clarity_vm::clarity::Error as ClarityError;
 use crate::core::mempool::ProposalCallbackReceiver;
 use crate::net::http::{

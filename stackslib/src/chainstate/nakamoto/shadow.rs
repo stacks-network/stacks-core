@@ -63,9 +63,9 @@ use crate::chainstate::stacks::miner::{
     TransactionSkipped,
 };
 use crate::chainstate::stacks::{
-    CoinbasePayload, Error, ExtendDimension, StacksTransaction, StacksTransactionSigner,
-    TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionAuth,
-    TransactionPayload, TransactionVersion,
+    CoinbasePayload, Error, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
+    TenureChangePayload, TransactionAnchorMode, TransactionAuth, TransactionPayload,
+    TransactionVersion,
 };
 use crate::clarity::vm::types::StacksAddressExtensions;
 use crate::clarity_vm::clarity::ClarityInstance;
@@ -372,9 +372,8 @@ impl NakamotoChainState {
         parent_header_hash: &BlockHeaderHash,
         parent_burn_height: u32,
         tenure_block_snapshot: &BlockSnapshot,
-        new_tenure: bool,
         coinbase_height: u64,
-        tenure_extend: Option<ExtendDimension>,
+        tenure_cause: MinerTenureInfoCause,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let burn_header_hash = &tenure_block_snapshot.burn_header_hash;
         let burn_header_height =
@@ -412,9 +411,8 @@ impl NakamotoChainState {
             parent_burn_height,
             burn_header_hash,
             burn_header_height,
-            new_tenure,
             coinbase_height,
-            tenure_extend,
+            tenure_cause,
             None,
             false,
         )
@@ -468,13 +466,8 @@ impl NakamotoBlockBuilder {
             &info.parent_header_hash,
             info.parent_burn_block_height,
             &tenure_snapshot,
-            info.cause == MinerTenureInfoCause::BlockFound,
             info.coinbase_height,
-            if let MinerTenureInfoCause::Extend(extend_dimension) = info.cause {
-                Some(extend_dimension)
-            } else {
-                None
-            },
+            info.cause,
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
         Ok(clarity_tx)
@@ -672,7 +665,6 @@ impl NakamotoBlockBuilder {
                 as u32,
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner_key)),
-            extend_dimension: ExtendDimension::All,
         };
 
         // tenure-change tx

@@ -98,18 +98,88 @@ pub struct NakamotoBlockBuilder {
     contract_limit_percentage: Option<u8>,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+/// NB: No PartialEq implementation is deliberate in order to ensure that we use the appropriate
+/// instance method to determine what class of cause this could be
+#[derive(Debug, Clone, Copy)]
 pub enum MinerTenureInfoCause {
     NoTenureChange,
     BlockFound,
-    Extend(ExtendDimension),
+    Extended,
+    ExtendedRuntime,
+    ExtendedReadCount,
+    ExtendedReadLength,
+    ExtendedWriteCount,
+    ExtendedWriteLength,
 }
 
 impl From<&TenureChangePayload> for MinerTenureInfoCause {
     fn from(tx: &TenureChangePayload) -> Self {
-        match &tx.cause {
+        Self::from(tx.cause)
+    }
+}
+
+impl From<TenureChangeCause> for MinerTenureInfoCause {
+    fn from(cause: TenureChangeCause) -> Self {
+        match cause {
             TenureChangeCause::BlockFound => MinerTenureInfoCause::BlockFound,
-            TenureChangeCause::Extended => MinerTenureInfoCause::Extend(tx.extend_dimension),
+            TenureChangeCause::Extended => MinerTenureInfoCause::Extended,
+            TenureChangeCause::ExtendedRuntime => MinerTenureInfoCause::ExtendedRuntime,
+            TenureChangeCause::ExtendedReadCount => MinerTenureInfoCause::ExtendedReadCount,
+            TenureChangeCause::ExtendedReadLength => MinerTenureInfoCause::ExtendedReadLength,
+            TenureChangeCause::ExtendedWriteCount => MinerTenureInfoCause::ExtendedWriteCount,
+            TenureChangeCause::ExtendedWriteLength => MinerTenureInfoCause::ExtendedWriteLength,
+        }
+    }
+}
+
+impl MinerTenureInfoCause {
+    /// Is this the start of a new tenure?
+    pub fn is_new_tenure(&self) -> bool {
+        match self {
+            MinerTenureInfoCause::BlockFound => true,
+            _ => false,
+        }
+    }
+
+    /// Is this a tenure extension of any kind?
+    pub fn is_tenure_extension_any(&self) -> bool {
+        match self {
+            MinerTenureInfoCause::NoTenureChange | MinerTenureInfoCause::BlockFound => false,
+            MinerTenureInfoCause::Extended
+            | MinerTenureInfoCause::ExtendedRuntime
+            | MinerTenureInfoCause::ExtendedReadCount
+            | MinerTenureInfoCause::ExtendedReadLength
+            | MinerTenureInfoCause::ExtendedWriteCount
+            | MinerTenureInfoCause::ExtendedWriteLength => true,
+        }
+    }
+
+    /// Is this an extend-all tenure extension?
+    pub fn is_tenure_extension_all(&self) -> bool {
+        match self {
+            MinerTenureInfoCause::Extended => true,
+            MinerTenureInfoCause::NoTenureChange
+            | MinerTenureInfoCause::BlockFound
+            | MinerTenureInfoCause::ExtendedRuntime
+            | MinerTenureInfoCause::ExtendedReadCount
+            | MinerTenureInfoCause::ExtendedReadLength
+            | MinerTenureInfoCause::ExtendedWriteCount
+            | MinerTenureInfoCause::ExtendedWriteLength => false,
+        }
+    }
+
+    /// Is this a new SIP-034 tenure extension?
+    /// I.e. an extension in one dimension, instead of all of them?
+    pub fn is_sip034_tenure_extension(&self) -> bool {
+        match self {
+            MinerTenureInfoCause::NoTenureChange
+            | MinerTenureInfoCause::BlockFound
+            | MinerTenureInfoCause::Extended => false,
+            MinerTenureInfoCause::ExtendedRuntime
+            | MinerTenureInfoCause::ExtendedReadCount
+            | MinerTenureInfoCause::ExtendedReadLength
+            | MinerTenureInfoCause::ExtendedWriteCount
+            | MinerTenureInfoCause::ExtendedWriteLength => true,
         }
     }
 }
@@ -386,8 +456,8 @@ impl NakamotoBlockBuilder {
                 .flatten()
                 .unwrap_or(0);
 
-        let new_tenure = cause == MinerTenureInfoCause::BlockFound;
-        let coinbase_height = if new_tenure {
+        let is_new_tenure = cause.is_new_tenure();
+        let coinbase_height = if is_new_tenure {
             parent_coinbase_height
                 .checked_add(1)
                 .expect("Blockchain overflow")
@@ -448,13 +518,8 @@ impl NakamotoBlockBuilder {
                 info.parent_burn_block_height,
                 &info.burn_tip,
                 info.burn_tip_height,
-                info.cause == MinerTenureInfoCause::BlockFound,
                 info.coinbase_height,
-                if let MinerTenureInfoCause::Extend(extend_dimension) = info.cause {
-                    Some(extend_dimension)
-                } else {
-                    None
-                },
+                info.cause,
                 &self.header.pox_treatment,
                 block_commit,
                 &info.active_reward_set,
@@ -472,13 +537,8 @@ impl NakamotoBlockBuilder {
                 info.parent_burn_block_height,
                 &info.burn_tip,
                 info.burn_tip_height,
-                info.cause == MinerTenureInfoCause::BlockFound,
                 info.coinbase_height,
-                if let MinerTenureInfoCause::Extend(extend_dimension) = info.cause {
-                    Some(extend_dimension)
-                } else {
-                    None
-                },
+                info.cause,
                 &self.header.pox_treatment,
                 block_commit,
                 &info.active_reward_set,

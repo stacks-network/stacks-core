@@ -37,7 +37,9 @@ use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use stacks::chainstate::stacks::boot::{RewardSet, MINERS_NAME};
 use stacks::chainstate::stacks::db::{StacksChainState, StacksHeaderInfo};
 use stacks::chainstate::stacks::{
-    CoinbasePayload, Error as ChainstateError, ExtendDimension, StacksTransaction, StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TransactionAnchorMode, TransactionPayload, TransactionVersion
+    CoinbasePayload, Error as ChainstateError, ExtendDimension, StacksTransaction,
+    StacksTransactionSigner, TenureChangeCause, TenureChangePayload, TransactionAnchorMode,
+    TransactionPayload, TransactionVersion,
 };
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::net::api::poststackerdbchunk::StackerDBErrorCodes;
@@ -1708,7 +1710,7 @@ impl BlockMinerThread {
                 .expect("FATAL: more than u32 blocks in a tenure"),
             cause: TenureChangeCause::BlockFound,
             pubkey_hash: self.keychain.get_nakamoto_pkh(),
-            extend_dimension: ExtendDimension::All
+            extend_dimension: ExtendDimension::All,
         };
 
         let (tenure_change_tx, coinbase_tx) = match &self.reason {

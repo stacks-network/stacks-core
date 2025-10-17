@@ -31,7 +31,7 @@ use stacks_common::types::StacksEpochId;
 use super::TestRPC;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
@@ -284,7 +284,11 @@ fn test_try_make_response() {
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
-                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
@@ -545,7 +549,11 @@ fn replay_validation_test(
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
-                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder

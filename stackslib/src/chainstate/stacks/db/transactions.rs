@@ -1498,20 +1498,11 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
-                // what kind of tenure-change?
-                match payload.cause {
-                    TenureChangeCause::BlockFound => {
-                        // a sortition triggered this tenure change.
-                        // this is already processed, so it's a no-op here.
-                    }
-                    TenureChangeCause::Extended => {
-                        // the stackers granted a tenure extension.
-                        // reset the runtime cost
-                        debug!(
-                            "TenureChange extends block tenure (confirms {} blocks)",
-                            &payload.previous_tenure_blocks
-                        );
-                    }
+                if payload.cause.is_tenure_extension_any() {
+                    debug!(
+                        "TenureChange {:?} extends block tenure (confirms {} blocks)",
+                        &payload.cause, &payload.previous_tenure_blocks
+                    );
                 }
 
                 let receipt = StacksTransactionReceipt::from_tenure_change(tx.clone());
