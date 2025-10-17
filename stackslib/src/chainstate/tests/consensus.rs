@@ -47,7 +47,9 @@ use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
     make_contract_call, make_contract_publish, make_stacks_transfer_tx, to_addr,
 };
-use crate::core::{EpochList, BLOCK_LIMIT_MAINNET_21};
+use crate::core::{
+    EpochList, BLOCK_LIMIT_MAINNET_20, BLOCK_LIMIT_MAINNET_205, BLOCK_LIMIT_MAINNET_21,
+};
 use crate::net::tests::NakamotoBootPlan;
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
@@ -70,8 +72,19 @@ pub const FAUCET_PRIV_KEY: LazyCell<StacksPrivateKey> = LazyCell::new(|| {
 const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
 
-fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
-    info!("StacksEpoch unit_test first_burn_height = {first_burnchain_height}");
+// Configure an [`EpochList`] starting from Epoch 2.0
+fn epoch_2_0_onwards(pox_constants: &PoxConstants) -> EpochList {
+    let epoch2_first_burn_height = 1;
+
+    // pox4 activated in epoch 2.5, so we can start producing naka blocks after the end of that epoch.
+    let epoch3_first_burn_height =
+        (pox_constants.pox_4_activation_height + pox_constants.reward_cycle_length + 1) as u64;
+
+    info!("EpochList creation";
+        "pox constants" => ?pox_constants,
+        "epoch 2.X first bbh:" => epoch2_first_burn_height,
+        "epoch 3.X first bbh:" => epoch3_first_burn_height,
+    );
 
     EpochList::new(&[
         StacksEpoch {
@@ -84,78 +97,78 @@ fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
+            end_height: epoch2_first_burn_height,
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
+            start_height: epoch2_first_burn_height,
+            end_height: epoch2_first_burn_height + 1,
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
+            start_height: epoch2_first_burn_height + 1,
+            end_height: epoch2_first_burn_height + 2,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
+            start_height: epoch2_first_burn_height + 2,
+            end_height: epoch2_first_burn_height + 3,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
+            start_height: epoch2_first_burn_height + 3,
+            end_height: epoch2_first_burn_height + 4,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
+            start_height: epoch2_first_burn_height + 4,
+            end_height: epoch2_first_burn_height + 5,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
-            start_height: 0,
-            end_height: first_burnchain_height,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            start_height: epoch2_first_burn_height + 5,
+            end_height: epoch3_first_burn_height,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
-            start_height: first_burnchain_height,
-            end_height: first_burnchain_height + 1,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            start_height: epoch3_first_burn_height,
+            end_height: epoch3_first_burn_height + 1,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
-            start_height: first_burnchain_height + 1,
-            end_height: first_burnchain_height + 2,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            start_height: epoch3_first_burn_height + 1,
+            end_height: epoch3_first_burn_height + 2,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
-            start_height: first_burnchain_height + 2,
-            end_height: first_burnchain_height + 3,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            start_height: epoch3_first_burn_height + 2,
+            end_height: epoch3_first_burn_height + 3,
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
-            start_height: first_burnchain_height + 3,
+            start_height: epoch3_first_burn_height + 3,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_3,
         },
     ])
@@ -263,20 +276,26 @@ impl ConsensusTest<'_> {
     pub fn new(test_name: &str, test_vector: ConsensusTestVector) -> Self {
         // Validate blocks
         for (epoch_id, blocks) in &test_vector.epoch_blocks {
-            assert!(
-                !matches!(
-                    *epoch_id,
-                    StacksEpochId::Epoch10
-                        | StacksEpochId::Epoch20
-                        | StacksEpochId::Epoch2_05
-                        | StacksEpochId::Epoch21
-                        | StacksEpochId::Epoch22
-                        | StacksEpochId::Epoch23
-                        | StacksEpochId::Epoch24
-                        | StacksEpochId::Epoch25
-                ),
-                "Pre-Nakamoto Tenures are not Supported"
+            assert_ne!(
+                *epoch_id,
+                StacksEpochId::Epoch10,
+                "Epoch10 is not supported!"
             );
+
+            let is_epoch2X = matches!(
+                *epoch_id,
+                StacksEpochId::Epoch20
+                    | StacksEpochId::Epoch2_05
+                    | StacksEpochId::Epoch21
+                    | StacksEpochId::Epoch22
+                    | StacksEpochId::Epoch23
+                    | StacksEpochId::Epoch24
+                    | StacksEpochId::Epoch25
+            );
+            if is_epoch2X {
+                panic!("TODO: need chainstate update to work with pre-naka");
+            }
+
             assert!(
                 !blocks.is_empty(),
                 "Each epoch must have at least one block"
@@ -290,14 +309,10 @@ impl ConsensusTest<'_> {
             .with_pox_constants(100, 3)
             .with_initial_balances(test_vector.initial_balances.clone())
             .with_private_key(FAUCET_PRIV_KEY.clone());
-        let epochs = epoch_3_0_onwards(
-            (boot_plan.pox_constants.pox_4_activation_height
-                + boot_plan.pox_constants.reward_cycle_length
-                + 1) as u64,
-        );
+        let epochs = epoch_2_0_onwards(&boot_plan.pox_constants);
         boot_plan = boot_plan.with_epochs(epochs);
-        let chain = boot_plan.boot_nakamoto_chainstate(None);
 
+        let chain = boot_plan.boot_nakamoto_chainstate(None);
         Self { chain, test_vector }
     }
 
@@ -369,7 +384,7 @@ impl ConsensusTest<'_> {
                 )
                 .unwrap()
                 .unwrap();
-                let pox_constants = PoxConstants::test_default();
+                //let pox_constants = PoxConstants::test_default();
                 let sig_hash = nakamoto_block.header.signer_signature_hash();
                 debug!(
                     "--------- Processing block {sig_hash} ---------";
