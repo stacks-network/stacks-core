@@ -864,7 +864,6 @@ impl ConsensusTest<'_> {
             NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
                 .unwrap()
                 .unwrap();
-        let pox_constants = PoxConstants::test_default();
         let sig_hash = nakamoto_block.header.signer_signature_hash();
         debug!(
             "--------- Processing block {sig_hash} ---------";
@@ -911,20 +910,26 @@ impl ConsensusTest<'_> {
     ) -> Vec<ExpectedResult> {
         // Validate blocks
         for (epoch_id, blocks) in epoch_blocks.iter() {
-            assert!(
-                !matches!(
-                    *epoch_id,
-                    StacksEpochId::Epoch10
-                        | StacksEpochId::Epoch20
-                        | StacksEpochId::Epoch2_05
-                        | StacksEpochId::Epoch21
-                        | StacksEpochId::Epoch22
-                        | StacksEpochId::Epoch23
-                        | StacksEpochId::Epoch24
-                        | StacksEpochId::Epoch25
-                ),
-                "Pre-Nakamoto Tenures are not Supported"
+            assert_ne!(
+                *epoch_id,
+                StacksEpochId::Epoch10,
+                "Epoch10 is not supported!"
             );
+
+            let is_epoch2X = matches!(
+                *epoch_id,
+                StacksEpochId::Epoch20
+                    | StacksEpochId::Epoch2_05
+                    | StacksEpochId::Epoch21
+                    | StacksEpochId::Epoch22
+                    | StacksEpochId::Epoch23
+                    | StacksEpochId::Epoch24
+                    | StacksEpochId::Epoch25
+            );
+            if is_epoch2X {
+                panic!("TODO: need chainstate update to work with pre-naka");
+            }
+
             assert!(
                 !blocks.is_empty(),
                 "Each epoch must have at least one block"
