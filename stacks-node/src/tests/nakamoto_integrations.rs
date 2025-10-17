@@ -48,7 +48,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
 use stacks::chainstate::nakamoto::coordinator::{load_nakamoto_reward_set, TEST_COORDINATOR_STALL};
-use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use stacks::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use stacks::chainstate::nakamoto::shadow::shadow_chainstate_repair;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
@@ -3228,10 +3228,12 @@ fn block_proposal_api_endpoint() {
     let tenure_change = None;
     let coinbase = None;
 
-    let tenure_cause = tenure_change.and_then(|tx: &StacksTransaction| match &tx.payload {
-        TransactionPayload::TenureChange(tc) => Some(tc.cause),
-        _ => None,
-    });
+    let tenure_cause = tenure_change
+        .and_then(|tx: &StacksTransaction| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
+            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        })
+        .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
     // Apply miner signature
     let sign = |p: &NakamotoBlockProposal| {
@@ -7544,6 +7546,9 @@ fn continue_tenure_extend() {
                         }
                         tenure_block_founds.push(parsed);
                     }
+                    _ => {
+                        panic!("Unexpected tenure-extend cause {:?}", &payload.cause);
+                    }
                 };
             }
         }
@@ -11142,7 +11147,7 @@ fn test_tenure_extend_from_flashblocks() {
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
 
             if let TransactionPayload::TenureChange(payload) = &parsed.payload {
-                if payload.cause == TenureChangeCause::Extended {
+                if payload.cause.is_eq(&TenureChangeCause::Extended) {
                     has_extend = true;
                 }
             }
@@ -12919,7 +12924,7 @@ fn miner_constructs_replay_block() {
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
     let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
     let tenure_change = parsed.try_as_tenure_change().unwrap();
-    assert_eq!(tenure_change.cause, TenureChangeCause::BlockFound);
+    assert!(tenure_change.cause.is_eq(&TenureChangeCause::BlockFound));
 
     info!("Verifying next block contains the expected replay txs...");
     let block: StacksBlockEvent =

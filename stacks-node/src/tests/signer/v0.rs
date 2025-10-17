@@ -1181,7 +1181,7 @@ fn last_block_contains_tenure_change_tx(cause: TenureChangeCause) -> bool {
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
     let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
     match &parsed.payload {
-        TransactionPayload::TenureChange(payload) if payload.cause == cause => {
+        TransactionPayload::TenureChange(payload) if payload.cause.is_eq(&cause) => {
             info!("Found tenure change transaction: {parsed:?}");
             true
         }
@@ -1236,7 +1236,7 @@ fn wait_for_tenure_change_tx(
                     let parsed =
                         StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
                     if let TransactionPayload::TenureChange(payload) = &parsed.payload {
-                        if payload.cause == cause {
+                        if payload.cause.is_eq(&cause) {
                             info!("Found tenure change transaction: {parsed:?}");
                             result = Some(block);
                             return Ok(true);
@@ -6706,13 +6706,11 @@ fn tenure_extend_succeeds_after_rejected_attempt() {
         num_signers,
     )
     .expect("Timed out waiting for a tenure extend proposal to be rejected");
-    assert_eq!(
-        proposed_block
-            .try_get_tenure_change_payload()
-            .unwrap()
-            .cause,
-        TenureChangeCause::Extended
-    );
+    assert!(proposed_block
+        .try_get_tenure_change_payload()
+        .unwrap()
+        .cause
+        .is_eq(&TenureChangeCause::Extended));
 
     info!("---- Waiting for an accepted tenure extend ----");
     wait_for(idle_timeout.as_secs() + 10, || {
@@ -7528,6 +7526,9 @@ fn empty_sortition_before_proposal() {
                         return Ok(true);
                     }
                     TenureChangeCause::BlockFound => {}
+                    _ => {
+                        panic!("Unexpected tenure extension cause {:?}", &payload.cause);
+                    }
                 }
             };
         }
@@ -10184,13 +10185,11 @@ fn continue_after_fast_block_no_sortition() {
     info!(
         "------------------------- Verify Tenure Change Tx in Miner B's Block N+1 -------------------------"
     );
-    assert_eq!(
-        miner_2_block_n_1
-            .try_get_tenure_change_payload()
-            .unwrap()
-            .cause,
-        TenureChangeCause::BlockFound
-    );
+    assert!(miner_2_block_n_1
+        .try_get_tenure_change_payload()
+        .unwrap()
+        .cause
+        .is_eq(&TenureChangeCause::BlockFound));
 
     info!("------------------------- Wait for Miner B's Block N+2 -------------------------");
 
@@ -10203,13 +10202,11 @@ fn continue_after_fast_block_no_sortition() {
     );
 
     info!("------------------------- Verify Miner B's Block N+2 -------------------------");
-    assert_eq!(
-        miner_2_block_n_2
-            .try_get_tenure_change_payload()
-            .unwrap()
-            .cause,
-        TenureChangeCause::Extended
-    );
+    assert!(miner_2_block_n_2
+        .try_get_tenure_change_payload()
+        .unwrap()
+        .cause
+        .is_eq(&TenureChangeCause::Extended));
 
     info!("------------------------- Wait for Miner B's Block N+3 -------------------------");
 
@@ -11281,10 +11278,11 @@ fn new_tenure_while_validating_previous_scenario() {
         wait_for_block_pushed_by_miner_key(30, stacks_height_before_stall + 2, &miner_pk)
             .expect("Timed out waiting for block N+2 to be mined");
     // Ensure that we didn't tenure extend
-    assert_eq!(
-        block_pushed.try_get_tenure_change_payload().unwrap().cause,
-        TenureChangeCause::BlockFound
-    );
+    assert!(block_pushed
+        .try_get_tenure_change_payload()
+        .unwrap()
+        .cause
+        .is_eq(&TenureChangeCause::BlockFound));
     let peer_info = signer_test.get_peer_info();
     assert_eq!(peer_info.stacks_tip_height, stacks_height_before_stall + 2);
     assert_eq!(peer_info.stacks_tip, block_pushed.header.block_hash());
@@ -13180,10 +13178,11 @@ fn reorg_attempts_count_towards_miner_validity() {
     let block_n_1 =
         wait_for_block_pushed_by_miner_key(30, block_proposal_n.header.chain_length + 1, &miner_pk)
             .expect("Failed to get mined block N+1");
-    assert_eq!(
-        block_n_1.get_tenure_tx_payload().unwrap().cause,
-        TenureChangeCause::BlockFound
-    );
+    assert!(block_n_1
+        .get_tenure_tx_payload()
+        .unwrap()
+        .cause
+        .is_eq(&TenureChangeCause::BlockFound),);
     let chain_after = get_chain_info(&signer_test.running_nodes.conf);
 
     assert_eq!(chain_after.stacks_tip, block_n_1.header.block_hash());
@@ -14849,13 +14848,11 @@ fn prev_miner_extends_if_incoming_miner_fails_to_mine_failure() {
 
     let miner_1_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_1)
         .expect("Timed out waiting for N+1' block proposal from miner 1");
-    assert_eq!(
-        miner_1_block_n_1
-            .try_get_tenure_change_payload()
-            .unwrap()
-            .cause,
-        TenureChangeCause::Extended
-    );
+    assert!(miner_1_block_n_1
+        .try_get_tenure_change_payload()
+        .unwrap()
+        .cause
+        .is_eq(&TenureChangeCause::Extended));
 
     info!("------------------------- Verify that Miner 1's Block N+1' was Rejected ------------------------");
     // Miner 1's proposed block should get rejected by the signers
@@ -15212,13 +15209,11 @@ fn non_blocking_minority_configured_to_favour_incoming_miner() {
     let miner_2_block_n_1 = wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_2)
         .expect("Miner 2 did not propose Block N+1'");
 
-    assert_eq!(
-        miner_2_block_n_1
-            .try_get_tenure_change_payload()
-            .unwrap()
-            .cause,
-        TenureChangeCause::BlockFound
-    );
+    assert!(miner_2_block_n_1
+        .try_get_tenure_change_payload()
+        .unwrap()
+        .cause
+        .is_eq(&TenureChangeCause::BlockFound));
 
     info!("------------------------- Verify that Miner 2's Block N+1' was Rejected ------------------------");
 
@@ -15437,13 +15432,11 @@ fn non_blocking_minority_configured_to_favour_prev_miner() {
     let miner_1_block_n_1_prime =
         wait_for_block_proposal(30, stacks_height_before + 1, &miner_pk_1)
             .expect("Miner 1 failed to propose block N+1'");
-    assert_eq!(
-        miner_1_block_n_1_prime
-            .try_get_tenure_change_payload()
-            .unwrap()
-            .cause,
-        TenureChangeCause::Extended
-    );
+    assert!(miner_1_block_n_1_prime
+        .try_get_tenure_change_payload()
+        .unwrap()
+        .cause
+        .is_eq(&TenureChangeCause::Extended));
 
     info!("------------------------- Verify that Miner 1's Block N+1' was Rejected ------------------------");
     wait_for_block_global_rejection(
