@@ -2217,7 +2217,7 @@ fn stx_delegate_btc_integration_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
@@ -2468,7 +2468,7 @@ fn stack_stx_burn_op_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
@@ -2865,7 +2865,7 @@ fn vote_for_aggregate_key_burn_op_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
@@ -7795,7 +7795,7 @@ fn test_problematic_txs_are_not_stored() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
@@ -8033,7 +8033,7 @@ fn test_problematic_blocks_are_not_mined() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
