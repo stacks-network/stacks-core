@@ -108,9 +108,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
         let Some((block, ..)) = self.get_nakamoto_block(tip)? else {
             return Ok(None);
         };
-        if block.is_wellformed_tenure_start_block().map_err(|_| {
-            ChainstateError::InvalidStacksBlock("Malformed tenure-start block".into())
-        })? {
+        if block.is_wellformed_tenure_start_block()? {
             // we're done
             return Ok(Some(vec![block]));
         }
@@ -124,9 +122,7 @@ impl NakamotoStagingBlocksConnRef<'_> {
                 return Ok(None);
             };
 
-            let is_tenure_start = block.is_wellformed_tenure_start_block().map_err(|e| {
-                ChainstateError::InvalidStacksBlock("Malformed tenure-start block".into())
-            })?;
+            let is_tenure_start = block.is_wellformed_tenure_start_block()?;
             cursor = block.header.parent_block_id.clone();
             tenure.push(block);
 
