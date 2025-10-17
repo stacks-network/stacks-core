@@ -287,17 +287,17 @@ pub fn stx_transfer_snippets() -> impl Strategy<Value = String> {
 
 /// A strategy that generates FT mint snippets with amounts between
 /// 1 and 1,000,000 units of the token. The FT contract is always
-/// `current-contract` and the token name is always `stackaroo`.
+/// `current-contract` and the token name is always `stackos`.
 pub fn ft_mint_snippets() -> impl Strategy<Value = String> {
-    (1u64..1_000_000u64).prop_map(|amount| format!("(ft-mint? stackaroo u{amount} tx-sender)"))
+    (1u64..1_000_000u64).prop_map(|amount| format!("(ft-mint? stackos u{amount} tx-sender)"))
 }
 
 /// A strategy that generates FT transfer snippets with amounts between
 /// 1 and 1,000,000 units of the token. The FT contract is always
-/// `current-contract` and the token name is always `stackaroo`.
+/// `current-contract` and the token name is always `stackos`.
 pub fn ft_transfer_snippets() -> impl Strategy<Value = String> {
     (1u64..1_000_000u64).prop_map(|amount| {
-        format!("(ft-transfer? stackaroo u{amount} tx-sender 'SP000000000000000000002Q6VF78)")
+        format!("(ft-transfer? stackos u{amount} tx-sender 'SP000000000000000000002Q6VF78)")
     })
 }
 
@@ -346,9 +346,9 @@ fn stx_allowance_snippets() -> impl Strategy<Value = String> {
 
 /// A stategy that generates Clarity code snippets for FT allowances.
 /// The FT contract is always `current-contract` and the token name is always
-/// `stackaroo`.
+/// `stackos`.
 pub fn ft_allowance_snippets() -> impl Strategy<Value = String> {
-    any::<u128>().prop_map(|amount| format!("(with-ft current-contract stackaroo u{amount})"))
+    any::<u128>().prop_map(|amount| format!("(with-ft current-contract \"stackos\" u{amount})"))
 }
 
 /// A strategy that generates Clarity code snippets for NFT allowances.
@@ -358,7 +358,7 @@ pub fn nft_allowance_snippets() -> impl Strategy<Value = String> {
     let nft_ids = prop::collection::vec(any::<u128>(), 0..=MAX_NFT_IDENTIFIERS as usize);
     nft_ids.prop_map(|ids| {
         format!(
-            "(with-nft current-contract stackaroo (list {}))",
+            "(with-nft current-contract \"stackaroo\" (list {}))",
             ids.iter()
                 .map(|id| format!("u{id}"))
                 .collect::<Vec<_>>()

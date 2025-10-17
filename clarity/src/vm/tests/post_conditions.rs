@@ -1457,6 +1457,11 @@ fn no_allowance_error() -> Value {
         .expect("error response construction never fails")
 }
 
+const TOKEN_DEFINITIONS: &str = r#"
+(define-fungible-token stackos)
+(define-non-fungible-token stackaroo uint)
+"#;
+
 proptest! {
     #[test]
     fn prop_restrict_assets_returns_body_value_when_pure(
@@ -1481,7 +1486,7 @@ proptest! {
         body_value in clarity_values_no_response(),
     ) {
         let body_literal = value_to_clarity_literal(&body_value);
-        let snippet = format!("(restrict-assets? tx-sender {allowances} {body_literal})");
+        let snippet = format!("{TOKEN_DEFINITIONS}(restrict-assets? tx-sender {allowances} {body_literal})");
 
         let evaluation = execute(&snippet)
             .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
@@ -1520,7 +1525,7 @@ proptest! {
     fn prop_restrict_assets_errors_when_no_ft_allowance(
         ft_mint in match_response_snippets(ft_mint_snippets()), ft_transfer in try_response_snippets(ft_transfer_snippets())
     ) {
-        let setup_code = format!("(define-fungible-token stackaroo) {ft_mint}");
+        let setup_code = format!("{TOKEN_DEFINITIONS} {ft_mint}");
         let body_program = format!(
             "{setup_code} {ft_transfer}",
         );
@@ -1529,7 +1534,7 @@ proptest! {
         );
         let asset_identifier = AssetIdentifier {
             contract_identifier: QualifiedContractIdentifier::transient(),
-            asset_name: ClarityName::try_from("stackaroo".to_string())
+            asset_name: ClarityName::try_from("stackos".to_string())
                 .expect("valid fungible token name"),
         };
 
@@ -1557,7 +1562,7 @@ proptest! {
     fn prop_restrict_assets_errors_when_no_nft_allowance(
         nft_mint in match_response_snippets(nft_mint_snippets()), nft_transfer in try_response_snippets(nft_transfer_snippets())
     ) {
-        let setup_code = format!("(define-non-fungible-token stackaroo uint) {nft_mint}");
+        let setup_code = format!("{TOKEN_DEFINITIONS} {nft_mint}");
         let body_program = format!(
             "{setup_code} {nft_transfer}",
         );
@@ -1614,7 +1619,7 @@ proptest! {
         body_value in clarity_values_no_response(),
     ) {
         let body_literal = value_to_clarity_literal(&body_value);
-        let snippet = format!("(as-contract? {allowances} {body_literal})");
+        let snippet = format!("{TOKEN_DEFINITIONS}(as-contract? {allowances} {body_literal})");
 
         let evaluation = execute(&snippet)
             .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
