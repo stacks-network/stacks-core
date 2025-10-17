@@ -563,7 +563,7 @@ impl NakamotoBlockProposal {
             &parent_stacks_header,
             tenure_change,
             coinbase,
-            tenure_cause.clone(),
+            tenure_cause,
             chainstate.mainnet,
             chainstate.chain_id,
             &chainstate.root_path.clone(),

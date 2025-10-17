@@ -3322,10 +3322,30 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
     let mut all_burn_ops = vec![];
     let mut rc_blocks = vec![];
     let mut rc_burn_ops = vec![];
-    let mut consensus_hashes = vec![];
-    let mut fee_counts = vec![];
     let stx_miner_key = peer.chain.miner.nakamoto_miner_key();
 
+    let smart_contract = r#"
+(define-data-var test-var (buff 16) 0x000102030405060707080a0b0c0d0e0f)
+
+(define-public (read-test-var)
+    (ok (var-get test-var)))
+
+(define-public (write-test-var (new-var (buff 16)))
+    (ok (var-set test-var new-var)))
+
+(define-private (test-var-iter (item (buff 1)) (ctx (buff 16)))
+    (unwrap-panic (as-max-len? (concat item ctx) u16)))
+
+(define-public (reverse-test-var)
+    (ok (fold test-var-iter (unwrap-panic (read-test-var))  0x)))
+
+(define-public (do-chain-work)
+    (write-test-var (unwrap-panic (reverse-test-var))))
+
+(do-chain-work)
+"#;
+
+    let mut contract_count = 0;
     for i in 0..10 {
         let (burn_ops, mut tenure_change, miner_key) =
             peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -3360,35 +3380,44 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
 
                     let account = get_account(chainstate, sortdb, &addr);
 
-                    let stx_transfer = make_token_transfer(
+                    let contract = make_contract(
                         chainstate,
-                        sortdb,
+                        &format!("test-{contract_count}"),
+                        smart_contract,
                         &private_key,
+                        ClarityVersion::Clarity4,
                         account.nonce,
-                        100,
-                        1,
-                        &recipient_addr,
+                        u64::try_from(smart_contract.len() * 2).unwrap(),
                     );
-                    txs.push(stx_transfer);
+                    contract_count += 1;
 
-                    let last_block_opt = blocks_so_far
-                        .last()
-                        .as_ref()
-                        .map(|(block, _size, _cost)| block.header.block_id());
+                    txs.push(contract);
 
-                    let mut final_txs = vec![];
-                    if let Some(last_block) = last_block_opt.as_ref() {
-                        let tenure_extension = tenure_change.extend_with_cause(
-                            consensus_hash.clone(),
-                            last_block.clone(),
-                            blocks_so_far.len() as u32,
-                            extend_cause,
-                        );
-                        let tenure_extension_tx =
-                            miner.make_nakamoto_tenure_change(tenure_extension);
-                        final_txs.push(tenure_extension_tx);
-                    }
-                    final_txs.append(&mut txs);
+                    let final_txs = if blocks_so_far.len() == 5 {
+                        // halfway through the tenure, apply the tenure extension
+                        let last_block_opt = blocks_so_far
+                            .last()
+                            .as_ref()
+                            .map(|(block, _size, _cost)| block.header.block_id());
+
+                        let mut final_txs = vec![];
+                        if let Some(last_block) = last_block_opt.as_ref() {
+                            let tenure_extension = tenure_change.extend_with_cause(
+                                consensus_hash.clone(),
+                                last_block.clone(),
+                                blocks_so_far.len() as u32,
+                                extend_cause,
+                            );
+                            let tenure_extension_tx =
+                                miner.make_nakamoto_tenure_change(tenure_extension);
+                            final_txs.push(tenure_extension_tx);
+                        }
+                        final_txs.append(&mut txs);
+                        final_txs
+                    } else {
+                        txs
+                    };
+
                     final_txs
                 } else {
                     vec![]
@@ -3396,20 +3425,18 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
             },
         );
 
-        let fees = blocks_and_sizes
-            .iter()
-            .map(|(block, _, _)| {
-                block
-                    .txs
-                    .iter()
-                    .map(|tx| tx.get_tx_fee() as u128)
-                    .sum::<u128>()
-            })
-            .sum::<u128>();
+        for (block, size, cost) in blocks_and_sizes.iter() {
+            info!(
+                "Block {} ({}): size = {}, cost = {:?}",
+                block.block_id(),
+                block.header.chain_length,
+                size,
+                cost
+            );
+        }
 
-        consensus_hashes.push(consensus_hash);
-        fee_counts.push(fees);
         let mut blocks: Vec<NakamotoBlock> = blocks_and_sizes
+            .clone()
             .into_iter()
             .map(|(block, _, _)| block)
             .collect();
@@ -3446,10 +3473,69 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
         assert!(highest_tenure.cause.is_eq(&extend_cause));
         assert_eq!(
             highest_tenure.num_blocks_confirmed,
-            (blocks.len() as u32) - 1
+            (blocks.len() as u32) - 5
         );
 
-        // TODO: check runtime
+        // the runtime dimension of the 5th block in the tenure must be the same as the runtime
+        // dimension of the first block.  But the runtime costs from the first block up until the
+        // 5th block must all increase.
+        let first_block_cost = blocks_and_sizes[0].2.clone();
+        let tc_block_cost = blocks_and_sizes[5].2.clone();
+        let mut last_cost = first_block_cost.clone();
+        for (_, _, cost) in blocks_and_sizes[1..5].iter() {
+            assert!(cost.runtime > last_cost.runtime);
+            assert!(cost.read_count > last_cost.read_count);
+            assert!(cost.read_length > last_cost.read_length);
+            assert!(cost.write_count > last_cost.write_count);
+            assert!(cost.write_length > last_cost.write_length);
+            last_cost = cost.clone();
+        }
+
+        // the tenure cost was reset at the 5th block for this dimension
+        match extend_cause {
+            TenureChangeCause::BlockFound => {
+                panic!(
+                    "Invalid test usage -- only interested in testing SIP-034 tenure extensions"
+                );
+            }
+            TenureChangeCause::Extended => {
+                panic!(
+                    "Invalid test usage -- only interested in testing SIP-034 tenure extensions"
+                );
+            }
+            TenureChangeCause::ExtendedReadCount => {
+                assert!(tc_block_cost.read_count < last_cost.read_count);
+                assert_eq!(tc_block_cost.read_count, first_block_cost.read_count);
+            }
+            TenureChangeCause::ExtendedReadLength => {
+                assert!(tc_block_cost.read_length < last_cost.read_length);
+                assert_eq!(tc_block_cost.read_length, first_block_cost.read_length);
+            }
+            TenureChangeCause::ExtendedWriteCount => {
+                assert!(tc_block_cost.write_count < last_cost.write_count);
+                assert_eq!(tc_block_cost.write_count, first_block_cost.write_count);
+            }
+            TenureChangeCause::ExtendedWriteLength => {
+                assert!(tc_block_cost.write_length < last_cost.write_length);
+                assert_eq!(tc_block_cost.write_length, first_block_cost.write_length);
+            }
+            TenureChangeCause::ExtendedRuntime => {
+                assert!(tc_block_cost.runtime < last_cost.runtime);
+                assert_eq!(tc_block_cost.runtime, first_block_cost.runtime);
+            }
+        }
+
+        // all other costs must advance, but the cost of the reset dimension got reset
+        // commesurately
+        last_cost = tc_block_cost.clone();
+        for (_, _, cost) in blocks_and_sizes[6..].iter() {
+            assert!(cost.runtime > last_cost.runtime);
+            assert!(cost.read_count > last_cost.read_count);
+            assert!(cost.read_length > last_cost.read_length);
+            assert!(cost.write_count > last_cost.write_count);
+            assert!(cost.write_length > last_cost.write_length);
+            last_cost = cost.clone();
+        }
 
         // if we're starting a new reward cycle, then save the current one
         let tip = {
