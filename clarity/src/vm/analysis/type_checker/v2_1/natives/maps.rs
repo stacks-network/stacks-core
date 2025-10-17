@@ -17,7 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::{
-    check_arguments_at_least, CheckError, CheckErrors, TypeChecker, TypeResult, TypingContext,
+    check_arguments_at_least, CheckError, CheckErrors, TypeChecker, TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
@@ -28,7 +28,7 @@ pub fn check_special_fetch_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
@@ -56,8 +56,8 @@ pub fn check_special_fetch_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_key_type.clone(),
-            key_type,
+            Box::new(expected_key_type.clone()),
+            Box::new(key_type),
         )))
     } else {
         Ok(option_type)
@@ -68,7 +68,7 @@ pub fn check_special_delete_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
@@ -89,8 +89,8 @@ pub fn check_special_delete_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_key_type.clone(),
-            key_type,
+            Box::new(expected_key_type.clone()),
+            Box::new(key_type),
         )))
     } else {
         Ok(TypeSignature::BoolType)
@@ -101,7 +101,7 @@ fn check_set_or_insert_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_arguments_at_least(3, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrors::BadMapName)?;
@@ -130,13 +130,13 @@ fn check_set_or_insert_entry(
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_key_type.clone(),
-            key_type,
+            Box::new(expected_key_type.clone()),
+            Box::new(key_type),
         )))
     } else if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
         Err(CheckError::new(CheckErrors::TypeError(
-            expected_value_type.clone(),
-            value_type,
+            Box::new(expected_value_type.clone()),
+            Box::new(value_type),
         )))
     } else {
         Ok(TypeSignature::BoolType)
@@ -147,7 +147,7 @@ pub fn check_special_set_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_set_or_insert_entry(checker, args, context)
 }
 
@@ -155,6 +155,6 @@ pub fn check_special_insert_entry(
     checker: &mut TypeChecker,
     args: &[SymbolicExpression],
     context: &TypingContext,
-) -> TypeResult {
+) -> Result<TypeSignature, CheckError> {
     check_set_or_insert_entry(checker, args, context)
 }

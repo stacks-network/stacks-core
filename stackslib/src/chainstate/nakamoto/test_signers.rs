@@ -14,8 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use clarity::util::secp256k1::{MessageSignature, Secp256k1PrivateKey, Secp256k1PublicKey};
-use hashbrown::HashMap;
 use rand::distributions::Standard;
 use rand::Rng;
 use stacks_common::address::*;
@@ -43,8 +44,10 @@ pub struct TestSigners {
 
 impl Default for TestSigners {
     fn default() -> Self {
-        let aggregate_public_key: Vec<u8> =
-            rand::thread_rng().sample_iter(Standard).take(33).collect();
+        let aggregate_public_key: Vec<u8> = rand::thread_rng()
+            .sample_iter::<u8, _>(Standard)
+            .take(33)
+            .collect();
         let num_signers = 5;
         let threshold = 5 * 7 / 10;
 
@@ -69,8 +72,10 @@ impl TestSigners {
 
     /// Internal function to generate aggregate key information
     fn default_with_signers(signer_keys: Vec<Secp256k1PrivateKey>) -> Self {
-        let aggregate_public_key: Vec<u8> =
-            rand::thread_rng().sample_iter(Standard).take(33).collect();
+        let aggregate_public_key: Vec<u8> = rand::thread_rng()
+            .sample_iter::<u8, _>(Standard)
+            .take(33)
+            .collect();
         let num_signers = signer_keys.len();
         let threshold = u32::try_from(num_signers * 7 / 10).unwrap();
         Self {
@@ -191,7 +196,7 @@ impl TestSigners {
             .collect::<Vec<_>>();
 
         info!(
-            "TestSigners: Signing Nakamoto block. TestSigners has {} signers. Reward set has {} signers.", 
+            "TestSigners: Signing Nakamoto block. TestSigners has {} signers. Reward set has {} signers.",
             test_signers_by_pk.len(),
             reward_set_keys.len(),
         );
@@ -226,8 +231,10 @@ impl TestSigners {
             return self.aggregate_public_key.clone();
         }
 
-        let aggregate_public_key: Vec<u8> =
-            rand::thread_rng().sample_iter(Standard).take(33).collect();
+        let aggregate_public_key: Vec<u8> = rand::thread_rng()
+            .sample_iter::<u8, _>(Standard)
+            .take(33)
+            .collect();
         self.aggregate_public_key.clone_from(&aggregate_public_key);
         aggregate_public_key
     }

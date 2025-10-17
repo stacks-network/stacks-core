@@ -52,13 +52,11 @@ fn test_dynamic_dispatch_by_defining_trait(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -110,13 +108,11 @@ fn test_dynamic_dispatch_pass_trait_nested_in_let(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -167,13 +163,11 @@ fn test_dynamic_dispatch_pass_trait(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -590,13 +584,11 @@ fn test_dynamic_dispatch_mismatched_args(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -647,13 +639,11 @@ fn test_dynamic_dispatch_mismatched_returned(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -710,13 +700,11 @@ fn test_reentrant_dynamic_dispatch(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -770,13 +758,11 @@ fn test_readwrite_dynamic_dispatch(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -830,13 +816,11 @@ fn test_readwrite_violation_dynamic_dispatch(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1346,13 +1330,11 @@ fn test_return_trait_with_contract_of_wrapped_in_begin(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1403,13 +1385,11 @@ fn test_return_trait_with_contract_of_wrapped_in_let(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1458,13 +1438,11 @@ fn test_return_trait_with_contract_of(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1522,14 +1500,12 @@ fn test_pass_trait_to_subtrait(epoch: StacksEpochId, mut env_factory: MemoryEnvi
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1584,14 +1560,12 @@ fn test_embedded_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentG
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1657,14 +1631,12 @@ fn test_pass_embedded_trait_to_subtrait_optional(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1729,14 +1701,12 @@ fn test_pass_embedded_trait_to_subtrait_ok(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1801,14 +1771,12 @@ fn test_pass_embedded_trait_to_subtrait_err(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1873,14 +1841,12 @@ fn test_pass_embedded_trait_to_subtrait_list(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -1948,14 +1914,12 @@ fn test_pass_embedded_trait_to_subtrait_list_option(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -2023,14 +1987,12 @@ fn test_pass_embedded_trait_to_subtrait_option_list(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -2084,14 +2046,12 @@ fn test_let_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGenera
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -2149,14 +2109,12 @@ fn test_let3_trait(epoch: StacksEpochId, mut env_factory: MemoryEnvironmentGener
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }
@@ -2210,14 +2168,12 @@ fn test_pass_principal_literal_to_trait(
         env.initialize_contract(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
         env.initialize_contract(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
     }

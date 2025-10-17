@@ -722,7 +722,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header.consensus_hash),
+        burn_view: Some(nakamoto_header.consensus_hash.clone()),
     };
 
     let epoch2_block = StacksBlock {
@@ -768,7 +768,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header_2.consensus_hash),
+        burn_view: Some(nakamoto_header_2.consensus_hash.clone()),
     };
 
     let nakamoto_block_2 = NakamotoBlock {
@@ -791,7 +791,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_spent: 128,
         consensus_hash: tenure_change_payload.tenure_consensus_hash.clone(),
         parent_block_id: nakamoto_header_2.block_id(),
-        tx_merkle_root: nakamoto_tx_merkle_root_3,
+        tx_merkle_root: nakamoto_tx_merkle_root_3.clone(),
         state_index_root: TrieHash([0x07; 32]),
         timestamp: 8,
         miner_signature: MessageSignature::empty(),
@@ -809,7 +809,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header_3.consensus_hash),
+        burn_view: Some(nakamoto_header_3.consensus_hash.clone()),
     };
 
     let nakamoto_block_3 = NakamotoBlock {
@@ -842,7 +842,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header_3.consensus_hash),
+        burn_view: Some(nakamoto_header_3.consensus_hash.clone()),
     };
 
     let nakamoto_block_3_weight_2 = NakamotoBlock {
@@ -875,7 +875,7 @@ pub fn test_load_store_update_nakamoto_blocks() {
         burn_header_height: 200,
         burn_header_timestamp: 1001,
         anchored_block_size: 123,
-        burn_view: Some(nakamoto_header_4.consensus_hash),
+        burn_view: Some(nakamoto_header_4.consensus_hash.clone()),
     };
 
     let nakamoto_block_4 = NakamotoBlock {
@@ -920,7 +920,6 @@ pub fn test_load_store_update_nakamoto_blocks() {
             &epoch2_parent_block_id,
             &epoch2_header_info,
             &epoch2_execution_cost,
-            1,
         )
         .unwrap();
 
@@ -1992,7 +1991,7 @@ fn test_make_miners_stackerdb_config() {
         None,
     );
 
-    let naka_miner_hash160 = peer.miner.nakamoto_miner_hash160();
+    let naka_miner_hash160 = peer.chain.miner.nakamoto_miner_hash160();
     let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let miner_hash160s: Vec<_> = miner_keys
         .iter()
@@ -2010,8 +2009,8 @@ fn test_make_miners_stackerdb_config() {
     debug!("miners = {:#?}", &miner_hash160s);
 
     // extract chainstate, sortdb, and stackerdbs -- we don't need the peer anymore
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let mut last_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     let stackerdbs = peer.network.stackerdbs;
     let miners_contract_id = boot_code_id(MINERS_NAME, false);
@@ -2271,7 +2270,10 @@ fn parse_vote_for_aggregate_public_key_valid() {
     let signer_index = thread_rng().next_u64();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key.clone()).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2317,7 +2319,10 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2499,7 +2504,10 @@ fn valid_vote_transaction() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2549,7 +2557,10 @@ fn valid_vote_transaction_malformed_transactions() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2783,7 +2794,10 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2911,7 +2925,10 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -3262,9 +3279,7 @@ pub mod nakamoto_block_signatures {
 
         match header.verify_signer_signatures(&reward_set) {
             Ok(_) => panic!("Expected duplicate signature to fail"),
-            Err(ChainstateError::InvalidStacksBlock(msg)) => {
-                assert!(msg.contains("Signatures are out of order"));
-            }
+            Err(ChainstateError::InvalidStacksBlock(_)) => {}
             _ => panic!("Expected InvalidStacksBlock error"),
         }
     }

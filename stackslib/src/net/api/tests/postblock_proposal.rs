@@ -22,7 +22,6 @@ use std::sync::{Arc, Condvar, Mutex};
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::types::chainstate::{BlockHeaderHash, StacksBlockId, StacksPrivateKey};
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::StandardPrincipalData;
 use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
@@ -59,7 +58,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let block = make_codec_test_nakamoto_block(StacksEpochId::Epoch30, &StacksPrivateKey::random());
     let proposal = NakamotoBlockProposal {
@@ -235,17 +234,18 @@ fn test_try_make_response() {
     let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
     let mut requests = vec![];
 
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(rpc_test.peer_1.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(
+        rpc_test.peer_1.chain.sortdb.as_ref().unwrap().conn(),
+    )
+    .unwrap();
 
     let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
-        rpc_test.peer_1.sortdb.as_ref().unwrap().conn(),
+        rpc_test.peer_1.chain.sortdb.as_ref().unwrap().conn(),
     )
     .unwrap();
     let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
 
-    let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+    let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
 
     let mut good_block = {
         let chainstate = rpc_test.peer_1.chainstate();
@@ -271,6 +271,7 @@ fn test_try_make_response() {
             None,
             8,
             None,
+            None,
         )
         .unwrap();
 
@@ -294,7 +295,6 @@ fn test_try_make_response() {
                         &tx,
                         tx.tx_len(),
                         &BlockLimitFunction::NO_LIMIT_HIT,
-                        ASTRules::PrecheckSize,
                         None,
                     );
                     let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
@@ -306,7 +306,11 @@ fn test_try_make_response() {
 
     // Increment the timestamp by 1 to ensure it is different from the previous block
     good_block.header.timestamp += 1;
-    rpc_test.peer_1.miner.sign_nakamoto_block(&mut good_block);
+    rpc_test
+        .peer_1
+        .chain
+        .miner
+        .sign_nakamoto_block(&mut good_block);
 
     // post the valid block proposal
     let proposal = NakamotoBlockProposal {
@@ -330,6 +334,7 @@ fn test_try_make_response() {
     early_time_block.header.timestamp -= 400;
     rpc_test
         .peer_1
+        .chain
         .miner
         .sign_nakamoto_block(&mut early_time_block);
 
@@ -355,6 +360,7 @@ fn test_try_make_response() {
     late_time_block.header.timestamp += 20000;
     rpc_test
         .peer_1
+        .chain
         .miner
         .sign_nakamoto_block(&mut late_time_block);
 
@@ -378,7 +384,11 @@ fn test_try_make_response() {
     // Set the timestamp to a value in the past (BEFORE the timeout)
     let mut stale_block = good_block.clone();
     stale_block.header.timestamp -= 10000;
-    rpc_test.peer_1.miner.sign_nakamoto_block(&mut stale_block);
+    rpc_test
+        .peer_1
+        .chain
+        .miner
+        .sign_nakamoto_block(&mut stale_block);
 
     // post the invalid block proposal
     let proposal = NakamotoBlockProposal {
@@ -502,7 +512,7 @@ fn replay_validation_test(
     let mut requests = vec![];
 
     let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
-        rpc_test.peer_1.sortdb.as_ref().unwrap().conn(),
+        rpc_test.peer_1.chain.sortdb.as_ref().unwrap().conn(),
     )
     .unwrap();
     let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
@@ -521,6 +531,7 @@ fn replay_validation_test(
             None,
             None,
             8,
+            None,
             None,
         )
         .unwrap();
@@ -546,7 +557,6 @@ fn replay_validation_test(
                             &tx,
                             tx.tx_len(),
                             &BlockLimitFunction::NO_LIMIT_HIT,
-                            ASTRules::PrecheckSize,
                             None,
                         );
                     }
@@ -561,6 +571,7 @@ fn replay_validation_test(
     proposed_block.header.timestamp += 1;
     rpc_test
         .peer_1
+        .chain
         .miner
         .sign_nakamoto_block(&mut proposed_block);
 
@@ -631,7 +642,7 @@ fn replay_validation_test(
 /// Tx replay test with mismatching mineable transactions.
 fn replay_validation_test_transaction_mismatch() {
     let result = replay_validation_test(|rpc_test| {
-        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
         // Transaction expected in the replay set (different amount)
         let tx_for_replay = make_stacks_transfer_tx(
             miner_privk,
@@ -672,7 +683,7 @@ fn replay_validation_test_transaction_mismatch() {
 /// The block has the one mineable tx.
 fn replay_validation_test_transaction_unmineable_match() {
     let result = replay_validation_test(|rpc_test| {
-        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
         // Transaction expected in the replay set (different amount)
         let unmineable_tx = make_stacks_transfer_tx(
             miner_privk,
@@ -713,7 +724,7 @@ fn replay_validation_test_transaction_unmineable_match() {
 fn replay_validation_test_transaction_unmineable_match_2() {
     let mut replay_set = vec![];
     let result = replay_validation_test(|rpc_test| {
-        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
         // Unmineable tx
         let unmineable_tx = make_stacks_transfer_tx(
             miner_privk,
@@ -768,7 +779,7 @@ fn replay_validation_test_transaction_unmineable_match_2() {
 /// The block has [mineable, mineable, tx_b, mineable]
 fn replay_validation_test_transaction_mineable_mismatch_series() {
     let result = replay_validation_test(|rpc_test| {
-        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
         // Mineable tx
         let mineable_tx_1 = make_stacks_transfer_tx(
             miner_privk,
@@ -846,7 +857,7 @@ fn replay_validation_test_transaction_mineable_mismatch_series() {
 /// The block has [mineable, tx_a, tx_b]
 fn replay_validation_test_transaction_mineable_mismatch_series_2() {
     let result = replay_validation_test(|rpc_test| {
-        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
 
         let recipient_sk = StacksPrivateKey::random();
         let recipient_addr = to_addr(&recipient_sk);
@@ -907,7 +918,7 @@ fn replay_validation_test_transaction_mineable_mismatch_series_2() {
 /// have cost too much to include.
 fn replay_validation_test_budget_exceeded() {
     let result = replay_validation_test(|rpc_test| {
-        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
         let miner_addr = to_addr(miner_privk);
 
         let contract_code = make_big_read_count_contract(BLOCK_LIMIT_MAINNET_21, 50);
@@ -985,7 +996,7 @@ fn replay_validation_test_budget_exceeded() {
 fn replay_validation_test_budget_exhausted() {
     let mut replay_set = vec![];
     let result = replay_validation_test(|rpc_test| {
-        let miner_privk = &rpc_test.peer_1.miner.nakamoto_miner_key();
+        let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
         let miner_addr = to_addr(miner_privk);
 
         let contract_code = make_big_read_count_contract(BLOCK_LIMIT_MAINNET_21, 50);

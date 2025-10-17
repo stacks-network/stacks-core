@@ -54,7 +54,7 @@ fn marf_insert_different_leaf_same_block_100() {
 
         for i in 0..100 {
             let value = TrieLeaf::new(&[], &[i as u8; 40]);
-            marf.insert_raw(path.clone(), value).unwrap();
+            marf.insert_raw(path, value).unwrap();
         }
 
         debug!("---------");
@@ -554,10 +554,10 @@ where
             let next_block_header = BlockHeaderHash::from_bytes(&[i as u8; 32]).unwrap();
             marf.commit().unwrap();
             marf.begin(&last_block_header, &next_block_header).unwrap();
-            last_block_header = next_block_header;
+            last_block_header = next_block_header.clone();
             // add a leaf at the end of the path
 
-            let next_path = path_gen(i, path.clone());
+            let next_path = path_gen(i, path);
 
             let triepath = TrieHash::from_bytes(&next_path[..]).unwrap();
             let value = TrieLeaf::new(&[], &[i as u8; 40]);
@@ -565,7 +565,7 @@ where
             debug!("----------------");
             debug!("insert");
             debug!("----------------");
-            marf.insert_raw(triepath.clone(), value.clone()).unwrap();
+            marf.insert_raw(triepath, value.clone()).unwrap();
 
             // verify that this leaf exists in _this_ Trie
             debug!("----------------");
@@ -590,7 +590,7 @@ where
                 debug!("get-prev {} of {}", j, i);
                 debug!("----------------");
 
-                let prev_path = path_gen(j, path.clone());
+                let prev_path = path_gen(j, path);
 
                 let read_value = MARF::get_path(
                     &mut marf.borrow_storage_backend(),
@@ -628,7 +628,7 @@ where
                 == TrieHashCalculationMode::Deferred
             {
                 for j in 1..(i + 1) {
-                    let prev_path = path_gen(j, path.clone());
+                    let prev_path = path_gen(j, path);
                     debug!("---------------------------------------");
                     debug!(
                         "MARF verify {:?} {:?} from current block header (deferred) {:?}",
@@ -661,7 +661,7 @@ where
         // all leaves are reachable from the last block
         for i in 1..31 {
             // add a leaf at the end of the path
-            let next_path = path_gen(i, path.clone());
+            let next_path = path_gen(i, path);
 
             let triepath = TrieHash::from_bytes(&next_path[..]).unwrap();
             let value = MARFValue([i as u8; 40]);
@@ -1133,7 +1133,7 @@ fn marf_split_leaf_path() {
     );
     debug!("----------------");
 
-    marf.insert_raw(triepath.clone(), value.clone()).unwrap();
+    marf.insert_raw(triepath, value.clone()).unwrap();
 
     // insert a leaf along the same path but in a different block
     let block_header_2 = BlockHeaderHash::from_bytes(&[
@@ -1157,8 +1157,7 @@ fn marf_split_leaf_path() {
 
     marf.commit().unwrap();
     marf.begin(&block_header, &block_header_2).unwrap();
-    marf.insert_raw(triepath_2.clone(), value_2.clone())
-        .unwrap();
+    marf.insert_raw(triepath_2, value_2.clone()).unwrap();
 
     debug!("----------------");
     debug!(
@@ -2038,7 +2037,7 @@ fn test_marf_read_only() {
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ],
     );
-    let value = MARFValue::from(0x1234);
+    let value = MARFValue::from(0x1234u32);
 
     // functions that require a transaction _cannot_ be called on a readonly marf, because
     //   both the storage function for initiating a tx _and_ sqlite will have errored before
@@ -2049,7 +2048,7 @@ fn test_marf_read_only() {
         Err(Error::ReadOnlyError)
     ));
     assert!(matches!(
-        ro_marf.insert_raw(triepath.clone(), leaf),
+        ro_marf.insert_raw(triepath, leaf),
         Err(Error::ReadOnlyError)
     ));
     assert!(matches!(

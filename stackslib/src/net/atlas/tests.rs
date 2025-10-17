@@ -1189,9 +1189,9 @@ fn test_bit_vectors() {
             .mark_attachment_instance_checked(attachment_instance, false)
             .unwrap();
     }
-    let block_id_1 = uninstantiated_attachment_instances[0].index_block_hash;
+    let block_id_1 = &uninstantiated_attachment_instances[0].index_block_hash;
     let bit_vector = atlas_db
-        .get_attachments_available_at_page_index(0, &block_id_1)
+        .get_attachments_available_at_page_index(0, block_id_1)
         .unwrap();
     assert_eq!(bit_vector, [0x00; 64]);
 
@@ -1210,7 +1210,7 @@ fn test_bit_vectors() {
             .unwrap();
     }
     let bit_vector = atlas_db
-        .get_attachments_available_at_page_index(0, &block_id_1)
+        .get_attachments_available_at_page_index(0, block_id_1)
         .unwrap();
     assert_eq!(bit_vector, [0x00; 64]);
 
@@ -1230,7 +1230,7 @@ fn test_bit_vectors() {
     }
 
     let bit_vector = atlas_db
-        .get_attachments_available_at_page_index(0, &block_id_1)
+        .get_attachments_available_at_page_index(0, block_id_1)
         .unwrap();
     let mut expected = [0x00; 64];
     expected[8] = 1;
@@ -1248,7 +1248,7 @@ fn test_bit_vectors() {
         new_attachment_instance_from(&new_attachment_from("facade33"), 14, 2),
         new_attachment_instance_from(&new_attachment_from("facade34"), 15, 2),
     ];
-    let block_id_2 = instantiated_attachment_instances[0].index_block_hash;
+    let block_id_2 = &instantiated_attachment_instances[0].index_block_hash;
     for attachment_instance in instantiated_attachment_instances.iter() {
         atlas_db
             .queue_attachment_instance(attachment_instance)
@@ -1259,12 +1259,12 @@ fn test_bit_vectors() {
     }
 
     let bit_vector = atlas_db
-        .get_attachments_available_at_page_index(0, &block_id_1)
+        .get_attachments_available_at_page_index(0, block_id_1)
         .unwrap();
     assert_eq!(bit_vector, expected);
 
     let bit_vector = atlas_db
-        .get_attachments_available_at_page_index(0, &block_id_2)
+        .get_attachments_available_at_page_index(0, block_id_2)
         .unwrap();
     let mut expected = [0x00; 64];
     expected[12] = 1;

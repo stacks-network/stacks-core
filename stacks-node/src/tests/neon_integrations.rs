@@ -6,7 +6,6 @@ use std::time::{Duration, Instant};
 use std::{cmp, env, fs, io, thread};
 
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
@@ -38,7 +37,6 @@ use stacks::chainstate::stacks::{
     StacksTransaction, TransactionContractCall, TransactionPayload,
 };
 use stacks::clarity_cli::vm_execute as execute;
-use stacks::cli;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MemPoolWalkTxTypes};
@@ -67,7 +65,6 @@ use stacks::net::atlas::{
     AtlasConfig, AtlasDB, GetAttachmentResponse, GetAttachmentsInvResponse,
     MAX_ATTACHMENT_INV_PAGES_PER_REQUEST,
 };
-use stacks::types::PublicKey;
 use stacks::util_lib::boot::{boot_code_addr, boot_code_id};
 use stacks::util_lib::db::{query_row_columns, query_rows, u64_to_sql};
 use stacks::util_lib::signed_structured_data::pox4::{
@@ -82,12 +79,13 @@ use stacks_common::types::StacksPublicKeyBuffer;
 use stacks_common::util::hash::{bytes_to_hex, hex_bytes, to_hex, Hash160};
 use stacks_common::util::secp256k1::{Secp256k1PrivateKey, Secp256k1PublicKey};
 use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs, sleep_ms};
+use stacks_inspect;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{TcpListener, TcpStream};
 
 use super::{ADDR_4, SK_1, SK_2, SK_3};
 use crate::burnchains::bitcoin::core_controller::BitcoinCoreController;
-use crate::burnchains::bitcoin_regtest_controller::{self, addr2str, BitcoinRPCRequest, UTXO};
+use crate::burnchains::bitcoin_regtest_controller::{self, UTXO};
 use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
@@ -1061,16 +1059,28 @@ pub fn get_tip_anchored_block(conf: &Config) -> (ConsensusHash, StacksBlock) {
 }
 
 #[derive(Deserialize, Debug)]
-struct ReadOnlyResponse {
+pub struct ReadOnlyResponse {
     #[serde(rename = "okay")]
-    _okay: bool,
+    okay: bool,
     #[serde(rename = "result")]
-    result_hex: String,
+    result_hex: Option<String>,
+    cause: Option<String>,
 }
 
 impl ReadOnlyResponse {
-    pub fn result(&self) -> Result<Value, SerializationError> {
-        Value::try_deserialize_hex_untyped(&self.result_hex)
+    pub fn result(&self) -> Result<Value, String> {
+        if self.okay {
+            if let Some(ref result_hex) = self.result_hex {
+                Value::try_deserialize_hex_untyped(result_hex).map_err(|e| e.to_string())
+            } else {
+                Err("Missing 'result' field".to_string())
+            }
+        } else {
+            Err(self
+                .cause
+                .clone()
+                .unwrap_or_else(|| "Unknown error".to_string()))
+        }
     }
 }
 
@@ -1080,7 +1090,7 @@ pub fn call_read_only(
     contract: &str,
     function: &str,
     args: Vec<&Value>,
-) -> Value {
+) -> ReadOnlyResponse {
     let http_origin = format!("http://{}", &conf.node.rpc_bind);
     let client = reqwest::blocking::Client::new();
 
@@ -1097,6 +1107,7 @@ pub fn call_read_only(
         "arguments": serialized_args,
         "sender": principal.to_string(),
     });
+
     let response: ReadOnlyResponse = client
         .post(path)
         .header("Content-Type", "application/json")
@@ -1105,6 +1116,30 @@ pub fn call_read_only(
         .unwrap()
         .json()
         .unwrap();
+    response
+}
+
+#[derive(Deserialize, Debug)]
+struct ConstantResponse {
+    #[serde(rename = "data")]
+    data_hex: String,
+}
+
+impl ConstantResponse {
+    pub fn result(&self) -> Result<Value, SerializationError> {
+        Value::try_deserialize_hex_untyped(&self.data_hex)
+    }
+}
+
+pub fn get_constant(conf: &Config, principal: &StacksAddress, contract: &str, name: &str) -> Value {
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+    let client = reqwest::blocking::Client::new();
+
+    info!("Get constant: {contract}.{name}");
+
+    let path = format!("{http_origin}/v2/constant_val/{principal}/{contract}/{name}");
+
+    let response: ConstantResponse = client.get(path).send().unwrap().json().unwrap();
     response.result().unwrap()
 }
 
@@ -2656,7 +2691,7 @@ fn stack_stx_burn_op_test() {
         reward_addr: pox_addr.clone(),
         stacked_ustx: 10000000000000,
         num_cycles: 6,
-        signer_key: Some(signer_key),
+        signer_key: Some(signer_key.clone()),
         max_amount: Some(u128::MAX),
         auth_id: Some(auth_id),
         // to be filled in
@@ -3043,7 +3078,7 @@ fn vote_for_aggregate_key_burn_op_test() {
             sender: spender_stx_addr.clone(),
             round: 0,
             reward_cycle,
-            aggregate_key,
+            aggregate_key: aggregate_key.clone(),
             // to be filled in
             vtxindex: 0,
             txid: Txid([0u8; 32]),
@@ -5180,9 +5215,6 @@ fn pox_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    // required for testing post-sunset behavior
-    conf.node.always_use_affirmation_maps = false;
-
     let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
     let second_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
     let third_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
@@ -5686,8 +5718,6 @@ fn atlas_integration_test() {
         .initial_balances
         .push(initial_balance_user_1.clone());
 
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
-
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -5711,8 +5741,6 @@ fn atlas_integration_test() {
             timeout_ms: 1000,
             disable_retries: false,
         });
-
-    conf_follower_node.node.always_use_affirmation_maps = false;
 
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
@@ -6220,8 +6248,6 @@ fn antientropy_integration_test() {
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
 
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
-
     // Prepare the config of the follower node
     let (mut conf_follower_node, _) = neon_integration_test_conf();
     let bootstrap_node_url = format!(
@@ -6256,8 +6282,6 @@ fn antientropy_integration_test() {
     conf_follower_node.burnchain.max_rbf = 1000000;
     conf_follower_node.node.wait_time_for_blocks = 1_000;
 
-    conf_follower_node.node.always_use_affirmation_maps = false;
-
     // Our 2 nodes will share the bitcoind node
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf_bootstrap_node);
     btcd_controller
@@ -6270,9 +6294,10 @@ fn antientropy_integration_test() {
     let burnchain_config = Burnchain::regtest(&conf_bootstrap_node.get_burn_db_path());
     let target_height = 3 + (3 * burnchain_config.pox_constants.reward_cycle_length);
 
+    let conf_bootstrap_node_threaded = conf_bootstrap_node.clone();
     let bootstrap_node_thread = thread::spawn(move || {
         let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-            conf_bootstrap_node.clone(),
+            conf_bootstrap_node_threaded.clone(),
             None,
             Some(burnchain_config.clone()),
             None,
@@ -6282,7 +6307,7 @@ fn antientropy_integration_test() {
 
         eprintln!("Chain bootstrapped...");
 
-        let mut run_loop = neon::RunLoop::new(conf_bootstrap_node.clone());
+        let mut run_loop = neon::RunLoop::new(conf_bootstrap_node_threaded.clone());
         let blocks_processed = run_loop.get_blocks_processed_arc();
         let channel = run_loop.get_coordinator_channel().unwrap();
 
@@ -6373,7 +6398,7 @@ fn antientropy_integration_test() {
     );
 
     let btc_regtest_controller = BitcoinRegtestController::with_burnchain(
-        conf_follower_node.clone(),
+        conf_bootstrap_node.clone(),
         None,
         Some(burnchain_config),
         None,
@@ -6425,9 +6450,9 @@ fn wait_for_mined(
         let ibh = StacksBlockHeader::make_index_block_hash(&ch, &bhh);
 
         if let Some(last_ibh) = index_block_hashes.last() {
-            if *last_ibh != ibh {
-                index_block_hashes.push(ibh);
+            if last_ibh != &ibh {
                 eprintln!("Tip is now {ibh}");
+                index_block_hashes.push(ibh);
             }
         }
 
@@ -6493,8 +6518,6 @@ fn atlas_stress_integration_test() {
     conf_bootstrap_node.miner.subsequent_attempt_time_ms = 2_000_000;
     conf_bootstrap_node.burnchain.max_rbf = 1000000;
     conf_bootstrap_node.node.wait_time_for_blocks = 1_000;
-
-    conf_bootstrap_node.node.always_use_affirmation_maps = false;
 
     let user_1 = users.pop().unwrap();
     let initial_balance_user_1 = initial_balances.pop().unwrap();
@@ -7065,7 +7088,7 @@ fn atlas_stress_integration_test() {
             )
             .unwrap();
             if !indexes.is_empty() {
-                attachment_indexes.insert(*ibh, indexes.clone());
+                attachment_indexes.insert(ibh.clone(), indexes.clone());
             }
 
             for index in indexes.iter() {
@@ -7077,7 +7100,7 @@ fn atlas_stress_integration_test() {
                 .unwrap();
                 if !hashes.is_empty() {
                     assert_eq!(hashes.len(), 1);
-                    attachment_hashes.insert((*ibh, *index), hashes.pop());
+                    attachment_hashes.insert((ibh.clone(), *index), hashes.pop());
                 }
             }
         }
@@ -7133,7 +7156,7 @@ fn atlas_stress_integration_test() {
                 continue;
             }
             let content_hash = attachment_hashes
-                .get(&(*ibh, *attachment))
+                .get(&(ibh.clone(), *attachment))
                 .cloned()
                 .unwrap()
                 .unwrap();
@@ -7448,7 +7471,7 @@ fn use_latest_tip_integration_test() {
                 .sortdb_ref()
                 .index_handle_at_block(&chainstate, &tip_hash)
                 .unwrap(),
-            tip_hash,
+            tip_hash.clone(),
         )
         .unwrap();
 
@@ -7792,9 +7815,6 @@ fn test_problematic_txs_are_not_stored() {
     ]));
     conf.burnchain.pox_2_activation = Some(10_003);
 
-    // take effect immediately
-    conf.burnchain.ast_precheck_size_height = Some(0);
-
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
@@ -7950,11 +7970,8 @@ fn spawn_follower_node(
 
     conf.initial_balances = initial_conf.initial_balances.clone();
     conf.burnchain.epochs = initial_conf.burnchain.epochs.clone();
-    conf.burnchain.ast_precheck_size_height = initial_conf.burnchain.ast_precheck_size_height;
 
     conf.connection_options.inv_sync_interval = 3;
-
-    conf.node.always_use_affirmation_maps = false;
 
     let mut run_loop = neon::RunLoop::new(conf.clone());
     let blocks_processed = run_loop.get_blocks_processed_arc();
@@ -8035,9 +8052,6 @@ fn test_problematic_blocks_are_not_mined() {
         },
     ]));
     conf.burnchain.pox_2_activation = Some(10_003);
-
-    // AST precheck becomes default at burn height
-    conf.burnchain.ast_precheck_size_height = Some(210);
 
     test_observer::spawn();
     test_observer::register_any(&mut conf);
@@ -8159,15 +8173,12 @@ fn test_problematic_blocks_are_not_mined() {
 
     assert!(found);
 
-    let (tip, cur_ast_rules) = {
+    let tip = {
         let sortdb = btc_regtest_controller.sortdb_mut();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        (tip, cur_ast_rules)
+        tip
     };
-
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
 
     // add another bad tx to the mempool
     debug!("Submit problematic tx_high transaction {tx_high_txid}");
@@ -8185,17 +8196,6 @@ fn test_problematic_blocks_are_not_mined() {
         Ok(new_tip.block_height > tip.block_height)
     })
     .expect("Failed waiting for blocks to be processed");
-
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
-
-    // new rules took effect
-    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
 
     let (_, mut cur_files) = find_new_files(bad_blocks_dir, &HashSet::new());
     let old_tip_info = get_chain_info(&conf);
@@ -8305,378 +8305,6 @@ fn test_problematic_blocks_are_not_mined() {
     follower_channel.stop_chains_coordinator();
 }
 
-// TODO: test in epoch 2.1 with parser_v2
-#[test]
-#[ignore]
-fn test_problematic_blocks_are_not_relayed_or_stored() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let bad_blocks_dir = "/tmp/bad-blocks-test_problematic_blocks_are_not_relayed_or_stored";
-    if fs::metadata(bad_blocks_dir).is_ok() {
-        fs::remove_dir_all(bad_blocks_dir).unwrap();
-    }
-    fs::create_dir_all(bad_blocks_dir).unwrap();
-
-    std::env::set_var("STACKS_BAD_BLOCKS_DIR", bad_blocks_dir);
-
-    let spender_sk_1 = StacksPrivateKey::from_hex(SK_1).unwrap();
-    let spender_sk_2 = StacksPrivateKey::from_hex(SK_2).unwrap();
-    let spender_sk_3 = StacksPrivateKey::from_hex(SK_3).unwrap();
-    let spender_stacks_addr_1 = to_addr(&spender_sk_1);
-    let spender_stacks_addr_2 = to_addr(&spender_sk_2);
-    let spender_stacks_addr_3 = to_addr(&spender_sk_3);
-    let spender_addr_1: PrincipalData = spender_stacks_addr_1.into();
-    let spender_addr_2: PrincipalData = spender_stacks_addr_2.into();
-    let spender_addr_3: PrincipalData = spender_stacks_addr_3.into();
-
-    let (mut conf, _) = neon_integration_test_conf();
-
-    conf.initial_balances.push(InitialBalance {
-        address: spender_addr_1,
-        amount: 1_000_000_000_000,
-    });
-    conf.initial_balances.push(InitialBalance {
-        address: spender_addr_2,
-        amount: 1_000_000_000_000,
-    });
-    conf.initial_balances.push(InitialBalance {
-        address: spender_addr_3,
-        amount: 1_000_000_000_000,
-    });
-
-    // force mainnet limits in 2.05 for this test
-    conf.burnchain.epochs = Some(EpochList::new(&[
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 1,
-            end_height: 10_002,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_05,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch21,
-            start_height: 10_002,
-            end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_1,
-        },
-    ]));
-    conf.burnchain.pox_2_activation = Some(10_003);
-
-    // AST precheck becomes default at burn height
-    conf.burnchain.ast_precheck_size_height = Some(210);
-
-    test_observer::spawn();
-    test_observer::register_any(&mut conf);
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
-
-    let mut btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-    let http_origin = format!("http://{}", &conf.node.rpc_bind);
-
-    // something just over the limit of the expression depth
-    let exceeds_repeat_factor = 32;
-    let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
-    let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-    let tx_exceeds_body = format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}");
-
-    let tx_exceeds = make_contract_publish(
-        &spender_sk_2,
-        0,
-        (tx_exceeds_body.len() * 100) as u64,
-        conf.burnchain.chain_id,
-        "test-exceeds",
-        &tx_exceeds_body,
-    );
-    let tx_exceeds_txid = StacksTransaction::consensus_deserialize(&mut &tx_exceeds[..])
-        .unwrap()
-        .txid();
-
-    let high_repeat_factor = 70;
-    let tx_high_body_start = "{ a : ".repeat(high_repeat_factor as usize);
-    let tx_high_body_end = "} ".repeat(high_repeat_factor as usize);
-    let tx_high_body = format!("{tx_high_body_start}u1 {tx_high_body_end}");
-
-    let tx_high = make_contract_publish(
-        &spender_sk_3,
-        0,
-        (tx_high_body.len() * 100) as u64,
-        conf.burnchain.chain_id,
-        "test-high",
-        &tx_high_body,
-    );
-    let tx_high_txid = StacksTransaction::consensus_deserialize(&mut &tx_high[..])
-        .unwrap()
-        .txid();
-
-    btc_regtest_controller.bootstrap_chain(201);
-
-    eprintln!("Chain bootstrapped...");
-
-    let mut run_loop = neon::RunLoop::new(conf.clone());
-    let blocks_processed = run_loop.get_blocks_processed_arc();
-    let channel = run_loop.get_coordinator_channel().unwrap();
-
-    thread::spawn(move || run_loop.start(None, 0));
-
-    // Give the run loop some time to start up!
-    wait_for_runloop(&blocks_processed);
-
-    // First block wakes up the run loop.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // Second block will hold our VRF registration.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    // Third block will be the first mined Stacks block.
-    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-
-    debug!("Submit problematic tx_exceeds transaction {tx_exceeds_txid}");
-    std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "1");
-    submit_tx(&http_origin, &tx_exceeds);
-    assert!(get_unconfirmed_tx(&http_origin, &tx_exceeds_txid).is_some());
-    std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "0");
-
-    let (_, mut cur_files) = find_new_files(bad_blocks_dir, &HashSet::new());
-    let old_tip_info = get_chain_info(&conf);
-    let mut all_new_files = vec![];
-
-    for _i in 0..5 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        let cur_files_old = cur_files.clone();
-        let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
-        all_new_files.append(&mut new_files);
-        cur_files = cur_files_new;
-    }
-
-    let tip_info = get_chain_info(&conf);
-
-    // blocks were all processed
-    assert_eq!(
-        tip_info.stacks_tip_height,
-        old_tip_info.stacks_tip_height + 5
-    );
-    // no blocks considered problematic
-    assert!(all_new_files.is_empty());
-
-    // one block contained tx_exceeds
-    let blocks = test_observer::get_blocks();
-    let mut found = false;
-    for block in blocks {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::SmartContract(..) = &parsed.payload {
-                if parsed.txid() == tx_exceeds_txid {
-                    found = true;
-                    break;
-                }
-            }
-        }
-    }
-
-    assert!(found);
-
-    let (tip, cur_ast_rules) = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        (tip, cur_ast_rules)
-    };
-
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
-
-    btc_regtest_controller.build_next_block(1);
-
-    // wait for runloop to advance
-    loop {
-        sleep_ms(1_000);
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let new_tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        if new_tip.block_height > tip.block_height {
-            break;
-        }
-    }
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
-
-    // new rules took effect
-    assert_eq!(cur_ast_rules, ASTRules::PrecheckSize);
-
-    // the follower we will soon boot up will start applying the new AST rules at this height.
-    // Make it so the miner does *not* follow the rules
-    {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let mut tx = sortdb.tx_begin().unwrap();
-        SortitionDB::override_ast_rule_height(&mut tx, ASTRules::PrecheckSize, 10_000).unwrap();
-        tx.commit().unwrap();
-    }
-    let cur_ast_rules = {
-        let sortdb = btc_regtest_controller.sortdb_mut();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        eprintln!("Sort db tip: {}", tip.block_height);
-        let cur_ast_rules = SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-        cur_ast_rules
-    };
-
-    // we reverted to the old rules (but the follower won't)
-    assert_eq!(cur_ast_rules, ASTRules::Typical);
-
-    // add another bad tx to the mempool.
-    // because the miner is now non-conformant, it should mine this tx.
-    debug!("Submit problematic tx_high transaction {tx_high_txid}");
-    std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "1");
-    submit_tx(&http_origin, &tx_high);
-    assert!(get_unconfirmed_tx(&http_origin, &tx_high_txid).is_some());
-    std::env::set_var("STACKS_DISABLE_TX_PROBLEMATIC_CHECK", "0");
-
-    let (_, mut cur_files) = find_new_files(bad_blocks_dir, &HashSet::new());
-    let old_tip_info = get_chain_info(&conf);
-    let mut all_new_files = vec![];
-
-    eprintln!("old_tip_info = {old_tip_info:?}");
-
-    // mine some blocks, and log problematic blocks
-    for _i in 0..6 {
-        next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
-        let cur_files_old = cur_files.clone();
-        let (mut new_files, cur_files_new) = find_new_files(bad_blocks_dir, &cur_files_old);
-        all_new_files.append(&mut new_files);
-        cur_files = cur_files_new;
-
-        let cur_ast_rules = {
-            let sortdb = btc_regtest_controller.sortdb_mut();
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-            let cur_ast_rules =
-                SortitionDB::get_ast_rules(sortdb.conn(), tip.block_height).unwrap();
-            cur_ast_rules
-        };
-
-        // we reverted to the old rules (but the follower won't)
-        assert_eq!(cur_ast_rules, ASTRules::Typical);
-    }
-
-    let tip_info = get_chain_info(&conf);
-
-    // at least one block was mined (hard to say how many due to the raciness between the burnchain
-    // downloader and this thread).
-    info!(
-        "tip_info.stacks_tip_height = {}, old_tip_info.stacks_tip_height = {}",
-        tip_info.stacks_tip_height, old_tip_info.stacks_tip_height
-    );
-    assert!(tip_info.stacks_tip_height > old_tip_info.stacks_tip_height);
-    // one was problematic -- i.e. the one that included tx_high
-    assert_eq!(all_new_files.len(), 1);
-
-    // tx_high got mined by the miner
-    let blocks = test_observer::get_blocks();
-    let mut bad_block_height = None;
-    for block in blocks {
-        let transactions = block.get("transactions").unwrap().as_array().unwrap();
-        for tx in transactions.iter() {
-            let raw_tx = tx.get("raw_tx").unwrap().as_str().unwrap();
-            if raw_tx == "0x00" {
-                continue;
-            }
-            let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
-            let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
-            if let TransactionPayload::SmartContract(..) = &parsed.payload {
-                if parsed.txid() == tx_high_txid {
-                    bad_block_height = Some(block.get("block_height").unwrap().as_u64().unwrap());
-                }
-            }
-        }
-    }
-    assert!(bad_block_height.is_some());
-    let bad_block_height = bad_block_height.unwrap();
-
-    // follower should not process bad_block_height or higher
-    let new_tip_info = get_chain_info(&conf);
-
-    eprintln!("\nBooting follower\n");
-
-    // verify that a follower node that boots up with this node as a bootstrap peer will process
-    // all of the blocks available, even if they are problematic, with the checks on.
-    let (follower_conf, _, pox_sync_comms, follower_channel) = spawn_follower_node(&conf);
-
-    eprintln!(
-        "\nFollower booted on port {},{}\n",
-        follower_conf.node.p2p_bind, follower_conf.node.rpc_bind
-    );
-
-    let deadline = get_epoch_time_secs() + 300;
-    while get_epoch_time_secs() < deadline {
-        let follower_tip_info = get_chain_info(&follower_conf);
-        if follower_tip_info.stacks_tip_height == new_tip_info.stacks_tip_height
-            || follower_tip_info.stacks_tip_height + 1 == bad_block_height
-        {
-            break;
-        }
-        eprintln!(
-            "\nFollower is at burn block {} stacks block {} (bad_block is {bad_block_height})\n",
-            follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height
-        );
-        sleep_ms(1000);
-    }
-
-    // make sure we aren't just slow -- wait for the follower to do a few download passes
-    let num_download_passes = pox_sync_comms.get_download_passes();
-    eprintln!(
-        "\nFollower has performed {num_download_passes} download passes; wait for {}\n",
-        num_download_passes + 5
-    );
-
-    while num_download_passes + 5 > pox_sync_comms.get_download_passes() {
-        sleep_ms(1000);
-        eprintln!(
-            "\nFollower has performed {} download passes; wait for {}\n",
-            pox_sync_comms.get_download_passes(),
-            num_download_passes + 5
-        );
-    }
-
-    eprintln!(
-        "\nFollower has performed {} download passes\n",
-        pox_sync_comms.get_download_passes()
-    );
-
-    let follower_tip_info = get_chain_info(&follower_conf);
-    eprintln!(
-        "\nFollower is at burn block {} stacks block {} (bad block is {bad_block_height})\n",
-        follower_tip_info.burn_block_height, follower_tip_info.stacks_tip_height
-    );
-
-    // follower rejects the bad block
-    assert_eq!(follower_tip_info.stacks_tip_height, bad_block_height - 1);
-
-    test_observer::clear();
-    channel.stop_chains_coordinator();
-    follower_channel.stop_chains_coordinator();
-}
-
 /// Verify that we push all boot receipts even before bootstrapping
 #[test]
 #[ignore]
@@ -8769,16 +8397,6 @@ fn run_with_custom_wallet() {
     // If we get this far, then it also means that mining and block-production worked.
     let blocks = test_observer::get_blocks();
     assert!(blocks.len() > 1);
-
-    // bitcoin node knows of this wallet
-    let wallets = BitcoinRPCRequest::list_wallets(&conf).unwrap();
-    let mut found = false;
-    for w in wallets {
-        if w == conf.burnchain.wallet_name {
-            found = true;
-        }
-    }
-    assert!(found);
 }
 
 /// Make a contract that takes a parameterized amount of runtime
@@ -9983,57 +9601,10 @@ fn mock_miner_replay() {
     let args: Vec<String> = vec!["replay-mock-mining".into(), db_path, blocks_dir];
 
     info!("Replaying mock mined blocks...");
-    cli::command_replay_mock_mining(&args, Some(&conf));
+    stacks_inspect::command_replay_mock_mining(&args, Some(&conf));
 
     // ---------- Test finished, clean up ----------
 
     miner_channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
-}
-
-#[test]
-#[ignore]
-/// Verify that the config option, `burnchain.max_unspent_utxos`, is respected.
-fn listunspent_max_utxos() {
-    if env::var("BITCOIND_TEST") != Ok("1".into()) {
-        return;
-    }
-
-    let (mut conf, _miner_account) = neon_integration_test_conf();
-    let prom_port = gen_random_port();
-    let localhost = "127.0.0.1";
-    let prom_bind = format!("{localhost}:{prom_port}");
-    conf.node.prometheus_bind = Some(prom_bind);
-
-    conf.burnchain.max_rbf = 1000000;
-    conf.burnchain.max_unspent_utxos = Some(10);
-
-    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
-    btcd_controller
-        .start_bitcoind()
-        .expect("Failed starting bitcoind");
-
-    let btc_regtest_controller = BitcoinRegtestController::new(conf.clone(), None);
-
-    btc_regtest_controller.bootstrap_chain(201);
-
-    eprintln!("Chain bootstrapped...");
-
-    let keychain = Keychain::default(conf.node.seed.clone());
-    let mut op_signer = keychain.generate_op_signer();
-
-    let (_, network_id) = conf.burnchain.get_bitcoin_network();
-    let hash160 = Hash160::from_data(&op_signer.get_public_key().to_bytes());
-    let address = BitcoinAddress::from_bytes_legacy(
-        network_id,
-        LegacyBitcoinAddressType::PublicKeyHash,
-        &hash160.0,
-    )
-    .expect("Public key incorrect");
-
-    let filter_addresses = vec![addr2str(&address)];
-
-    let res = BitcoinRPCRequest::list_unspent(&conf, filter_addresses, false, 1, &None, 0);
-    let utxos = res.expect("Failed to get utxos");
-    assert_eq!(utxos.num_utxos(), 10);
 }

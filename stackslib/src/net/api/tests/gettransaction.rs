@@ -31,7 +31,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request = StacksHttpRequest::new_gettransaction(
         addr.into(),
@@ -103,7 +103,7 @@ fn test_try_make_response() {
             boot_plan.with_txindex(true)
         });
 
-    let consensus_hash = rpc_test.consensus_hash;
+    let consensus_hash = rpc_test.consensus_hash.clone();
     let canonical_tip = rpc_test.canonical_tip.clone();
 
     // dummy hack for generating an invalid tip
@@ -111,7 +111,7 @@ fn test_try_make_response() {
     dummy_tip.0[0] = dummy_tip.0[0].wrapping_add(1);
 
     let peer = &rpc_test.peer_1;
-    let sortdb = peer.sortdb.as_ref().unwrap();
+    let sortdb = peer.chain.sortdb.as_ref().unwrap();
     let tenure_blocks = rpc_test
         .peer_1
         .chainstate_ref()

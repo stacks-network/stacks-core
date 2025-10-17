@@ -20,32 +20,35 @@ name = "clarity"
 path = "./src/libclarity.rs"
 
 [dependencies]
-rand = { workspace = true }
-rand_chacha = { workspace = true }
-serde = "1"
-serde_derive = "1"
-serde_stacker = { version = "0.1", optional = true }
-regex = "1.9.3"
-lazy_static = "1.4.0"
+clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+lazy_static = { workspace = true }
 integer-sqrt = "0.1.3"
-slog = { version = "2.5.2", features = [ "max_level_trace" ], optional = true }
+slog = { workspace = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
 rstest = { version = "0.17.0", optional = true }
 rstest_reuse = { version = "0.5.0", optional = true }
+rusqlite = { workspace = true, optional = true }
+
+# clarity-wasm
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+serde_stacker = { version = "0.1", optional = true }
+regex = "1.9.3"
 wasmtime = { version = "15.0.0", optional = true }
 hashbrown = { workspace = true }
 getrandom = { version = "0.2", features = ["js"], optional = true }
-rusqlite = { workspace = true, optional = true }
-
-[dependencies.serde_json]
-version = "1.0"
-features = ["arbitrary_precision", "unbounded_depth"]
 
 [dev-dependencies]
 assert-json-diff = "1.0.0"
+clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false, features = ["testing"] }
 mutants = "0.0.3"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 rstest = { version = "0.17.0" }
 rstest_reuse = { version = "0.5.0" }
+
 # a nightly rustc regression (35dbef235 2021-03-02) prevents criterion from compiling
 #  but it isn't necessary for tests: only benchmarks. therefore, commenting out for now.
 # criterion = "0.3"
@@ -54,16 +57,18 @@ rstest_reuse = { version = "0.5.0" }
 serde_stacker = "0.1"
 
 [features]
-default = ["rusqlite", "log", "clarity-wasm", "serde_stacker", "vrf"]
-clarity-wasm = ["wasmtime"]
-developer-mode = ["stacks_common/developer-mode"]
+developer-mode = ["stacks_common/developer-mode", "clarity-types/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
-rusqlite = ["stacks_common/rusqlite", "dep:rusqlite"]
-vrf = ["stacks_common/vrf"]
+rusqlite = ["stacks_common/rusqlite", "clarity-types/rusqlite", "dep:rusqlite"]
+testing = ["rusqlite", "rstest", "rstest_reuse", "clarity-types/testing"]
 devtools = []
 rollback_value_check = []
 disable-costs = []
+wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web"]
+
+# clarity-wasm
+default = ["rusqlite", "log", "clarity-wasm", "serde_stacker", "vrf"]
+clarity-wasm = ["wasmtime"]
+vrf = ["stacks_common/vrf"]
 log = ["slog", "stacks_common/log"]
-testing = ["rstest", "rstest_reuse", "rusqlite"]
 wasm = ["stacks_common/wasm", "developer-mode", "log", "getrandom"]
-wasm-web = ["stacks_common/wasm-web"]

@@ -58,23 +58,25 @@ use crate::cost_estimates::UnitEstimator;
 #[test]
 fn test_build_anchored_blocks_empty() {
     let peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
     let mut last_block: Option<StacksBlock> = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         assert_eq!(
             tip.block_height,
@@ -124,7 +126,7 @@ fn test_build_anchored_blocks_empty() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -157,17 +159,18 @@ fn test_build_anchored_blocks_stx_transfers_single() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2002, 2003);
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -177,8 +180,9 @@ fn test_build_anchored_blocks_stx_transfers_single() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -247,7 +251,7 @@ fn test_build_anchored_blocks_stx_transfers_single() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -290,17 +294,18 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2022, 2023);
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -310,8 +315,9 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -380,7 +386,7 @@ fn test_build_anchored_blocks_empty_with_builder_timeout() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     // no time to mine anything, so all blocks should be empty
                     BlockBuilderSettings {
@@ -426,16 +432,17 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
     }
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2004, 2005);
-    peer_config.initial_balances = balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -445,8 +452,9 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -543,7 +551,7 @@ fn test_build_anchored_blocks_stx_transfers_multi() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -586,8 +594,8 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2016, 2017);
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let epochs = EpochList::new(&[
         StacksEpoch {
@@ -618,7 +626,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]);
-    peer_config.epochs = Some(epochs);
+    peer_config.chain_config.epochs = Some(epochs);
 
     let num_blocks = 10;
 
@@ -630,11 +638,12 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -644,8 +653,9 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
     let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
 
@@ -768,7 +778,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -822,8 +832,8 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let epochs = EpochList::new(&[
         StacksEpoch {
@@ -854,7 +864,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]);
-    peer_config.epochs = Some(epochs);
+    peer_config.chain_config.epochs = Some(epochs);
 
     let num_blocks = 10;
 
@@ -866,11 +876,12 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -882,8 +893,9 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
 
@@ -1025,7 +1037,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -1106,7 +1118,7 @@ fn test_build_anchored_blocks_connected_by_microblocks_across_epoch_invalid() {
         }
 
         last_block_ch = Some(
-            SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
                 .unwrap()
                 .consensus_hash,
         );
@@ -1163,8 +1175,8 @@ fn test_build_anchored_blocks_skip_too_expensive() {
     initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2006, 2007);
-    peer_config.initial_balances = initial_balances;
-    peer_config.epochs = Some(EpochList::new(&[StacksEpoch {
+    peer_config.chain_config.initial_balances = initial_balances;
+    peer_config.chain_config.epochs = Some(EpochList::new(&[StacksEpoch {
         epoch_id: StacksEpochId::Epoch20,
         start_height: 0,
         end_height: i64::MAX as u64,
@@ -1179,15 +1191,16 @@ fn test_build_anchored_blocks_skip_too_expensive() {
         },
         network_epoch: PEER_VERSION_EPOCH_2_0,
     }]));
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -1197,8 +1210,9 @@ fn test_build_anchored_blocks_skip_too_expensive() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -1238,7 +1252,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                 if tenure_id > 0 {
                     let mut expensive_part = vec![];
                     for i in 0..100 {
-                        expensive_part.push(format!("(define-data-var var-{} int 0)", i));
+                        expensive_part.push(format!("(define-data-var var-{i} int 0)"));
                     }
                     let contract = format!(
                         "{}
@@ -1323,7 +1337,7 @@ fn test_build_anchored_blocks_skip_too_expensive() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::limited(),
                     None,
@@ -1365,18 +1379,18 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2032, 2033);
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+        .unwrap();
 
     let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
         |ref mut miner,
@@ -1451,7 +1465,7 @@ fn test_build_anchored_blocks_mempool_fee_transaction_too_low() {
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0; 20]),
+                &Hash160([0; 20]),
                 &coinbase_tx,
                 BlockBuilderSettings::max_value(),
                 None,
@@ -1485,18 +1499,18 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2032, 2033);
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let recipient_addr_str = "ST1RFD5Q2QPK3E0F08HG9XDX7SSC7CNRS0QR0SGEV";
     let recipient = StacksAddress::from_string(recipient_addr_str).unwrap();
 
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+        .unwrap();
 
     let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
         |ref mut miner,
@@ -1542,7 +1556,7 @@ fn test_build_anchored_blocks_zero_fee_transaction() {
                 &parent_tip,
                 vrf_proof,
                 tip.total_burn,
-                Hash160([0; 20]),
+                &Hash160([0; 20]),
             )
             .unwrap();
 
@@ -1590,12 +1604,12 @@ fn test_build_anchored_blocks_multiple_chaintips() {
     }
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2008, 2009);
-    peer_config.initial_balances = balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     // make a blank chainstate and mempool so we can mine empty blocks
     //  without punishing the correspondingly "too expensive" transactions
@@ -1603,15 +1617,17 @@ fn test_build_anchored_blocks_multiple_chaintips() {
     let mut blank_mempool = MemPoolDB::open_test(false, 1, &blank_chainstate.root_path).unwrap();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -1690,7 +1706,7 @@ fn test_build_anchored_blocks_multiple_chaintips() {
                         &parent_tip,
                         tip.total_burn,
                         vrf_proof,
-                        Hash160([tenure_id as u8; 20]),
+                        &Hash160([tenure_id as u8; 20]),
                         &coinbase_tx,
                         BlockBuilderSettings::limited(),
                         None,
@@ -1734,23 +1750,25 @@ fn test_build_anchored_blocks_empty_chaintips() {
     }
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2010, 2011);
-    peer_config.initial_balances = balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -1794,7 +1812,7 @@ fn test_build_anchored_blocks_empty_chaintips() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -1874,23 +1892,25 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
     }
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2013, 2014);
-    peer_config.initial_balances = balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -1998,7 +2018,7 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -2026,15 +2046,16 @@ fn test_build_anchored_blocks_too_expensive_transactions() {
 #[test]
 fn test_build_anchored_blocks_invalid() {
     let peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let num_blocks = 10;
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -2058,7 +2079,7 @@ fn test_build_anchored_blocks_invalid() {
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
         let mut tip =
-            SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
                 .unwrap();
 
         if tenure_id == bad_block_ancestor_tenure {
@@ -2155,7 +2176,7 @@ fn test_build_anchored_blocks_invalid() {
             let coinbase_tx = make_coinbase(miner, tenure_id as usize);
 
             let mut anchored_block = StacksBlockBuilder::build_anchored_block(
-                chainstate, &sortdb.index_handle_at_tip(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, &burnchain,
+                chainstate, &sortdb.index_handle_at_tip(), &mut mempool, &parent_tip, tip.total_burn, vrf_proof, &Hash160([tenure_id as u8; 20]), &coinbase_tx, BlockBuilderSettings::max_value(), None, &burnchain,
             ).unwrap();
 
             if tenure_id == bad_block_tenure {
@@ -2233,24 +2254,26 @@ fn test_build_anchored_blocks_bad_nonces() {
     }
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2012, 2013);
-    peer_config.initial_balances = balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
     for tenure_id in 0..num_blocks {
-        eprintln!("Start tenure {:?}", tenure_id);
+        eprintln!("Start tenure {tenure_id:?}");
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -2429,7 +2452,7 @@ fn test_build_anchored_blocks_bad_nonces() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -2482,16 +2505,17 @@ fn test_build_microblock_stream_forks() {
     }
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
-    peer_config.initial_balances = balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -2500,8 +2524,9 @@ fn test_build_microblock_stream_forks() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -2677,7 +2702,7 @@ fn test_build_microblock_stream_forks() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -2780,16 +2805,17 @@ fn test_build_microblock_stream_forks_with_descendants() {
     }
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2014, 2015);
-    peer_config.initial_balances = balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -2808,8 +2834,9 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (mut burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -3005,8 +3032,8 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
                 if tenure_id == 1 {
                     // prep for tenure 2 and 3
-                    microblock_tail_1 = Some(fork_1.as_ref().unwrap().last().clone().unwrap().header.clone());
-                    microblock_tail_2 = Some(fork_2.as_ref().unwrap().last().clone().unwrap().header.clone());
+                    microblock_tail_1 = Some(fork_1.as_ref().unwrap().last().unwrap().header.clone());
+                    microblock_tail_2 = Some(fork_2.as_ref().unwrap().last().unwrap().header.clone());
                 }
 
                 let nonce =
@@ -3027,7 +3054,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
 
                 let mblock_pubkey_hash = Hash160::from_node_public_key(&StacksPublicKey::from_private(&mblock_privks[tenure_id]));
 
-                test_debug!("Produce tenure {} block off of {}/{}", tenure_id, &parent_consensus_hash, &parent_header_hash);
+                test_debug!("Produce tenure {tenure_id} block off of {parent_consensus_hash}/{parent_header_hash}");
 
                 // force tenures 2 and 3 to mine off of forked siblings deeper than the
                 // detected fork
@@ -3102,7 +3129,7 @@ fn test_build_microblock_stream_forks_with_descendants() {
                     &parent_tip,
                     parent_tip.anchored_header.as_stacks_epoch2().unwrap().total_work.burn + 1000,
                     vrf_proof,
-                    mblock_pubkey_hash,
+                    &mblock_pubkey_hash,
                     &coinbase_tx,
                     BlockBuilderSettings::max_value(),
                     None,
@@ -3249,11 +3276,11 @@ fn test_contract_call_across_clarity_versions() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2024, 2025);
-    peer_config.initial_balances = vec![
+    peer_config.chain_config.initial_balances = vec![
         (addr.to_account_principal(), 1000000000),
         (addr_anchored.to_account_principal(), 1000000000),
     ];
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let epochs = EpochList::new(&[
         StacksEpoch {
@@ -3285,16 +3312,17 @@ fn test_contract_call_across_clarity_versions() {
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]);
-    peer_config.epochs = Some(epochs);
+    peer_config.chain_config.epochs = Some(epochs);
 
     let num_blocks = 10;
     let mut anchored_sender_nonce = 0;
     let mut peer = TestPeer::new(peer_config);
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -3303,8 +3331,9 @@ fn test_contract_call_across_clarity_versions() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let acct = get_stacks_account(&mut peer, &addr.to_account_principal());
 
@@ -3679,7 +3708,7 @@ fn test_contract_call_across_clarity_versions() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                 )
                 .unwrap();
 
@@ -3706,7 +3735,7 @@ fn test_contract_call_across_clarity_versions() {
 
     // all contracts deployed and called the right number of times, indicating that
     // cross-clarity-version contract calls are doable
-    let sortdb = peer.sortdb.take().unwrap();
+    let sortdb = peer.chain.sortdb.take().unwrap();
     let (consensus_hash, block_bhh) =
         SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
     let stacks_block_id = StacksBlockHeader::make_index_block_hash(&consensus_hash, &block_bhh);
@@ -3720,7 +3749,6 @@ fn test_contract_call_across_clarity_versions() {
                     .with_readonly_clarity_env(
                         false,
                         CHAIN_ID_TESTNET,
-                        ClarityVersion::Clarity2,
                         PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap(),
                         Some(PrincipalData::parse(&format!("{}", &addr_anchored)).unwrap()),
                         LimitedCostTracker::new_free(),
@@ -3820,8 +3848,8 @@ fn test_is_tx_problematic() {
     initial_balances.push((addr_extra.to_account_principal(), 200000000000));
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2018, 2019);
-    peer_config.initial_balances = initial_balances;
-    peer_config.epochs = Some(EpochList::new(&[
+    peer_config.chain_config.initial_balances = initial_balances;
+    peer_config.chain_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -3837,15 +3865,16 @@ fn test_is_tx_problematic() {
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
     ]));
-    let burnchain = peer_config.burnchain.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -3855,8 +3884,9 @@ fn test_is_tx_problematic() {
     let mut last_block = None;
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -3922,9 +3952,9 @@ fn test_is_tx_problematic() {
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &burnchain,
                         &parent_tip,
-                        vrf_proof.clone(),
+                        vrf_proof,
                         tip.total_burn,
-                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                        &Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
                     )
                     .unwrap();
 
@@ -4099,9 +4129,9 @@ fn test_is_tx_problematic() {
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &burnchain,
                         &parent_tip,
-                        vrf_proof.clone(),
+                        vrf_proof,
                         tip.total_burn,
-                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                        &Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
                     )
                     .unwrap();
 
@@ -4149,9 +4179,9 @@ fn test_is_tx_problematic() {
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &burnchain,
                         &parent_tip,
-                        vrf_proof.clone(),
+                        vrf_proof,
                         tip.total_burn,
-                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                        &Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
                     )
                     .unwrap();
 
@@ -4201,9 +4231,9 @@ fn test_is_tx_problematic() {
                     let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                         &burnchain,
                         &parent_tip,
-                        vrf_proof.clone(),
+                        vrf_proof,
                         tip.total_burn,
-                        Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
+                        &Hash160::from_node_public_key(&StacksPublicKey::from_private(&miner.next_microblock_privkey()))
                     )
                     .unwrap();
 
@@ -4246,7 +4276,7 @@ fn test_is_tx_problematic() {
                     &parent_tip,
                     tip.total_burn,
                     vrf_proof,
-                    Hash160([tenure_id as u8; 20]),
+                    &Hash160([tenure_id as u8; 20]),
                     &coinbase_tx,
                     BlockBuilderSettings::limited(),
                     None,
@@ -4293,8 +4323,8 @@ fn mempool_incorporate_pox_unlocks() {
     let principal = PrincipalData::from(addr.clone());
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2020, 2021);
-    peer_config.initial_balances = initial_balances;
-    peer_config.epochs = Some(EpochList::new(&[
+    peer_config.chain_config.initial_balances = initial_balances;
+    peer_config.chain_config.epochs = Some(EpochList::new(&[
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
@@ -4317,22 +4347,29 @@ fn mempool_incorporate_pox_unlocks() {
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));
-    peer_config.burnchain.pox_constants.v1_unlock_height =
-        peer_config.epochs.as_ref().unwrap()[StacksEpochId::Epoch2_05].end_height as u32 + 1;
-    let pox_constants = peer_config.burnchain.pox_constants.clone();
-    let burnchain = peer_config.burnchain.clone();
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .v1_unlock_height = peer_config.chain_config.epochs.as_ref().unwrap()
+        [StacksEpochId::Epoch2_05]
+        .end_height as u32
+        + 1;
+    let pox_constants = peer_config.chain_config.burnchain.pox_constants.clone();
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
-    let first_block_height = peer.sortdb.as_ref().unwrap().first_block_height;
+    let first_block_height = peer.chain.sortdb.as_ref().unwrap().first_block_height;
     let first_pox_cycle = pox_constants
         .block_height_to_reward_cycle(first_block_height, first_stacks_block_height)
         .unwrap();
@@ -4356,8 +4393,9 @@ fn mempool_incorporate_pox_unlocks() {
 
     for tenure_id in 0..num_blocks {
         // send transactions to the mempool
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
             |ref mut miner,
@@ -4488,7 +4526,7 @@ fn mempool_incorporate_pox_unlocks() {
                      &parent_tip,
                      tip.total_burn,
                      vrf_proof,
-                     Hash160([tenure_id as u8; 20]),
+                     &Hash160([tenure_id as u8; 20]),
                      &coinbase_tx,
                      BlockBuilderSettings::limited(),
                      None,
@@ -4528,16 +4566,17 @@ fn test_fee_order_mismatch_nonce_order() {
     .unwrap();
 
     let mut peer_config = TestPeerConfig::new(function_name!(), 2002, 2003);
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = vec![(addr.to_account_principal(), 1000000000)];
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
 
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
 
     let first_stacks_block_height = {
-        let sn = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let sn =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         sn.block_height
     };
 
@@ -4546,8 +4585,8 @@ fn test_fee_order_mismatch_nonce_order() {
     let sender_nonce = 0;
 
     // send transactions to the mempool
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+        .unwrap();
 
     let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
         |ref mut miner,
@@ -4622,7 +4661,7 @@ fn test_fee_order_mismatch_nonce_order() {
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0; 20]),
+                &Hash160([0; 20]),
                 &coinbase_tx,
                 BlockBuilderSettings::max_value(),
                 None,
@@ -4715,9 +4754,10 @@ fn paramaterized_mempool_walk_test(
     );
     let mut peer_config = TestPeerConfig::new(&test_name, 2002, 2003);
 
-    peer_config.initial_balances = vec![];
+    peer_config.chain_config.initial_balances = vec![];
     for (privk, addr) in &key_address_pairs {
         peer_config
+            .chain_config
             .initial_balances
             .push((addr.to_account_principal(), 1000000000));
     }
@@ -4783,7 +4823,7 @@ fn paramaterized_mempool_walk_test(
                 &b_1.0,
                 &b_1.1,
                 true,
-                txid,
+                &txid,
                 tx_bytes,
                 tx_fee,
                 height,
@@ -4896,9 +4936,10 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
 
     let test_name = function_name!();
     let mut peer_config = TestPeerConfig::new(&test_name, 0, 0);
-    peer_config.initial_balances = vec![];
+    peer_config.chain_config.initial_balances = vec![];
     for (privk, addr) in &key_address_pairs {
         peer_config
+            .chain_config
             .initial_balances
             .push((addr.to_account_principal(), 1000000000));
     }
@@ -5010,7 +5051,7 @@ fn mempool_walk_test_next_nonce_with_highest_fee_rate_strategy() {
             &b_1.0,
             &b_1.1,
             true,
-            txid,
+            &txid,
             tx_bytes,
             tx_fee,
             height,
@@ -5146,15 +5187,15 @@ fn run_mempool_walk_strategy_nonce_order_test<F>(
         .collect();
 
     let mut peer_config = TestPeerConfig::new(test_name, 2030, 2031);
-    peer_config.initial_balances = initial_balances;
-    let burnchain = peer_config.burnchain.clone();
+    peer_config.chain_config.initial_balances = initial_balances;
+    let burnchain = peer_config.chain_config.burnchain.clone();
 
     let mut peer = TestPeer::new(peer_config);
-    let chainstate_path = peer.chainstate_path.clone();
+    let chainstate_path = peer.chain.chainstate_path.clone();
     let mut mempool = MemPoolDB::open_test(false, 0x80000000, &chainstate_path).unwrap();
 
-    let tip =
-        SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn()).unwrap();
+    let tip = SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+        .unwrap();
 
     let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
         |ref mut miner,
@@ -5199,7 +5240,7 @@ fn run_mempool_walk_strategy_nonce_order_test<F>(
                             &privk,
                             tx_nonce,
                             200 * (tx_nonce + 1), // Higher nonce = higher fee
-                            &format!("contract-{}", tx_nonce),
+                            &format!("contract-{tx_nonce}"),
                             contract,
                         )
                     })
@@ -5232,7 +5273,7 @@ fn run_mempool_walk_strategy_nonce_order_test<F>(
                 &parent_tip,
                 tip.total_burn,
                 vrf_proof,
-                Hash160([0; 20]),
+                &Hash160([0; 20]),
                 &coinbase_tx,
                 settings,
                 None,

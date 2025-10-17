@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
@@ -38,6 +37,7 @@ use crate::chainstate::stacks::miner::{
 };
 use crate::chainstate::stacks::{Error, StacksBlockHeader, *};
 use crate::clarity_vm::clarity::ClarityInstance;
+use crate::config::DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE;
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -90,6 +90,9 @@ pub struct NakamotoBlockBuilder {
     pub header: NakamotoBlockHeader,
     /// Optional soft limit for this block's budget usage
     soft_limit: Option<ExecutionCost>,
+    /// Percentage of a block's budget that may be consumed by
+    /// contract calls before reverting to stx transfers/boot contract calls only
+    contract_limit_percentage: Option<u8>,
 }
 
 pub struct MinerTenureInfo<'a> {
@@ -108,6 +111,7 @@ pub struct MinerTenureInfo<'a> {
     pub cause: Option<TenureChangeCause>,
     pub active_reward_set: boot::RewardSet,
     pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
+    pub ephemeral: bool,
 }
 
 /// Structure returned from `NakamotoBlockBuilder::build_nakamoto_block` with
@@ -141,6 +145,7 @@ impl NakamotoBlockBuilder {
             txs: vec![],
             header: NakamotoBlockHeader::genesis(),
             soft_limit: None,
+            contract_limit_percentage: None,
         }
     }
 
@@ -170,6 +175,7 @@ impl NakamotoBlockBuilder {
         coinbase: Option<&StacksTransaction>,
         bitvec_len: u16,
         soft_limit: Option<ExecutionCost>,
+        contract_limit_percentage: Option<u8>,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -210,20 +216,34 @@ impl NakamotoBlockBuilder {
                     .unwrap_or(0),
             ),
             soft_limit,
+            contract_limit_percentage,
         })
     }
 
     /// This function should be called before `tenure_begin`.
     /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
     /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
-    /// expire.
+    /// expire.  This is used for normal blocks.
     pub fn load_tenure_info<'a>(
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false)
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, false)
+    }
+
+    /// This function should be called before `tenure_begin`.
+    /// It creates a MinerTenureInfo struct which owns connections to the chainstate and sortition
+    /// DBs, so that block-processing is guaranteed to terminate before the lives of these handles
+    /// expire.  This is used for ephemeral blocks
+    pub fn load_ephemeral_tenure_info<'a>(
+        &self,
+        chainstate: &'a mut StacksChainState,
+        burn_dbconn: &'a SortitionHandleConn,
+        cause: Option<TenureChangeCause>,
+    ) -> Result<MinerTenureInfo<'a>, Error> {
+        self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, true)
     }
 
     /// This function should be called before `tenure_begin`.
@@ -236,8 +256,9 @@ impl NakamotoBlockBuilder {
         burn_dbconn: &'a SortitionHandleConn,
         cause: Option<TenureChangeCause>,
         shadow_block: bool,
+        ephemeral: bool,
     ) -> Result<MinerTenureInfo<'a>, Error> {
-        debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause);
+        debug!("Nakamoto miner tenure begin"; "shadow" => shadow_block, "tenure_change" => ?cause, "ephemeral" => ephemeral);
 
         let Some(tenure_election_sn) =
             SortitionDB::get_block_snapshot_consensus(burn_dbconn, &self.header.consensus_hash)?
@@ -372,6 +393,7 @@ impl NakamotoBlockBuilder {
             coinbase_height,
             active_reward_set,
             tenure_block_commit_opt,
+            ephemeral,
         })
     }
 
@@ -395,24 +417,47 @@ impl NakamotoBlockBuilder {
             clarity_tx,
             matured_miner_rewards_opt,
             ..
-        } = NakamotoChainState::setup_block(
-            &mut info.chainstate_tx,
-            info.clarity_instance,
-            burn_dbconn,
-            burn_dbconn.context.first_block_height,
-            &burn_dbconn.context.pox_constants,
-            info.parent_consensus_hash,
-            info.parent_header_hash,
-            info.parent_burn_block_height,
-            info.burn_tip,
-            info.burn_tip_height,
-            info.cause == Some(TenureChangeCause::BlockFound),
-            info.coinbase_height,
-            info.cause == Some(TenureChangeCause::Extended),
-            &self.header.pox_treatment,
-            block_commit,
-            &info.active_reward_set,
-        )?;
+        } = if info.ephemeral {
+            NakamotoChainState::setup_ephemeral_block(
+                &mut info.chainstate_tx,
+                info.clarity_instance,
+                burn_dbconn,
+                burn_dbconn.context.first_block_height,
+                &burn_dbconn.context.pox_constants,
+                &info.parent_consensus_hash,
+                &info.parent_header_hash,
+                info.parent_burn_block_height,
+                &info.burn_tip,
+                info.burn_tip_height,
+                info.cause == Some(TenureChangeCause::BlockFound),
+                info.coinbase_height,
+                info.cause == Some(TenureChangeCause::Extended),
+                &self.header.pox_treatment,
+                block_commit,
+                &info.active_reward_set,
+                Some(self.header.timestamp),
+            )
+        } else {
+            NakamotoChainState::setup_block(
+                &mut info.chainstate_tx,
+                info.clarity_instance,
+                burn_dbconn,
+                burn_dbconn.context.first_block_height,
+                &burn_dbconn.context.pox_constants,
+                &info.parent_consensus_hash,
+                &info.parent_header_hash,
+                info.parent_burn_block_height,
+                &info.burn_tip,
+                info.burn_tip_height,
+                info.cause == Some(TenureChangeCause::BlockFound),
+                info.coinbase_height,
+                info.cause == Some(TenureChangeCause::Extended),
+                &self.header.pox_treatment,
+                block_commit,
+                &info.active_reward_set,
+                Some(self.header.timestamp),
+            )
+        }?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
         Ok(clarity_tx)
     }
@@ -458,10 +503,11 @@ impl NakamotoBlockBuilder {
         };
 
         test_debug!(
-            "\n\nMined Nakamoto block {}, {} transactions, state root is {}\n",
+            "\n\nMined Nakamoto block {}, {} transactions, state root is {}\nBlock: {:?}",
             block.header.block_hash(),
             block.txs.len(),
-            state_root_hash
+            state_root_hash,
+            &block
         );
 
         debug!(
@@ -534,6 +580,7 @@ impl NakamotoBlockBuilder {
             tenure_info.coinbase_tx(),
             signer_bitvec_len,
             None,
+            settings.mempool_settings.contract_cost_limit_percentage,
         )?;
 
         let ts_start = get_epoch_time_ms();
@@ -593,7 +640,6 @@ impl NakamotoBlockBuilder {
             &initial_txs,
             settings,
             event_observer,
-            ASTRules::PrecheckSize,
             replay_transactions,
         ) {
             Ok(x) => x,
@@ -664,7 +710,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
         tx: &StacksTransaction,
         tx_len: u64,
         limit_behavior: &BlockLimitFunction,
-        ast_rules: ASTRules,
         max_execution_time: Option<std::time::Duration>,
     ) -> TransactionResult {
         if self.bytes_so_far + tx_len >= u64::from(MAX_EPOCH_SIZE) {
@@ -702,7 +747,6 @@ impl BlockBuilder for NakamotoBlockBuilder {
                 clarity_tx.config.mainnet,
                 clarity_tx.get_epoch(),
                 tx,
-                ast_rules,
             ) {
                 info!(
                     "Detected problematic tx {} while mining; dropping from mempool",
@@ -712,17 +756,21 @@ impl BlockBuilder for NakamotoBlockBuilder {
             }
 
             let cost_before = clarity_tx.cost_so_far();
-
             let (_fee, receipt) = match StacksChainState::process_transaction(
                 clarity_tx,
                 tx,
                 quiet,
-                ast_rules,
                 max_execution_time,
             ) {
                 Ok(x) => x,
                 Err(e) => {
-                    return parse_process_transaction_error(clarity_tx, tx, e);
+                    return parse_process_transaction_error(
+                        clarity_tx,
+                        tx,
+                        e,
+                        self.contract_limit_percentage
+                            .unwrap_or(DEFAULT_CONTRACT_COST_LIMIT_PERCENTAGE),
+                    );
                 }
             };
 
@@ -741,7 +789,7 @@ impl BlockBuilder for NakamotoBlockBuilder {
                   "origin" => %tx.origin_address(),
                   "soft_limit_reached" => soft_limit_reached,
                   "cost_after" => %cost_after,
-                  "cost_before" => %cost_before,
+                  "cost_before" => %cost_before
             );
 
             // save
@@ -758,6 +806,7 @@ fn parse_process_transaction_error(
     clarity_tx: &mut ClarityTx,
     tx: &StacksTransaction,
     e: Error,
+    contract_limit_percentage: u8,
 ) -> TransactionResult {
     let (is_problematic, e) = TransactionResult::is_problematic(tx, e, clarity_tx.get_epoch());
     if is_problematic {
@@ -766,14 +815,13 @@ fn parse_process_transaction_error(
         match e {
             Error::CostOverflowError(cost_before, cost_after, total_budget) => {
                 clarity_tx.reset_cost(cost_before.clone());
-                if total_budget.proportion_largest_dimension(&cost_before)
-                    < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
-                {
+                let cost_so_far_percentage =
+                    total_budget.proportion_largest_dimension(&cost_before);
+                if cost_so_far_percentage < TX_BLOCK_LIMIT_PROPORTION_HEURISTIC {
                     warn!(
-                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {}",
+                            "Transaction {} consumed over {}% of block budget, marking as invalid; budget was {total_budget}",
                             tx.txid(),
-                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC,
-                            &total_budget
+                            100 - TX_BLOCK_LIMIT_PROPORTION_HEURISTIC
                     );
                     let mut measured_cost = cost_after;
                     let measured_cost = if measured_cost.sub(&cost_before).is_ok() {
@@ -783,6 +831,13 @@ fn parse_process_transaction_error(
                         None
                     };
                     TransactionResult::error(tx, Error::TransactionTooBigError(measured_cost))
+                } else if cost_so_far_percentage < contract_limit_percentage.into() {
+                    warn!(
+                        "Transaction {} would exceed the tenure budget, but only {cost_so_far_percentage}% of total budget currently consumed. Skipping tx for this block.", tx.txid();
+                        "contract_limit_percentage" => contract_limit_percentage,
+                        "total_budget" => %total_budget
+                    );
+                    TransactionResult::skipped_due_to_error(tx, Error::BlockCostLimitError)
                 } else {
                     warn!(
                         "Transaction {} reached block cost {cost_after}; budget was {total_budget}",

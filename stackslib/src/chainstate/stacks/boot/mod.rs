@@ -20,7 +20,6 @@ use std::sync::LazyLock;
 
 use clarity::types::Address;
 use clarity::vm::analysis::CheckErrors;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
@@ -30,7 +29,7 @@ use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, TupleData, Value,
 };
-use clarity::vm::{ClarityVersion, Environment, SymbolicExpression};
+use clarity::vm::{Environment, SymbolicExpression};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
@@ -56,6 +55,7 @@ pub const BOOT_CODE_LOCKUP: &str = std::include_str!("lockup.clar");
 pub const BOOT_CODE_COSTS: &str = std::include_str!("costs.clar");
 pub const BOOT_CODE_COSTS_2: &str = std::include_str!("costs-2.clar");
 pub const BOOT_CODE_COSTS_3: &str = std::include_str!("costs-3.clar");
+pub const BOOT_CODE_COSTS_4: &str = std::include_str!("costs-4.clar");
 pub const BOOT_CODE_COSTS_2_TESTNET: &str = std::include_str!("costs-2-testnet.clar");
 pub const BOOT_CODE_COST_VOTING_MAINNET: &str = std::include_str!("cost-voting.clar");
 pub const BOOT_CODE_BNS: &str = std::include_str!("bns.clar");
@@ -87,6 +87,7 @@ const SIP_031_BODY: &str = std::include_str!("sip-031.clar");
 pub const COSTS_1_NAME: &str = "costs";
 pub const COSTS_2_NAME: &str = "costs-2";
 pub const COSTS_3_NAME: &str = "costs-3";
+pub const COSTS_4_NAME: &str = "costs-4";
 /// This contract name is used in testnet **only** to lookup an initial
 ///  setting for the pox-4 aggregate key. This contract should contain a `define-read-only`
 ///  function called `aggregate-key` with zero arguments which returns a (buff 33)
@@ -385,19 +386,17 @@ impl StacksChainState {
                 is_mainnet,
                 // chain id doesn't matter since it won't be used
                 CHAIN_ID_MAINNET,
-                ClarityVersion::Clarity2,
                 sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
                 |vm_env| {
-                    vm_env.eval_read_only_with_rules(
+                    vm_env.eval_read_only(
                         &pox_contract,
                         &format!(r#"
                             (unwrap-panic (map-get? stacking-state {{ stacker: '{unlocked_principal} }}))
                             "#,
                                  unlocked_principal = Value::Principal(principal.clone())
                         ),
-                        ASTRules::PrecheckSize,
                     )
                 })
             .expect("FATAL: failed to query unlocked principal");
@@ -435,12 +434,11 @@ impl StacksChainState {
                 is_mainnet,
                 // chain id doesn't matter since it won't be used
                 CHAIN_ID_MAINNET,
-                ClarityVersion::Clarity2,
                 sender_addr,
                 None,
                 LimitedCostTracker::new_free(),
                 |vm_env| {
-                    vm_env.eval_read_only_with_rules(
+                    vm_env.eval_read_only(
                         &pox_contract,
                         &format!(
                             r#"
@@ -468,7 +466,6 @@ impl StacksChainState {
                             cycle_to_unlock = Value::UInt(cycle_number.into()),
                             pox_addr = user_pox_addr
                         ),
-                        ASTRules::PrecheckSize,
                     )
                 },
             )
@@ -641,7 +638,6 @@ impl StacksChainState {
                 &iconn,
                 &boot::boot_code_id(boot_contract_name, self.mainnet),
                 code,
-                ASTRules::PrecheckSize,
             )
             .map_err(Error::ClarityError)
     }
@@ -696,7 +692,6 @@ impl StacksChainState {
                     clarity_tx.with_readonly_clarity_env(
                         mainnet,
                         chain_id,
-                        ClarityVersion::Clarity1,
                         sender,
                         None,
                         cost_track,
@@ -782,12 +777,11 @@ impl StacksChainState {
         for entry in entries.iter() {
             let signing_key = entry
                 .signer
-                .clone()
                 .expect("BUG: signing keys should all be set in reward-sets with any signing keys");
             if let Some(existing_entry) = signer_set.get_mut(&signing_key) {
                 *existing_entry += entry.amount_stacked;
             } else {
-                signer_set.insert(signing_key.clone(), entry.amount_stacked);
+                signer_set.insert(signing_key, entry.amount_stacked);
             };
         }
 
@@ -1661,8 +1655,8 @@ pub mod test {
         observer: Option<&'a TestEventObserver>,
     ) -> (TestPeer<'a>, Vec<StacksPrivateKey>) {
         let mut peer_config = TestPeerConfig::new(test_name, 0, 0);
-        peer_config.burnchain = burnchain.clone();
-        peer_config.epochs = epochs;
+        peer_config.chain_config.burnchain = burnchain.clone();
+        peer_config.chain_config.epochs = epochs;
         peer_config.setup_code = format!(
             "(contract-call? .pox set-burnchain-parameters u{} u{} u{} u{})",
             burnchain.first_block_height,
@@ -1699,14 +1693,14 @@ pub mod test {
             .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
             .collect();
 
-        peer_config.initial_balances = balances;
+        peer_config.chain_config.initial_balances = balances;
         let peer = TestPeer::new_with_observer(peer_config, observer);
 
         (peer, keys.to_vec())
     }
 
     pub fn eval_at_tip(peer: &mut TestPeer, boot_contract: &str, expr: &str) -> Value {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
@@ -1717,7 +1711,7 @@ pub mod test {
             &boot_code_id(boot_contract, false),
             expr,
         );
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
         value
     }
 
@@ -1734,7 +1728,7 @@ pub mod test {
         name: &str,
         expr: &str,
     ) -> Value {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let (consensus_hash, block_bhh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(sortdb.conn()).unwrap();
         let stacks_block_id = StacksBlockId::new(&consensus_hash, &block_bhh);
@@ -1745,7 +1739,7 @@ pub mod test {
             &contract_id(addr, name),
             expr,
         );
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
         value
     }
 
@@ -1821,11 +1815,7 @@ pub mod test {
         addr: &PrincipalData,
     ) -> Option<(u128, PoxAddress, u128, u128)> {
         let value_opt = eval_at_tip(peer, "pox", &format!("(get-stacker-info '{addr})"));
-        let data = if let Some(d) = value_opt.expect_optional().unwrap() {
-            d
-        } else {
-            return None;
-        };
+        let data = value_opt.expect_optional().unwrap()?;
 
         let data = data.expect_tuple().unwrap();
 
@@ -1861,9 +1851,9 @@ pub mod test {
     where
         F: FnOnce(&mut StacksChainState, &SortitionDB) -> R,
     {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let r = todo(peer.chainstate(), &sortdb);
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
         r
     }
 
@@ -1903,7 +1893,7 @@ pub mod test {
         contract_opt
     }
 
-    pub fn make_pox_addr(addr_version: AddressHashMode, addr_bytes: Hash160) -> Value {
+    pub fn make_pox_addr(addr_version: AddressHashMode, addr_bytes: &Hash160) -> Value {
         Value::Tuple(
             TupleData::from_data(vec![
                 (
@@ -1926,7 +1916,7 @@ pub mod test {
         nonce: u64,
         amount: u128,
         addr_version: AddressHashMode,
-        addr_bytes: Hash160,
+        addr_bytes: &Hash160,
         lock_period: u128,
         burn_ht: u64,
     ) -> StacksTransaction {
@@ -2118,12 +2108,12 @@ pub mod test {
 
     pub fn get_approved_aggregate_key(
         peer: &mut TestPeer<'_>,
-        latest_block_id: StacksBlockId,
+        latest_block_id: &StacksBlockId,
         reward_cycle: u128,
     ) -> Option<Vec<u8>> {
         let key_opt = readonly_call(
             peer,
-            &latest_block_id,
+            latest_block_id,
             SIGNERS_VOTING_NAME.into(),
             "get-approved-aggregate-key".into(),
             vec![Value::UInt(reward_cycle)],
@@ -2623,7 +2613,7 @@ pub mod test {
 
         let bad_lock_period_short = generator(
             amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
             0,
             nonce,
         );
@@ -2632,7 +2622,7 @@ pub mod test {
 
         let bad_lock_period_long = generator(
             amount,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
             13,
             nonce,
         );
@@ -2641,7 +2631,7 @@ pub mod test {
 
         let bad_amount = generator(
             0,
-            make_pox_addr(AddressHashMode::SerializeP2PKH, addr_bytes.clone()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, &addr_bytes),
             1,
             nonce,
         );
@@ -2718,7 +2708,7 @@ pub mod test {
         name: &str,
         amount: u128,
         addr_version: AddressHashMode,
-        addr_bytes: Hash160,
+        addr_bytes: &Hash160,
         lock_period: u128,
     ) -> StacksTransaction {
         let payload = TransactionPayload::new_contract_call(
@@ -2820,8 +2810,9 @@ pub mod test {
     }
 
     pub fn get_current_reward_cycle(peer: &TestPeer, burnchain: &Burnchain) -> u128 {
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
         burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap() as u128
@@ -2847,9 +2838,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -2874,7 +2866,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -2914,7 +2906,7 @@ pub mod test {
         let mut peer_config = TestPeerConfig::new(function_name!(), 2000, 2001);
         let alice = StacksAddress::from_string("STVK1K405H6SK9NKJAP32GHYHDJ98MMNP8Y6Z9N0").unwrap();
         let bob = StacksAddress::from_string("ST76D2FMXZ7D2719PNE4N71KPSX84XCCNCMYC940").unwrap();
-        peer_config.initial_lockups = vec![
+        peer_config.chain_config.initial_lockups = vec![
             ChainstateAccountLockup::new(alice.clone(), 1000, 1),
             ChainstateAccountLockup::new(bob.clone(), 1000, 1),
             ChainstateAccountLockup::new(alice.clone(), 1000, 2),
@@ -2974,9 +2966,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -3001,7 +2994,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3041,9 +3034,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -3054,7 +3048,7 @@ pub mod test {
                 ];
 
                 if tenure_id == 1 {
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 1, tip.block_height);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, &key_to_stacks_addr(&alice).destruct().1, 1, tip.block_height);
                     block_txs.push(alice_lockup_1);
                 }
                 if tenure_id == 2 {
@@ -3093,7 +3087,7 @@ pub mod test {
                 }
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
-                    &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                    &parent_tip, vrf_proof, tip.total_burn, &microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -3158,9 +3152,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -3193,7 +3188,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3269,9 +3264,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -3292,7 +3288,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -3304,7 +3300,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3480,9 +3476,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let cur_reward_cycle = burnchain
                 .block_height_to_reward_cycle(tip.block_height)
@@ -3508,7 +3505,7 @@ pub mod test {
                                 0,
                                 1024 * POX_THRESHOLD_STEPS_USTX,
                                 AddressHashMode::SerializeP2PKH,
-                                key_to_stacks_addr(key).destruct().1,
+                                &key_to_stacks_addr(key).destruct().1,
                                 12,
                                 tip.block_height,
                             );
@@ -3522,7 +3519,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -3741,9 +3738,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -3769,7 +3767,7 @@ pub mod test {
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                         );
                         block_txs.push(alice_stack);
@@ -3780,7 +3778,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -4008,9 +4006,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -4031,7 +4030,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -4043,7 +4042,7 @@ pub mod test {
                             0,
                             (4 * 1024 * POX_THRESHOLD_STEPS_USTX) / 5,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&bob).destruct().1,
+                            &key_to_stacks_addr(&bob).destruct().1,
                             12,
                             tip.block_height,
                         );
@@ -4055,7 +4054,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -4224,9 +4223,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -4239,11 +4239,11 @@ pub mod test {
                 if tenure_id == 1 {
                     // Alice locks up exactly 12.5% of the liquid STX supply, twice.
                     // Only the first one succeeds.
-                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
+                    let alice_lockup_1 = make_pox_lockup(&alice, 0, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, &key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup_1);
 
                     // will be rejected
-                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
+                    let alice_lockup_2 = make_pox_lockup(&alice, 1, 512 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, &key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup_2);
 
                     // let's make some allowances for contract-calls through smart contracts
@@ -4305,7 +4305,7 @@ pub mod test {
                 }
 
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain,
-                    &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                    &parent_tip, vrf_proof, tip.total_burn, &microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
                 (anchored_block, vec![])
             });
@@ -4437,9 +4437,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -4460,7 +4461,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4472,7 +4473,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -4686,9 +4687,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -4709,7 +4711,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4726,7 +4728,7 @@ pub mod test {
                             "do-lockup",
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).destruct().1,
+                            &key_to_stacks_addr(&charlie).destruct().1,
                             1,
                         );
                         block_txs.push(charlie_stack);
@@ -4746,7 +4748,7 @@ pub mod test {
                             1,
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -4760,7 +4762,7 @@ pub mod test {
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).destruct().1,
+                            &key_to_stacks_addr(&charlie).destruct().1,
                             1,
                         );
                         block_txs.push(charlie_stack);
@@ -4771,7 +4773,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -5208,9 +5210,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(
                 |ref mut miner,
@@ -5231,7 +5234,7 @@ pub mod test {
                             0,
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5242,7 +5245,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&bob).destruct().1,
+                            &key_to_stacks_addr(&bob).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5253,7 +5256,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&charlie).destruct().1,
+                            &key_to_stacks_addr(&charlie).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5264,7 +5267,7 @@ pub mod test {
                             0,
                             1024 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2PKH,
-                            key_to_stacks_addr(&danielle).destruct().1,
+                            &key_to_stacks_addr(&danielle).destruct().1,
                             1,
                             tip.block_height,
                         );
@@ -5280,7 +5283,7 @@ pub mod test {
                             "do-lockup",
                             512 * POX_THRESHOLD_STEPS_USTX,
                             AddressHashMode::SerializeP2SH,
-                            key_to_stacks_addr(&alice).destruct().1,
+                            &key_to_stacks_addr(&alice).destruct().1,
                             1,
                         );
                         block_txs.push(alice_stack);
@@ -5352,7 +5355,7 @@ pub mod test {
                         &parent_tip,
                         vrf_proof,
                         tip.total_burn,
-                        microblock_pubkeyhash,
+                        &microblock_pubkeyhash,
                     )
                     .unwrap();
                     let (anchored_block, _size, _cost) =
@@ -5654,9 +5657,10 @@ pub mod test {
             let microblock_privkey = StacksPrivateKey::random();
             let microblock_pubkeyhash =
                 Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-            let tip =
-                SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-                    .unwrap();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(
+                peer.chain.sortdb.as_ref().unwrap().conn(),
+            )
+            .unwrap();
 
             let (burn_ops, stacks_block, microblocks) = peer.make_tenure(|ref mut miner, ref mut sortdb, ref mut chainstate, vrf_proof, ref parent_opt, ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
@@ -5668,7 +5672,7 @@ pub mod test {
 
                 if tenure_id == 1 {
                     // Alice locks up exactly 25% of the liquid STX supply, so this should succeed.
-                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
+                    let alice_lockup = make_pox_lockup(&alice, 0, 1024 * POX_THRESHOLD_STEPS_USTX, AddressHashMode::SerializeP2PKH, &key_to_stacks_addr(&alice).destruct().1, 12, tip.block_height);
                     block_txs.push(alice_lockup);
 
                     // Bob rejects with exactly 25% of the liquid STX supply (shouldn't affect
@@ -5727,7 +5731,7 @@ pub mod test {
                     block_txs.push(charlie_reject);
                 }
 
-                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain, &parent_tip, vrf_proof, tip.total_burn, microblock_pubkeyhash).unwrap();
+                let block_builder = StacksBlockBuilder::make_regtest_block_builder(&burnchain, &parent_tip, vrf_proof, tip.total_burn, &microblock_pubkeyhash).unwrap();
                 let (anchored_block, _size, _cost) = StacksBlockBuilder::make_anchored_block_from_txs(block_builder, chainstate, &sortdb.index_handle_at_tip(), block_txs).unwrap();
 
                 if tenure_id == 2 {

@@ -328,7 +328,8 @@ impl PeerNetwork {
                     if let Some(entry) = ip_neighbor.get_mut(&nk.addrbytes) {
                         entry.push((*event_id, nk.clone(), stats));
                     } else {
-                        ip_neighbor.insert(nk.addrbytes, vec![(*event_id, nk.clone(), stats)]);
+                        ip_neighbor
+                            .insert(nk.addrbytes.clone(), vec![(*event_id, nk.clone(), stats)]);
                     }
                 }
             }

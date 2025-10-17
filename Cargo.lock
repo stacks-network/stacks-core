@@ -419,6 +419,15 @@ checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
 [[package]]
 name = "base64"
 version = "0.22.1"
+<<<<<<< HEAD
+=======
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "base64ct"
+version = "1.6.0"
+>>>>>>> develop
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
@@ -596,10 +605,19 @@ name = "clar2wasm"
 version = "0.1.0"
 source = "git+https://github.com/stacks-network/clarity-wasm.git?branch=main#0238e6c917f24ea61737c649731787cbe7607afc"
 dependencies = [
+<<<<<<< HEAD
  "chrono",
  "clap",
  "clarity",
  "lazy_static",
+=======
+ "assert-json-diff 1.1.0",
+ "clarity-types",
+ "integer-sqrt",
+ "lazy_static",
+ "mutants",
+ "proptest",
+>>>>>>> develop
  "regex",
  "rusqlite",
  "sha2 0.10.9",
@@ -635,18 +653,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "clarity-serialization"
+name = "clarity-types"
 version = "0.0.1"
 dependencies = [
  "lazy_static",
  "mutants",
  "regex",
  "rstest",
+ "rusqlite",
  "serde",
  "serde_derive",
+ "serde_json",
  "slog",
+<<<<<<< HEAD
  "stacks-common",
  "thiserror",
+=======
+ "stacks-common 0.0.1",
+>>>>>>> develop
 ]
 
 [[package]]
@@ -674,6 +698,33 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "console"
+version = "0.15.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e1f83fc076bd6dd27517eacdf25fef6c4dfe5f1d7448bafaaf3a26f13b5e4eb"
+dependencies = [
+ "encode_unicode",
+ "lazy_static",
+ "libc",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "const-oid"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "const_fn"
+version = "0.4.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f8a2ca5ac02d09563609681103aada9e1777d54fc57a5acd7a41404f9c93b6e"
+
+[[package]]
+>>>>>>> develop
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1002,8 +1053,19 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "either"
 version = "1.15.0"
+=======
+name = "encode_unicode"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a357d28ed41a50f9c765dbfe56cbc04a64e53e5fc58ba79fbc34c10ef3df831f"
+
+[[package]]
+name = "encoding_rs"
+version = "0.8.33"
+>>>>>>> develop
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
@@ -1873,6 +1935,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "64e9829a50b42bb782c1df523f78d332fe371b10c661e78b7a3c34b0198e9fac"
 
 [[package]]
+name = "insta"
+version = "1.41.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e9ffc4d4892617c50a928c52b2961cb5174b6fc6ebf252b2fac9d21955c48b8"
+dependencies = [
+ "console",
+ "lazy_static",
+ "linked-hash-map",
+ "ron",
+ "serde",
+ "similar",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2083,6 +2159,7 @@ dependencies = [
 
 [[package]]
 name = "libsecp256k1"
+<<<<<<< HEAD
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd1137239ab33b41aa9637a88a28249e5e70c40a42ccc92db7f12cc356c1fcd7"
@@ -2113,6 +2190,20 @@ dependencies = [
  "libsecp256k1-core 0.3.0",
  "libsecp256k1-gen-ecmult 0.3.0",
  "libsecp256k1-gen-genmult 0.3.0",
+=======
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e79019718125edc905a079a70cfa5f3820bc76139fc91d6f9abc27ea2a887139"
+dependencies = [
+ "arrayref",
+ "base64 0.22.1",
+ "digest 0.9.0",
+ "hmac-drbg",
+ "lazy_static",
+ "libsecp256k1-core",
+ "libsecp256k1-gen-ecmult",
+ "libsecp256k1-gen-genmult",
+>>>>>>> develop
  "rand 0.8.5",
  "serde",
  "sha2 0.9.9",
@@ -2221,6 +2312,12 @@ dependencies = [
  "sha2 0.10.9",
  "stacks-common",
 ]
+
+[[package]]
+name = "linked-hash-map"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
 
 [[package]]
 name = "linux-raw-sys"
@@ -3082,6 +3179,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ron"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88073939a61e5b7680558e6be56b419e208420c2adb92be54921fa6b72283f1a"
+dependencies = [
+ "base64 0.13.1",
+ "bitflags 1.3.2",
+ "serde",
+]
+
+[[package]]
 name = "rstest"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3608,6 +3716,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-cli"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "serde_json",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tempfile",
+]
+
+[[package]]
 name = "stacks-common"
 version = "0.0.2"
 dependencies = [
@@ -3641,6 +3760,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "stacks-inspect"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "libstackerdb 0.0.1",
+ "mutants",
+ "regex",
+ "rusqlite",
+ "serde_json",
+ "slog",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+ "tikv-jemallocator",
+]
+
+[[package]]
 name = "stacks-node"
 version = "0.1.0"
 dependencies = [
@@ -3670,9 +3805,19 @@ dependencies = [
  "serde_json",
  "serial_test",
  "slog",
+<<<<<<< HEAD
  "stacks-common",
  "stacks-signer",
  "stackslib",
+=======
+ "stacks-common 0.0.1",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stacks-inspect",
+ "stacks-signer 0.0.1",
+ "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stackslib 0.0.1",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+>>>>>>> develop
  "stdext",
  "stx-genesis",
  "tempfile",
@@ -3731,7 +3876,11 @@ dependencies = [
  "clar2wasm",
  "clarity",
  "ed25519-dalek",
+<<<<<<< HEAD
  "hashbrown 0.15.5",
+=======
+ "insta",
+>>>>>>> develop
  "lazy_static",
  "libstackerdb",
  "mio 0.6.23",
@@ -3762,8 +3911,12 @@ dependencies = [
  "stdext",
  "stx-genesis",
  "tempfile",
+<<<<<<< HEAD
  "tikv-jemallocator",
  "time",
+=======
+ "time 0.3.41",
+>>>>>>> develop
  "toml",
  "url",
  "winapi 0.3.9",

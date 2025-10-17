@@ -10,6 +10,9 @@ use super::types::TypeSignature;
 use super::{eval_all, ClarityVersion, ContractContext, Error as VmError, Value};
 use crate::vm::analysis::{run_analysis, CheckResult};
 use crate::vm::ast::{build_ast_with_rules, ASTRules};
+use super::ClarityVersion;
+use crate::vm::analysis::{run_analysis, CheckError};
+use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
 use crate::vm::database::MemoryBackingStore;
 use crate::vm::types::QualifiedContractIdentifier;
@@ -19,18 +22,11 @@ pub fn mem_type_check(
     snippet: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> CheckResult<(Option<TypeSignature>, ContractAnalysis)> {
+) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let contract = build_ast_with_rules(
-        &contract_identifier,
-        snippet,
-        &mut (),
-        version,
-        epoch,
-        ASTRules::PrecheckSize,
-    )
-    .unwrap()
-    .expressions;
+    let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+        .unwrap()
+        .expressions;
 
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
@@ -55,7 +51,7 @@ pub fn mem_type_check(
                 .cloned();
             Ok((first_type, x))
         }
-        Err((e, _)) => Err(e),
+        Err(e) => Err(e.0),
     }
 }
 

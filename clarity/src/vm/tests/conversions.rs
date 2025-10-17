@@ -14,14 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub use crate::vm::analysis::errors::{CheckError, CheckErrors};
-use crate::vm::types::SequenceSubtype::{BufferType, StringType};
-use crate::vm::types::StringSubtype::ASCII;
+use clarity_types::types::MAX_TO_ASCII_BUFFER_LEN;
+use stacks_common::types::StacksEpochId;
+
+pub use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::tests::test_clarity_versions;
+use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
 use crate::vm::types::{
     ASCIIData, BuffData, BufferLength, CharType, SequenceData, TypeSignature, UTF8Data, Value,
 };
-use crate::vm::{execute_v2, ClarityVersion};
+use crate::vm::{execute_v2, execute_with_parameters, ClarityVersion};
 
 #[test]
 fn test_simple_buff_to_int_le() {
@@ -53,10 +56,14 @@ fn test_simple_buff_to_int_le() {
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-                data: "wrong-type".as_bytes().to_vec()
-            })))
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32).unwrap()
+            ))),
+            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
+                ASCIIData {
+                    data: "wrong-type".as_bytes().to_vec()
+                }
+            ))))
         )
         .into()
     );
@@ -66,10 +73,12 @@ fn test_simple_buff_to_int_le() {
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-            Value::Sequence(SequenceData::Buffer(BuffData {
-                data: vec![00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 00]
-            }))
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32).unwrap()
+            ))),
+            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+                data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
+            })))
         )
         .into()
     );
@@ -105,10 +114,14 @@ fn test_simple_buff_to_uint_le() {
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-                data: "wrong-type".as_bytes().to_vec()
-            })))
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32).unwrap()
+            ))),
+            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
+                ASCIIData {
+                    data: "wrong-type".as_bytes().to_vec()
+                }
+            ))))
         )
         .into()
     );
@@ -118,10 +131,12 @@ fn test_simple_buff_to_uint_le() {
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-            Value::Sequence(SequenceData::Buffer(BuffData {
-                data: vec![00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 00]
-            }))
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32).unwrap()
+            ))),
+            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+                data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
+            })))
         )
         .into()
     );
@@ -157,10 +172,14 @@ fn test_simple_buff_to_int_be() {
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16 as u32).unwrap())),
-            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-                data: "wrong-type".as_bytes().to_vec()
-            })))
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32).unwrap()
+            ))),
+            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
+                ASCIIData {
+                    data: "wrong-type".as_bytes().to_vec()
+                }
+            ))))
         )
         .into()
     );
@@ -170,10 +189,12 @@ fn test_simple_buff_to_int_be() {
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-            Value::Sequence(SequenceData::Buffer(BuffData {
-                data: vec![00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 00]
-            }))
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32).unwrap()
+            ))),
+            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+                data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
+            })))
         )
         .into()
     );
@@ -209,10 +230,14 @@ fn test_simple_buff_to_uint_be() {
     assert_eq!(
         execute_v2(bad_wrong_type_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-                data: "wrong-type".as_bytes().to_vec()
-            })))
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32).unwrap()
+            ))),
+            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
+                ASCIIData {
+                    data: "wrong-type".as_bytes().to_vec()
+                }
+            ))))
         )
         .into()
     );
@@ -222,10 +247,12 @@ fn test_simple_buff_to_uint_be() {
     assert_eq!(
         execute_v2(bad_too_large_test).unwrap_err(),
         CheckErrors::TypeValueError(
-            SequenceType(BufferType(BufferLength::try_from(16_u32).unwrap())),
-            Value::Sequence(SequenceData::Buffer(BuffData {
-                data: vec![00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 00]
-            }))
+            Box::new(SequenceType(BufferType(
+                BufferLength::try_from(16_u32).unwrap()
+            ))),
+            Box::new(Value::Sequence(SequenceData::Buffer(BuffData {
+                data: vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0]
+            })))
         )
         .into()
     );
@@ -287,10 +314,10 @@ fn test_simple_string_to_int() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeValueError(
             vec![
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
-            Value::Int(1)
+            Box::new(Value::Int(1))
         )
         .into()
     );
@@ -352,10 +379,10 @@ fn test_simple_string_to_uint() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeValueError(
             vec![
-                TypeSignature::max_string_ascii(),
-                TypeSignature::max_string_utf8(),
+                TypeSignature::STRING_ASCII_MAX,
+                TypeSignature::STRING_UTF8_MAX,
             ],
-            Value::Int(1)
+            Box::new(Value::Int(1))
         )
         .into()
     );
@@ -386,9 +413,11 @@ fn test_simple_int_to_ascii() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-                data: "1".as_bytes().to_vec()
-            })))
+            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
+                ASCIIData {
+                    data: "1".as_bytes().to_vec()
+                }
+            ))))
         )
         .into()
     );
@@ -419,10 +448,144 @@ fn test_simple_int_to_utf8() {
         execute_v2(wrong_type_error_test).unwrap_err(),
         CheckErrors::UnionTypeValueError(
             vec![TypeSignature::IntType, TypeSignature::UIntType],
-            Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData {
-                data: "1".as_bytes().to_vec()
-            })))
+            Box::new(Value::Sequence(SequenceData::String(CharType::ASCII(
+                ASCIIData {
+                    data: "1".as_bytes().to_vec()
+                }
+            ))))
         )
         .into()
     );
+}
+
+#[apply(test_clarity_versions)]
+fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
+    // to-ascii? is available in Clarity 4
+    if version < ClarityVersion::Clarity4 {
+        return;
+    }
+
+    // Test successful conversions
+    let int_to_ascii = "(to-ascii? 9876)";
+    assert_eq!(
+        execute_with_parameters(int_to_ascii, version, epoch, false,),
+        Ok(Some(
+            Value::okay(Value::string_ascii_from_bytes(b"9876".to_vec()).unwrap()).unwrap()
+        ))
+    );
+
+    let uint_to_ascii = "(to-ascii? u12345678)";
+    assert_eq!(
+        execute_with_parameters(uint_to_ascii, version, epoch, false,),
+        Ok(Some(
+            Value::okay(Value::string_ascii_from_bytes(b"u12345678".to_vec()).unwrap()).unwrap()
+        ))
+    );
+
+    let bool_true_to_ascii = "(to-ascii? true)";
+    assert_eq!(
+        execute_with_parameters(bool_true_to_ascii, version, epoch, false,),
+        Ok(Some(
+            Value::okay(Value::string_ascii_from_bytes(b"true".to_vec()).unwrap()).unwrap()
+        ))
+    );
+
+    let bool_false_to_ascii = "(to-ascii? false)";
+    assert_eq!(
+        execute_with_parameters(bool_false_to_ascii, version, epoch, false,),
+        Ok(Some(
+            Value::okay(Value::string_ascii_from_bytes(b"false".to_vec()).unwrap()).unwrap()
+        ))
+    );
+
+    let standard_principal_to_ascii = "(to-ascii? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)";
+    assert_eq!(
+        execute_with_parameters(standard_principal_to_ascii, version, epoch, false,),
+        Ok(Some(
+            Value::okay(
+                Value::string_ascii_from_bytes(
+                    b"ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM".to_vec()
+                )
+                .unwrap()
+            )
+            .unwrap()
+        ))
+    );
+
+    let contract_principal_to_ascii = "(to-ascii? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)";
+    assert_eq!(
+        execute_with_parameters(contract_principal_to_ascii, version, epoch, false,),
+        Ok(Some(
+            Value::okay(
+                Value::string_ascii_from_bytes(
+                    b"ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo".to_vec()
+                )
+                .unwrap()
+            )
+            .unwrap()
+        ))
+    );
+
+    let buffer_to_ascii = "(to-ascii? 0x1234)";
+    assert_eq!(
+        execute_with_parameters(buffer_to_ascii, version, epoch, false,),
+        Ok(Some(
+            Value::okay(Value::string_ascii_from_bytes(b"0x1234".to_vec()).unwrap()).unwrap()
+        ))
+    );
+
+    let utf8_string_to_ascii = "(to-ascii? u\"I am serious, and don't call me Shirley.\")";
+    assert_eq!(
+        execute_with_parameters(utf8_string_to_ascii, version, epoch, false,),
+        Ok(Some(
+            Value::okay(
+                Value::string_ascii_from_bytes(
+                    b"I am serious, and don't call me Shirley.".to_vec()
+                )
+                .unwrap()
+            )
+            .unwrap()
+        ))
+    );
+
+    // This should error since the UTF-8 string contains a non-ASCII character
+    let utf8_string_with_non_ascii = "(to-ascii? u\"A smiley face emoji: \\u{1F600}\")";
+    assert_eq!(
+        execute_with_parameters(utf8_string_with_non_ascii, version, epoch, false,),
+        Ok(Some(Value::err_uint(1))) // Should return error for non-ASCII UTF8
+    );
+
+    // Test error cases - these should fail at analysis time with type errors
+    let ascii_string_to_ascii = "(to-ascii? \"60 percent of the time, it works every time\")";
+    let result = execute_with_parameters(ascii_string_to_ascii, version, epoch, false);
+    // This should fail at analysis time since ASCII strings are not allowed
+    assert!(result.is_err());
+
+    let list_to_ascii = "(to-ascii? (list 1 2 3))";
+    let result = execute_with_parameters(list_to_ascii, version, epoch, false);
+    // This should fail at analysis time since lists are not allowed
+    assert!(result.is_err());
+
+    let tuple_to_ascii = "(to-ascii? { a: 1, b: u2 })";
+    let result = execute_with_parameters(tuple_to_ascii, version, epoch, false);
+    // This should fail at analysis time since tuples are not allowed
+    assert!(result.is_err());
+
+    let optional_to_ascii = "(to-ascii? (some u789))";
+    let result = execute_with_parameters(optional_to_ascii, version, epoch, false);
+    // This should fail at analysis time since optionals are not allowed
+    assert!(result.is_err());
+
+    let response_to_ascii = "(to-ascii? (ok true))";
+    let result = execute_with_parameters(response_to_ascii, version, epoch, false);
+    // This should fail at analysis time since responses are not allowed
+    assert!(result.is_err());
+
+    let oversized_buffer_to_ascii = format!(
+        "(to-ascii? 0x{})",
+        "ff".repeat(MAX_TO_ASCII_BUFFER_LEN as usize + 1)
+    );
+    let result = execute_with_parameters(response_to_ascii, version, epoch, false);
+    // This should fail at analysis time since the value is too big
+    assert!(result.is_err());
 }

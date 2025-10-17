@@ -32,7 +32,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let sender_addr =
         StacksAddress::from_string("ST2DS4MSWSGJ3W9FBC6BVT0Y92S345HY8N3T6AV7R").unwrap();
@@ -88,7 +88,7 @@ fn test_try_make_response() {
     // case 1: no fee estimates
     let mut requests = vec![];
     let request = StacksHttpRequest::new_post_fee_rate(
-        addr.clone().into(),
+        addr.into(),
         postfeerate::FeeRateEstimateRequestBody {
             estimated_len: Some(123),
             transaction_payload: to_hex(&tx_payload.serialize_to_vec()),
@@ -115,7 +115,7 @@ fn test_try_make_response() {
     // case 2: no estimate available
     let mut requests = vec![];
     let request = StacksHttpRequest::new_post_fee_rate(
-        addr.clone().into(),
+        addr.into(),
         postfeerate::FeeRateEstimateRequestBody {
             estimated_len: Some(123),
             transaction_payload: to_hex(&tx_payload.serialize_to_vec()),
@@ -152,7 +152,7 @@ fn test_try_make_response() {
     // case 3: get an estimate
     let mut requests = vec![];
     let request = StacksHttpRequest::new_post_fee_rate(
-        addr.clone().into(),
+        addr.into(),
         postfeerate::FeeRateEstimateRequestBody {
             estimated_len: Some(123),
             transaction_payload: to_hex(&tx_payload.serialize_to_vec()),

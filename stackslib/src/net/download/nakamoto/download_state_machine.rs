@@ -878,14 +878,14 @@ impl NakamotoDownloadStateMachine {
         let tenure_block_heights: BTreeMap<_, _> = wanted_tenures
             .iter()
             .chain(prev_wanted_tenures.iter())
-            .map(|wt| (wt.burn_height, &wt.tenure_id_consensus_hash))
+            .map(|wt| (wt.burn_height, wt.tenure_id_consensus_hash.clone()))
             .collect();
 
         test_debug!("Check availability {:?}", available);
         let mut highest_available = Vec::with_capacity(2);
-        for (_, ch) in tenure_block_heights.iter().rev() {
+        for (_, ch) in tenure_block_heights.into_iter().rev() {
             let available_count = available
-                .get(ch)
+                .get(&ch)
                 .map(|neighbors| neighbors.len())
                 .unwrap_or(0);
 
@@ -893,7 +893,7 @@ impl NakamotoDownloadStateMachine {
             if available_count == 0 {
                 continue;
             }
-            highest_available.push(**ch);
+            highest_available.push(ch);
             if highest_available.len() == 2 {
                 break;
             }

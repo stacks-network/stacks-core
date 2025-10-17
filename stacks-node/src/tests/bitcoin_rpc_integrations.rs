@@ -47,6 +47,7 @@ mod utils {
         config.burnchain.peer_host = String::from("127.0.0.1");
         // avoiding peer port biding to reduce the number of ports to bind to.
         config.burnchain.peer_port = 0;
+        config.burnchain.wallet_name = "my_wallet".to_string();
 
         //Ask the OS for a free port. Not guaranteed to stay free,
         //after TcpListner is dropped, but good enough for testing
@@ -69,7 +70,6 @@ mod utils {
             config.burnchain.peer_host.clone(),
             config.burnchain.rpc_port,
             RpcAuth::None,
-            config.burnchain.wallet_name.clone(),
             config.burnchain.timeout,
             "stacks".to_string(),
         )
@@ -249,8 +249,8 @@ fn test_get_new_address_for_each_address_type() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -258,11 +258,11 @@ fn test_get_new_address_for_each_address_type() {
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
-    client.create_wallet("my_wallet", Some(false)).expect("OK");
+    client.create_wallet(&wallet, Some(false)).expect("OK");
 
     // Check Legacy p2pkh type OK
     let p2pkh = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("p2pkh address ok!");
     assert_eq!(
         LegacyBitcoinAddressType::PublicKeyHash,
@@ -271,7 +271,7 @@ fn test_get_new_address_for_each_address_type() {
 
     // Check Legacy p2sh type OK
     let p2sh = client
-        .get_new_address(None, Some(AddressType::P2shSegwit))
+        .get_new_address(wallet, None, Some(AddressType::P2shSegwit))
         .expect("p2sh address ok!");
     assert_eq!(
         LegacyBitcoinAddressType::ScriptHash,
@@ -280,19 +280,19 @@ fn test_get_new_address_for_each_address_type() {
 
     // Check Bech32 p2wpkh OK
     let p2wpkh = client
-        .get_new_address(None, Some(AddressType::Bech32))
+        .get_new_address(wallet, None, Some(AddressType::Bech32))
         .expect("p2wpkh address ok!");
     assert!(p2wpkh.expect_segwit().is_p2wpkh());
 
     // Check Bech32m p2tr OK
     let p2tr = client
-        .get_new_address(None, Some(AddressType::Bech32m))
+        .get_new_address(wallet, None, Some(AddressType::Bech32m))
         .expect("p2tr address ok!");
     assert!(p2tr.expect_segwit().is_p2tr());
 
     // Check default to be bech32 p2wpkh
     let default = client
-        .get_new_address(None, None)
+        .get_new_address(wallet, None, None)
         .expect("default address ok!");
     assert!(default.expect_segwit().is_p2wpkh());
 }
@@ -304,8 +304,8 @@ fn test_generate_to_address_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -313,9 +313,9 @@ fn test_generate_to_address_ok() {
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
-    client.create_wallet("my_wallet", Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false)).expect("OK");
     let address = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("Should work!");
 
     let blocks = client
@@ -331,8 +331,8 @@ fn test_list_unspent_empty_with_empty_wallet() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -340,10 +340,10 @@ fn test_list_unspent_empty_with_empty_wallet() {
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
-    client.create_wallet("my_wallet", Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false)).expect("OK");
 
     let utxos = client
-        .list_unspent(None, None, None, None, None, None)
+        .list_unspent(wallet, None, None, None, None, None, None)
         .expect("all list_unspent should be ok!");
     assert_eq!(0, utxos.len());
 }
@@ -355,8 +355,8 @@ fn test_list_unspent_with_defaults() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -364,10 +364,10 @@ fn test_list_unspent_with_defaults() {
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
-    client.create_wallet("my_wallet", Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false)).expect("OK");
 
     let address = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("Should work!");
 
     _ = client
@@ -375,7 +375,7 @@ fn test_list_unspent_with_defaults() {
         .expect("generate to address ok!");
 
     let utxos = client
-        .list_unspent(None, None, None, None, None, None)
+        .list_unspent(wallet, None, None, None, None, None, None)
         .expect("all list_unspent should be ok!");
     assert_eq!(2, utxos.len());
 }
@@ -387,8 +387,8 @@ fn test_list_unspent_one_address_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -396,9 +396,9 @@ fn test_list_unspent_one_address_ok() {
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
-    client.create_wallet("my_wallet", Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false)).expect("OK");
     let address = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("Should work!");
 
     _ = client
@@ -406,7 +406,7 @@ fn test_list_unspent_one_address_ok() {
         .expect("generate to address ok!");
 
     let all_utxos = client
-        .list_unspent(None, None, None, Some(false), Some(1), Some(10))
+        .list_unspent(wallet, None, None, None, Some(false), Some(1), Some(10))
         .expect("all list_unspent should be ok!");
     assert_eq!(2, all_utxos.len());
     assert_eq!(address, all_utxos[0].address);
@@ -414,6 +414,7 @@ fn test_list_unspent_one_address_ok() {
 
     let addr_utxos = client
         .list_unspent(
+            wallet,
             None,
             None,
             Some(&[&address]),
@@ -427,7 +428,7 @@ fn test_list_unspent_one_address_ok() {
     assert_eq!(address, addr_utxos[1].address);
 
     let max1_utxos = client
-        .list_unspent(None, None, None, Some(false), Some(1), Some(1))
+        .list_unspent(wallet, None, None, None, Some(false), Some(1), Some(1))
         .expect("list_unspent per address and max count should be ok!");
     assert_eq!(1, max1_utxos.len());
     assert_eq!(address, max1_utxos[0].address);
@@ -440,8 +441,8 @@ fn test_list_unspent_two_addresses_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -449,13 +450,13 @@ fn test_list_unspent_two_addresses_ok() {
         .expect("bitcoind should be started!");
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
-    client.create_wallet("my_wallet", Some(false)).expect("OK");
+    client.create_wallet(wallet, Some(false)).expect("OK");
 
     let address1 = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("address 1 ok!");
     let address2 = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("address 2 ok!");
 
     _ = client
@@ -466,25 +467,42 @@ fn test_list_unspent_two_addresses_ok() {
         .expect("generate to address 2 ok!");
 
     let all_utxos = client
-        .list_unspent(None, None, None, Some(false), None, None)
+        .list_unspent(wallet, None, None, None, Some(false), None, None)
         .expect("all list_unspent should be ok!");
     assert_eq!(3, all_utxos.len());
 
     let addr1_utxos = client
-        .list_unspent(None, None, Some(&[&address1]), Some(false), None, None)
+        .list_unspent(
+            wallet,
+            None,
+            None,
+            Some(&[&address1]),
+            Some(false),
+            None,
+            None,
+        )
         .expect("list_unspent per address1 should be ok!");
     assert_eq!(2, addr1_utxos.len());
     assert_eq!(address1, addr1_utxos[0].address);
     assert_eq!(address1, addr1_utxos[1].address);
 
     let addr2_utxos = client
-        .list_unspent(None, None, Some(&[&address2]), Some(false), None, None)
+        .list_unspent(
+            wallet,
+            None,
+            None,
+            Some(&[&address2]),
+            Some(false),
+            None,
+            None,
+        )
         .expect("list_unspent per address2 should be ok!");
     assert_eq!(1, addr2_utxos.len());
     assert_eq!(address2, addr2_utxos[0].address);
 
     let all2_utxos = client
         .list_unspent(
+            wallet,
             None,
             None,
             Some(&[&address1, &address2]),
@@ -503,8 +521,8 @@ fn test_generate_block_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -513,10 +531,10 @@ fn test_generate_block_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client
-        .create_wallet("my_wallet", Some(false))
+        .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
     let address = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("get new address ok!");
 
     let block_hash = client
@@ -532,8 +550,8 @@ fn test_get_raw_transaction_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -543,11 +561,11 @@ fn test_get_raw_transaction_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client
-        .create_wallet("my_wallet", Some(false))
+        .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
 
     let address = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("get new address ok!");
 
     //Create 1 UTXO
@@ -557,7 +575,7 @@ fn test_get_raw_transaction_ok() {
 
     //Need `fallbackfee` arg
     let txid = client
-        .send_to_address(&address, 2.0)
+        .send_to_address(wallet, &address, 2.0)
         .expect("send to address ok!");
 
     let raw_tx = client
@@ -574,8 +592,8 @@ fn test_get_transaction_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -585,10 +603,10 @@ fn test_get_transaction_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client
-        .create_wallet("my_wallet", Some(false))
+        .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
     let address = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("get new address ok!");
 
     //Create 1 UTXO
@@ -598,10 +616,12 @@ fn test_get_transaction_ok() {
 
     //Need `fallbackfee` arg
     let txid = client
-        .send_to_address(&address, 2.0)
+        .send_to_address(wallet, &address, 2.0)
         .expect("send to address ok!");
 
-    let resp = client.get_transaction(&txid).expect("get transaction ok!");
+    let resp = client
+        .get_transaction(wallet, &txid)
+        .expect("get transaction ok!");
     assert_eq!(0, resp.confirmations);
 }
 
@@ -612,8 +632,8 @@ fn test_get_descriptor_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -622,7 +642,7 @@ fn test_get_descriptor_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client
-        .create_wallet("my_wallet", None)
+        .create_wallet(wallet, None)
         .expect("create wallet ok!");
 
     let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
@@ -642,8 +662,8 @@ fn test_import_descriptor_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -652,7 +672,7 @@ fn test_import_descriptor_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client
-        .create_wallet("my_wallet", Some(true))
+        .create_wallet(wallet, Some(true))
         .expect("create wallet ok!");
 
     let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
@@ -665,10 +685,54 @@ fn test_import_descriptor_ok() {
     };
 
     let response = client
-        .import_descriptors(&[&desc_req])
+        .import_descriptors(wallet, &[&desc_req])
         .expect("import descriptor ok!");
     assert_eq!(1, response.len());
     assert!(response[0].success);
+    assert_eq!(0, response[0].warnings.len());
+    assert_eq!(None, response[0].error);
+}
+
+#[ignore]
+#[test]
+fn test_import_descriptor_twice_ok() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
+    btcd_controller
+        .start_bitcoind()
+        .expect("bitcoind should be started!");
+
+    let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
+    client
+        .create_wallet(wallet, Some(true))
+        .expect("create wallet ok!");
+
+    let address = "mqqxPdP1dsGk75S7ta2nwyU8ujDnB2Yxvu";
+    let checksum = "spfcmvsn";
+
+    let desc_req = ImportDescriptorsRequest {
+        descriptor: format!("addr({address})#{checksum}"),
+        timestamp: Timestamp::Time(0),
+        internal: Some(true),
+    };
+
+    let _ = client
+        .import_descriptors(wallet, &[&desc_req])
+        .expect("import descriptor ok: first time!");
+
+    let response = client
+        .import_descriptors(wallet, &[&desc_req])
+        .expect("import descriptor ok: second time!");
+    assert_eq!(1, response.len());
+    assert!(response[0].success);
+    assert_eq!(0, response[0].warnings.len());
+    assert_eq!(None, response[0].error);
 }
 
 #[ignore]
@@ -697,8 +761,8 @@ fn test_invalidate_block_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -707,10 +771,10 @@ fn test_invalidate_block_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client
-        .create_wallet("my_wallet", Some(false))
+        .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
     let address = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(&wallet, None, Some(AddressType::Legacy))
         .expect("get new address ok!");
     let block_hash = client
         .generate_block(&address, &[])
@@ -759,8 +823,8 @@ fn test_send_raw_transaction_rebroadcast_ok() {
         return;
     }
 
-    let mut config = utils::create_stx_config();
-    config.burnchain.wallet_name = "my_wallet".to_string();
+    let config = utils::create_stx_config();
+    let wallet = &config.burnchain.wallet_name;
 
     let mut btcd_controller = BitcoinCoreController::from_stx_config(&config);
     btcd_controller
@@ -770,11 +834,11 @@ fn test_send_raw_transaction_rebroadcast_ok() {
 
     let client = BitcoinRpcClient::from_stx_config(&config).expect("Client creation ok!");
     client
-        .create_wallet("my_wallet", Some(false))
+        .create_wallet(wallet, Some(false))
         .expect("create wallet ok!");
 
     let address = client
-        .get_new_address(None, Some(AddressType::Legacy))
+        .get_new_address(wallet, None, Some(AddressType::Legacy))
         .expect("get new address ok!");
 
     //Create 1 UTXO
@@ -784,7 +848,7 @@ fn test_send_raw_transaction_rebroadcast_ok() {
 
     //Need `fallbackfee` arg
     let txid = client
-        .send_to_address(&address, 2.0)
+        .send_to_address(wallet, &address, 2.0)
         .expect("send to address ok!");
 
     let raw_tx = client

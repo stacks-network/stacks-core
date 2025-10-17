@@ -49,6 +49,7 @@ clarity = { path = "../clarity", features = ["testing"] }
 serial_test = "3.0.0"
 polynomial = "0.2.6"
 stacks-common = { path = "../stacks-common", features = ["testing"] }
+stackslib = { path = "../stackslib", features = ["testing"] }
 num-traits = "0.2.18"
 stdext = "0.3.1"
 
@@ -67,4 +68,4 @@ features = ["serde", "recovery"]
 [features]
 default = []
 monitoring_prom = ["prometheus", "tiny_http"]
-testing = ["stacks-common/testing"]
+testing = ["stacks-common/testing", "stackslib/testing"]

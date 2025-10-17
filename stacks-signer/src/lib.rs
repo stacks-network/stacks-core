@@ -1,5 +1,4 @@
 #![forbid(missing_docs)]
-#![allow(clippy::result_large_err)]
 /*!
 # stacks-signer: a library for creating a Stacks compliant signer. A default implementation binary is also provided.
 Usage documentation can be found in the [README](https://github.com/Trust-Machines/core-eng/stacks-signer-api/README.md).

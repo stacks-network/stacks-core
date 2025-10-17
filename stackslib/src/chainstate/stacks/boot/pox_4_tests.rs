@@ -46,6 +46,7 @@ use crate::chainstate::stacks::boot::signers_tests::get_signer_index;
 use crate::chainstate::stacks::boot::{PoxVersions, MINERS_NAME};
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::*;
+use crate::chainstate::tests::TestChainstateConfig;
 use crate::core::*;
 use crate::net::test::{TestEventObserver, TestEventObserverBlock, TestPeer, TestPeerConfig};
 use crate::net::tests::NakamotoBootPlan;
@@ -79,9 +80,10 @@ fn make_simple_pox_4_lock(
     let addr = key_to_stacks_addr(key);
     let pox_addr = PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
     let signer_pk = StacksPublicKey::from_private(key);
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let next_reward_cycle = peer
         .config
+        .chain_config
         .burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -369,13 +371,13 @@ fn pox_extend_transition() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -416,21 +418,23 @@ fn pox_extend_transition() {
     let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
     assert_eq!(alice_balance, 0);
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     // produce blocks until epoch 2.1
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch21].start_height {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
+        < epochs[StacksEpochId::Epoch21].start_height
+    {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        alice_rewards_to_v2_start_checks(latest_block, &mut peer);
+        alice_rewards_to_v2_start_checks(latest_block.clone(), &mut peer);
     }
 
     // in the next tenure, PoX 2 should now exist.
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_pox_2_lockup(
         &bob,
@@ -475,7 +479,7 @@ fn pox_extend_transition() {
 
     // produce blocks until the v2 reward cycles start
     let height_target = burnchain.reward_cycle_to_block_height(first_v2_cycle) - 1;
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // alice is still locked, balance should be 0
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -488,7 +492,9 @@ fn pox_extend_transition() {
     v2_rewards_checks(latest_block, &mut peer);
 
     // roll the chain forward until just before Epoch-2.2
-    while get_tip(peer.sortdb.as_ref()).block_height < epochs[StacksEpochId::Epoch22].start_height {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
+        < epochs[StacksEpochId::Epoch22].start_height
+    {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // at this point, alice's balance should be locked, and so should bob's
         let alice_balance = get_balance(&mut peer, &key_to_stacks_addr(&alice).into());
@@ -515,13 +521,13 @@ fn pox_extend_transition() {
     assert_eq!(bob_account.amount_unlocked(), INITIAL_BALANCE);
 
     // Roll to pox4 activation and re-do the above stack-extend tests
-    while get_tip(peer.sortdb.as_ref()).block_height
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
         < u64::from(burnchain.pox_constants.pox_4_activation_height)
     {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let alice_signer_private = Secp256k1PrivateKey::random();
     let alice_signer_key = Secp256k1PublicKey::from_private(&alice_signer_private);
@@ -569,7 +575,7 @@ fn pox_extend_transition() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     // check that the "raw" reward set will contain entries for alice at the cycle start
@@ -598,7 +604,7 @@ fn pox_extend_transition() {
     assert_eq!(alice_balance, 0);
 
     // advance to the first v3 reward cycle
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -621,7 +627,7 @@ fn pox_extend_transition() {
         2,
     );
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let bob_lockup = make_pox_4_lockup(
         &bob,
         2,
@@ -818,7 +824,7 @@ fn pox_extend_transition() {
 }
 
 fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
     let addrs_and_payout = with_sortdb(peer, |ref mut chainstate, ref mut sortdb| {
@@ -831,7 +837,6 @@ fn get_burn_pox_addr_info(peer: &mut TestPeer) -> (Vec<PoxAddress>, u128) {
                         .with_readonly_clarity_env(
                             false,
                             0x80000000,
-                            ClarityVersion::Clarity2,
                             PrincipalData::Standard(StandardPrincipalData::transient()),
                             None,
                             LimitedCostTracker::new_free(),
@@ -901,10 +906,11 @@ fn pox_lock_unlock() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        if get_tip(peer.chain.sortdb.as_ref()).block_height
+            > epochs[StacksEpochId::Epoch21].start_height
         {
             assert_latest_was_burn(&mut peer);
         }
@@ -912,11 +918,11 @@ fn pox_lock_unlock() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let mut txs = vec![];
-    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let tip_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let reward_cycle = burnchain.block_height_to_reward_cycle(tip_height).unwrap() as u128;
     let stackers: Vec<_> = keys
         .iter()
@@ -961,13 +967,13 @@ fn pox_lock_unlock() {
 
     // Advance to start of rewards cycle stackers are participating in
     let target_height = burnchain.pox_constants.pox_4_activation_height + 5;
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     // now we should be in the reward phase, produce the reward blocks
@@ -977,7 +983,7 @@ fn pox_lock_unlock() {
 
     // Check that STX are locked for 2 reward cycles
     for _ in 0..lock_period {
-        let tip = get_tip(peer.sortdb.as_ref());
+        let tip = get_tip(peer.chain.sortdb.as_ref());
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
@@ -1082,10 +1088,11 @@ fn pox_3_defunct() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        if get_tip(peer.chain.sortdb.as_ref()).block_height
+            > epochs[StacksEpochId::Epoch21].start_height
         {
             assert_latest_was_burn(&mut peer);
         }
@@ -1093,11 +1100,11 @@ fn pox_3_defunct() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let mut txs = vec![];
-    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let tip_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let stackers: Vec<_> = keys
         .iter()
         .zip([
@@ -1154,13 +1161,13 @@ fn pox_3_defunct() {
 
     // Advance to start of rewards cycle stackers are participating in
     let target_height = burnchain.pox_constants.pox_4_activation_height + 5;
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     // now we should be in the reward phase, produce the reward blocks
@@ -1169,7 +1176,7 @@ fn pox_3_defunct() {
 
     // Check next 3 reward cycles
     for _ in 0..=lock_period {
-        let tip = get_tip(peer.sortdb.as_ref());
+        let tip = get_tip(peer.chain.sortdb.as_ref());
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
@@ -1212,10 +1219,11 @@ fn pox_3_unlocks() {
     // Advance to a few blocks before pox 3 unlock
     let target_height = burnchain.pox_constants.v3_unlock_height - 14;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
         // if we reach epoch 2.1, perform the check
-        if get_tip(peer.sortdb.as_ref()).block_height > epochs[StacksEpochId::Epoch21].start_height
+        if get_tip(peer.chain.sortdb.as_ref()).block_height
+            > epochs[StacksEpochId::Epoch21].start_height
         {
             assert_latest_was_burn(&mut peer);
         }
@@ -1223,11 +1231,11 @@ fn pox_3_unlocks() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let mut txs = vec![];
-    let tip_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let tip_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let stackers: Vec<_> = keys
         .iter()
         .zip([
@@ -1265,7 +1273,7 @@ fn pox_3_unlocks() {
 
     // Check that STX are locked for 2 reward cycles
     for _ in 0..2 {
-        let tip = get_tip(peer.sortdb.as_ref());
+        let tip = get_tip(peer.chain.sortdb.as_ref());
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
@@ -1309,18 +1317,18 @@ fn pox_3_unlocks() {
 
     // Advance to v3 unlock
     let target_height = burnchain.pox_constants.v3_unlock_height;
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     // Check that STX are not locked for 3 reward cycles after pox4 starts
     for _ in 0..3 {
-        let tip = get_tip(peer.sortdb.as_ref());
+        let tip = get_tip(peer.chain.sortdb.as_ref());
         let cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
             .unwrap();
@@ -1385,7 +1393,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -1397,7 +1405,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -1406,11 +1414,11 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let lock_period = 1;
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
 
     // stack-stx
@@ -1484,7 +1492,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     steph_nonce += 1;
 
     // alice delegates STX to bob
-    let target_height = get_tip(peer.sortdb.as_ref()).block_height
+    let target_height = get_tip(peer.chain.sortdb.as_ref()).block_height
         + (3 * pox_constants.reward_cycle_length as u64) // 3 cycles (next cycle + 2)
         + 1; // additional few blocks shouldn't matter to unlock-cycle
     let alice_delegate = make_pox_4_delegate_stx(
@@ -1498,7 +1506,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
     let alice_delegate_nonce = alice_nonce;
     alice_nonce += 1;
 
-    let curr_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let curr_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let bob_delegate_stack_nonce = bob_nonce;
     let bob_delegate_stack = make_pox_4_delegate_stack_stx(
         &bob,
@@ -1545,7 +1553,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool() {
         &mut coinbase_nonce,
     ));
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
     assert_eq!(tipId, latest_block.unwrap());
 
@@ -1773,7 +1781,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -1785,11 +1793,11 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
     // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
-    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
+    while !burnchain.is_in_prepare_phase(get_tip(peer.chain.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -1798,11 +1806,11 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height,
+        get_tip(peer.chain.sortdb.as_ref()).block_height,
     );
 
     let lock_period = 1;
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
 
     // stack-stx
@@ -1876,7 +1884,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     steph_nonce += 1;
 
     // alice delegates STX to bob
-    let target_height = get_tip(peer.sortdb.as_ref()).block_height
+    let target_height = get_tip(peer.chain.sortdb.as_ref()).block_height
         + (3 * pox_constants.reward_cycle_length as u64) // 3 cycles (next cycle + 2)
         + 1; // additional few blocks shouldn't matter to unlock-cycle
     let alice_delegate = make_pox_4_delegate_stx(
@@ -1890,7 +1898,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     let alice_delegate_nonce = alice_nonce;
     alice_nonce += 1;
 
-    let curr_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let curr_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let bob_delegate_stack_nonce = bob_nonce;
     let bob_delegate_stack = make_pox_4_delegate_stack_stx(
         &bob,
@@ -1937,9 +1945,9 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
         &mut coinbase_nonce,
     ));
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
-    assert_eq!(tipId, latest_block.unwrap());
+    assert_eq!(tipId, latest_block.clone().unwrap());
 
     let in_prepare_phase = burnchain.is_in_prepare_phase(tip.block_height);
     assert!(in_prepare_phase);
@@ -2125,7 +2133,12 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
     with_sortdb(&mut peer, |chainstate, sortdb| {
         let mut check_cycle = next_reward_cycle as u64;
         let reward_set = chainstate
-            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .get_reward_addresses_in_cycle(
+                &burnchain,
+                sortdb,
+                check_cycle,
+                latest_block.as_ref().unwrap(),
+            )
             .unwrap();
         assert_eq!(reward_set.len(), 2);
         assert_eq!(reward_set[0].stacker.as_ref(), Some(&steph_principal));
@@ -2137,7 +2150,12 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 
         check_cycle += 1;
         let reward_set = chainstate
-            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .get_reward_addresses_in_cycle(
+                &burnchain,
+                sortdb,
+                check_cycle,
+                latest_block.as_ref().unwrap(),
+            )
             .unwrap();
         assert_eq!(reward_set.len(), 1);
         assert_eq!(reward_set[0].stacker.as_ref(), Some(&steph_principal));
@@ -2146,7 +2164,12 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase() {
 
         check_cycle += 1;
         let reward_set = chainstate
-            .get_reward_addresses_in_cycle(&burnchain, sortdb, check_cycle, &latest_block.unwrap())
+            .get_reward_addresses_in_cycle(
+                &burnchain,
+                sortdb,
+                check_cycle,
+                latest_block.as_ref().unwrap(),
+            )
             .unwrap();
         assert!(reward_set.is_empty());
     });
@@ -2201,11 +2224,11 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
     // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
-    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
+    while !burnchain.is_in_prepare_phase(get_tip(peer.chain.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -2214,15 +2237,15 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let lock_period = 2;
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
 
     // alice delegates STX to bob
-    let target_height = get_tip(peer.sortdb.as_ref()).block_height
+    let target_height = get_tip(peer.chain.sortdb.as_ref()).block_height
         + (3 * pox_constants.reward_cycle_length as u64) // 3 cycles (next cycle + 2)
         + 1; // additional few blocks shouldn't matter to unlock-cycle
     let alice_delegate = make_pox_4_delegate_stx(
@@ -2236,7 +2259,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
     let alice_delegate_nonce = alice_nonce;
     alice_nonce += 1;
 
-    let curr_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let curr_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let bob_delegate_stack_nonce = bob_nonce;
     let bob_delegate_stack = make_pox_4_delegate_stack_stx(
         &bob,
@@ -2277,7 +2300,7 @@ fn pox_4_check_cycle_id_range_in_print_events_pool_in_prepare_phase_skip_cycle()
         &mut coinbase_nonce,
     ));
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tipId = StacksBlockId::new(&tip.consensus_hash, &tip.canonical_stacks_tip_hash);
     assert_eq!(tipId, latest_block.unwrap());
 
@@ -2416,7 +2439,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2426,11 +2449,11 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
     // produce blocks until the we're 1 before the prepare phase (first block of prepare-phase not yet mined, whatever txs we create now won't be included in the reward set)
-    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height + 1) {
+    while !burnchain.is_in_prepare_phase(get_tip(peer.chain.sortdb.as_ref()).block_height + 1) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -2438,7 +2461,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap()) * 120 / 100; // * 1.2
@@ -2463,7 +2486,7 @@ fn pox_4_check_cycle_id_range_in_print_events_before_prepare_phase() {
         &steph_pox_addr,
         steph_lock_period,
         &steph_signing_key,
-        get_tip(peer.sortdb.as_ref()).block_height,
+        get_tip(peer.chain.sortdb.as_ref()).block_height,
         Some(signature),
         u128::MAX,
         1,
@@ -2536,7 +2559,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     let steph_key = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph_key);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr_val = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
     let steph_pox_addr = pox_addr_from(&steph_key);
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph_key);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2546,11 +2569,11 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
     // produce blocks until the we're in the prepare phase (first block of prepare-phase was mined, i.e. pox-set for next cycle determined)
-    while !burnchain.is_in_prepare_phase(get_tip(peer.sortdb.as_ref()).block_height) {
+    while !burnchain.is_in_prepare_phase(get_tip(peer.chain.sortdb.as_ref()).block_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -2558,7 +2581,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
 
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap()) * 120 / 100; // * 1.2
@@ -2583,7 +2606,7 @@ fn pox_4_check_cycle_id_range_in_print_events_in_prepare_phase() {
         &steph_pox_addr,
         steph_lock_period,
         &steph_signing_key,
-        get_tip(peer.sortdb.as_ref()).block_height,
+        get_tip(peer.chain.sortdb.as_ref()).block_height,
         Some(signature),
         u128::MAX,
         1,
@@ -2667,7 +2690,7 @@ fn pox_4_delegate_stack_increase_events() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
@@ -2683,7 +2706,7 @@ fn pox_4_delegate_stack_increase_events() {
         alice_principal.clone(),
         amount / 2,
         bob_pox_addr.clone(),
-        get_tip(peer.sortdb.as_ref()).block_height as u128,
+        get_tip(peer.chain.sortdb.as_ref()).block_height as u128,
         2,
     );
 
@@ -2767,7 +2790,7 @@ fn pox_4_revoke_delegate_stx_events() {
     let steph = keys.pop().unwrap();
     let steph_address = key_to_stacks_addr(&steph);
     let steph_principal = PrincipalData::from(steph_address.clone());
-    let steph_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *steph_address.bytes());
+    let steph_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, steph_address.bytes());
 
     let steph_signing_key = Secp256k1PublicKey::from_private(&steph);
     let steph_key_val = Value::buff_from(steph_signing_key.to_bytes_compressed()).unwrap();
@@ -2777,15 +2800,15 @@ fn pox_4_revoke_delegate_stx_events() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = Some(peer.tenure_with_txs(&[], &mut coinbase_nonce));
     }
 
     info!(
         "Block height: {}",
-        get_tip(peer.sortdb.as_ref()).block_height
+        get_tip(peer.chain.sortdb.as_ref()).block_height
     );
-    let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let current_cycle = get_current_reward_cycle(&peer, &burnchain);
     let next_cycle = current_cycle + 1;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block.unwrap());
@@ -2831,7 +2854,7 @@ fn pox_4_revoke_delegate_stx_events() {
 
     // check delegate with expiry
 
-    let target_height = get_tip(peer.sortdb.as_ref()).block_height + 10;
+    let target_height = get_tip(peer.chain.sortdb.as_ref()).block_height + 10;
     let alice_delegate_2 = make_pox_4_delegate_stx(
         &alice,
         alice_nonce,
@@ -2846,7 +2869,7 @@ fn pox_4_revoke_delegate_stx_events() {
     peer.tenure_with_txs(&[alice_delegate_2], &mut coinbase_nonce);
 
     // produce blocks until delegation expired
-    while get_tip(peer.sortdb.as_ref()).block_height <= target_height {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height <= target_height {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -2940,7 +2963,6 @@ fn verify_signer_key_sig(
                     .with_readonly_clarity_env(
                         false,
                         0x80000000,
-                        ClarityVersion::Clarity2,
                         PrincipalData::Standard(StandardPrincipalData::transient()),
                         None,
                         LimitedCostTracker::new_free(),
@@ -3002,7 +3024,7 @@ fn verify_signer_key_signatures() {
     // Advance into pox4
     let target_height = burnchain.pox_constants.pox_4_activation_height;
     // produce blocks until the first reward phase that everyone should be in
-    while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -4186,7 +4208,7 @@ impl StackerSignerInfo {
         let public_key = StacksPublicKey::from_private(&private_key);
         let address = key_to_stacks_addr(&private_key);
         let pox_address =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, *address.bytes());
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, address.bytes().clone());
         let principal = PrincipalData::from(address.clone());
         let nonce = 0;
         Self {
@@ -4284,31 +4306,74 @@ fn stack_agg_increase() {
     )
     .unwrap();
 
-    peer_config.aggregate_public_key = Some(aggregate_public_key);
+    peer_config.chain_config.aggregate_public_key = Some(aggregate_public_key);
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
-    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
-    peer_config.initial_balances.append(&mut initial_balances);
-    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
-    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
-    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
-    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    peer_config.test_signers = Some(test_signers);
-    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
-    peer_config.burnchain.pox_constants.prepare_length = 5;
-    let epochs = peer_config.epochs.clone().unwrap();
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000)); // Let us not activate nakamoto to make life easier
+    peer_config.chain_config.initial_balances =
+        vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config
+        .chain_config
+        .initial_balances
+        .append(&mut initial_balances);
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .v2_unlock_height = 81;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .pox_3_activation_height = 101;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .v3_unlock_height = 102;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .pox_4_activation_height = 105;
+    peer_config.chain_config.test_signers = Some(test_signers);
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .reward_cycle_length = 20;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .prepare_length = 5;
+    let epochs = peer_config.chain_config.epochs.clone().unwrap();
     let epoch_3 = &epochs[StacksEpochId::Epoch30];
 
     let mut peer = TestPeer::new_with_observer(peer_config, Some(&observer));
     let mut peer_nonce = 0;
     // Set constants
-    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
-    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
+    let reward_cycle_len = peer
+        .config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .reward_cycle_length;
+    let prepare_phase_len = peer
+        .config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .prepare_length;
 
     // Advance into pox4
-    let mut target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
+    let mut target_height = peer
+        .config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .pox_4_activation_height;
     let mut latest_block = None;
     // Produce blocks until the first reward phase that everyone should be in
     while peer.get_burn_block_height() < u64::from(target_height) {
@@ -4316,7 +4381,7 @@ fn stack_agg_increase() {
     }
     let latest_block = latest_block.expect("Failed to get tip");
     // Current reward cycle: 5 (starts at burn block 101)
-    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
+    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.chain_config.burnchain);
     let next_reward_cycle = reward_cycle.wrapping_add(1);
     // Current burn block height: 105
     let burn_block_height = peer.get_burn_block_height();
@@ -5076,7 +5141,7 @@ fn stack_increase_different_signer_keys(use_nakamoto: bool) {
 }
 
 pub fn assert_latest_was_burn(peer: &mut TestPeer) {
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
 
@@ -5092,11 +5157,16 @@ pub fn assert_latest_was_burn(peer: &mut TestPeer) {
     assert!(commit.burn_fee > 0);
 
     let (addrs, payout) = get_burn_pox_addr_info(peer);
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
     info!("Checking burn outputs at burn_height = {burn_height}");
-    if peer.config.burnchain.is_in_prepare_phase(burn_height) {
+    if peer
+        .config
+        .chain_config
+        .burnchain
+        .is_in_prepare_phase(burn_height)
+    {
         assert_eq!(addrs.len(), 1);
         assert_eq!(payout, 1000);
         assert!(addrs[0].is_burn());
@@ -5109,7 +5179,7 @@ pub fn assert_latest_was_burn(peer: &mut TestPeer) {
 }
 
 fn assert_latest_was_pox(peer: &mut TestPeer) -> Vec<PoxAddress> {
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let tip_index_block = tip.get_canonical_stacks_block_id();
     let burn_height = tip.block_height - 1;
 
@@ -5725,7 +5795,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -5762,7 +5832,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -5799,7 +5869,7 @@ fn test_set_signer_key_auth(use_nakamoto: bool) {
         &mut peer,
         &latest_block,
         &pox_addr,
-        current_reward_cycle.clone() as u64,
+        current_reward_cycle as u64,
         &Pox4SignatureTopic::StackStx,
         lock_period,
         &signer_public_key,
@@ -6635,31 +6705,72 @@ pub fn pox_4_scenario_test_setup<'a>(
     )
     .unwrap();
 
-    peer_config.aggregate_public_key = Some(aggregate_public_key);
+    peer_config.chain_config.aggregate_public_key = Some(aggregate_public_key);
     peer_config
         .stacker_dbs
         .push(boot_code_id(MINERS_NAME, false));
-    peer_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000));
-    peer_config.initial_balances = vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
+    peer_config.chain_config.epochs = Some(StacksEpoch::unit_test_3_0_only(1000));
+    peer_config.chain_config.initial_balances =
+        vec![(addr.to_account_principal(), 1_000_000_000_000_000_000)];
     peer_config
+        .chain_config
         .initial_balances
         .extend_from_slice(&initial_balances);
-    peer_config.burnchain.pox_constants.v2_unlock_height = 81;
-    peer_config.burnchain.pox_constants.pox_3_activation_height = 101;
-    peer_config.burnchain.pox_constants.v3_unlock_height = 102;
-    peer_config.burnchain.pox_constants.pox_4_activation_height = 105;
-    peer_config.test_signers = Some(test_signers);
-    peer_config.burnchain.pox_constants.reward_cycle_length = 20;
-    peer_config.burnchain.pox_constants.prepare_length = 5;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .v2_unlock_height = 81;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .pox_3_activation_height = 101;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .v3_unlock_height = 102;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .pox_4_activation_height = 105;
+    peer_config.chain_config.test_signers = Some(test_signers);
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .reward_cycle_length = 20;
+    peer_config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .prepare_length = 5;
 
     let mut peer = TestPeer::new_with_observer(peer_config.clone(), Some(observer));
 
     let mut peer_nonce = 0;
 
-    let reward_cycle_len = peer.config.burnchain.pox_constants.reward_cycle_length;
-    let prepare_phase_len = peer.config.burnchain.pox_constants.prepare_length;
+    let reward_cycle_len = peer
+        .config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .reward_cycle_length;
+    let prepare_phase_len = peer
+        .config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .prepare_length;
 
-    let target_height = peer.config.burnchain.pox_constants.pox_4_activation_height;
+    let target_height = peer
+        .config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .pox_4_activation_height;
     let mut latest_block = None;
 
     while peer.get_burn_block_height() < u64::from(target_height) {
@@ -6668,10 +6779,10 @@ pub fn pox_4_scenario_test_setup<'a>(
     }
     let latest_block = latest_block.expect("Failed to get tip");
 
-    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.burnchain);
+    let reward_cycle = get_current_reward_cycle(&peer, &peer.config.chain_config.burnchain);
     let next_reward_cycle = reward_cycle.wrapping_add(1);
     let burn_block_height = peer.get_burn_block_height();
-    let current_block_height = peer.config.current_block;
+    let current_block_height = peer.config.chain_config.current_block;
     let min_ustx = get_stacking_minimum(&mut peer, &latest_block);
 
     (
@@ -6732,8 +6843,8 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
         max_amount: None,
     }];
     let mut peer_config = TestPeerConfig::default();
-    peer_config.aggregate_public_key = Some(aggregate_public_key);
-    let mut pox_constants = peer_config.clone().burnchain.pox_constants;
+    peer_config.chain_config.aggregate_public_key = Some(aggregate_public_key);
+    let mut pox_constants = peer_config.chain_config.burnchain.pox_constants.clone();
     pox_constants.reward_cycle_length = 10;
     pox_constants.v2_unlock_height = 21;
     pox_constants.pox_3_activation_height = 26;
@@ -6749,12 +6860,12 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     boot_plan.initial_balances = initial_balances;
     boot_plan.pox_constants = pox_constants.clone();
     burnchain.pox_constants = pox_constants;
-    peer_config.burnchain = burnchain.clone();
-    peer_config.test_signers = Some(test_signers.clone());
+    peer_config.chain_config.burnchain = burnchain.clone();
+    peer_config.chain_config.test_signers = Some(test_signers.clone());
 
     info!("---- Booting into Nakamoto Peer ----");
     let mut peer = boot_plan.boot_into_nakamoto_peer(vec![], Some(observer));
-    let sort_db = peer.sortdb.as_ref().unwrap();
+    let sort_db = peer.chain.sortdb.as_ref().unwrap();
     let latest_block = sort_db
         .index_handle_at_tip()
         .get_nakamoto_tip_block_id()
@@ -6762,7 +6873,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
         .unwrap();
     let coinbase_nonce = 0;
 
-    let burn_block_height = get_tip(peer.sortdb.as_ref()).block_height;
+    let burn_block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
     let reward_cycle = burnchain
         .block_height_to_reward_cycle(burn_block_height)
         .unwrap() as u128;
@@ -6941,9 +7052,16 @@ fn test_scenario_one(use_nakamoto: bool) {
     // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase)
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(peer.config.burnchain.pox_constants.prepare_length as u64)
+        .saturating_sub(
+            peer.config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        )
         .wrapping_add(2);
     let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
@@ -7030,6 +7148,7 @@ fn test_scenario_one(use_nakamoto: bool) {
     // 4.3 Check unlock height
     let unlock_height_expected = Value::UInt(
         peer.config
+            .chain_config
             .burnchain
             .reward_cycle_to_block_height(next_reward_cycle as u64 + lock_period as u64)
             .wrapping_sub(1) as u128,
@@ -7079,6 +7198,7 @@ fn test_scenario_one(use_nakamoto: bool) {
     // 6.3 Check unlock height (end of cycle 7 - block 140)
     let unlock_height_expected = Value::UInt(
         peer.config
+            .chain_config
             .burnchain
             .reward_cycle_to_block_height((next_reward_cycle + lock_period) as u64)
             .wrapping_sub(1) as u128,
@@ -7092,24 +7212,18 @@ fn test_scenario_one(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, next_reward_cycle);
     // Alice vote
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
         alice_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7119,7 +7233,11 @@ fn test_scenario_one(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7130,17 +7248,13 @@ fn test_scenario_one(use_nakamoto: bool) {
     if let Some(test_signers) = test_signers.clone() {
         let tester_key = test_signers.signer_keys[0].clone();
         let tester_addr = key_to_stacks_addr(&tester_key);
-        let tester_index = get_signer_index(
-            &mut peer,
-            latest_block,
-            tester_addr.clone(),
-            next_reward_cycle,
-        );
+        let tester_index =
+            get_signer_index(&mut peer, &latest_block, &tester_addr, next_reward_cycle);
         let tester_vote = make_signers_vote_for_aggregate_public_key(
             &tester_key,
             1, // only tx is a stack-stx
             tester_index,
-            peer_config.aggregate_public_key.unwrap(),
+            peer_config.chain_config.aggregate_public_key.unwrap(),
             1,
             next_reward_cycle,
         );
@@ -7151,6 +7265,7 @@ fn test_scenario_one(use_nakamoto: bool) {
     // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
     let mut target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(target_reward_cycle as u64);
     info!(
@@ -7166,7 +7281,7 @@ fn test_scenario_one(use_nakamoto: bool) {
         &mut test_signers,
     );
 
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, next_reward_cycle)
         .expect("No approved key found");
 
     // Start replay transactions
@@ -7388,9 +7503,16 @@ fn test_deser_abort() {
     // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase)
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(peer.config.burnchain.pox_constants.prepare_length as u64)
+        .saturating_sub(
+            peer.config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        )
         .wrapping_add(2);
     let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
@@ -7477,6 +7599,7 @@ fn test_deser_abort() {
     // 4.3 Check unlock height
     let unlock_height_expected = Value::UInt(
         peer.config
+            .chain_config
             .burnchain
             .reward_cycle_to_block_height(next_reward_cycle as u64 + lock_period as u64)
             .wrapping_sub(1) as u128,
@@ -7526,6 +7649,7 @@ fn test_deser_abort() {
     // 6.3 Check unlock height (end of cycle 7 - block 140)
     let unlock_height_expected = Value::UInt(
         peer.config
+            .chain_config
             .burnchain
             .reward_cycle_to_block_height((next_reward_cycle + lock_period) as u64)
             .wrapping_sub(1) as u128,
@@ -7713,9 +7837,16 @@ fn test_scenario_two(use_nakamoto: bool) {
     // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase for reward cycle 6)
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
+        .saturating_sub(
+            peer_config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        )
         .wrapping_add(2);
     let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
@@ -7818,24 +7949,18 @@ fn test_scenario_two(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, next_reward_cycle);
     // Alice expected vote
     let alice_vote_expected = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
         alice_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7845,7 +7970,11 @@ fn test_scenario_two(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7855,7 +7984,11 @@ fn test_scenario_two(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         3,
         next_reward_cycle,
     );
@@ -7865,7 +7998,7 @@ fn test_scenario_two(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        peer_config.aggregate_public_key.unwrap(),
+        peer_config.chain_config.aggregate_public_key.unwrap(),
         1,
         next_reward_cycle,
     );
@@ -7881,6 +8014,7 @@ fn test_scenario_two(use_nakamoto: bool) {
     // Commit vote txs & advance to the first burn block of reward cycle 8 (block 161)
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(target_reward_cycle as u64);
     let (latest_block, tx_block, receipts) = advance_to_block_height(
@@ -8108,6 +8242,7 @@ fn test_scenario_three(use_nakamoto: bool) {
         david.principal.clone(),
         Some(
             peer.config
+                .chain_config
                 .burnchain
                 .reward_cycle_to_block_height(next_reward_cycle as u64)
                 .into(),
@@ -8224,9 +8359,16 @@ fn test_scenario_three(use_nakamoto: bool) {
     // Commit txs in next block & advance to reward set calculation of the next reward cycle
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
+        .saturating_sub(
+            peer_config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        )
         .wrapping_add(2);
     let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
@@ -8538,9 +8680,16 @@ fn test_scenario_four(use_nakamoto: bool) {
     // Commit tx & advance to the reward set calculation height (2nd block of the prepare phase for reward cycle 6)
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
+        .saturating_sub(
+            peer_config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        )
         .wrapping_add(2);
     let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
@@ -8565,24 +8714,18 @@ fn test_scenario_four(use_nakamoto: bool) {
 
     // Now starting create vote txs
     // Fetch signer indices in reward cycle 6
-    let alice_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        alice.address.clone(),
-        next_reward_cycle,
-    );
-    let bob_index = get_signer_index(
-        &mut peer,
-        latest_block,
-        bob.address.clone(),
-        next_reward_cycle,
-    );
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, next_reward_cycle);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, next_reward_cycle);
     // Alice err vote
     let alice_vote_err = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
         bob_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -8592,7 +8735,11 @@ fn test_scenario_four(use_nakamoto: bool) {
         &alice.private_key,
         alice.nonce,
         alice_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -8602,7 +8749,11 @@ fn test_scenario_four(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -8613,17 +8764,17 @@ fn test_scenario_four(use_nakamoto: bool) {
     if let Some(test_signers) = test_signers.clone() {
         let tester_key = test_signers.signer_keys[0].clone();
         let tester_addr = key_to_stacks_addr(&tester_key);
-        let tester_index = get_signer_index(
-            &mut peer,
-            latest_block,
-            tester_addr.clone(),
-            next_reward_cycle,
-        );
+        let tester_index =
+            get_signer_index(&mut peer, &latest_block, &tester_addr, next_reward_cycle);
         let tester_vote = make_signers_vote_for_aggregate_public_key(
             &tester_key,
             1, // only tx is a stack-stx
             tester_index,
-            peer_config.aggregate_public_key.clone().unwrap(),
+            peer_config
+                .chain_config
+                .aggregate_public_key
+                .clone()
+                .unwrap(),
             1,
             next_reward_cycle,
         );
@@ -8633,9 +8784,16 @@ fn test_scenario_four(use_nakamoto: bool) {
     // Commit vote txs & move to the prepare phase of reward cycle 7 (block 155)
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64 + 1)
-        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64);
+        .saturating_sub(
+            peer_config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        );
     let (latest_block, tx_block, receipts) = advance_to_block_height(
         &mut peer,
         &observer,
@@ -8675,11 +8833,15 @@ fn test_scenario_four(use_nakamoto: bool) {
         .unwrap();
     assert_eq!(bob_expected_vote, Value::Bool(true));
 
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, next_reward_cycle)
         .expect("No approved key found");
     assert_eq!(
         approved_key,
-        peer_config.aggregate_public_key.clone().unwrap()
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap()
     );
 
     // Alice stack-extend err tx
@@ -8708,13 +8870,13 @@ fn test_scenario_four(use_nakamoto: bool) {
     alice.nonce += 1;
     // Now starting second round of vote txs
     // Fetch signer indices in reward cycle 7
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), 7);
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, 7);
     // Alice err vote
     let alice_vote_expected_err = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
         alice_index,
-        peer_config.aggregate_public_key.unwrap(),
+        peer_config.chain_config.aggregate_public_key.unwrap(),
         1,
         7,
     );
@@ -8761,7 +8923,7 @@ fn test_scenario_four(use_nakamoto: bool) {
     assert_eq!(alice_expected_vote_err, Value::UInt(14));
 
     // Get approved key & assert that it wasn't sent (None)
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, 7);
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, 7);
     assert_eq!(approved_key, None);
 }
 
@@ -9114,7 +9276,7 @@ pub fn prepare_pox4_test<'a>(
                 max_amount: None,
             })
             .collect::<Vec<_>>();
-        let mut pox_constants = TestPeerConfig::default().burnchain.pox_constants;
+        let mut pox_constants = TestChainstateConfig::default().burnchain.pox_constants;
         pox_constants.reward_cycle_length = 10;
         pox_constants.v2_unlock_height = 21;
         pox_constants.pox_3_activation_height = 26;
@@ -9138,7 +9300,7 @@ pub fn prepare_pox4_test<'a>(
 
         info!("---- Booting into Nakamoto Peer ----");
         let peer = boot_plan.boot_into_nakamoto_peer(vec![], observer);
-        let sort_db = peer.sortdb.as_ref().unwrap();
+        let sort_db = peer.chain.sortdb.as_ref().unwrap();
         let latest_block = sort_db
             .index_handle_at_tip()
             .get_nakamoto_tip_block_id()
@@ -9146,7 +9308,7 @@ pub fn prepare_pox4_test<'a>(
             .unwrap();
         let coinbase_nonce = 0;
 
-        let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+        let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
 
         info!("Block height: {}", block_height);
 
@@ -9164,16 +9326,16 @@ pub fn prepare_pox4_test<'a>(
         let target_height = burnchain.pox_constants.pox_4_activation_height;
         let mut coinbase_nonce = 0;
         let mut latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
-        while get_tip(peer.sortdb.as_ref()).block_height < u64::from(target_height) {
+        while get_tip(peer.chain.sortdb.as_ref()).block_height < u64::from(target_height) {
             latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
             // if we reach epoch 2.1, perform the check
-            if get_tip(peer.sortdb.as_ref()).block_height
+            if get_tip(peer.chain.sortdb.as_ref()).block_height
                 > epochs[StacksEpochId::Epoch21].start_height
             {
                 assert_latest_was_burn(&mut peer);
             }
         }
-        let block_height = get_tip(peer.sortdb.as_ref()).block_height;
+        let block_height = get_tip(peer.chain.sortdb.as_ref()).block_height;
         (
             burnchain,
             peer,
@@ -9203,9 +9365,10 @@ pub fn tenure_with_txs_fallible(
         tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
         let tenure_change_tx = peer
+            .chain
             .miner
             .make_nakamoto_tenure_change(tenure_change.clone());
-        let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
         let blocks_and_sizes = peer.make_nakamoto_tenure_and(
             tenure_change_tx,
@@ -9227,8 +9390,8 @@ pub fn tenure_with_txs_fallible(
             .map(|(block, _, _)| block)
             .collect();
 
-        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         let latest_block = sort_db
             .index_handle_at_tip()
             .get_nakamoto_tip_block_id()
@@ -9255,8 +9418,8 @@ pub fn tenure_with_txs(
         tenure_change.tenure_consensus_hash = consensus_hash.clone();
         tenure_change.burn_view_consensus_hash = consensus_hash.clone();
 
-        let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
-        let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+        let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
         let blocks_and_sizes = peer.make_nakamoto_tenure(
             tenure_change_tx,
@@ -9276,8 +9439,8 @@ pub fn tenure_with_txs(
             .map(|(block, _, _)| block)
             .collect();
 
-        let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         let latest_block = sort_db
             .index_handle_at_tip()
             .get_nakamoto_tip_block_id()
@@ -9353,13 +9516,14 @@ fn missed_slots_no_unlock() {
         + 1;
 
     // produce blocks until epoch 2.5
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch25].start_height
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
+        <= epochs[StacksEpochId::Epoch25].start_height
     {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
     // perform lockups so we can test that pox-4 does not exhibit unlock-on-miss behavior
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let alice_lockup =
         make_simple_pox_4_lock(&alice, &mut peer, 1024 * POX_THRESHOLD_STEPS_USTX, 6);
@@ -9402,7 +9566,7 @@ fn missed_slots_no_unlock() {
     );
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -9603,12 +9767,13 @@ fn no_lockups_2_5() {
         + 1;
 
     // produce blocks until epoch 2.5
-    while get_tip(peer.sortdb.as_ref()).block_height <= epochs[StacksEpochId::Epoch25].start_height
+    while get_tip(peer.chain.sortdb.as_ref()).block_height
+        <= epochs[StacksEpochId::Epoch25].start_height
     {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_simple_pox_4_lock(&bob, &mut peer, 1 * POX_THRESHOLD_STEPS_USTX, 6);
 
@@ -9643,7 +9808,7 @@ fn no_lockups_2_5() {
     );
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -9747,36 +9912,43 @@ fn test_scenario_five(use_nakamoto: bool) {
 
     let carl_end_burn_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(carl_lock_period) as u64)
         as u128;
     let frank_end_burn_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(frank_lock_period) as u64)
         as u128;
     let grace_end_burn_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(grace_lock_period) as u64)
         as u128;
     let heidi_end_burn_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(heidi_lock_period) as u64)
         as u128;
     let ivan_end_burn_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(ivan_lock_period) as u64)
         as u128;
     let jude_end_burn_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(jude_lock_period) as u64)
         as u128;
     let mallory_end_burn_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle.wrapping_add(mallory_lock_period) as u64)
         as u128;
@@ -9989,15 +10161,22 @@ fn test_scenario_five(use_nakamoto: bool) {
     // Advance to reward set calculation of the next reward cycle
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
+        .saturating_sub(
+            peer_config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        )
         .wrapping_add(2);
     info!(
         "Scenario five: submitting stacking txs.";
         "target_height" => target_height,
         "next_reward_cycle" => next_reward_cycle,
-        "prepare_length" => peer_config.burnchain.pox_constants.prepare_length,
+        "prepare_length" => peer_config.chain_config.burnchain.pox_constants.prepare_length,
     );
     let (latest_block, tx_block, _receipts) = advance_to_block_height(
         &mut peer,
@@ -10049,14 +10228,18 @@ fn test_scenario_five(use_nakamoto: bool) {
 
     let cycle_id = next_reward_cycle;
     // Create vote txs for each signer
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
-    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
-    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, cycle_id);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, cycle_id);
+    let carl_index = get_signer_index(&mut peer, &latest_block, &carl.address, cycle_id);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
         alice_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -10064,7 +10247,11 @@ fn test_scenario_five(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -10072,7 +10259,11 @@ fn test_scenario_five(use_nakamoto: bool) {
         &carl.private_key,
         carl.nonce,
         carl_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -10083,6 +10274,7 @@ fn test_scenario_five(use_nakamoto: bool) {
     // Mine vote txs & advance to the reward set calculation of the next reward cycle
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
     info!(
@@ -10111,9 +10303,12 @@ fn test_scenario_five(use_nakamoto: bool) {
             panic!("Failed to find vote transaction ({txid}) in observed transactions")
         }
     }
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, next_reward_cycle)
         .expect("No approved key found");
-    assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
+    assert_eq!(
+        approved_key,
+        peer_config.chain_config.aggregate_public_key.unwrap()
+    );
 
     // Stack for following reward cycle again and then advance to epoch 3.0 activation boundary
     let reward_cycle = peer.get_reward_cycle() as u128;
@@ -10192,9 +10387,16 @@ fn test_scenario_five(use_nakamoto: bool) {
 
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
+        .saturating_sub(
+            peer_config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        )
         .wrapping_add(2);
     info!(
         "Scenario five: submitting extend and aggregate commit txs. Target height: {}",
@@ -10250,21 +10452,26 @@ fn test_scenario_five(use_nakamoto: bool) {
 
     let cycle_id = next_reward_cycle;
     // Generate next cycle aggregate public key
-    peer_config.aggregate_public_key = Some(
+    peer_config.chain_config.aggregate_public_key = Some(
         peer_config
+            .chain_config
             .test_signers
             .unwrap()
             .generate_aggregate_key(cycle_id as u64),
     );
     // create vote txs
-    let alice_index = get_signer_index(&mut peer, latest_block, alice.address.clone(), cycle_id);
-    let bob_index = get_signer_index(&mut peer, latest_block, bob.address.clone(), cycle_id);
-    let carl_index = get_signer_index(&mut peer, latest_block, carl.address.clone(), cycle_id);
+    let alice_index = get_signer_index(&mut peer, &latest_block, &alice.address, cycle_id);
+    let bob_index = get_signer_index(&mut peer, &latest_block, &bob.address, cycle_id);
+    let carl_index = get_signer_index(&mut peer, &latest_block, &carl.address, cycle_id);
     let alice_vote = make_signers_vote_for_aggregate_public_key(
         &alice.private_key,
         alice.nonce,
         alice_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -10272,7 +10479,11 @@ fn test_scenario_five(use_nakamoto: bool) {
         &bob.private_key,
         bob.nonce,
         bob_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -10280,7 +10491,11 @@ fn test_scenario_five(use_nakamoto: bool) {
         &carl.private_key,
         carl.nonce,
         carl_index,
-        peer_config.aggregate_public_key.clone().unwrap(),
+        peer_config
+            .chain_config
+            .aggregate_public_key
+            .clone()
+            .unwrap(),
         1,
         next_reward_cycle,
     );
@@ -10291,6 +10506,7 @@ fn test_scenario_five(use_nakamoto: bool) {
 
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64);
     // Submit vote transactions
@@ -10320,9 +10536,12 @@ fn test_scenario_five(use_nakamoto: bool) {
             panic!("Failed to find vote transaction ({txid}) in observed transactions")
         }
     }
-    let approved_key = get_approved_aggregate_key(&mut peer, latest_block, next_reward_cycle)
+    let approved_key = get_approved_aggregate_key(&mut peer, &latest_block, next_reward_cycle)
         .expect("No approved key found");
-    assert_eq!(approved_key, peer_config.aggregate_public_key.unwrap());
+    assert_eq!(
+        approved_key,
+        peer_config.chain_config.aggregate_public_key.unwrap()
+    );
 
     // Let us start stacking for the following reward cycle
     let current_reward_cycle = peer.get_reward_cycle() as u128;
@@ -10403,9 +10622,16 @@ fn test_scenario_five(use_nakamoto: bool) {
 
     let target_height = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(next_reward_cycle as u64)
-        .saturating_sub(peer_config.burnchain.pox_constants.prepare_length as u64)
+        .saturating_sub(
+            peer_config
+                .chain_config
+                .burnchain
+                .pox_constants
+                .prepare_length as u64,
+        )
         .wrapping_add(2);
     // This assertion just makes testing logic a bit easier
     let davids_stackers = &[(grace, grace_lock_period), (heidi, heidi_lock_period)];

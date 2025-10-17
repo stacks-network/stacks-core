@@ -140,7 +140,7 @@ impl SortitionHash {
 
     /// Choose two indices (without replacement) from the range [0, max).
     pub fn choose_two(&self, max: u32) -> Vec<u32> {
-        let mut rng = ChaCha20Rng::from_seed(self.0.clone());
+        let mut rng = ChaCha20Rng::from_seed(self.0);
         if max < 2 {
             return (0..max).collect();
         }

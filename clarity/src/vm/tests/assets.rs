@@ -25,7 +25,6 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
 #[allow(unused_imports)]
 use crate::vm::{
-    ast::ASTRules,
     contexts::AssetMapEntry,
     database::MemoryBackingStore,
     errors::{CheckErrors, RuntimeErrorType},
@@ -559,12 +558,7 @@ fn test_simple_token_system(
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
 
     owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), tokens_contract, None)
         .unwrap();
 
     let (result, asset_map, _events) = execute_transaction(
@@ -858,12 +852,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     let token_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".into());
     let err = owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            bad_0,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), bad_0, None)
         .unwrap_err();
     assert!(matches!(
         err,
@@ -871,12 +860,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     ));
 
     let err = owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            bad_1,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), bad_1, None)
         .unwrap_err();
     assert!(matches!(
         err,
@@ -884,12 +868,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     ));
 
     owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), contract, None)
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(

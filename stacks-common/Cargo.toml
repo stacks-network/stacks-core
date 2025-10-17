@@ -64,7 +64,7 @@ secp256k1 = { version = "0.24.3", default-features = false, features = ["std","s
 rusqlite = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-libsecp256k1 = { version = "0.7.0", default-features = false, features = ["hmac"] }
+libsecp256k1 = { version = "0.7.2", default-features = false, features = ["hmac", "lazy-static-context"] }
 
 [dev-dependencies]
 rand_core = { workspace = true }

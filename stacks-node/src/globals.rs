@@ -289,7 +289,7 @@ impl<T> Globals<T> {
             Ok(ref mut leader_key_registration_state) => {
                 for op in key_registers.into_iter() {
                     if let LeaderKeyRegistrationState::Pending(target_block_height, txid) =
-                        **leader_key_registration_state
+                        leader_key_registration_state.clone()
                     {
                         info!(
                             "Received burnchain block #{burn_block_height} including key_register_op - {txid}"
@@ -384,7 +384,7 @@ impl<T> Globals<T> {
     /// Get the last miner spend amount
     pub fn get_last_miner_spend_amount(&self) -> Option<u64> {
         match self.last_miner_spend_amount.lock() {
-            Ok(last_miner_spend_amount) => (*last_miner_spend_amount).clone(),
+            Ok(last_miner_spend_amount) => *last_miner_spend_amount,
             Err(_e) => {
                 error!("FATAL; failed to lock last miner spend amount");
                 panic!();

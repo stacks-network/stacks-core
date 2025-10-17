@@ -564,6 +564,11 @@ pub struct MemPoolWalkSettings {
     /// What percentage of the remaining cost limit should we consume before stopping the walk
     /// None means we consume the entire cost limit ASAP
     pub tenure_cost_limit_per_block_percentage: Option<u8>,
+    /// The percentage of the block’s execution cost at which, if the next non-boot
+    /// contract call would cause a `BlockTooBigError`, the miner will stop including
+    /// further non-boot contract calls and instead consider only boot contract calls
+    /// and STX transfers.
+    pub contract_cost_limit_percentage: Option<u8>,
 }
 
 impl Default for MemPoolWalkSettings {
@@ -577,6 +582,7 @@ impl Default for MemPoolWalkSettings {
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
+            contract_cost_limit_percentage: None,
         }
     }
 }
@@ -591,6 +597,7 @@ impl MemPoolWalkSettings {
             txs_to_consider: MemPoolWalkTxTypes::all(),
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
+            contract_cost_limit_percentage: None,
         }
     }
 }
@@ -978,7 +985,7 @@ impl<'a> MemPoolTx<'a> {
         &mut self,
         coinbase_height: u64,
         txid: &Txid,
-        prior_txid: Option<Txid>,
+        prior_txid: Option<&Txid>,
     ) -> Result<Option<Txid>, MemPoolRejection> {
         // is this the first-ever txid at this coinbase height?
         let sql = "SELECT 1 FROM mempool WHERE height = ?1";
@@ -1808,7 +1815,7 @@ impl MemPoolDB {
                         // Candidate transaction: fall through
                     }
                 };
-                considered_txs.push(candidate.txid);
+                considered_txs.push(candidate.txid.clone());
 
                 // Read in and deserialize the transaction.
                 let tx_info_option = MemPoolDB::get_tx(self.conn(), &candidate.txid)?;
@@ -2104,7 +2111,7 @@ impl MemPoolDB {
         tip_consensus_hash: &ConsensusHash,
         tip_block_header_hash: &BlockHeaderHash,
         resolve_tenure: bool,
-        txid: Txid,
+        txid: &Txid,
         tx_bytes: Vec<u8>,
         tx_fee: u64,
         coinbase_height: u64,
@@ -2203,11 +2210,7 @@ impl MemPoolDB {
             return Err(MemPoolRejection::ConflictingNonceInMempool);
         }
 
-        tx.update_bloom_counter(
-            coinbase_height,
-            &txid,
-            prior_tx.as_ref().map(|tx| tx.txid.clone()),
-        )?;
+        tx.update_bloom_counter(coinbase_height, txid, prior_tx.as_ref().map(|tx| &tx.txid))?;
 
         let sql = "INSERT OR REPLACE INTO mempool (
             txid,
@@ -2242,11 +2245,15 @@ impl MemPoolDB {
         tx.execute(sql, args)
             .map_err(|e| MemPoolRejection::DBError(db_error::SqliteError(e)))?;
 
-        tx.update_mempool_pager(&txid)?;
+        tx.update_mempool_pager(txid)?;
 
         // broadcast drop event if a tx is being replaced
         if let (Some(prior_tx), Some(event_observer)) = (prior_tx, event_observer) {
-            event_observer.mempool_txs_dropped(vec![prior_tx.txid], Some(txid), replace_reason);
+            event_observer.mempool_txs_dropped(
+                vec![prior_tx.txid],
+                Some(txid.clone()),
+                replace_reason,
+            );
         };
 
         Ok(())
@@ -2406,7 +2413,7 @@ impl MemPoolDB {
             consensus_hash,
             block_hash,
             true,
-            txid.clone(),
+            &txid,
             tx_data,
             tx_fee,
             coinbase_height,
@@ -2808,7 +2815,7 @@ impl MemPoolDB {
     pub fn make_mempool_sync_data(&self) -> Result<MemPoolSyncData, db_error> {
         let num_tags = MemPoolDB::get_num_recent_txs(self.conn())?;
         if num_tags < u64::from(self.max_tx_tags) {
-            let seed = self.bloom_counter.get_seed().clone();
+            let seed = *self.bloom_counter.get_seed();
             let tags = self.get_txtags(&seed)?;
             Ok(MemPoolSyncData::TxTags(seed, tags))
         } else {

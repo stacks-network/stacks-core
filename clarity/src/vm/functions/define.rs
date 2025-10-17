@@ -26,7 +26,9 @@ use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
 use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::types::signatures::FunctionSignature;
-use crate::vm::types::{parse_name_type_pairs, TraitIdentifier, TypeSignature, Value};
+use crate::vm::types::{
+    parse_name_type_pairs, TraitIdentifier, TypeSignature, TypeSignatureExt as _, Value,
+};
 
 define_named_enum!(DefineFunctions {
     Constant("define-constant"),
@@ -216,7 +218,11 @@ fn handle_define_fungible_token(
                 Some(total_supply_int),
             ))
         } else {
-            Err(CheckErrors::TypeValueError(TypeSignature::UIntType, total_supply_value).into())
+            Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::UIntType),
+                Box::new(total_supply_value),
+            )
+            .into())
         }
     } else {
         Ok(DefineResult::FungibleToken(asset_name.clone(), None))
@@ -258,18 +264,12 @@ fn handle_define_trait(
     Ok(DefineResult::Trait(name.clone(), trait_signature))
 }
 
-fn handle_use_trait(
-    name: &ClarityName,
-    trait_identifier: &TraitIdentifier,
-) -> Result<DefineResult> {
-    Ok(DefineResult::UseTrait(
-        name.clone(),
-        trait_identifier.clone(),
-    ))
+fn handle_use_trait(name: &ClarityName, trait_identifier: &TraitIdentifier) -> DefineResult {
+    DefineResult::UseTrait(name.clone(), trait_identifier.clone())
 }
 
-fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> Result<DefineResult> {
-    Ok(DefineResult::ImplTrait(trait_identifier.clone()))
+fn handle_impl_trait(trait_identifier: &TraitIdentifier) -> DefineResult {
+    DefineResult::ImplTrait(trait_identifier.clone())
 }
 
 impl DefineFunctions {
@@ -449,9 +449,9 @@ pub fn evaluate_define(
             DefineFunctionsParsed::UseTrait {
                 name,
                 trait_identifier,
-            } => handle_use_trait(name, trait_identifier),
+            } => Ok(handle_use_trait(name, trait_identifier)),
             DefineFunctionsParsed::ImplTrait { trait_identifier } => {
-                handle_impl_trait(trait_identifier)
+                Ok(handle_impl_trait(trait_identifier))
             }
         }
     } else {

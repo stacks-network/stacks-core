@@ -14,12 +14,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use hashbrown::HashMap;
+use std::collections::HashMap;
+
+use clarity_types::representations::ClarityName;
+use clarity_types::types::{PrincipalData, Value};
 use stacks_common::types::StacksEpochId;
 
 pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
-    SyntaxBindingError,
+    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, SyntaxBindingError,
 };
 use super::AnalysisDatabase;
 use crate::vm::analysis::types::{AnalysisPass, ContractAnalysis};
@@ -28,8 +30,7 @@ use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
-use crate::vm::types::{PrincipalData, Value};
+use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::ClarityVersion;
 
 #[cfg(test)]
@@ -53,7 +54,7 @@ impl AnalysisPass for ReadOnlyChecker<'_, '_> {
         epoch: &StacksEpochId,
         contract_analysis: &mut ContractAnalysis,
         analysis_db: &mut AnalysisDatabase,
-    ) -> CheckResult<()> {
+    ) -> Result<(), CheckError> {
         let mut command =
             ReadOnlyChecker::new(analysis_db, epoch, &contract_analysis.clarity_version);
         command.run(contract_analysis)?;
@@ -82,7 +83,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// # Errors
     /// - `CheckErrors::WriteAttemptedInReadOnly`
     /// - Contract parsing errors
-    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> CheckResult<()> {
+    pub fn run(&mut self, contract_analysis: &ContractAnalysis) -> Result<(), CheckError> {
         // Iterate over all the top-level statements in a contract.
         for exp in contract_analysis.expressions.iter() {
             let mut result = self.check_top_level_expression(exp);
@@ -106,7 +107,10 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     /// # Errors
     /// - CheckErrors::WriteAttemptedInReadOnly
     /// - Contract parsing errors
-    fn check_top_level_expression(&mut self, expression: &SymbolicExpression) -> CheckResult<()> {
+    fn check_top_level_expression(
+        &mut self,
+        expression: &SymbolicExpression,
+    ) -> Result<(), CheckError> {
         use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
             match define_type {
@@ -164,7 +168,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         &mut self,
         signature: &[SymbolicExpression],
         body: &SymbolicExpression,
-    ) -> CheckResult<(ClarityName, bool)> {
+    ) -> Result<(ClarityName, bool), CheckError> {
         let function_name = signature
             .first()
             .ok_or(CheckErrors::DefineFunctionBadSignature)?
@@ -176,7 +180,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         Ok((function_name.clone(), is_read_only))
     }
 
-    fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> CheckResult<()> {
+    fn check_reads_only_valid(&mut self, expr: &SymbolicExpression) -> Result<(), CheckError> {
         use crate::vm::functions::define::DefineFunctionsParsed::*;
         if let Some(define_type) = DefineFunctionsParsed::try_parse(expr)? {
             match define_type {
@@ -221,7 +225,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     ///   (1) for whether or not they are valid with respect to read-only requirements.
     ///   (2) if valid, returns whether or not they are read only.
     /// Note that because of (1), this function _cannot_ short-circuit on read-only.
-    fn check_read_only(&mut self, expr: &SymbolicExpression) -> CheckResult<bool> {
+    fn check_read_only(&mut self, expr: &SymbolicExpression) -> Result<bool, CheckError> {
         match expr.expr {
             AtomValue(_) | LiteralValue(_) | Atom(_) | TraitReference(_, _) | Field(_) => Ok(true),
             List(ref expression) => self.check_expression_application_is_read_only(expression),
@@ -238,7 +242,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn check_each_expression_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
-    ) -> CheckResult<bool> {
+    ) -> Result<bool, CheckError> {
         let mut result = true;
         for expression in expressions.iter() {
             let expr_read_only = self.check_read_only(expression)?;
@@ -261,7 +265,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         &mut self,
         function: &str,
         args: &[SymbolicExpression],
-    ) -> Option<CheckResult<bool>> {
+    ) -> Option<Result<bool, CheckError>> {
         NativeFunctions::lookup_by_name_at_version(function, &self.clarity_version)
             .map(|function| self.check_native_function_is_read_only(&function, args))
     }
@@ -274,24 +278,105 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         &mut self,
         function: &NativeFunctions,
         args: &[SymbolicExpression],
-    ) -> CheckResult<bool> {
+    ) -> Result<bool, CheckError> {
         use crate::vm::functions::NativeFunctions::*;
 
         match function {
-            Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
-            | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Hash160 | Sha256
-            | Keccak256 | Equals | If | Sha512 | Sha512Trunc256 | Secp256k1Recover
-            | Secp256k1Verify | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet
-            | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
-            | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe | BuffToIntBe
-            | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt | IsStandard
-            | ToConsensusBuff | PrincipalDestruct | PrincipalConstruct | Append | Concat
-            | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo | GetBurnBlockInfo
-            | GetStacksBlockInfo | GetTenureInfo | TupleGet | TupleMerge | Len | Print
-            | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
-            | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice | ReplaceAt
-            | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift | BitwiseXor2
-            | ElementAtAlias | IndexOfAlias => {
+            Add
+            | Subtract
+            | Divide
+            | Multiply
+            | CmpGeq
+            | CmpLeq
+            | CmpLess
+            | CmpGreater
+            | Modulo
+            | Power
+            | Sqrti
+            | Log2
+            | BitwiseXor
+            | And
+            | Or
+            | Not
+            | Hash160
+            | Sha256
+            | Keccak256
+            | Equals
+            | If
+            | Sha512
+            | Sha512Trunc256
+            | Secp256k1Recover
+            | Secp256k1Verify
+            | ConsSome
+            | ConsOkay
+            | ConsError
+            | DefaultTo
+            | UnwrapRet
+            | UnwrapErrRet
+            | IsOkay
+            | IsNone
+            | Asserts
+            | Unwrap
+            | UnwrapErr
+            | Match
+            | IsErr
+            | IsSome
+            | TryRet
+            | ToUInt
+            | ToInt
+            | BuffToIntLe
+            | BuffToUIntLe
+            | BuffToIntBe
+            | BuffToUIntBe
+            | IntToAscii
+            | IntToUtf8
+            | StringToInt
+            | StringToUInt
+            | IsStandard
+            | ToConsensusBuff
+            | PrincipalDestruct
+            | PrincipalConstruct
+            | Append
+            | Concat
+            | AsMaxLen
+            | ContractOf
+            | PrincipalOf
+            | ListCons
+            | GetBlockInfo
+            | GetBurnBlockInfo
+            | GetStacksBlockInfo
+            | GetTenureInfo
+            | TupleGet
+            | TupleMerge
+            | Len
+            | Print
+            | AsContract
+            | Begin
+            | FetchVar
+            | GetStxBalance
+            | StxGetAccount
+            | GetTokenBalance
+            | GetAssetOwner
+            | GetTokenSupply
+            | ElementAt
+            | IndexOf
+            | Slice
+            | ReplaceAt
+            | BitwiseAnd
+            | BitwiseOr
+            | BitwiseNot
+            | BitwiseLShift
+            | BitwiseRShift
+            | BitwiseXor2
+            | ElementAtAlias
+            | IndexOfAlias
+            | ContractHash
+            | ToAscii
+            | AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }
@@ -423,6 +508,45 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
                 self.check_each_expression_is_read_only(&args[2..])
                     .map(|args_read_only| args_read_only && is_function_read_only)
             }
+            RestrictAssets => {
+                check_arguments_at_least(3, args)?;
+
+                // Check the asset owner argument.
+                let asset_owner_read_only = self.check_read_only(&args[0])?;
+
+                // Check the allowances argument.
+                let allowances =
+                    args[1]
+                        .match_list()
+                        .ok_or(CheckErrors::ExpectedListOfAllowances(
+                            "restrict-assets?".into(),
+                            2,
+                        ))?;
+                let allowances_read_only = self.check_each_expression_is_read_only(allowances)?;
+
+                // Check the body expressions.
+                let body_read_only = self.check_each_expression_is_read_only(&args[2..])?;
+
+                Ok(asset_owner_read_only && allowances_read_only && body_read_only)
+            }
+            AsContractSafe => {
+                check_arguments_at_least(2, args)?;
+
+                // Check the allowances argument.
+                let allowances =
+                    args[0]
+                        .match_list()
+                        .ok_or(CheckErrors::ExpectedListOfAllowances(
+                            "as-contract?".into(),
+                            1,
+                        ))?;
+                let allowances_read_only = self.check_each_expression_is_read_only(allowances)?;
+
+                // Check the body expressions.
+                let body_read_only = self.check_each_expression_is_read_only(&args[1..])?;
+
+                Ok(allowances_read_only && body_read_only)
+            }
         }
     }
 
@@ -439,7 +563,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
     fn check_expression_application_is_read_only(
         &mut self,
         expressions: &[SymbolicExpression],
-    ) -> CheckResult<bool> {
+    ) -> Result<bool, CheckError> {
         let (function_name, args) = expressions
             .split_first()
             .ok_or(CheckErrors::NonFunctionApplication)?;

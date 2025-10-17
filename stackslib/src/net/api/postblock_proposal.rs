@@ -23,7 +23,6 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use std::time::Instant;
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
 use serde::Deserialize;
@@ -186,10 +185,10 @@ impl From<Result<BlockValidateOk, BlockValidateReject>> for BlockValidateRespons
 
 impl BlockValidateResponse {
     /// Get the signer signature hash from the response
-    pub fn signer_signature_hash(&self) -> Sha512Trunc256Sum {
+    pub fn signer_signature_hash(&self) -> &Sha512Trunc256Sum {
         match self {
-            BlockValidateResponse::Ok(o) => o.signer_signature_hash,
-            BlockValidateResponse::Reject(r) => r.signer_signature_hash,
+            BlockValidateResponse::Ok(o) => &o.signer_signature_hash,
+            BlockValidateResponse::Reject(r) => &r.signer_signature_hash,
         }
     }
 }
@@ -579,6 +578,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
 
         let mut miner_tenure_info =
@@ -594,7 +594,6 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             );
             let err = match tx_result {
@@ -725,6 +724,7 @@ impl NakamotoBlockProposal {
             coinbase,
             self.block.header.pox_treatment.len(),
             None,
+            None,
         )?;
         let (mut replay_chainstate, _) =
             StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;
@@ -773,7 +773,6 @@ impl NakamotoBlockProposal {
                     &replay_tx,
                     replay_tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    ASTRules::PrecheckSize,
                     None,
                 );
                 match tx_result {
@@ -787,6 +786,7 @@ impl NakamotoBlockProposal {
                         match error {
                             ChainError::CostOverflowError(..)
                             | ChainError::BlockTooBigError
+                            | ChainError::BlockCostLimitError
                             | ChainError::ClarityError(ClarityError::CostError(..)) => {
                                 // block limit reached; add tx back to replay set.
                                 // BUT we know that the block should have ended at this point, so
@@ -837,7 +837,6 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                ASTRules::PrecheckSize,
                 None,
             );
         }
@@ -852,7 +851,6 @@ impl NakamotoBlockProposal {
                     &tx,
                     tx.tx_len(),
                     &BlockLimitFunction::NO_LIMIT_HIT,
-                    ASTRules::PrecheckSize,
                     None,
                 );
                 match tx_result {
@@ -865,6 +863,7 @@ impl NakamotoBlockProposal {
                             ChainError::CostOverflowError(..)
                                 | ChainError::BlockTooBigError
                                 | ChainError::ClarityError(ClarityError::CostError(..))
+                                | ChainError::BlockCostLimitError
                         )
                     }
                     TransactionResult::Success(_) => {

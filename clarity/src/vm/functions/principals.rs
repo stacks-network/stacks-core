@@ -13,7 +13,6 @@ use crate::vm::errors::{
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
 };
-use crate::vm::types::signatures::{BUFF_1, BUFF_20};
 use crate::vm::types::{
     ASCIIData, BuffData, CharType, OptionalData, PrincipalData, QualifiedContractIdentifier,
     ResponseData, SequenceData, StandardPrincipalData, TupleData, TypeSignature, Value,
@@ -61,7 +60,11 @@ pub fn special_is_standard(
     let version = if let Value::Principal(ref p) = owner {
         p.version()
     } else {
-        return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, owner).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::PrincipalType),
+            Box::new(owner),
+        )
+        .into());
     };
 
     Ok(Value::Bool(version_matches_current_network(
@@ -165,7 +168,11 @@ pub fn special_principal_destruct(
             (issuer.0, issuer.1, Some(name))
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(TypeSignature::PrincipalType, principal).into())
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::PrincipalType),
+                Box::new(principal),
+            )
+            .into());
         }
     };
 
@@ -203,14 +210,22 @@ pub fn special_principal_construct(
         _ => {
             return {
                 // This is an aborting error because this should have been caught in analysis pass.
-                Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into())
+                Err(CheckErrors::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_1),
+                    Box::new(version),
+                )
+                .into())
             };
         }
     };
 
     let version_byte = if verified_version.len() > 1 {
         // should have been caught by the type-checker
-        return Err(CheckErrors::TypeValueError(BUFF_1.clone(), version).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BUFFER_1),
+            Box::new(version),
+        )
+        .into());
     } else if verified_version.is_empty() {
         // the type checker does not check the actual length of the buffer, but a 0-length buffer
         // will type-check to (buff 1)
@@ -233,13 +248,23 @@ pub fn special_principal_construct(
     // This is an aborting error because this should have been caught in analysis pass.
     let verified_hash_bytes = match hash_bytes {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => data,
-        _ => return Err(CheckErrors::TypeValueError(BUFF_20.clone(), hash_bytes).into()),
+        _ => {
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_20),
+                Box::new(hash_bytes),
+            )
+            .into())
+        }
     };
 
     // This must have been a (buff 20).
     // This is an aborting error because this should have been caught in analysis pass.
     if verified_hash_bytes.len() > 20 {
-        return Err(CheckErrors::TypeValueError(BUFF_20.clone(), hash_bytes).into());
+        return Err(CheckErrors::TypeValueError(
+            Box::new(TypeSignature::BUFFER_20),
+            Box::new(hash_bytes),
+        )
+        .into());
     }
 
     // If the hash-bytes buffer has less than 20 bytes, this is a runtime error, because it
@@ -260,8 +285,8 @@ pub fn special_principal_construct(
             Value::Sequence(SequenceData::String(CharType::ASCII(ascii_data))) => ascii_data,
             _ => {
                 return Err(CheckErrors::TypeValueError(
-                    TypeSignature::contract_name_string_ascii_type()?,
-                    name,
+                    Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
+                    Box::new(name),
                 )
                 .into())
             }
@@ -277,8 +302,8 @@ pub fn special_principal_construct(
         // if it's too long, then this should have been caught by the type-checker
         if name_bytes.data.len() > CONTRACT_MAX_NAME_LENGTH {
             return Err(CheckErrors::TypeValueError(
-                TypeSignature::contract_name_string_ascii_type()?,
-                Value::from(name_bytes),
+                Box::new(TypeSignature::CONTRACT_NAME_STRING_ASCII_MAX),
+                Box::new(Value::from(name_bytes)),
             )
             .into());
         }

@@ -174,8 +174,7 @@ impl MempoolSync {
             }
             // already resolved?
             if let Some(sockaddr) = convo.data_ip.as_ref() {
-                mempool_sync_data_url_and_sockaddr =
-                    Some((convo.data_url.clone(), sockaddr.clone()));
+                mempool_sync_data_url_and_sockaddr = Some((convo.data_url.clone(), *sockaddr));
                 break;
             }
             // can we resolve the data URL?
@@ -269,18 +268,18 @@ impl MempoolSync {
     }
 
     /// Resolve our picked mempool sync peer's data URL.
-    /// Returns Ok(true, ..) if we're done syncing the mempool.
-    /// Returns Ok(false, ..) if there's more to do
+    /// Returns (true, ..) if we're done syncing the mempool.
+    /// Returns (false, ..) if there's more to do
     /// Returns the socket addr if we ever succeed in resolving it.
     #[cfg_attr(test, mutants::skip)]
     fn mempool_sync_resolve_data_url(
         url_str: &UrlString,
         request: &DNSRequest,
         dns_client_opt: &mut Option<&mut DNSClient>,
-    ) -> Result<(bool, Option<SocketAddr>), NetError> {
+    ) -> (bool, Option<SocketAddr>) {
         if let Ok(Some(addr)) = PeerNetwork::try_get_url_ip(url_str) {
             // URL contains an IP address -- go with that
-            Ok((false, Some(addr)))
+            (false, Some(addr))
         } else if let Some(dns_client) = dns_client_opt {
             // keep trying to resolve
             match dns_client.poll_lookup(&request.host, request.port) {
@@ -288,30 +287,30 @@ impl MempoolSync {
                     Ok(mut addrs) => {
                         if let Some(addr) = addrs.pop() {
                             // resolved!
-                            return Ok((false, Some(addr)));
+                            (false, Some(addr))
                         } else {
-                            warn!("DNS returned no results for {}", url_str);
-                            return Ok((true, None));
+                            warn!("DNS returned no results for {url_str}");
+                            (true, None)
                         }
                     }
                     Err(msg) => {
-                        warn!("DNS failed to look up {:?}: {}", &url_str, msg);
-                        return Ok((true, None));
+                        warn!("DNS failed to look up {url_str:?}: {msg}");
+                        (true, None)
                     }
                 },
                 Ok(None) => {
                     // still in-flight
-                    return Ok((false, None));
+                    (false, None)
                 }
                 Err(e) => {
-                    warn!("DNS lookup failed on {:?}: {:?}", url_str, &e);
-                    return Ok((true, None));
+                    warn!("DNS lookup failed on {url_str:?}: {e:?}");
+                    (true, None)
                 }
             }
         } else {
             // can't do anything
             debug!("No DNS client, and URL contains a domain, so no mempool sync can happen");
-            return Ok((true, None));
+            (true, None)
         }
     }
 
@@ -338,7 +337,7 @@ impl MempoolSync {
                 .payload_stacks(&sync_data),
         )?;
 
-        let event_id = network.connect_or_send_http_request(url.clone(), addr.clone(), request)?;
+        let event_id = network.connect_or_send_http_request(url.clone(), *addr, request)?;
         return Ok((false, Some(event_id)));
     }
 
@@ -467,26 +466,17 @@ impl MempoolSync {
                     // 2. resolve its data URL
                     match Self::mempool_sync_resolve_data_url(url_str, dns_request, dns_client_opt)
                     {
-                        Ok((false, Some(addr))) => {
+                        (false, Some(addr)) => {
                             // success! advance
                             self.mempool_state =
                                 MempoolSyncState::SendQuery(url_str.clone(), addr, page_id.clone());
                         }
-                        Ok((false, None)) => {
+                        (false, None) => {
                             // try again later
                             return (false, None);
                         }
-                        Ok((true, _)) => {
+                        (true, _) => {
                             // done
-                            self.mempool_sync_reset();
-                            return (true, None);
-                        }
-                        Err(e) => {
-                            // failed
-                            warn!(
-                                "mempool_sync_resolve_data_url({}) failed: {:?}",
-                                url_str, &e
-                            );
                             self.mempool_sync_reset();
                             return (true, None);
                         }
@@ -518,7 +508,7 @@ impl MempoolSync {
                             // success! advance
                             debug!("{:?}: Mempool sync query {} for mempool transactions at {} on event {}", &network.get_local_peer(), url, page_id, event_id);
                             self.mempool_state =
-                                MempoolSyncState::RecvResponse(url.clone(), addr.clone(), event_id);
+                                MempoolSyncState::RecvResponse(url.clone(), *addr, event_id);
                         }
                         Ok((false, None)) => {
                             // try again later
@@ -553,7 +543,7 @@ impl MempoolSync {
                                     // get the next page
                                     self.mempool_state = MempoolSyncState::SendQuery(
                                         url.clone(),
-                                        addr.clone(),
+                                        *addr,
                                         next_page_id,
                                     );
                                     false

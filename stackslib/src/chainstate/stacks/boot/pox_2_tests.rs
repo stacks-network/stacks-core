@@ -60,7 +60,7 @@ pub fn get_reward_set_entries_at(
     tip: &StacksBlockId,
     at_burn_ht: u64,
 ) -> Vec<RawRewardSetEntry> {
-    let burnchain = peer.config.burnchain.clone();
+    let burnchain = peer.config.chain_config.burnchain.clone();
     with_sortdb(peer, |ref mut c, sortdb| {
         get_reward_set_entries_at_block(c, &burnchain, sortdb, tip, at_burn_ht).unwrap()
     })
@@ -73,7 +73,7 @@ pub fn get_reward_set_entries_index_order_at(
     tip: &StacksBlockId,
     at_burn_ht: u64,
 ) -> Vec<RawRewardSetEntry> {
-    let burnchain = peer.config.burnchain.clone();
+    let burnchain = peer.config.chain_config.burnchain.clone();
     with_sortdb(peer, |ref mut c, sortdb| {
         c.get_reward_addresses(&burnchain, sortdb, at_burn_ht, tip)
             .unwrap()
@@ -149,9 +149,15 @@ pub fn check_all_stacker_link_invariants(
         // For cycles where PoX-3 is active, check if Epoch24 has activated first.
         let active_pox_contract = peer
             .config
+            .chain_config
             .burnchain
             .pox_constants
-            .active_pox_contract(peer.config.burnchain.reward_cycle_to_block_height(cycle));
+            .active_pox_contract(
+                peer.config
+                    .chain_config
+                    .burnchain
+                    .reward_cycle_to_block_height(cycle),
+            );
         if active_pox_contract == POX_3_NAME && epoch < StacksEpochId::Epoch24 {
             info!(
                 "Skipping check on a PoX-3 reward cycle because Epoch24 has not started yet";
@@ -337,6 +343,7 @@ pub fn check_stacking_state_invariants(
 
     let stacking_state_unlock_ht = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height((first_cycle + lock_period) as u64);
 
@@ -430,11 +437,13 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
     .burn_header_height;
     let tip_cycle = peer
         .config
+        .chain_config
         .burnchain
         .block_height_to_reward_cycle(current_burn_height.into())
         .unwrap();
     let cycle_start = peer
         .config
+        .chain_config
         .burnchain
         .reward_cycle_to_block_height(cycle_number);
 
@@ -446,11 +455,17 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
         .unwrap()
         .unwrap();
 
-    let active_pox_contract = peer.config.burnchain.pox_constants.active_pox_contract(
-        peer.config
-            .burnchain
-            .reward_cycle_to_block_height(cycle_number),
-    );
+    let active_pox_contract = peer
+        .config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .active_pox_contract(
+            peer.config
+                .chain_config
+                .burnchain
+                .reward_cycle_to_block_height(cycle_number),
+        );
 
     if cycle_start_epoch.epoch_id == StacksEpochId::Epoch22
         || cycle_start_epoch.epoch_id == StacksEpochId::Epoch23
@@ -467,8 +482,8 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
             "Skipping validation of reward set that started in Epoch24, but its cycle starts before pox-3 activation";
             "cycle" => cycle_number,
             "cycle_start" => cycle_start,
-            "pox_3_activation" => peer.config.burnchain.pox_constants.pox_3_activation_height,
-            "pox_4_activation" => peer.config.burnchain.pox_constants.pox_4_activation_height,
+            "pox_3_activation" => peer.config.chain_config.burnchain.pox_constants.pox_3_activation_height,
+            "pox_4_activation" => peer.config.chain_config.burnchain.pox_constants.pox_4_activation_height,
             "epoch_2_4_start" => cycle_start_epoch.start_height,
         );
         return;
@@ -510,7 +525,12 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
 
             if tip_epoch.epoch_id >= StacksEpochId::Epoch24
                 && current_burn_height
-                    <= peer.config.burnchain.pox_constants.pox_3_activation_height
+                    <= peer
+                        .config
+                        .chain_config
+                        .burnchain
+                        .pox_constants
+                        .pox_3_activation_height
             {
                 // if the tip is epoch-2.4, and pox-3 isn't the active pox contract yet,
                 //  the invariant checks will not make sense for the same reasons as above
@@ -519,7 +539,12 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
 
             if tip_epoch.epoch_id >= StacksEpochId::Epoch25
                 && current_burn_height
-                    <= peer.config.burnchain.pox_constants.pox_4_activation_height
+                    <= peer
+                        .config
+                        .chain_config
+                        .burnchain
+                        .pox_constants
+                        .pox_4_activation_height
             {
                 // if the tip is epoch-2.5, and pox-5 isn't the active pox contract yet,
                 //  the invariant checks will not make sense for the same reasons as above
@@ -550,11 +575,17 @@ pub fn check_stacker_link_invariants(peer: &mut TestPeer, tip: &StacksBlockId, c
 
 /// Get the `cycle_number`'s total stacked amount at the given chaintip
 pub fn get_reward_cycle_total(peer: &mut TestPeer, tip: &StacksBlockId, cycle_number: u64) -> u128 {
-    let active_pox_contract = peer.config.burnchain.pox_constants.active_pox_contract(
-        peer.config
-            .burnchain
-            .reward_cycle_to_block_height(cycle_number),
-    );
+    let active_pox_contract = peer
+        .config
+        .chain_config
+        .burnchain
+        .pox_constants
+        .active_pox_contract(
+            peer.config
+                .chain_config
+                .burnchain
+                .reward_cycle_to_block_height(cycle_number),
+        );
 
     with_clarity_db_ro(peer, tip, |db| {
         let total_stacked_key = TupleData::from_data(vec![(
@@ -776,7 +807,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     };
 
     // our "tenure counter" is now at 0
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
 
     // first tenure is empty
@@ -794,13 +825,13 @@ fn test_simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
         1024 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -854,7 +885,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     //  should be accepted (checked via the tx receipt). Also, importantly,
     //  the cost tracker should assign costs to Charlie's transaction.
     //  This is also checked by the transaction receipt.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // our "tenure counter" is now at 9
     assert_eq!(tip.block_height, 9 + EMPTY_SORTITIONS as u64);
@@ -880,7 +911,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10, and 11
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_pox_2_lockup(
         &bob,
@@ -904,14 +935,14 @@ fn test_simple_pox_lockup_transition_pox_2() {
     assert_eq!(alice_balance, 0);
 
     // Now, Bob tries to lock in PoX v1 too, but it shouldn't work!
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_pox_lockup(
         &bob,
         1,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).destruct().1,
+        &key_to_stacks_addr(&bob).destruct().1,
         4,
         tip.block_height,
     );
@@ -921,7 +952,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
     let block_id = peer.tenure_with_txs(&[bob_lockup], &mut coinbase_nonce);
 
     // our "tenure counter" is now at 12
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 12 + EMPTY_SORTITIONS as u64);
     // One more empty tenure to reach the unlock height
     let block_id = peer.tenure_with_txs(&[], &mut coinbase_nonce);
@@ -932,7 +963,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
 
     // At this point, the auto unlock height for v1 accounts should be reached.
     //  let Alice stack in PoX v2
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // our "tenure counter" is now at 13
     assert_eq!(tip.block_height, 13 + EMPTY_SORTITIONS as u64);
@@ -963,7 +994,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         assert_eq!(alice_balance, 512 * POX_THRESHOLD_STEPS_USTX);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // our "tenure counter" is now at 31
     assert_eq!(tip.block_height, 31 + EMPTY_SORTITIONS as u64);
@@ -973,7 +1004,7 @@ fn test_simple_pox_lockup_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -1174,7 +1205,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10, and 11
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let alice_lockup = make_pox_2_lockup(
         &alice,
@@ -1245,7 +1276,7 @@ fn test_simple_pox_2_auto_unlock(alice_first: bool) {
     .unwrap();
     assert_eq!(bob_bal.amount_locked(), POX_THRESHOLD_STEPS_USTX);
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -1455,7 +1486,7 @@ fn delegate_stack_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes());
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
 
@@ -1470,7 +1501,7 @@ fn delegate_stack_increase() {
     }
 
     // in the next tenure, PoX 2 should now exist.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // submit delegation tx
     let success_alice_delegation = alice_nonce;
@@ -1528,7 +1559,7 @@ fn delegate_stack_increase() {
     //  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -1822,7 +1853,7 @@ fn stack_increase() {
     }
 
     // in the next tenure, PoX 2 should now exist.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // submit an increase: this should fail, because Alice is not yet locked
     let fail_no_lock_tx = alice_nonce;
@@ -1876,7 +1907,7 @@ fn stack_increase() {
     //  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -2031,7 +2062,7 @@ fn test_lock_period_invariant_extend_transition() {
         .unwrap()
         + 1;
 
-    eprintln!("First v2 cycle = {}", first_v2_cycle);
+    eprintln!("First v2 cycle = {first_v2_cycle}");
     assert_eq!(first_v2_cycle, EXPECTED_FIRST_V2_CYCLE);
 
     let epochs = StacksEpoch::all(0, 0, EMPTY_SORTITIONS as u64 + 10);
@@ -2059,7 +2090,7 @@ fn test_lock_period_invariant_extend_transition() {
     let ALICE_LOCKUP = 1024 * POX_THRESHOLD_STEPS_USTX;
 
     // our "tenure counter" is now at 0
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
 
     // first tenure is empty
@@ -2074,13 +2105,13 @@ fn test_lock_period_invariant_extend_transition() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -2138,7 +2169,7 @@ fn test_lock_period_invariant_extend_transition() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // Alice _will_ auto-unlock: she can stack-extend in PoX v2
     let alice_lockup = make_pox_2_extend(
@@ -2311,7 +2342,7 @@ fn test_pox_extend_transition_pox_2() {
     };
 
     // our "tenure counter" is now at 0
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
 
     // first tenure is empty
@@ -2326,13 +2357,13 @@ fn test_pox_extend_transition_pox_2() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let alice_lockup = make_pox_lockup(
         &alice,
         0,
         ALICE_LOCKUP,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         4,
         tip.block_height,
     );
@@ -2392,7 +2423,7 @@ fn test_pox_extend_transition_pox_2() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_lockup = make_pox_2_lockup(
         &bob,
@@ -2451,7 +2482,7 @@ fn test_pox_extend_transition_pox_2() {
         alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     // our "tenure counter" is now at 15
     assert_eq!(tip.block_height, 15 + EMPTY_SORTITIONS as u64);
 
@@ -2468,7 +2499,7 @@ fn test_pox_extend_transition_pox_2() {
     }
 
     // our "tenure counter" is now at 32
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 32 + EMPTY_SORTITIONS as u64);
 
     // Alice would have unlocked under v1 rules, so try to stack again via PoX 1 and expect a runtime error
@@ -2478,7 +2509,7 @@ fn test_pox_extend_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -2736,7 +2767,7 @@ fn test_delegate_extend_transition_pox_2() {
     };
 
     // our "tenure counter" is now at 0
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 0 + EMPTY_SORTITIONS as u64);
 
     // first tenure is empty
@@ -2751,7 +2782,7 @@ fn test_delegate_extend_transition_pox_2() {
     assert_eq!(alice_account.stx_balance.unlock_height(), 0);
 
     // next tenure include Alice's lockup
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let delegate_tx = make_pox_contract_call(
         &alice,
         0,
@@ -2771,10 +2802,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             PrincipalData::from(alice_address.clone()).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
         ],
@@ -2786,10 +2814,7 @@ fn test_delegate_extend_transition_pox_2() {
         1,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE),
         ],
     );
@@ -2799,10 +2824,7 @@ fn test_delegate_extend_transition_pox_2() {
         2,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 1),
         ],
     );
@@ -2812,10 +2834,7 @@ fn test_delegate_extend_transition_pox_2() {
         3,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 2),
         ],
     );
@@ -2825,10 +2844,7 @@ fn test_delegate_extend_transition_pox_2() {
         4,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(EXPECTED_ALICE_FIRST_REWARD_CYCLE + 3),
         ],
     );
@@ -2898,7 +2914,7 @@ fn test_delegate_extend_transition_pox_2() {
     // Lets have Bob lock up for v2
     // this will lock for cycles 8, 9, 10
     //  the first v2 cycle will be 8
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     let bob_delegate_tx = make_pox_2_contract_call(
         &bob,
@@ -2931,10 +2947,7 @@ fn test_delegate_extend_transition_pox_2() {
         vec![
             PrincipalData::from(bob_address.clone()).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(3),
         ],
@@ -2947,7 +2960,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stack-extend",
         vec![
             PrincipalData::from(alice_address.clone()).into(),
-            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(6),
         ],
     );
@@ -2960,10 +2973,7 @@ fn test_delegate_extend_transition_pox_2() {
         7,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128),
         ],
     );
@@ -2973,10 +2983,7 @@ fn test_delegate_extend_transition_pox_2() {
         8,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 1),
         ],
     );
@@ -2986,10 +2993,7 @@ fn test_delegate_extend_transition_pox_2() {
         9,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 2),
         ],
     );
@@ -3009,7 +3013,7 @@ fn test_delegate_extend_transition_pox_2() {
         ],
         &mut coinbase_nonce,
     );
-    alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
+    alice_rewards_to_v2_start_checks(tip_index_block.clone(), &mut peer);
     let alice_principal = alice_address.clone().into();
     let bob_principal = bob_address.clone().into();
     let StackingStateCheckData {
@@ -3053,7 +3057,7 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stack-extend",
         vec![
             PrincipalData::from(bob_address.clone()).into(),
-            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(1),
         ],
     );
@@ -3063,17 +3067,14 @@ fn test_delegate_extend_transition_pox_2() {
         11,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(first_v2_cycle as u128 + 3),
         ],
     );
 
     let tip_index_block =
         peer.tenure_with_txs(&[delegate_extend_tx, agg_commit_tx], &mut coinbase_nonce);
-    alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
+    alice_rewards_to_v2_start_checks(tip_index_block.clone(), &mut peer);
     let StackingStateCheckData {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
@@ -3120,7 +3121,7 @@ fn test_delegate_extend_transition_pox_2() {
         alice_rewards_to_v2_start_checks(tip_index_block, &mut peer);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     // our "tenure counter" is now at 15
     assert_eq!(tip.block_height, 15 + EMPTY_SORTITIONS as u64);
 
@@ -3132,13 +3133,13 @@ fn test_delegate_extend_transition_pox_2() {
         "delegate-stack-extend",
         vec![
             PrincipalData::from(bob_address.clone()).into(),
-            make_pox_addr(AddressHashMode::SerializeP2PKH, *charlie_address.bytes()),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(1),
         ],
     );
 
     let tip_index_block = peer.tenure_with_txs(&[delegate_extend_tx], &mut coinbase_nonce);
-    v2_rewards_checks(tip_index_block, &mut peer);
+    v2_rewards_checks(tip_index_block.clone(), &mut peer);
     let StackingStateCheckData {
         first_cycle: alice_first_cycle,
         lock_period: alice_lock_period,
@@ -3186,7 +3187,7 @@ fn test_delegate_extend_transition_pox_2() {
     }
 
     // our "tenure counter" is now at 32
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     assert_eq!(tip.block_height, 32 + EMPTY_SORTITIONS as u64);
 
     // Alice would have unlocked under v1 rules, so try to stack again via PoX 1 and expect a runtime error
@@ -3196,7 +3197,7 @@ fn test_delegate_extend_transition_pox_2() {
         2,
         512 * POX_THRESHOLD_STEPS_USTX,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -3215,7 +3216,7 @@ fn test_delegate_extend_transition_pox_2() {
         for r in b.receipts.into_iter() {
             if let TransactionOrigin::Stacks(ref t) = r.transaction {
                 let addr = t.auth.origin().address_testnet();
-                eprintln!("TX addr: {}", addr);
+                eprintln!("TX addr: {addr}");
                 if addr == alice_address {
                     alice_txs.insert(t.auth.get_origin_nonce(), r);
                 } else if addr == bob_address {
@@ -3405,7 +3406,7 @@ fn test_pox_2_getters() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let cur_reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -3444,10 +3445,7 @@ fn test_pox_2_getters() {
         vec![
             PrincipalData::from(bob_address.clone()).into(),
             Value::UInt(LOCKUP_AMT),
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(tip.block_height as u128),
             Value::UInt(4),
         ],
@@ -3458,10 +3456,7 @@ fn test_pox_2_getters() {
         1,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128),
         ],
     );
@@ -3471,10 +3466,7 @@ fn test_pox_2_getters() {
         2,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128 + 1),
         ],
     );
@@ -3484,10 +3476,7 @@ fn test_pox_2_getters() {
         3,
         "stack-aggregation-commit",
         vec![
-            make_pox_addr(
-                AddressHashMode::SerializeP2PKH,
-                charlie_address.bytes().clone(),
-            ),
+            make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes()),
             Value::UInt(cur_reward_cycle as u128 + 2),
         ],
     );
@@ -3687,8 +3676,9 @@ fn test_get_pox_addrs() {
         let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
@@ -3738,7 +3728,7 @@ fn test_get_pox_addrs() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    microblock_pubkeyhash,
+                    &microblock_pubkeyhash,
                 )
                 .unwrap();
                 let (anchored_block, _size, _cost) =
@@ -3859,7 +3849,6 @@ fn test_get_pox_addrs() {
                                 .with_readonly_clarity_env(
                                     false,
                                     0x80000000,
-                                    ClarityVersion::Clarity2,
                                     PrincipalData::Standard(StandardPrincipalData::transient()),
                                     None,
                                     LimitedCostTracker::new_free(),
@@ -3966,8 +3955,9 @@ fn test_stack_with_segwit() {
         let microblock_privkey = StacksPrivateKey::random();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let tip = SortitionDB::get_canonical_burn_chain_tip(peer.sortdb.as_ref().unwrap().conn())
-            .unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(peer.chain.sortdb.as_ref().unwrap().conn())
+                .unwrap();
 
         let cur_reward_cycle = burnchain
             .block_height_to_reward_cycle(tip.block_height)
@@ -4036,7 +4026,7 @@ fn test_stack_with_segwit() {
                     &parent_tip,
                     vrf_proof,
                     tip.total_burn,
-                    microblock_pubkeyhash,
+                    &microblock_pubkeyhash,
                 )
                 .unwrap();
                 let (anchored_block, _size, _cost) =
@@ -4157,7 +4147,6 @@ fn test_stack_with_segwit() {
                                 .with_readonly_clarity_env(
                                     false,
                                     0x80000000,
-                                    ClarityVersion::Clarity2,
                                     PrincipalData::Standard(StandardPrincipalData::transient()),
                                     None,
                                     LimitedCostTracker::new_free(),
@@ -4301,7 +4290,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
         peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let cur_reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -4317,7 +4306,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
             Value::none(),
             Value::some(make_pox_addr(
                 AddressHashMode::SerializeP2PKH,
-                alice_address.bytes().clone(),
+                alice_address.bytes(),
             ))
             .unwrap(),
         ],
@@ -4421,10 +4410,7 @@ fn test_pox_2_delegate_stx_addr_validation() {
 
     assert_eq!(
         alice_pox_addr,
-        make_pox_addr(
-            AddressHashMode::SerializeP2PKH,
-            alice_address.bytes().clone(),
-        )
+        make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes(),)
     );
 }
 
@@ -4484,17 +4470,14 @@ fn stack_aggregation_increase() {
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
     let bob_principal = PrincipalData::from(bob_address.clone());
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *bob_address.bytes());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes());
     let charlie = keys.pop().unwrap();
     let charlie_address = key_to_stacks_addr(&charlie);
-    let charlie_pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        charlie_address.bytes().clone(),
-    );
+    let charlie_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, charlie_address.bytes());
     let dan = keys.pop().unwrap();
     let dan_address = key_to_stacks_addr(&dan);
     let dan_principal = PrincipalData::from(dan_address.clone());
-    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, *dan_address.bytes());
+    let dan_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, dan_address.bytes());
     let alice_nonce = 0;
     let mut bob_nonce = 0;
     let mut charlie_nonce = 0;
@@ -4513,7 +4496,7 @@ fn stack_aggregation_increase() {
     }
 
     // in the next tenure, PoX 2 should now exist.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // submit delegation tx for alice
     let alice_delegation_1 = make_pox_2_contract_call(
@@ -4579,7 +4562,7 @@ fn stack_aggregation_increase() {
     //  this is one block after the reward cycle starts
     let height_target = burnchain.reward_cycle_to_block_height(EXPECTED_FIRST_V2_CYCLE + 3) + 1;
 
-    while get_tip(peer.sortdb.as_ref()).block_height < height_target {
+    while get_tip(peer.chain.sortdb.as_ref()).block_height < height_target {
         latest_block = peer.tenure_with_txs(&[], &mut coinbase_nonce);
     }
 
@@ -4602,7 +4585,7 @@ fn stack_aggregation_increase() {
         assert_eq!(partial_stacked, 512 * POX_THRESHOLD_STEPS_USTX);
     }
 
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let cur_reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -4653,7 +4636,7 @@ fn stack_aggregation_increase() {
     bob_nonce += 1;
 
     latest_block = peer.tenure_with_txs(&txs_to_submit, &mut coinbase_nonce);
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
     let cur_reward_cycle = burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -4930,14 +4913,11 @@ fn stack_in_both_pox1_and_pox2() {
 
     let alice = keys.pop().unwrap();
     let alice_address = key_to_stacks_addr(&alice);
-    let alice_pox_addr = make_pox_addr(
-        AddressHashMode::SerializeP2PKH,
-        alice_address.bytes().clone(),
-    );
+    let alice_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, alice_address.bytes());
 
     let bob = keys.pop().unwrap();
     let bob_address = key_to_stacks_addr(&bob);
-    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes().clone());
+    let bob_pox_addr = make_pox_addr(AddressHashMode::SerializeP2PKH, bob_address.bytes());
 
     let mut alice_nonce = 0;
     let mut bob_nonce = 0;
@@ -4953,7 +4933,7 @@ fn stack_in_both_pox1_and_pox2() {
     }
 
     // in the next tenure, PoX 2 should now exist.
-    let tip = get_tip(peer.sortdb.as_ref());
+    let tip = get_tip(peer.chain.sortdb.as_ref());
 
     // our "tenure counter" is now at 10
     assert_eq!(tip.block_height, 10 + EMPTY_SORTITIONS as u64);
@@ -4964,7 +4944,7 @@ fn stack_in_both_pox1_and_pox2() {
         alice_nonce,
         alice_first_lock_amount,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&alice).destruct().1,
+        &key_to_stacks_addr(&alice).destruct().1,
         12,
         tip.block_height,
     );
@@ -4998,7 +4978,7 @@ fn stack_in_both_pox1_and_pox2() {
         bob_nonce,
         bob_first_lock_amount,
         AddressHashMode::SerializeP2PKH,
-        key_to_stacks_addr(&bob).destruct().1,
+        &key_to_stacks_addr(&bob).destruct().1,
         12,
         tip.block_height,
     );

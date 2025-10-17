@@ -19,7 +19,6 @@ use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::errors::Error::Unchecked;
-use clarity::vm::errors::{Error as ClarityRuntimeError, InterpreterError};
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{ClarityName, ContractName, SymbolicExpression, Value};
@@ -221,31 +220,15 @@ impl RPCRequestHandler for RPCCallReadOnlyRequestHandler {
                     &tip,
                     |clarity_tx| {
                         let epoch = clarity_tx.get_epoch();
-                        let cost_track = clarity_tx
-                            .with_clarity_db_readonly(|clarity_db| {
-                                LimitedCostTracker::new_mid_block(
-                                    mainnet, chain_id, cost_limit, clarity_db, epoch,
-                                )
-                            })
-                            .map_err(|_| {
-                                ClarityRuntimeError::from(InterpreterError::CostContractLoadFailure)
-                            })?;
-
-                        let clarity_version = clarity_tx
-                            .with_analysis_db_readonly(|analysis_db| {
-                                analysis_db.get_clarity_version(&contract_identifier)
-                            })
-                            .map_err(|_| {
-                                ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
-                                    "{}",
-                                    &contract_identifier
-                                )))
-                            })?;
+                        let cost_track = clarity_tx.with_clarity_db_readonly(|clarity_db| {
+                            LimitedCostTracker::new_mid_block(
+                                mainnet, chain_id, cost_limit, clarity_db, epoch,
+                            )
+                        })?;
 
                         clarity_tx.with_readonly_clarity_env(
                             mainnet,
                             chain_id,
-                            clarity_version,
                             sender,
                             sponsor,
                             cost_track,

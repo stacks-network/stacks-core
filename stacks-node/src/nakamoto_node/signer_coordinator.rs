@@ -107,7 +107,11 @@ impl SignerCoordinator {
             .get_rpc_loopback()
             .ok_or_else(|| ChainstateError::MinerAborted)?;
         let miners_contract_id = boot_code_id(MINERS_NAME, is_mainnet);
-        let miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
+        let miners_session = StackerDBSession::new(
+            &rpc_socket.to_string(),
+            miners_contract_id,
+            config.miner.stackerdb_timeout,
+        );
 
         // build a BTreeMap of the various timeout steps
         let mut block_rejection_timeout_steps = BTreeMap::<u32, Duration>::new();
@@ -305,7 +309,7 @@ impl SignerCoordinator {
             let res = self.get_block_status(
                 &block.header.signer_signature_hash(),
                 &block.block_id(),
-                block.header.parent_block_id,
+                &block.header.parent_block_id,
                 chain_state,
                 sortdb,
                 counters,
@@ -330,7 +334,7 @@ impl SignerCoordinator {
         &self,
         block_signer_sighash: &Sha512Trunc256Sum,
         block_id: &StacksBlockId,
-        parent_block_id: StacksBlockId,
+        parent_block_id: &StacksBlockId,
         chain_state: &mut StacksChainState,
         sortdb: &SortitionDB,
         counters: &Counters,
@@ -348,7 +352,7 @@ impl SignerCoordinator {
             })?;
 
         let parent_tenure_header =
-            NakamotoChainState::get_block_header(chain_state.db(), &parent_block_id)?
+            NakamotoChainState::get_block_header(chain_state.db(), parent_block_id)?
                 .ok_or(NakamotoNodeError::UnexpectedChainState)?;
 
         // this is used to track the start of the waiting cycle
@@ -436,7 +440,7 @@ impl SignerCoordinator {
                             return Err(NakamotoNodeError::UnexpectedChainState);
                         };
                         return Ok(stored_block.signer_signature);
-                    } else if highest_stacks_block_id != parent_block_id {
+                    } else if &highest_stacks_block_id != parent_block_id {
                         info!("SignCoordinator: Exiting due to new stacks tip";
                               "new_block_hash" => %highest_in_tenure.anchored_header.block_hash(),
                               "new_block_height" => %highest_in_tenure.anchored_header.height(),

@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::hash::Hash;
 
-use hashbrown::HashMap;
 use stacks_common::types::chainstate::{StacksBlockId, TrieHash};
 use stacks_common::types::StacksEpochId;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::clarity_store::SpecialCaseHandler;
 use super::{ClarityBackingStore, ClarityDeserializable};
-use crate::vm::database::clarity_store::make_contract_hash_key;
+use crate::vm::database::clarity_store::{make_contract_hash_key, ContractCommitment};
 use crate::vm::errors::{InterpreterError, InterpreterResult};
 use crate::vm::types::serialization::SerializationError;
 use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
@@ -473,6 +473,19 @@ impl RollbackWrapper<'_> {
     /// Is None if `block_height` >= the "currently" under construction Stacks block height.
     pub fn get_block_header_hash(&mut self, block_height: u32) -> Option<StacksBlockId> {
         self.store.get_block_at_height(block_height)
+    }
+
+    pub fn get_contract_hash(
+        &mut self,
+        contract: &QualifiedContractIdentifier,
+    ) -> InterpreterResult<Option<Sha512Trunc256Sum>> {
+        let key = make_contract_hash_key(contract);
+        let s = match self.get_data::<String>(&key)? {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        let cc = ContractCommitment::deserialize(&s)?;
+        Ok(Some(cc.hash))
     }
 
     pub fn prepare_for_contract_metadata(

@@ -1,5 +1,10 @@
 pub mod lexer;
 
+use clarity_types::representations::{ClarityName, ContractName};
+use clarity_types::types::{
+    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, UTF8Data,
+    Value,
+};
 use stacks_common::util::hash::hex_bytes;
 
 use self::lexer::token::{PlacedToken, Token};
@@ -7,11 +12,7 @@ use self::lexer::Lexer;
 use crate::vm::ast::errors::{ParseError, ParseErrors, ParseResult, PlacedError};
 use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use crate::vm::diagnostic::{DiagnosableError, Diagnostic, Level};
-use crate::vm::representations::{ClarityName, ContractName, PreSymbolicExpression, Span};
-use crate::vm::types::{
-    CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, TraitIdentifier, UTF8Data,
-    Value,
-};
+use crate::vm::representations::{PreSymbolicExpression, Span};
 use crate::vm::MAX_CALL_STACK_DEPTH;
 
 pub struct Parser<'a> {
@@ -3532,7 +3533,7 @@ mod tests {
     fn test_parse_fail_fast() {
         match parse("42g !ok") {
             Ok(_) => panic!("fail_fast mode should have returned an error"),
-            Err(e) => assert_eq!(e.err, ParseErrors::Lexer(LexerError::InvalidCharInt('g'))),
+            Err(e) => assert_eq!(*e.err, ParseErrors::Lexer(LexerError::InvalidCharInt('g'))),
         }
     }
 
@@ -3559,7 +3560,7 @@ mod tests {
             ")".repeat(stack_limit + 1)
         );
 
-        assert!(match parse(&exceeds_stack_depth_list).unwrap_err().err {
+        assert!(match *(parse(&exceeds_stack_depth_list).unwrap_err().err) {
             ParseErrors::ExpressionStackDepthTooDeep => true,
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });
@@ -3582,7 +3583,7 @@ mod tests {
             }
         );
 
-        assert!(match parse(&exceeds_stack_depth_tuple).unwrap_err().err {
+        assert!(match *parse(&exceeds_stack_depth_tuple).unwrap_err().err {
             ParseErrors::ExpressionStackDepthTooDeep => true,
             x => panic!("expected a stack depth too deep error, got {x:?}"),
         });

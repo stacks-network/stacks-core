@@ -270,8 +270,8 @@ fn test_process_block_ops() {
         pox_valid: true,
         block_height: 121,
         burn_header_hash: block_121_hash.clone(),
-        sortition_id: SortitionId(block_121_hash.0.clone()),
-        parent_sortition_id: SortitionId(block_121_hash.0.clone()),
+        sortition_id: SortitionId(block_121_hash.0),
+        parent_sortition_id: SortitionId(block_121_hash.0),
         burn_header_timestamp: 121,
         parent_burn_header_hash: first_burn_hash.clone(),
         ops_hash: block_opshash_121.clone(),
@@ -317,7 +317,7 @@ fn test_process_block_ops() {
         pox_valid: true,
         block_height: 122,
         burn_header_hash: block_122_hash.clone(),
-        sortition_id: SortitionId(block_122_hash.0.clone()),
+        sortition_id: SortitionId(block_122_hash.0),
         parent_sortition_id: block_121_snapshot.sortition_id.clone(),
         burn_header_timestamp: 122,
         parent_burn_header_hash: block_121_hash.clone(),
@@ -369,7 +369,7 @@ fn test_process_block_ops() {
         pox_valid: true,
         block_height: 123,
         burn_header_hash: block_123_hash.clone(),
-        sortition_id: SortitionId(block_123_hash.0.clone()),
+        sortition_id: SortitionId(block_123_hash.0),
         parent_sortition_id: block_122_snapshot.sortition_id.clone(),
         burn_header_timestamp: 123,
         parent_burn_header_hash: block_122_hash.clone(),
@@ -474,7 +474,7 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_121_snapshot.index_root = sn121.index_root.clone();
+        block_121_snapshot.index_root = sn121.index_root;
         block_121_snapshot.parent_sortition_id = sn121.parent_sortition_id.clone();
         assert_eq!(sn121, block_121_snapshot);
     }
@@ -497,7 +497,7 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_122_snapshot.index_root = sn122.index_root.clone();
+        block_122_snapshot.index_root = sn122.index_root;
         block_122_snapshot.parent_sortition_id = sn122.parent_sortition_id.clone();
         assert_eq!(sn122, block_122_snapshot);
     }
@@ -519,14 +519,14 @@ fn test_process_block_ops() {
             .unwrap();
         tx.commit().unwrap();
 
-        block_123_snapshot.index_root = sn123.index_root.clone();
+        block_123_snapshot.index_root = sn123.index_root;
         block_123_snapshot.parent_sortition_id = sn123.parent_sortition_id.clone();
         assert_eq!(sn123, block_123_snapshot);
     }
 
     for scenario_idx in 0..block_ops_124_possibilities.len() {
         let mut block_ops_124 = block_ops_124_possibilities[scenario_idx].clone();
-        let mut block_124_hash_bytes = block_124_hash_initial.as_bytes().clone();
+        let mut block_124_hash_bytes = *block_124_hash_initial.as_bytes();
         block_124_hash_bytes[0] = (scenario_idx + 1) as u8;
         let block_124_hash = BurnchainHeaderHash(block_124_hash_bytes);
 
@@ -565,7 +565,7 @@ fn test_process_block_ops() {
             pox_valid: true,
             block_height: 124,
             burn_header_hash: block_124_hash.clone(),
-            sortition_id: SortitionId(block_124_hash.0.clone()),
+            sortition_id: SortitionId(block_124_hash.0),
             parent_sortition_id: block_123_snapshot.sortition_id.clone(),
             burn_header_timestamp: 124,
             parent_burn_header_hash: block_123_snapshot.burn_header_hash.clone(),
@@ -631,7 +631,7 @@ fn test_process_block_ops() {
                 .unwrap();
             tx.commit().unwrap();
 
-            block_124_snapshot.index_root = sn124.index_root.clone();
+            block_124_snapshot.index_root = sn124.index_root;
             block_124_snapshot.parent_sortition_id = sn124.parent_sortition_id.clone();
             sn124
         };
@@ -680,7 +680,7 @@ fn test_burn_snapshot_sequence() {
         consensus_hash_lifetime: 24,
         stable_confirmations: 7,
         first_block_timestamp: 0,
-        first_block_hash: first_burn_hash,
+        first_block_hash: first_burn_hash.clone(),
         first_block_height,
         initial_reward_start_block: first_block_height,
     };
@@ -749,7 +749,7 @@ fn test_burn_snapshot_sequence() {
         ])
         .unwrap();
         let parent_burn_block_hash = prev_snapshot.burn_header_hash.clone();
-        let parent_index_root = prev_snapshot.index_root.clone();
+        let parent_index_root = prev_snapshot.index_root;
 
         // insert block commit paired to previous round's leader key, as well as a user burn
         if i > 0 {

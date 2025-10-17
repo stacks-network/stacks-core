@@ -169,7 +169,7 @@ impl CoordinatorChannels {
 
     pub fn is_stopped(&self) -> bool {
         let bools = self.signal_bools.lock().unwrap();
-        bools.stop.clone()
+        bools.stop
     }
 
     pub fn get_stacks_blocks_processed(&self) -> u64 {

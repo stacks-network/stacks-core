@@ -23,15 +23,18 @@ use super::ClarityVersion;
 use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
-use crate::vm::SymbolicExpression;
-#[cfg(test)]
-use crate::{vm::errors::Error, vm::types::Value};
 
 mod assets;
 mod contracts;
+#[cfg(test)]
+mod conversions;
 mod datamaps;
 mod defines;
+#[cfg(test)]
+mod post_conditions;
 mod principals;
+#[cfg(test)]
+mod representations;
 mod sequences;
 #[cfg(test)]
 mod simple_apply_eval;
@@ -45,6 +48,15 @@ impl<'a> OwnedEnvironment<'a> {
         self.context
             .database
             .set_tenure_height(tenure_height)
+            .unwrap();
+        self.context.database.commit().unwrap();
+    }
+
+    pub fn setup_block_metadata(&mut self, block_time: u64) {
+        self.context.database.begin();
+        self.context
+            .database
+            .setup_block_metadata(Some(block_time))
             .unwrap();
         self.context.database.commit().unwrap();
     }
@@ -75,12 +87,12 @@ macro_rules! epochs_template {
 }
 
 macro_rules! clarity_template {
-    ($(($epoch:ident, $clarity:ident),)*) => {
+    ($($case_name:ident: ($epoch:ident, $clarity:ident),)*) => {
         #[template]
         #[export]
         #[rstest]
         $(
-            #[case::$epoch(ClarityVersion::$clarity, StacksEpochId::$epoch)]
+            #[case::$case_name(ClarityVersion::$clarity, StacksEpochId::$epoch)]
         )*
         pub fn test_clarity_versions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {}
 
@@ -101,6 +113,16 @@ macro_rules! clarity_template {
                 (StacksEpochId::Epoch23, ClarityVersion::Clarity3) => (),
                 (StacksEpochId::Epoch24, ClarityVersion::Clarity3) => (),
                 (StacksEpochId::Epoch25, ClarityVersion::Clarity3) => (),
+                (StacksEpochId::Epoch20, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch2_05, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch21, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch22, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch23, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch24, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch25, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch30, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch31, ClarityVersion::Clarity4) => (),
+                (StacksEpochId::Epoch32, ClarityVersion::Clarity4) => (),
                 // this will lead to a compile time failure if a pair is left out
                 //  of the clarity_template! macro list
                 $((StacksEpochId::$epoch, ClarityVersion::$clarity))|* => (),
@@ -127,37 +149,35 @@ epochs_template! {
     Epoch30,
     Epoch31,
     Epoch32,
+    Epoch33,
 }
 
 clarity_template! {
-    (Epoch20, Clarity1),
-    (Epoch2_05, Clarity1),
-    (Epoch21, Clarity1),
-    (Epoch21, Clarity2),
-    (Epoch22, Clarity1),
-    (Epoch22, Clarity2),
-    (Epoch23, Clarity1),
-    (Epoch23, Clarity2),
-    (Epoch24, Clarity1),
-    (Epoch24, Clarity2),
-    (Epoch25, Clarity1),
-    (Epoch25, Clarity2),
-    (Epoch30, Clarity1),
-    (Epoch30, Clarity2),
-    (Epoch30, Clarity3),
-    (Epoch31, Clarity1),
-    (Epoch31, Clarity2),
-    (Epoch31, Clarity3),
-    (Epoch32, Clarity1),
-    (Epoch32, Clarity2),
-    (Epoch32, Clarity3),
-}
-
-#[cfg(test)]
-impl Value {
-    pub fn list_from(list_data: Vec<Value>) -> Result<Value, Error> {
-        Value::cons_list_unsanitized(list_data)
-    }
+    Epoch20_Clarity1: (Epoch20, Clarity1),
+    Epoch2_05_Clarity1: (Epoch2_05, Clarity1),
+    Epoch21_Clarity1: (Epoch21, Clarity1),
+    Epoch21_Clarity2: (Epoch21, Clarity2),
+    Epoch22_Clarity1: (Epoch22, Clarity1),
+    Epoch22_Clarity2: (Epoch22, Clarity2),
+    Epoch23_Clarity1: (Epoch23, Clarity1),
+    Epoch23_Clarity2: (Epoch23, Clarity2),
+    Epoch24_Clarity1: (Epoch24, Clarity1),
+    Epoch24_Clarity2: (Epoch24, Clarity2),
+    Epoch25_Clarity1: (Epoch25, Clarity1),
+    Epoch25_Clarity2: (Epoch25, Clarity2),
+    Epoch30_Clarity1: (Epoch30, Clarity1),
+    Epoch30_Clarity2: (Epoch30, Clarity2),
+    Epoch30_Clarity3: (Epoch30, Clarity3),
+    Epoch31_Clarity1: (Epoch31, Clarity1),
+    Epoch31_Clarity2: (Epoch31, Clarity2),
+    Epoch31_Clarity3: (Epoch31, Clarity3),
+    Epoch32_Clarity1: (Epoch32, Clarity1),
+    Epoch32_Clarity2: (Epoch32, Clarity2),
+    Epoch32_Clarity3: (Epoch32, Clarity3),
+    Epoch33_Clarity1: (Epoch33, Clarity1),
+    Epoch33_Clarity2: (Epoch33, Clarity2),
+    Epoch33_Clarity3: (Epoch33, Clarity3),
+    Epoch33_Clarity4: (Epoch33, Clarity4),
 }
 
 #[fixture]
@@ -182,6 +202,11 @@ impl MemoryEnvironmentGenerator {
             db.set_tenure_height(1).unwrap();
             db.commit().unwrap();
         }
+        if epoch.uses_marfed_block_time() {
+            db.begin();
+            db.setup_block_metadata(Some(1)).unwrap();
+            db.commit().unwrap();
+        }
         let mut owned_env = OwnedEnvironment::new(db, epoch);
         // start an initial transaction.
         owned_env.begin();
@@ -199,6 +224,11 @@ impl TopLevelMemoryEnvironmentGenerator {
         if epoch.clarity_uses_tip_burn_block() {
             db.begin();
             db.set_tenure_height(1).unwrap();
+            db.commit().unwrap();
+        }
+        if epoch.uses_marfed_block_time() {
+            db.begin();
+            db.setup_block_metadata(Some(1)).unwrap();
             db.commit().unwrap();
         }
         OwnedEnvironment::new(db, epoch)
@@ -222,12 +252,5 @@ pub fn test_only_mainnet_to_chain_id(mainnet: bool) -> u32 {
         CHAIN_ID_MAINNET
     } else {
         CHAIN_ID_TESTNET
-    }
-}
-
-impl SymbolicExpression {
-    pub fn with_id(mut self, id: u64) -> Self {
-        self.id = id;
-        self
     }
 }

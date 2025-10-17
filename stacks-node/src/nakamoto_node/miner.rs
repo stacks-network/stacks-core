@@ -112,6 +112,15 @@ pub fn fault_injection_stall_miner() {
 }
 
 #[cfg(test)]
+/// Set the `TEST_MINE_STALL` flag to `Pending` and do not block.
+pub fn fault_injection_try_stall_miner() {
+    let mut stall_lock = TEST_MINE_STALL.0.lock().unwrap();
+    if stall_lock.as_ref().is_none() || stall_lock.as_ref() == Some(&TestMineStall::NotStalled) {
+        *stall_lock = Some(TestMineStall::Pending);
+    }
+}
+
+#[cfg(test)]
 /// Unstall the miner by setting the `TEST_MINE_STALL` flag to `NotStalled`.
 pub fn fault_injection_unstall_miner() {
     TEST_MINE_STALL.set(TestMineStall::NotStalled);
@@ -811,7 +820,7 @@ impl BlockMinerThread {
         self.globals.coord().announce_new_stacks_block();
 
         self.last_block_mined = Some((
-            new_block.header.consensus_hash,
+            new_block.header.consensus_hash.clone(),
             new_block.header.block_hash(),
         ));
         self.mined_blocks += 1;
@@ -1106,7 +1115,11 @@ impl BlockMinerThread {
             NakamotoNodeError::MinerConfigurationFailed("Failed to get RPC loopback socket")
         })?;
         let miners_contract_id = boot_code_id(MINERS_NAME, chain_state.mainnet);
-        let mut miners_session = StackerDBSession::new(&rpc_socket.to_string(), miners_contract_id);
+        let mut miners_session = StackerDBSession::new(
+            &rpc_socket.to_string(),
+            miners_contract_id,
+            self.config.miner.stackerdb_timeout,
+        );
 
         if Self::fault_injection_skip_block_push() {
             warn!(
@@ -1144,7 +1157,7 @@ impl BlockMinerThread {
         &self,
         nonce: u64,
         payload: TenureChangePayload,
-    ) -> Result<StacksTransaction, NakamotoNodeError> {
+    ) -> StacksTransaction {
         let is_mainnet = self.config.is_mainnet();
         let chain_id = self.config.burnchain.chain_id;
         let tenure_change_tx_payload = TransactionPayload::TenureChange(payload);
@@ -1165,7 +1178,7 @@ impl BlockMinerThread {
         let mut tx_signer = StacksTransactionSigner::new(&tx);
         self.keychain.sign_as_origin(&mut tx_signer);
 
-        Ok(tx_signer.get_tx().unwrap())
+        tx_signer.get_tx().unwrap()
     }
 
     /// Create a coinbase transaction.
@@ -1465,7 +1478,10 @@ impl BlockMinerThread {
                     // If the parent block is in the same tenure, then we should
                     // pretend that we mined it.
                     self.last_block_mined = Some((
-                        parent_block_info.stacks_parent_header.consensus_hash,
+                        parent_block_info
+                            .stacks_parent_header
+                            .consensus_hash
+                            .clone(),
                         parent_block_info
                             .stacks_parent_header
                             .anchored_header
@@ -1641,49 +1657,60 @@ impl BlockMinerThread {
                 }
                 ParentTenureInfo {
                     parent_tenure_blocks: self.mined_blocks,
-                    parent_tenure_consensus_hash: self.burn_election_block.consensus_hash,
+                    parent_tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
                 }
             }
         };
         // Check if we can and should include a time-based tenure extend.
         if self.last_block_mined.is_some() {
-            // Do not extend if we have spent < 50% of the budget, since it is
-            // not necessary.
-            let usage = self
-                .tenure_budget
-                .proportion_largest_dimension(&self.tenure_cost);
-            if usage < self.config.miner.tenure_extend_cost_threshold {
-                return Ok(NakamotoTenureInfo {
-                    coinbase_tx: None,
-                    tenure_change_tx: None,
-                });
-            }
-
-            let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
-            if get_epoch_time_secs() <= tenure_extend_timestamp
-                && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
+            if self.config.miner.replay_transactions
+                && coordinator
+                    .get_signer_global_state()
+                    .map(|state| state.tx_replay_set.is_some())
+                    .unwrap_or(false)
             {
-                return Ok(NakamotoTenureInfo {
-                    coinbase_tx: None,
-                    tenure_change_tx: None,
-                });
-            }
+                // we're in replay, we should always TenureExtend
+                info!("Tenure extend: In replay, always extending tenure");
+                self.tenure_extend_reset();
+            } else {
+                // Do not extend if we have spent < 50% of the budget, since it is
+                // not necessary.
+                let usage = self
+                    .tenure_budget
+                    .proportion_largest_dimension(&self.tenure_cost);
+                if usage < self.config.miner.tenure_extend_cost_threshold {
+                    return Ok(NakamotoTenureInfo {
+                        coinbase_tx: None,
+                        tenure_change_tx: None,
+                    });
+                }
 
-            info!("Miner: Time-based tenure extend";
-                "current_timestamp" => get_epoch_time_secs(),
-                "tenure_extend_timestamp" => tenure_extend_timestamp,
-                "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
-                "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
-            );
-            self.tenure_extend_reset();
+                let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
+                if get_epoch_time_secs() <= tenure_extend_timestamp
+                    && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
+                {
+                    return Ok(NakamotoTenureInfo {
+                        coinbase_tx: None,
+                        tenure_change_tx: None,
+                    });
+                }
+
+                info!("Miner: Time-based tenure extend";
+                    "current_timestamp" => get_epoch_time_secs(),
+                    "tenure_extend_timestamp" => tenure_extend_timestamp,
+                    "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
+                    "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
+                );
+                self.tenure_extend_reset();
+            }
         }
 
         let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let mut payload = TenureChangePayload {
-            tenure_consensus_hash: self.burn_election_block.consensus_hash,
-            prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash,
-            burn_view_consensus_hash: self.burn_election_block.consensus_hash,
-            previous_tenure_end: parent_block_id,
+            tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
+            prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash.clone(),
+            burn_view_consensus_hash: self.burn_election_block.consensus_hash.clone(),
+            previous_tenure_end: parent_block_id.clone(),
             previous_tenure_blocks: u32::try_from(parent_tenure_info.parent_tenure_blocks)
                 .expect("FATAL: more than u32 blocks in a tenure"),
             cause: TenureChangeCause::BlockFound,
@@ -1692,8 +1719,7 @@ impl BlockMinerThread {
 
         let (tenure_change_tx, coinbase_tx) = match &self.reason {
             MinerReason::BlockFound { .. } => {
-                let tenure_change_tx =
-                    self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                let tenure_change_tx = self.generate_tenure_change_tx(current_miner_nonce, payload);
                 let coinbase_tx =
                     self.generate_coinbase_tx(current_miner_nonce + 1, target_epoch_id, vrf_proof);
                 (Some(tenure_change_tx), Some(coinbase_tx))
@@ -1714,12 +1740,11 @@ impl BlockMinerThread {
 
                 // NOTE: this switches payload.cause to TenureChangeCause::Extend
                 payload = payload.extend(
-                    *burn_view_consensus_hash,
+                    burn_view_consensus_hash.clone(),
                     parent_block_id,
                     num_blocks_so_far,
                 );
-                let tenure_change_tx =
-                    self.generate_tenure_change_tx(current_miner_nonce, payload)?;
+                let tenure_change_tx = self.generate_tenure_change_tx(current_miner_nonce, payload);
                 (Some(tenure_change_tx), None)
             }
         };
@@ -1756,7 +1781,7 @@ impl BlockMinerThread {
     fn tenure_extend_reset(&mut self) {
         self.tenure_change_time = Instant::now();
         self.reason = MinerReason::Extended {
-            burn_view_consensus_hash: self.burn_block.consensus_hash,
+            burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
         };
         self.mined_blocks = 0;
     }
@@ -1849,7 +1874,7 @@ impl ParentStacksBlockInfo {
             } else {
                 1
             };
-            let parent_tenure_consensus_hash = parent_tenure_header.consensus_hash;
+            let parent_tenure_consensus_hash = parent_tenure_header.consensus_hash.clone();
             Some(ParentTenureInfo {
                 parent_tenure_blocks,
                 parent_tenure_consensus_hash,

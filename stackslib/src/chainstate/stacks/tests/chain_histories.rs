@@ -22,7 +22,6 @@
 /// test anything about block construction from mempool state.
 use std::collections::HashMap;
 
-use clarity::vm::ast::ASTRules;
 use clarity::vm::types::*;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -65,8 +64,12 @@ where
     let full_test_name = format!("{}-1_fork_1_miner_1_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -177,11 +180,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                1,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 1)
             .unwrap();
 
         let expect_success = check_oracle(&stacks_block, &microblocks);
@@ -243,10 +242,18 @@ where
     let full_test_name = format!("{}-1_fork_2_miners_1_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner_1 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-    let mut miner_2 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner_1 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
+    let mut miner_2 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -361,11 +368,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                1,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 1)
             .unwrap();
 
         // processed _this_ block
@@ -571,11 +574,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed exactly one block, but got back two tip-infos
@@ -694,10 +693,18 @@ where
     let full_test_name = format!("{}-2_forks_2_miners_1_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner_1 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-    let mut miner_2 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner_1 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
+    let mut miner_2 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -903,11 +910,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed _one_ block
@@ -1169,19 +1172,11 @@ where
         );
         let mut tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
         let mut tip_info_list_2 = node_2
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         tip_info_list.append(&mut tip_info_list_2);
@@ -1268,19 +1263,11 @@ where
         );
         let _ = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
         let _ = node_2
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
     }
 
@@ -1307,10 +1294,18 @@ where
     let full_test_name = format!("{}-1_fork_2_miners_2_burnchain", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner_1 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-    let mut miner_2 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner_1 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
+    let mut miner_2 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -1510,11 +1505,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed _one_ block
@@ -1763,11 +1754,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed all stacks blocks -- one on each burn chain fork
@@ -1865,10 +1852,18 @@ where
     let full_test_name = format!("{}-2_forks_2_miner_2_burnchains", test_name);
     let mut burn_node = TestBurnchainNode::new();
     let mut miner_factory = TestMinerFactory::new();
-    let mut miner_1 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
-    let mut miner_2 =
-        miner_factory.next_miner(&burn_node.burnchain, 1, 1, AddressHashMode::SerializeP2PKH);
+    let mut miner_1 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
+    let mut miner_2 = miner_factory.next_miner(
+        burn_node.burnchain.clone(),
+        1,
+        1,
+        AddressHashMode::SerializeP2PKH,
+    );
 
     let mut node = TestStacksNode::new(
         false,
@@ -2065,11 +2060,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed _one_ block
@@ -2318,11 +2309,7 @@ where
         );
         let tip_info_list = node
             .chainstate
-            .process_blocks_at_tip(
-                connect_burnchain_db(&burn_node.burnchain).conn(),
-                &mut burn_node.sortdb,
-                2,
-            )
+            .process_blocks_at_tip(&mut burn_node.sortdb, 2)
             .unwrap();
 
         // processed all stacks blocks -- one on each burn chain fork
@@ -2630,7 +2617,6 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                             let tip_info_list = node
                                 .chainstate
                                 .process_blocks_at_tip(
-                                    connect_burnchain_db(&miner_trace.burn_node.burnchain).conn(),
                                     &mut miner_trace.burn_node.sortdb,
                                     expected_num_blocks,
                                 )
@@ -2658,8 +2644,6 @@ fn miner_trace_replay_randomized(miner_trace: &mut TestMinerTrace) {
                                 let tip_info_list = node
                                     .chainstate
                                     .process_blocks_at_tip(
-                                        connect_burnchain_db(&miner_trace.burn_node.burnchain)
-                                            .conn(),
                                         &mut miner_trace.burn_node.sortdb,
                                         expected_num_blocks,
                                     )
@@ -2711,12 +2695,7 @@ pub fn mine_empty_anchored_block(
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_coinbase_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None)
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2751,12 +2730,7 @@ pub fn mine_empty_anchored_block_with_burn_height_pubkh(
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_coinbase_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None)
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2791,12 +2765,7 @@ pub fn mine_empty_anchored_block_with_stacks_height_pubkh(
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
 
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_coinbase_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None)
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2827,12 +2796,7 @@ pub fn mine_invalid_token_transfers_block(
     // make a coinbase for this miner
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_coinbase_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None)
         .unwrap();
 
     let recipient =
@@ -2841,9 +2805,9 @@ pub fn mine_invalid_token_transfers_block(
         miner,
         burnchain_height,
         Some(1),
-        &recipient,
+        recipient.clone(),
         11111,
-        &TokenTransferMemo([1u8; 34]),
+        TokenTransferMemo([1u8; 34]),
     );
     builder.force_mine_tx(clarity_tx, &tx1).unwrap();
 
@@ -2853,9 +2817,9 @@ pub fn mine_invalid_token_transfers_block(
         miner,
         burnchain_height,
         Some(2),
-        &recipient,
+        recipient.clone(),
         22222,
-        &TokenTransferMemo([2u8; 34]),
+        TokenTransferMemo([2u8; 34]),
     );
     builder.force_mine_tx(clarity_tx, &tx2).unwrap();
 
@@ -2865,9 +2829,9 @@ pub fn mine_invalid_token_transfers_block(
         miner,
         burnchain_height,
         Some(1),
-        &recipient,
+        recipient.clone(),
         33333,
-        &TokenTransferMemo([3u8; 34]),
+        TokenTransferMemo([3u8; 34]),
     );
     builder.force_mine_tx(clarity_tx, &tx3).unwrap();
 
@@ -2875,9 +2839,9 @@ pub fn mine_invalid_token_transfers_block(
         miner,
         burnchain_height,
         Some(2),
-        &recipient,
+        recipient,
         44444,
-        &TokenTransferMemo([4u8; 34]),
+        TokenTransferMemo([4u8; 34]),
     );
     builder.force_mine_tx(clarity_tx, &tx4).unwrap();
 
@@ -2906,12 +2870,7 @@ pub fn mine_smart_contract_contract_call_block(
     // make a coinbase for this miner
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_coinbase_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None)
         .unwrap();
 
     // make a smart contract
@@ -2921,12 +2880,7 @@ pub fn mine_smart_contract_contract_call_block(
         builder.header.total_work.work as usize,
     );
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_contract_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_contract_signed, None)
         .unwrap();
 
     // make a contract call
@@ -2938,12 +2892,7 @@ pub fn mine_smart_contract_contract_call_block(
         2,
     );
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_contract_call_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_contract_call_signed, None)
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -2998,12 +2947,7 @@ pub fn mine_smart_contract_block_contract_call_microblock(
     // make a coinbase for this miner
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_coinbase_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None)
         .unwrap();
 
     // make a smart contract
@@ -3013,12 +2957,7 @@ pub fn mine_smart_contract_block_contract_call_microblock(
         builder.header.total_work.work as usize,
     );
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_contract_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_contract_signed, None)
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);
@@ -3095,12 +3034,7 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
     // make a coinbase for this miner
     let tx_coinbase_signed = make_coinbase(miner, burnchain_height);
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_coinbase_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_coinbase_signed, None)
         .unwrap();
 
     // make a smart contract
@@ -3110,12 +3044,7 @@ pub fn mine_smart_contract_block_contract_call_microblock_exception(
         builder.header.total_work.work as usize,
     );
     builder
-        .try_mine_tx(
-            clarity_tx,
-            &tx_contract_signed,
-            ASTRules::PrecheckSize,
-            None,
-        )
+        .try_mine_tx(clarity_tx, &tx_contract_signed, None)
         .unwrap();
 
     let stacks_block = builder.mine_anchored_block(clarity_tx);

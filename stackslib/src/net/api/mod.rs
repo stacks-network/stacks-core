@@ -17,6 +17,7 @@ use crate::net::http::Error;
 use crate::net::httpcore::StacksHttp;
 use crate::net::Error as NetError;
 
+pub mod blockreplay;
 pub mod callreadonly;
 pub mod fastcallreadonly;
 pub mod get_tenures_fork_info;
@@ -49,6 +50,9 @@ pub mod getstackerdbmetadata;
 pub mod getstackers;
 pub mod getstxtransfercost;
 pub mod gettenure;
+pub mod gettenureblocks;
+pub mod gettenureblocksbyhash;
+pub mod gettenureblocksbyheight;
 pub mod gettenureinfo;
 pub mod gettenuretip;
 pub mod gettransaction;
@@ -71,6 +75,9 @@ impl StacksHttp {
     /// Register all RPC methods.
     /// Put your new RPC method handlers here.
     pub fn register_rpc_methods(&mut self) {
+        self.register_rpc_endpoint(blockreplay::RPCNakamotoBlockReplayRequestHandler::new(
+            self.auth_token.clone(),
+        ));
         self.register_rpc_endpoint(callreadonly::RPCCallReadOnlyRequestHandler::new(
             self.maximum_call_argument_size,
             self.read_only_call_limit.clone(),
@@ -119,6 +126,13 @@ impl StacksHttp {
         self.register_rpc_endpoint(gettenure::RPCNakamotoTenureRequestHandler::new());
         self.register_rpc_endpoint(gettenureinfo::RPCNakamotoTenureInfoRequestHandler::new());
         self.register_rpc_endpoint(gettenuretip::RPCNakamotoTenureTipRequestHandler::new());
+        self.register_rpc_endpoint(gettenureblocks::RPCNakamotoTenureBlocksRequestHandler::new());
+        self.register_rpc_endpoint(
+            gettenureblocksbyhash::RPCNakamotoTenureBlocksByHashRequestHandler::new(),
+        );
+        self.register_rpc_endpoint(
+            gettenureblocksbyheight::RPCNakamotoTenureBlocksByHeightRequestHandler::new(),
+        );
         self.register_rpc_endpoint(get_tenures_fork_info::GetTenuresForkInfo::default());
         self.register_rpc_endpoint(
             gettransaction_unconfirmed::RPCGetTransactionUnconfirmedRequestHandler::new(),

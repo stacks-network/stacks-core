@@ -4,13 +4,15 @@ members = [
     "stackslib",
     "stacks-common",
     "pox-locking",
-    "clarity-serialization",
+    "clarity-types",
     "clarity",
     "stx-genesis",
     "libstackerdb",
     "libsigner",
     "stacks-signer",
     "stacks-node",
+    "contrib/stacks-inspect",
+    "contrib/stacks-cli"
 ]
 
 exclude = ["contrib/tools/config-docs-generator"]
@@ -53,3 +55,8 @@ lto = "fat"
 [profile.release-lite]
 inherits = "release"
 lto = "thin"
+
+# faster tests for `insta` https://docs.rs/insta/1.43.2/insta/#optional-faster-runs
+[profile.dev.package]
+insta.opt-level = 3
+similar.opt-level = 3
