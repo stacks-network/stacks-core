@@ -46,7 +46,7 @@ siphasher = "0.3.7"
 rusqlite = { workspace = true }
 time = { version = "0.3.41", features = ["std"] }
 toml = { workspace = true }
-clar2wasm = { git = "https://github.com/stacks-network/clarity-wasm.git", branch = "main"}
+clar2wasm = { git = "https://github.com/stx-labs/clarity-wasm.git", branch = "sync-wasm-develop"}
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

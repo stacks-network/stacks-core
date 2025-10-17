@@ -2,7 +2,6 @@ use std::ops::Deref;
 
 use clarity::util::get_epoch_time_secs;
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::analysis::mem_type_check;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
@@ -666,7 +665,6 @@ fn pox_2_contract_caller_units() {
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap()
@@ -682,7 +680,6 @@ fn pox_2_contract_caller_units() {
                                                            (lock-period uint))
                                    (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
             None,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
             .unwrap();
@@ -1767,8 +1764,7 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (mut ast, analysis) =
-            tx.analyze_smart_contract(contract_id, version, content, ASTRules::PrecheckSize)?;
+        let (mut ast, analysis) = tx.analyze_smart_contract(contract_id, version, content)?;
         tx.initialize_smart_contract(
             contract_id,
             version,

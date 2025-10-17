@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
@@ -894,7 +893,6 @@ fn setup_cost_tracked_test_with_db(
             version,
             contract_trait,
             None,
-            ASTRules::PrecheckSize,
             analysis_db,
         )
         .unwrap();
@@ -904,7 +902,6 @@ fn setup_cost_tracked_test_with_db(
             version,
             contract_other,
             None,
-            ASTRules::PrecheckSize,
             analysis_db,
         )
         .unwrap();
@@ -1047,7 +1044,6 @@ fn test_program_cost_with_db(
             version,
             &contract_self,
             None,
-            ASTRules::PrecheckSize,
             analysis_db,
         )
         .unwrap();
@@ -1325,12 +1321,7 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         {
             block_conn.as_transaction(|tx| {
                 let (mut ast, analysis) = tx
-                    .analyze_smart_contract(
-                        contract_name,
-                        clarity_version,
-                        contract_src,
-                        ASTRules::PrecheckSize,
-                    )
+                    .analyze_smart_contract(contract_name, clarity_version, contract_src)
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,
@@ -1611,12 +1602,7 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         {
             block_conn.as_transaction(|tx| {
                 let (mut ast, analysis) = tx
-                    .analyze_smart_contract(
-                        contract_name,
-                        clarity_version,
-                        contract_src,
-                        ASTRules::PrecheckSize,
-                    )
+                    .analyze_smart_contract(contract_name, clarity_version, contract_src)
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,

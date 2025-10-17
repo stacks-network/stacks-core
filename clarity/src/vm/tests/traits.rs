@@ -21,7 +21,6 @@ use super::MemoryEnvironmentGenerator;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 #[cfg(test)]
 use crate::vm::{
-    ast::ASTRules,
     database::MemoryBackingStore,
     errors::{CheckErrors, Error},
     tests::{env_factory, execute, symbols_from_values},
@@ -221,14 +220,12 @@ fn test_dynamic_dispatch_intra_contract_call(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -286,21 +283,18 @@ fn test_dynamic_dispatch_by_implementing_imported_trait(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -358,21 +352,18 @@ fn test_dynamic_dispatch_by_implementing_imported_trait_mul_funcs(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -427,21 +418,18 @@ fn test_dynamic_dispatch_by_importing_trait(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -503,35 +491,30 @@ fn test_dynamic_dispatch_including_nested_trait(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-nested-trait").unwrap(),
             contract_defining_nested_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-nested-contract").unwrap(),
             target_nested_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -886,28 +869,24 @@ fn test_bad_call_with_trait(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("call").unwrap(),
             caller_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -962,28 +941,24 @@ fn test_good_call_with_trait(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("call").unwrap(),
             caller_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -1039,28 +1014,24 @@ fn test_good_call_2_with_trait(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("call").unwrap(),
             caller_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -1118,21 +1089,18 @@ fn test_dynamic_dispatch_pass_literal_principal_as_trait_in_user_defined_functio
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("contract-defining-trait").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("target-contract").unwrap(),
             target_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatching-contract").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -1188,21 +1156,18 @@ fn test_contract_of_value(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -1262,21 +1227,18 @@ fn test_contract_of_no_impl(
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("defun").unwrap(),
             contract_defining_trait,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("dispatch").unwrap(),
             dispatching_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
         env.initialize_contract_with_db(
             QualifiedContractIdentifier::local("implem").unwrap(),
             impl_contract,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();

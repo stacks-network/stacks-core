@@ -67,8 +67,7 @@ disable-costs = []
 wasm-web = ["stacks_common/wasm-web", "clarity-types/wasm-web"]
 
 # clarity-wasm
-default = ["rusqlite", "log", "clarity-wasm", "serde_stacker", "vrf"]
+default = ["rusqlite", "clarity-wasm", "serde_stacker", "vrf"]
 clarity-wasm = ["wasmtime"]
 vrf = ["stacks_common/vrf"]
-log = ["slog", "stacks_common/log"]
-wasm = ["stacks_common/wasm", "developer-mode", "log", "getrandom"]
+wasm = ["stacks_common/wasm", "developer-mode", "getrandom"]

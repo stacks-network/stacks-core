@@ -17,7 +17,8 @@ clippy-stackslib = "clippy -p stackslib --no-deps -- -Aclippy::all -Wclippy::ind
 [patch."https://github.com/stacks-network/stacks-core.git"]
 clarity = { path = "./clarity" }
 stacks-common = { path = "./stacks-common" }
+clarity-types = { path = "./clarity-types" }
 
 # Uncomment the patch below to use the local version of clarity-wasm
-# [patch.'https://github.com/stacks-network/clarity-wasm.git']
-# clar2wasm = { path = "../clarity-wasm/clar2wasm" }
+# [patch.'https://github.com/stx-labs/clarity-wasm.git']
+# clar2wasm = { path = "../../stx-labs/clarity-wasm/clar2wasm" }

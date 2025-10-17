@@ -189,20 +189,13 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     analysis_db.begin();
 
     owned_env
-        .initialize_contract_with_db(
-            token_contract_id.clone(),
-            contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(token_contract_id.clone(), contract, None, &mut analysis_db)
         .unwrap();
     owned_env
         .initialize_contract_with_db(
             second_contract_id.clone(),
             contract_second,
             None,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -943,31 +936,13 @@ fn test_overlapping_nfts(
     analysis_db.begin();
 
     owned_env
-        .initialize_contract_with_db(
-            tokens_contract_id,
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(tokens_contract_id, tokens_contract, None, &mut analysis_db)
         .unwrap();
     owned_env
-        .initialize_contract_with_db(
-            names_contract_id,
-            names_contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(names_contract_id, names_contract, None, &mut analysis_db)
         .unwrap();
     owned_env
-        .initialize_contract_with_db(
-            names_2_contract_id,
-            names_contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(names_2_contract_id, names_contract, None, &mut analysis_db)
         .unwrap();
 }
 
@@ -1024,13 +999,7 @@ fn test_simple_naming_system(
     analysis_db.begin();
 
     owned_env
-        .initialize_contract_with_db(
-            tokens_contract_id,
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(tokens_contract_id, tokens_contract, None, &mut analysis_db)
         .unwrap();
 
     let names_contract_id = QualifiedContractIdentifier::new(p1_std_principal_data, "names".into());
@@ -1039,7 +1008,6 @@ fn test_simple_naming_system(
             names_contract_id.clone(),
             names_contract,
             None,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();

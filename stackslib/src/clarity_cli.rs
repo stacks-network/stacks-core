@@ -1713,7 +1713,6 @@ pub fn invoke_command_with_db(
                                         clarity_version,
                                         &contract_content,
                                         None,
-                                        ASTRules::PrecheckSize,
                                         analysis_db,
                                     )
                                 },

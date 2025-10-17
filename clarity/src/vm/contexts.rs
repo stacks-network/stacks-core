@@ -713,7 +713,6 @@ impl<'a> OwnedEnvironment<'a> {
             contract_identifier,
             contract_content,
             sponsor,
-            ast_rules,
             &mut analysis_db,
         )
     }
@@ -731,7 +730,6 @@ impl<'a> OwnedEnvironment<'a> {
     /// * `contract_identifier` - Unique identifier for the contract (principal + contract name)
     /// * `contract_content` - The raw Clarity source code as a string
     /// * `sponsor` - Optional sponsor principal for transaction fees (if `None`, sender pays)
-    /// * `ast_rules` - Parsing rules to apply during AST construction (e.g., `ASTRules::PrecheckSize`)
     /// * `analysis_db` - Mutable reference to a database for analysis data
     ///
     #[cfg(any(test, feature = "testing"))]
@@ -740,7 +738,6 @@ impl<'a> OwnedEnvironment<'a> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-        ast_rules: ASTRules,
         analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
@@ -751,7 +748,6 @@ impl<'a> OwnedEnvironment<'a> {
                 exec_env.initialize_contract_with_db(
                     contract_identifier,
                     contract_content,
-                    ast_rules,
                     analysis_db,
                 )
             },
@@ -791,7 +787,6 @@ impl<'a> OwnedEnvironment<'a> {
     /// * `version` - The Clarity version to use for this contract
     /// * `contract_content` - The raw Clarity source code as a string
     /// * `sponsor` - Optional sponsor principal for transaction fees (if `None`, sender pays)
-    /// * `ast_rules` - Parsing rules to apply during AST construction (e.g., `ASTRules::PrecheckSize`)
     /// * `analysis_db` - Mutable reference to a database for analysis data
     ///
     #[cfg(any(test, feature = "testing"))]
@@ -801,7 +796,6 @@ impl<'a> OwnedEnvironment<'a> {
         version: ClarityVersion,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-        ast_rules: ASTRules,
         analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
@@ -815,7 +809,6 @@ impl<'a> OwnedEnvironment<'a> {
                 exec_env.initialize_contract_with_db(
                     contract_identifier,
                     contract_content,
-                    ast_rules,
                     analysis_db,
                 )
             },
@@ -1451,12 +1444,7 @@ impl<'a, 'b> Environment<'a, 'b> {
         let mut analysis_db = store.as_analysis_db();
         analysis_db.begin();
 
-        self.initialize_contract_with_db(
-            contract_identifier,
-            contract_content,
-            ast_rules,
-            &mut analysis_db,
-        )
+        self.initialize_contract_with_db(contract_identifier, contract_content, &mut analysis_db)
     }
 
     /// Initializes a Clarity smart contract with a custom analysis database.
@@ -1484,12 +1472,11 @@ impl<'a, 'b> Environment<'a, 'b> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
-        ast_rules: ASTRules,
         analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<()> {
         let clarity_version = self.contract_context.clarity_version;
 
-        let mut contract_ast = ast::build_ast_with_rules(
+        let mut contract_ast = ast::build_ast(
             &contract_identifier,
             contract_content,
             self,
@@ -1507,7 +1494,12 @@ impl<'a, 'b> Environment<'a, 'b> {
             clarity_version,
             true,
         )
-        .map_err(|(check_error, _)| check_error.err)?;
+        .map_err(|boxed_err| {
+            let (boxed_check_error, _cost_tracker) = *boxed_err;
+            let err = *boxed_check_error.err;
+            error!("Analysis step has failed: {err:?}");
+            err
+        })?;
 
         self.initialize_contract_from_ast(
             contract_identifier,

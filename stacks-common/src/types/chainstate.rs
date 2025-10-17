@@ -115,7 +115,6 @@ impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 impl_byte_array_serde!(BlockHeaderHash);
 pub const BLOCK_HEADER_HASH_ENCODED_SIZE: usize = 32;
 
-#[cfg(feature = "log")]
 impl slog::Value for BlockHeaderHash {
     fn serialize(
         &self,

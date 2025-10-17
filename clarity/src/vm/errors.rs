@@ -16,7 +16,7 @@
 
 pub use clarity_types::errors::{
     Error, IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
-    ShortReturnType,
+    ShortReturnType, WasmError,
 };
 
 pub use crate::vm::analysis::errors::{
