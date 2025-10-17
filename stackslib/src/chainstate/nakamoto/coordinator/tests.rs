@@ -40,7 +40,7 @@ use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandle};
 use crate::chainstate::burn::operations::{
     BlockstackOperationType, DelegateStxOp, StackStxOp, TransferStxOp, VoteForAggregateKeyOp,
 };
-use crate::chainstate::coordinator::tests::p2pkh_from;
+use crate::chainstate::coordinator::tests::{p2pkh_from, NullEventDispatcher};
 use crate::chainstate::nakamoto::fault_injection::*;
 use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
 use crate::chainstate::nakamoto::test_signers::TestSigners;
@@ -56,6 +56,7 @@ use crate::chainstate::stacks::boot::test::{
 use crate::chainstate::stacks::boot::MINERS_NAME;
 use crate::chainstate::stacks::db::{MinerPaymentTxFees, StacksChainState};
 use crate::chainstate::stacks::events::TransactionOrigin;
+use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{
     Error as ChainstateError, StacksTransaction, StacksTransactionSigner, TenureChangeCause,
     TenureChangePayload, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
@@ -281,6 +282,26 @@ pub fn boot_nakamoto<'a>(
         test_stackers,
         observer,
         StacksEpoch::unit_test_3_0_only(37),
+    )
+}
+
+/// Make a peer and transition it into the Nakamoto 3.2 epoch.
+/// The node needs to be stacking.
+/// otherwise, Nakamoto can't activate.
+pub fn boot_nakamoto_3_2<'a>(
+    test_name: &str,
+    initial_balances: Vec<(PrincipalData, u64)>,
+    test_signers: &mut TestSigners,
+    test_stackers: &[TestStacker],
+    observer: Option<&'a TestEventObserver>,
+) -> TestPeer<'a> {
+    boot_nakamoto_with_epochs(
+        test_name,
+        initial_balances,
+        test_signers,
+        test_stackers,
+        observer,
+        StacksEpoch::unit_test_3_2_only(37),
     )
 }
 
@@ -3637,6 +3658,192 @@ fn test_nakamoto_sip034_tenure_extend_write_count() {
 #[test]
 fn test_nakamoto_sip034_tenure_extend_write_length() {
     simple_nakamoto_coordinator_sip034_tenure_extensions(TenureChangeCause::ExtendedWriteLength);
+}
+
+/// Verify that SIP-034 tenure extensions do not take effect in epoch 3.2.
+/// Try to append blocks in epoch 3.2 with each new variant and verify that the block is invalid
+/// specifically because that variant is not supported.
+#[test]
+fn nakamoto_coordinator_sip034_tenure_extensions_epoch_gated_3_3() {
+    let private_key = StacksPrivateKey::from_seed(&[2]);
+    let addr = StacksAddress::from_public_keys(
+        C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+        &AddressHashMode::SerializeP2PKH,
+        1,
+        &vec![StacksPublicKey::from_private(&private_key)],
+    )
+    .unwrap();
+
+    // make enough signers and signing keys so we can create a block and a malleablized block that
+    // are both valid
+    let (mut test_signers, test_stackers) = TestStacker::multi_signing_set(&[
+        0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3,
+    ]);
+    let mut peer = boot_nakamoto_3_2(
+        &format!("{}.peer-3.2", function_name!()),
+        vec![(addr.clone().into(), 100_000_000)],
+        &mut test_signers,
+        &test_stackers,
+        None,
+    );
+
+    let ext_cause = TenureChangeCause::ExtendedRuntime;
+
+    let (burn_ops, mut tenure_change, miner_key) =
+        peer.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+    let (_, _, consensus_hash) = peer.next_burnchain_block(burn_ops.clone());
+    let vrf_proof = peer.make_nakamoto_vrf_proof(miner_key);
+
+    tenure_change.tenure_consensus_hash = consensus_hash.clone();
+    tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+
+    let tenure_change_tx = peer
+        .chain
+        .miner
+        .make_nakamoto_tenure_change(tenure_change.clone());
+    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+    debug!("Next burnchain block: {}", &consensus_hash);
+
+    let block_height = peer.get_burn_block_height();
+
+    // do a stx transfer in each block to a given recipient
+    let recipient_addr =
+        StacksAddress::from_string("ST2YM3J4KQK09V670TD6ZZ1XYNYCNGCWCVTASN5VM").unwrap();
+
+    // Deliberately corrupt the sortition DB so that it the miner will think that this is epoch
+    // 3.3, when it is really epoch 3.2
+    peer.with_dbs(|_, sortdb, _, _| {
+        let tx = sortdb.tx_begin().unwrap();
+        SortitionDB::replace_epochs_unchecked(&tx, &StacksEpoch::unit_test_3_3_only(37)).unwrap();
+        tx.commit().unwrap();
+    });
+
+    let mut faulty_block_id: Option<StacksBlockId> = None;
+
+    let cycle = peer.get_reward_cycle();
+    let blocks = peer.with_dbs(|peer, sortdb, stacks_node, mempool| {
+        // Ensure the signers are setup for the current cycle
+        test_signers.generate_aggregate_key(cycle);
+        let blocks = TestStacksNode::make_nakamoto_tenure_blocks(
+            &mut stacks_node.chainstate,
+            sortdb,
+            &mut peer.chain.miner,
+            &mut test_signers,
+            &tenure_change_tx
+                .try_as_tenure_change()
+                .unwrap()
+                .tenure_consensus_hash
+                .clone(),
+            Some(tenure_change_tx),
+            Some(coinbase_tx),
+            &mut peer.chain.coord,
+            |_| {},
+            |miner, chainstate, sortdb, blocks_so_far| {
+                if blocks_so_far.len() < 2 {
+                    debug!("\n\nProduce block {}\n\n", blocks_so_far.len());
+
+                    let account = get_account(chainstate, sortdb, &addr);
+
+                    let stx_transfer = make_token_transfer(
+                        chainstate,
+                        sortdb,
+                        &private_key,
+                        account.nonce,
+                        100,
+                        1,
+                        &recipient_addr,
+                    );
+
+                    let Some(last_block) = blocks_so_far.last().as_ref().map(|(block, _, _)| block)
+                    else {
+                        return vec![stx_transfer];
+                    };
+
+                    let last_block_id = last_block.header.block_id();
+                    let tenure_extension = tenure_change.extend_with_cause(
+                        consensus_hash.clone(),
+                        last_block_id.clone(),
+                        blocks_so_far.len() as u32,
+                        ext_cause,
+                    );
+                    let tenure_extension_tx = miner.make_nakamoto_tenure_change(tenure_extension);
+
+                    vec![tenure_extension_tx, stx_transfer]
+                } else {
+                    vec![]
+                }
+            },
+            // do not process the last block just yet
+            |block| !block.is_wellformed_tenure_extend_block().unwrap(),
+            // don't malleablize
+            false,
+            // mined canonical
+            true,
+            None,
+        )
+        .unwrap();
+
+        let just_blocks: Vec<NakamotoBlock> = blocks
+            .clone()
+            .into_iter()
+            .map(|(block, _, _, _)| block)
+            .collect();
+
+        faulty_block_id = just_blocks.last().map(|blk| blk.block_id());
+
+        stacks_node.add_nakamoto_tenure_blocks(just_blocks[..1].to_vec());
+        peer.chain.malleablized_blocks.append(&mut vec![]);
+
+        just_blocks
+    });
+
+    // Restore corrupted epochs with 3.2 test epochs
+    peer.with_dbs(|_, sortdb, _, _| {
+        let tx = sortdb.tx_begin().unwrap();
+        SortitionDB::replace_epochs_unchecked(&tx, &StacksEpoch::unit_test_3_2_only(37)).unwrap();
+        tx.commit().unwrap();
+    });
+
+    let null_dispatcher: Option<&NullEventDispatcher> = None;
+
+    // try and process these blocks on this peer.
+    // They should be invalid because the tenure-extend variant is not supported in this epoch
+    for block in blocks.iter() {
+        peer.with_dbs(|peer, sortdb, stacks_node, mempool| {
+            let tip = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+            let mut sort_handle = sortdb.index_handle(&tip);
+            let accepted = Relayer::process_new_nakamoto_block(
+                &peer.network.burnchain,
+                sortdb,
+                &mut sort_handle,
+                &mut stacks_node.chainstate,
+                &peer.network.stacks_tip.block_id(),
+                block,
+                None,
+                NakamotoBlockObtainMethod::Pushed,
+            ).unwrap();
+
+            match NakamotoChainState::process_next_nakamoto_block(
+                &mut stacks_node.chainstate,
+                sortdb,
+                &tip,
+                null_dispatcher,
+                false
+            ) {
+                Ok(..) => {},
+                Err(ChainstateError::InvalidStacksBlock(msg)) => {
+                    let faulty_block_id = faulty_block_id.take().expect("Found more than one faulty block");
+                    assert_eq!(faulty_block_id, block.block_id());
+                    assert!(msg.contains("Included tenure change payload with specific extend budget dimension, but unsupported by epoch"));
+                }
+                Err(e) => {
+                    panic!("Unexpected error {:?}", &e);
+                }
+            }
+            peer.chain.coord.handle_new_nakamoto_stacks_block().unwrap();
+        });
+    }
 }
 
 #[test]

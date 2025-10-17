@@ -2867,6 +2867,33 @@ impl SortitionDB {
         Ok(())
     }
 
+    fn replace_epochs(db_tx: &Transaction, epochs: &[StacksEpoch]) -> Result<(), db_error> {
+        info!("Replace existing epochs with new epochs");
+        db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
+        for epoch in epochs.into_iter() {
+            let args = params![
+                (epoch.epoch_id as u32),
+                u64_to_sql(epoch.start_height)?,
+                u64_to_sql(epoch.end_height)?,
+                epoch.block_limit,
+                epoch.network_epoch,
+            ];
+            db_tx.execute(
+                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit,network_epoch) VALUES (?1,?2,?3,?4,?5)",
+                args
+            )?;
+        }
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "testing"))]
+    pub fn replace_epochs_unchecked(
+        db_tx: &Transaction,
+        epochs: &[StacksEpoch],
+    ) -> Result<(), db_error> {
+        Self::replace_epochs(db_tx, epochs)
+    }
+
     /// Validates given StacksEpochs (will runtime panic if there is any invalid StacksEpoch structuring) and
     /// replaces them into the SortitionDB's epochs table
     #[allow(clippy::indexing_slicing)] // bad epoch definitions panic
@@ -2924,22 +2951,7 @@ impl SortitionDB {
             panic!("FATAL: tip has reached or passed the end of the configured epoch");
         }
 
-        info!("Replace existing epochs with new epochs");
-        db_tx.execute("DELETE FROM epochs;", NO_PARAMS)?;
-        for epoch in epochs.into_iter() {
-            let args = params![
-                (epoch.epoch_id as u32),
-                u64_to_sql(epoch.start_height)?,
-                u64_to_sql(epoch.end_height)?,
-                epoch.block_limit,
-                epoch.network_epoch,
-            ];
-            db_tx.execute(
-                "INSERT INTO epochs (epoch_id,start_block_height,end_block_height,block_limit,network_epoch) VALUES (?1,?2,?3,?4,?5)",
-                args
-            )?;
-        }
-        Ok(())
+        Self::replace_epochs(db_tx, epochs)
     }
 
     /// Get a block commit by its content-addressed location in a specific sortition.
