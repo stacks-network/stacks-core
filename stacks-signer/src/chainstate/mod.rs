@@ -89,6 +89,8 @@ pub struct ProposalEvalConfig {
     /// How many blocks after a fork should we reset the replay set,
     /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: u64,
+    /// Whether or not this signer supports SIP-034 tenure extensions
+    pub supports_sip034_tenure_extensions: bool,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -102,6 +104,8 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time: value.proposal_wait_for_parent_time,
             reset_replay_set_after_fork_blocks: value.reset_replay_set_after_fork_blocks,
+            // disabled for now
+            supports_sip034_tenure_extensions: false,
         }
     }
 }

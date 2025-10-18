@@ -1770,6 +1770,7 @@ fn block_proposal_rejection() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        supports_sip034_tenure_extensions: false,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -10752,6 +10753,7 @@ fn block_validation_response_timeout() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        supports_sip034_tenure_extensions: false,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -11048,6 +11050,7 @@ fn block_validation_pending_table() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        supports_sip034_tenure_extensions: false,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -12402,6 +12405,7 @@ fn incoming_signers_ignore_block_proposals() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        supports_sip034_tenure_extensions: false,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),
@@ -12580,6 +12584,7 @@ fn outgoing_signers_ignore_block_proposals() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        supports_sip034_tenure_extensions: false,
     };
     let mut block = NakamotoBlock {
         header: NakamotoBlockHeader::empty(),

@@ -1022,6 +1022,7 @@ impl NakamotoBlock {
     /// Get the tenure-extend transaction in Nakamoto.
     /// If it's present, then it's the first transaction (i.e. tx 0)
     /// NOTE: this does _not_ return a tenure-change transaction payload.
+    /// NOTE: the tenure-extend can be a SIP-034 tenure extend.
     pub fn get_tenure_extend_tx_payload(&self) -> Option<&TenureChangePayload> {
         let Ok(true) = self.is_wellformed_tenure_extend_block() else {
             // no tenure-extend, or invalid
@@ -1039,7 +1040,7 @@ impl NakamotoBlock {
     }
 
     /// Get the tenure-change or tenure-extend transaction in Nakamoto, if it exists.
-    /// At most one will exist.
+    /// At most one will exist.  It may be a SIP-034 tenure extend.
     pub fn get_tenure_tx_payload(&self) -> Option<&TenureChangePayload> {
         if let Some(payload) = self.get_tenure_change_tx_payload() {
             return Some(payload);
