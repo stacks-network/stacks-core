@@ -153,7 +153,7 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
 
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
-        peer.config.epochs,
+        peer.config.chain_config.epochs,
         Some(StacksEpoch::unit_test_3_0_only(37))
     );
 
@@ -161,8 +161,8 @@ fn test_nakamoto_inv_10_tenures_10_sortitions() {
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     assert_eq!(reward_cycle_invs.len(), 10);
 
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
@@ -235,7 +235,7 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
 
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
-        peer.config.epochs,
+        peer.config.chain_config.epochs,
         Some(StacksEpoch::unit_test_3_0_only(37))
     );
 
@@ -243,8 +243,8 @@ fn test_nakamoto_inv_2_tenures_3_sortitions() {
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     assert_eq!(reward_cycle_invs.len(), 8);
 
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
@@ -310,7 +310,7 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
 
     // sanity check -- nakamoto begins at height 37
     assert_eq!(
-        peer.config.epochs,
+        peer.config.chain_config.epochs,
         Some(StacksEpoch::unit_test_3_0_only(37))
     );
 
@@ -318,8 +318,8 @@ fn test_nakamoto_inv_10_extended_tenures_10_sortitions() {
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     assert_eq!(reward_cycle_invs.len(), 10);
 
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let stacks_tip_ch = peer.network.stacks_tip.consensus_hash.clone();
     let stacks_tip_bh = peer.network.stacks_tip.block_hash.clone();
 
@@ -647,8 +647,9 @@ fn test_nakamoto_invs_full() {
     let (peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     eprintln!("{:#?}", &reward_cycle_invs);
     assert_eq!(reward_cycle_invs.len(), 10);
@@ -680,8 +681,9 @@ fn test_nakamoto_invs_alternating() {
     let (peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     eprintln!("{:#?}", &reward_cycle_invs);
     assert_eq!(reward_cycle_invs.len(), 10);
@@ -719,10 +721,11 @@ fn test_nakamoto_invs_sparse() {
     let (peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
-    eprintln!("{:#?}", &reward_cycle_invs);
+    eprintln!("{reward_cycle_invs:#?}");
     assert_eq!(reward_cycle_invs.len(), 12);
     check_inv_messages(bitvecs, 10, nakamoto_start, reward_cycle_invs);
 }
@@ -754,8 +757,9 @@ fn test_nakamoto_invs_different_anchor_blocks() {
     let (peer, reward_cycle_invs) =
         peer_get_nakamoto_invs(peer, &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     eprintln!("{:#?}", &reward_cycle_invs);
     assert_eq!(reward_cycle_invs.len(), 12);
@@ -894,15 +898,17 @@ fn test_nakamoto_inv_sync_state_machine() {
         make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 3, bitvecs.clone(), 1);
     let mut other_peer = other_peers.pop().unwrap();
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     let tip = {
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap()
     };
     let total_rcs = peer
         .config
+        .chain_config
         .burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap()
@@ -932,11 +938,11 @@ fn test_nakamoto_inv_sync_state_machine() {
     // `observer`
     std::thread::scope(|s| {
         s.spawn(|| {
-            let sortdb = other_peer.sortdb.take().unwrap();
+            let sortdb = other_peer.chain.sortdb.take().unwrap();
             inv_machine
                 .process_getnakamotoinv_begins(&mut other_peer.network, &sortdb, false)
                 .unwrap();
-            other_peer.sortdb = Some(sortdb);
+            other_peer.chain.sortdb = Some(sortdb);
 
             let mut last_learned_rc = 0;
             loop {
@@ -965,11 +971,11 @@ fn test_nakamoto_inv_sync_state_machine() {
                     break;
                 }
 
-                let sortdb = other_peer.sortdb.take().unwrap();
+                let sortdb = other_peer.chain.sortdb.take().unwrap();
                 inv_machine
                     .process_getnakamotoinv_begins(&mut other_peer.network, &sortdb, false)
                     .unwrap();
-                other_peer.sortdb = Some(sortdb);
+                other_peer.chain.sortdb = Some(sortdb);
             }
 
             sx.send(true).unwrap();
@@ -1018,15 +1024,17 @@ fn test_nakamoto_inv_sync_across_epoch_change() {
         make_nakamoto_peers_from_invs(function_name!(), &observer, 10, 3, bitvecs, 1);
     let mut other_peer = other_peers.pop().unwrap();
 
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     let tip = {
-        let sort_db = peer.sortdb.as_mut().unwrap();
+        let sort_db = peer.chain.sortdb.as_mut().unwrap();
         SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap()
     };
     let total_rcs = peer
         .config
+        .chain_config
         .burnchain
         .block_height_to_reward_cycle(tip.block_height)
         .unwrap();
@@ -1158,7 +1166,7 @@ fn test_nakamoto_make_tenure_inv_in_forks() {
         initial_balances,
     );
     peer.refresh_burnchain_view();
-    peer.mine_malleablized_blocks = false;
+    peer.chain.mine_malleablized_blocks = false;
 
     let mut invgen = InvGenerator::new().with_tip_ancestor_search_depth(5);
     let mut invgen_no_cache = InvGenerator::new_no_cache().with_tip_ancestor_search_depth(5);
@@ -1789,7 +1797,7 @@ fn test_nakamoto_make_tenure_inv_in_many_reward_cycles() {
         initial_balances,
     );
     peer.refresh_burnchain_view();
-    peer.mine_malleablized_blocks = false;
+    peer.chain.mine_malleablized_blocks = false;
 
     let mut invgen = InvGenerator::new().with_tip_ancestor_search_depth(5);
     let mut invgen_no_cache = InvGenerator::new_no_cache().with_tip_ancestor_search_depth(5);
@@ -2297,7 +2305,7 @@ fn test_nakamoto_make_tenure_inv_from_old_tips() {
         initial_balances,
     );
     peer.refresh_burnchain_view();
-    peer.mine_malleablized_blocks = false;
+    peer.chain.mine_malleablized_blocks = false;
 
     let sortdb = peer.sortdb_ref().reopen().unwrap();
     let (chainstate, _) = peer.chainstate_ref().reopen().unwrap();
@@ -2394,8 +2402,9 @@ fn test_nakamoto_invs_shadow_blocks() {
         0,
         initial_balances,
     );
-    let nakamoto_start =
-        NakamotoBootPlan::nakamoto_first_tenure_height(&peer.config.burnchain.pox_constants);
+    let nakamoto_start = NakamotoBootPlan::nakamoto_first_tenure_height(
+        &peer.config.chain_config.burnchain.pox_constants,
+    );
 
     let mut expected_ids = vec![];
 

@@ -446,7 +446,8 @@ impl CostValues for Costs4 {
         Costs3::cost_bitwise_right_shift(n)
     }
 
-    // New in costs-4
+    // --- New in costs-4 ---
+
     fn cost_contract_hash(_n: u64) -> InterpreterResult<ExecutionCost> {
         Ok(ExecutionCost {
             runtime: 100, // TODO: needs criterion benchmark
@@ -458,6 +459,16 @@ impl CostValues for Costs4 {
     }
 
     fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
+        // TODO: needs criterion benchmark
+        Ok(ExecutionCost::runtime(linear(n, 1, 100)))
+    }
+
+    fn cost_restrict_assets(n: u64) -> InterpreterResult<ExecutionCost> {
+        // TODO: needs criterion benchmark
+        Ok(ExecutionCost::runtime(linear(n, 1, 100)))
+    }
+
+    fn cost_as_contract_safe(n: u64) -> InterpreterResult<ExecutionCost> {
         // TODO: needs criterion benchmark
         Ok(ExecutionCost::runtime(linear(n, 1, 100)))
     }

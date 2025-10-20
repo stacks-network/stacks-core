@@ -30,6 +30,8 @@ mod contracts;
 mod conversions;
 mod datamaps;
 mod defines;
+#[cfg(test)]
+mod post_conditions;
 mod principals;
 #[cfg(test)]
 mod representations;

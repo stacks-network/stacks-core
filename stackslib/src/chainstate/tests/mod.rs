@@ -16,7 +16,9 @@ pub mod consensus;
 
 use std::fs;
 
-use clarity::types::chainstate::{BlockHeaderHash, BurnchainHeaderHash, StacksBlockId};
+use clarity::types::chainstate::{
+    BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
+};
 use clarity::vm::ast::parser::v1::CONTRACT_MAX_NAME_LENGTH;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::STXBalance;
@@ -33,6 +35,7 @@ use stacks_common::util::vrf::*;
 use self::nakamoto::test_signers::TestSigners;
 use super::*;
 use crate::burnchains::bitcoin::indexer::BitcoinIndexer;
+use crate::burnchains::bitcoin::spv::BITCOIN_GENESIS_BLOCK_HASH_REGTEST;
 use crate::burnchains::db::{BurnchainDB, BurnchainHeaderReader};
 use crate::burnchains::tests::*;
 use crate::burnchains::*;
@@ -40,19 +43,23 @@ use crate::chainstate::burn::db::sortdb::*;
 use crate::chainstate::burn::operations::*;
 use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::*;
-use crate::chainstate::coordinator::*;
+use crate::chainstate::coordinator::{Error as CoordinatorError, *};
 use crate::chainstate::nakamoto::coordinator::get_nakamoto_next_recipients;
 use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBIndexed};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::test::get_parent_tip;
+use crate::chainstate::stacks::boot::test::{get_parent_tip, make_pox_4_lockup_chain_id};
 use crate::chainstate::stacks::db::{StacksChainState, *};
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
 use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, BOOT_BLOCK_HASH};
-use crate::net::test::{TestEventObserver, TestPeerConfig};
+use crate::net::relay::Relayer;
+use crate::net::test::TestEventObserver;
 use crate::util_lib::boot::{boot_code_test_addr, boot_code_tx_auth};
+use crate::util_lib::signed_structured_data::pox4::{
+    make_pox_4_signer_key_signature, Pox4SignatureTopic,
+};
 use crate::util_lib::strings::*;
 
 // describes a chainstate's initial configuration
@@ -77,10 +84,38 @@ pub struct TestChainstateConfig {
 
 impl Default for TestChainstateConfig {
     fn default() -> Self {
-        let chain_config = TestPeerConfig::default();
-        Self::from(chain_config)
+        let mut burnchain = Burnchain::default_unittest(
+            0,
+            &BurnchainHeaderHash::from_hex(BITCOIN_GENESIS_BLOCK_HASH_REGTEST).unwrap(),
+        );
+
+        burnchain.pox_constants = PoxConstants::test_20_no_sunset();
+        let mut spending_account = TestMinerFactory::new().next_miner(
+            burnchain.clone(),
+            1,
+            1,
+            AddressHashMode::SerializeP2PKH,
+        );
+        spending_account.test_with_tx_fees = false; // manually set transaction fees
+
+        Self {
+            network_id: 0x80000000,
+            current_block: (burnchain.consensus_hash_lifetime + 1) as u64,
+            burnchain,
+            test_name: "".into(),
+            initial_balances: vec![],
+            initial_lockups: vec![],
+            spending_account,
+            setup_code: "".into(),
+            epochs: None,
+            aggregate_public_key: None,
+            test_stackers: None,
+            test_signers: None,
+            txindex: false,
+        }
     }
 }
+
 impl TestChainstateConfig {
     pub fn new(test_name: &str) -> Self {
         Self {
@@ -89,12 +124,12 @@ impl TestChainstateConfig {
         }
     }
 }
+
 pub struct TestChainstate<'a> {
     pub config: TestChainstateConfig,
     pub sortdb: Option<SortitionDB>,
     pub miner: TestMiner,
     pub stacks_node: Option<TestStacksNode>,
-    pub chainstate_path: String,
     pub indexer: Option<BitcoinIndexer>,
     pub coord: ChainsCoordinator<
         'a,
@@ -109,27 +144,10 @@ pub struct TestChainstate<'a> {
     /// list of malleablized blocks produced when mining.
     pub malleablized_blocks: Vec<NakamotoBlock>,
     pub mine_malleablized_blocks: bool,
+    pub test_path: String,
+    pub chainstate_path: String,
 }
 
-impl From<TestPeerConfig> for TestChainstateConfig {
-    fn from(chain_config: TestPeerConfig) -> Self {
-        Self {
-            network_id: chain_config.network_id,
-            current_block: chain_config.current_block,
-            burnchain: chain_config.burnchain,
-            test_name: chain_config.test_name,
-            initial_balances: chain_config.initial_balances,
-            initial_lockups: chain_config.initial_lockups,
-            spending_account: chain_config.spending_account,
-            setup_code: chain_config.setup_code,
-            epochs: chain_config.epochs,
-            test_stackers: chain_config.test_stackers,
-            test_signers: chain_config.test_signers,
-            aggregate_public_key: chain_config.aggregate_public_key,
-            txindex: chain_config.txindex,
-        }
-    }
-}
 impl<'a> TestChainstate<'a> {
     pub fn new(config: TestChainstateConfig) -> TestChainstate<'a> {
         Self::new_with_observer(config, None)
@@ -158,7 +176,7 @@ impl<'a> TestChainstate<'a> {
         mut config: TestChainstateConfig,
         observer: Option<&'a TestEventObserver>,
     ) -> TestChainstate<'a> {
-        let test_path = Self::test_path(&config);
+        let test_path = Self::make_test_path(&config);
         let chainstate_path = get_chainstate_path_str(&test_path);
         let mut miner_factory = TestMinerFactory::new();
         miner_factory.chain_id = config.network_id;
@@ -335,6 +353,7 @@ impl<'a> TestChainstate<'a> {
             sortdb: Some(sortdb),
             miner,
             stacks_node: Some(stacks_node),
+            test_path,
             chainstate_path,
             coord,
             indexer: Some(indexer),
@@ -344,12 +363,237 @@ impl<'a> TestChainstate<'a> {
         }
     }
 
+    // Advances a TestChainstate to the Nakamoto epoch
+    pub fn advance_to_nakamoto_epoch(&mut self, private_key: &StacksPrivateKey, nonce: &mut usize) {
+        let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(private_key));
+        let default_pox_addr =
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
+
+        let mut sortition_height = self.get_burn_block_height();
+        debug!("\n\n======================");
+        debug!("PoxConstants = {:#?}", &self.config.burnchain.pox_constants);
+        debug!("tip = {sortition_height}");
+        debug!("========================\n\n");
+
+        let epoch_25_height = self
+            .config
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.epoch_id == StacksEpochId::Epoch25)
+            .unwrap()
+            .start_height;
+
+        let epoch_30_height = self
+            .config
+            .epochs
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|e| e.epoch_id == StacksEpochId::Epoch30)
+            .unwrap()
+            .start_height;
+
+        // Advance to just past PoX-4 instantiation
+        let mut blocks_produced = false;
+        while sortition_height <= epoch_25_height {
+            self.tenure_with_txs(&[], nonce);
+            sortition_height = self.get_burn_block_height();
+            blocks_produced = true;
+        }
+
+        // Ensure at least one block is produced before PoX-4 lockups
+        if !blocks_produced {
+            self.tenure_with_txs(&[], nonce);
+            sortition_height = self.get_burn_block_height();
+        }
+
+        debug!("\n\n======================");
+        debug!("Make PoX-4 lockups");
+        debug!("========================\n\n");
+
+        let reward_cycle = self
+            .config
+            .burnchain
+            .block_height_to_reward_cycle(sortition_height)
+            .unwrap();
+
+        // Create PoX-4 lockup transactions
+        let stack_txs: Vec<_> = self
+            .config
+            .test_stackers
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .map(|test_stacker| {
+                let pox_addr = test_stacker
+                    .pox_addr
+                    .clone()
+                    .unwrap_or(default_pox_addr.clone());
+                let max_amount = test_stacker.max_amount.unwrap_or(u128::MAX);
+                let signature = make_pox_4_signer_key_signature(
+                    &pox_addr,
+                    &test_stacker.signer_private_key,
+                    reward_cycle.into(),
+                    &Pox4SignatureTopic::StackStx,
+                    self.config.network_id,
+                    12,
+                    max_amount,
+                    1,
+                )
+                .unwrap()
+                .to_rsv();
+                make_pox_4_lockup_chain_id(
+                    &test_stacker.stacker_private_key,
+                    0,
+                    test_stacker.amount,
+                    &pox_addr,
+                    12,
+                    &StacksPublicKey::from_private(&test_stacker.signer_private_key),
+                    sortition_height + 1,
+                    Some(signature),
+                    max_amount,
+                    1,
+                    self.config.network_id,
+                )
+            })
+            .collect();
+
+        let stacks_block = self.tenure_with_txs(&stack_txs, nonce);
+        let (stacks_tip_ch, stacks_tip_bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
+        let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+        assert_eq!(stacks_block, stacks_tip);
+
+        debug!("\n\n======================");
+        debug!("Advance to the Prepare Phase");
+        debug!("========================\n\n");
+
+        // Advance to the prepare phase
+        while !self.config.burnchain.is_in_prepare_phase(sortition_height) {
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
+            let old_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            let stacks_block = self.tenure_with_txs(&[], nonce);
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
+            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            assert_ne!(old_tip, stacks_tip);
+            sortition_height = self.get_burn_block_height();
+        }
+
+        debug!("\n\n======================");
+        debug!("Advance to Epoch 3.0");
+        debug!("========================\n\n");
+
+        // Advance to Epoch 3.0
+        while sortition_height < epoch_30_height - 1 {
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
+            let old_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            self.tenure_with_txs(&[], nonce);
+            let (stacks_tip_ch, stacks_tip_bh) =
+                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
+            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+            assert_ne!(old_tip, stacks_tip);
+            sortition_height = self.get_burn_block_height();
+        }
+
+        debug!("\n\n======================");
+        debug!("Welcome to Nakamoto!");
+        debug!("========================\n\n");
+    }
+
+    pub fn get_burnchain_db(&self, readwrite: bool) -> BurnchainDB {
+        BurnchainDB::open(&self.config.burnchain.get_burnchaindb_path(), readwrite).unwrap()
+    }
+
+    pub fn get_sortition_at_height(&self, height: u64) -> Option<BlockSnapshot> {
+        let sortdb = self.sortdb.as_ref().unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let sort_handle = sortdb.index_handle(&tip.sortition_id);
+        sort_handle.get_block_snapshot_by_height(height).unwrap()
+    }
+
+    pub fn get_burnchain_block_ops(
+        &self,
+        burn_block_hash: &BurnchainHeaderHash,
+    ) -> Vec<BlockstackOperationType> {
+        let burnchain_db =
+            BurnchainDB::open(&self.config.burnchain.get_burnchaindb_path(), false).unwrap();
+        burnchain_db
+            .get_burnchain_block_ops(burn_block_hash)
+            .unwrap()
+    }
+
+    pub fn get_burnchain_block_ops_at_height(
+        &self,
+        height: u64,
+    ) -> Option<Vec<BlockstackOperationType>> {
+        let sortdb = self.sortdb.as_ref().unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+        let sort_handle = sortdb.index_handle(&tip.sortition_id);
+        let Some(sn) = sort_handle.get_block_snapshot_by_height(height).unwrap() else {
+            return None;
+        };
+        Some(self.get_burnchain_block_ops(&sn.burn_header_hash))
+    }
+
     pub fn next_burnchain_block(
         &mut self,
         blockstack_ops: Vec<BlockstackOperationType>,
     ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
         let x = self.inner_next_burnchain_block(blockstack_ops, true, true, true, false);
         (x.0, x.1, x.2)
+    }
+
+    pub fn next_burnchain_block_diverge(
+        &mut self,
+        blockstack_ops: Vec<BlockstackOperationType>,
+    ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+        let x = self.inner_next_burnchain_block(blockstack_ops, true, true, true, true);
+        (x.0, x.1, x.2)
+    }
+
+    pub fn next_burnchain_block_and_missing_pox_anchor(
+        &mut self,
+        blockstack_ops: Vec<BlockstackOperationType>,
+    ) -> (
+        u64,
+        BurnchainHeaderHash,
+        ConsensusHash,
+        Option<BlockHeaderHash>,
+    ) {
+        self.inner_next_burnchain_block(blockstack_ops, true, true, true, false)
+    }
+
+    pub fn next_burnchain_block_raw(
+        &mut self,
+        blockstack_ops: Vec<BlockstackOperationType>,
+    ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+        let x = self.inner_next_burnchain_block(blockstack_ops, false, false, true, false);
+        (x.0, x.1, x.2)
+    }
+
+    pub fn next_burnchain_block_raw_sortition_only(
+        &mut self,
+        blockstack_ops: Vec<BlockstackOperationType>,
+    ) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+        let x = self.inner_next_burnchain_block(blockstack_ops, false, false, false, false);
+        (x.0, x.1, x.2)
+    }
+
+    pub fn next_burnchain_block_raw_and_missing_pox_anchor(
+        &mut self,
+        blockstack_ops: Vec<BlockstackOperationType>,
+    ) -> (
+        u64,
+        BurnchainHeaderHash,
+        ConsensusHash,
+        Option<BlockHeaderHash>,
+    ) {
+        self.inner_next_burnchain_block(blockstack_ops, false, false, true, false)
     }
 
     pub fn set_ops_consensus_hash(
@@ -528,6 +772,116 @@ impl<'a> TestChainstate<'a> {
         )
     }
 
+    /// Pre-process an epoch 2.x Stacks block.
+    /// Validate it and store it to staging.
+    pub fn preprocess_stacks_block(&mut self, block: &StacksBlock) -> Result<bool, String> {
+        let sortdb = self.sortdb.take().unwrap();
+        let mut node = self.stacks_node.take().unwrap();
+        let res = {
+            let sn = {
+                let ic = sortdb.index_conn();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
+                let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &tip.sortition_id,
+                    &block.block_hash(),
+                )
+                .unwrap();
+                if sn_opt.is_none() {
+                    return Err(format!(
+                        "No such block in canonical burn fork: {}",
+                        &block.block_hash()
+                    ));
+                }
+                sn_opt.unwrap()
+            };
+
+            let parent_sn = {
+                let db_handle = sortdb.index_handle(&sn.sortition_id);
+                let parent_sn = db_handle
+                    .get_block_snapshot(&sn.parent_burn_header_hash)
+                    .unwrap();
+                parent_sn.unwrap()
+            };
+
+            let ic = sortdb.index_conn();
+            node.chainstate
+                .preprocess_anchored_block(
+                    &ic,
+                    &sn.consensus_hash,
+                    block,
+                    &parent_sn.consensus_hash,
+                    5,
+                )
+                .map_err(|e| format!("Failed to preprocess anchored block: {e:?}"))
+        };
+        if res.is_ok() {
+            let pox_id = {
+                let ic = sortdb.index_conn();
+                let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+                let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+                sortdb_reader.get_pox_id().unwrap()
+            };
+            test_debug!(
+                "\n\n{:?}: after stacks block {:?}, tip PoX ID is {pox_id:?}\n\n",
+                &block.block_hash(),
+                &pox_id
+            );
+            self.coord.handle_new_stacks_block().unwrap();
+        }
+
+        self.sortdb = Some(sortdb);
+        self.stacks_node = Some(node);
+        res
+    }
+
+    /// Preprocess epoch 2.x microblocks.
+    /// Validate them and store them to staging.
+    pub fn preprocess_stacks_microblocks(
+        &mut self,
+        microblocks: &[StacksMicroblock],
+    ) -> Result<bool, String> {
+        assert!(!microblocks.is_empty());
+        let sortdb = self.sortdb.take().unwrap();
+        let mut node = self.stacks_node.take().unwrap();
+        let res = {
+            let anchor_block_hash = microblocks[0].header.prev_block.clone();
+            let sn = {
+                let ic = sortdb.index_conn();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
+                let sn_opt = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                    &ic,
+                    &tip.sortition_id,
+                    &anchor_block_hash,
+                )
+                .unwrap();
+                if sn_opt.is_none() {
+                    return Err(format!(
+                        "No such block in canonical burn fork: {anchor_block_hash}"
+                    ));
+                }
+                sn_opt.unwrap()
+            };
+
+            let mut res = Ok(true);
+            for mblock in microblocks.iter() {
+                res = node
+                    .chainstate
+                    .preprocess_streamed_microblock(&sn.consensus_hash, &anchor_block_hash, mblock)
+                    .map_err(|e| format!("Failed to preprocess microblock: {e:?}"));
+
+                if res.is_err() {
+                    break;
+                }
+            }
+            res
+        };
+
+        self.sortdb = Some(sortdb);
+        self.stacks_node = Some(node);
+        res
+    }
+
     /// Store the given epoch 2.x Stacks block and microblock to staging, and then try and
     /// process them.
     pub fn process_stacks_epoch_at_tip(
@@ -554,11 +908,124 @@ impl<'a> TestChainstate<'a> {
         };
         test_debug!(
             "\n\nafter stacks block {:?}, tip PoX ID is {pox_id:?}\n\n",
-            block.block_hash()
+            &block.block_hash()
         );
 
         self.sortdb = Some(sortdb);
         self.stacks_node = Some(node);
+    }
+
+    /// Store the given epoch 2.x Stacks block and microblock to the given node's staging,
+    /// using the given sortition DB as well, and then try and process them.
+    fn inner_process_stacks_epoch_at_tip(
+        &mut self,
+        sortdb: &SortitionDB,
+        node: &mut TestStacksNode,
+        block: &StacksBlock,
+        microblocks: &[StacksMicroblock],
+    ) -> Result<(), CoordinatorError> {
+        {
+            let ic = sortdb.index_conn();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&ic)?;
+            node.chainstate
+                .preprocess_stacks_epoch(&ic, &tip, block, microblocks)?;
+        }
+        self.coord.handle_new_stacks_block()?;
+
+        let pox_id = {
+            let ic = sortdb.index_conn();
+            let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn())?;
+            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id)?;
+            sortdb_reader.get_pox_id()?
+        };
+        test_debug!(
+            "\n\nafter stacks block {:?}, tip PoX ID is {:?}\n\n",
+            &block.block_hash(),
+            &pox_id
+        );
+        Ok(())
+    }
+
+    /// Store the given epoch 2.x Stacks block and microblock to the given node's staging,
+    /// and then try and process them.
+    pub fn process_stacks_epoch_at_tip_checked(
+        &mut self,
+        block: &StacksBlock,
+        microblocks: &[StacksMicroblock],
+    ) -> Result<(), CoordinatorError> {
+        let sortdb = self.sortdb.take().unwrap();
+        let mut node = self.stacks_node.take().unwrap();
+        let res = self.inner_process_stacks_epoch_at_tip(&sortdb, &mut node, block, microblocks);
+        self.sortdb = Some(sortdb);
+        self.stacks_node = Some(node);
+        res
+    }
+
+    /// Accept a new Stacks block and microblocks via the relayer, and then try to process
+    /// them.
+    pub fn process_stacks_epoch(
+        &mut self,
+        block: &StacksBlock,
+        consensus_hash: &ConsensusHash,
+        microblocks: &[StacksMicroblock],
+    ) {
+        let sortdb = self.sortdb.take().unwrap();
+        let mut node = self.stacks_node.take().unwrap();
+        {
+            let ic = sortdb.index_conn();
+            Relayer::process_new_anchored_block(
+                &ic,
+                &mut node.chainstate,
+                consensus_hash,
+                block,
+                0,
+            )
+            .unwrap();
+
+            let block_hash = block.block_hash();
+            for mblock in microblocks.iter() {
+                node.chainstate
+                    .preprocess_streamed_microblock(consensus_hash, &block_hash, mblock)
+                    .unwrap();
+            }
+        }
+        self.coord.handle_new_stacks_block().unwrap();
+
+        let pox_id = {
+            let ic = sortdb.index_conn();
+            let tip_sort_id = SortitionDB::get_canonical_sortition_tip(sortdb.conn()).unwrap();
+            let sortdb_reader = SortitionHandleConn::open_reader(&ic, &tip_sort_id).unwrap();
+            sortdb_reader.get_pox_id().unwrap()
+        };
+
+        test_debug!(
+            "\n\nafter stacks block {:?}, tip PoX ID is {:?}\n\n",
+            &block.block_hash(),
+            &pox_id
+        );
+
+        self.sortdb = Some(sortdb);
+        self.stacks_node = Some(node);
+    }
+
+    pub fn add_empty_burnchain_block(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+        self.next_burnchain_block(vec![])
+    }
+
+    pub fn mine_empty_tenure(&mut self) -> (u64, BurnchainHeaderHash, ConsensusHash) {
+        let (burn_ops, ..) = self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let result = self.next_burnchain_block(burn_ops);
+        // remove the last block commit so that the testpeer doesn't try to build off of this tenure
+        self.miner.block_commits.pop();
+        result
+    }
+
+    pub fn chainstate(&mut self) -> &mut StacksChainState {
+        &mut self.stacks_node.as_mut().unwrap().chainstate
+    }
+
+    pub fn chainstate_ref(&self) -> &StacksChainState {
+        &self.stacks_node.as_ref().unwrap().chainstate
     }
 
     pub fn sortdb(&mut self) -> &mut SortitionDB {
@@ -674,7 +1141,7 @@ impl<'a> TestChainstate<'a> {
         let last_key = stacks_node.get_last_key(&self.miner);
 
         let network_id = self.config.network_id;
-        let chainstate_path = self.chainstate_path.clone();
+        let chainstate_path = get_chainstate_path_str(&self.config.test_name);
         let burn_block_height = burn_block.block_height;
 
         let proof = self
