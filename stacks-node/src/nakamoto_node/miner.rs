@@ -1029,18 +1029,13 @@ impl BlockMinerThread {
         let burn_view_ch =
             NakamotoChainState::get_block_burn_view(sort_db, block, &parent_block_info)?;
         let mut sortition_handle = sort_db.index_handle_at_ch(&burn_view_ch)?;
-        let chainstate_config = chain_state.config();
-        let (headers_conn, staging_tx) = chain_state.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
-            &chainstate_config,
+            chain_state,
             block,
             &mut sortition_handle,
-            &staging_tx,
-            headers_conn,
             reward_set,
             NakamotoBlockObtainMethod::Mined,
         )?;
-        staging_tx.commit()?;
 
         if !accepted {
             // this can happen if the p2p network and relayer manage to receive this block prior to

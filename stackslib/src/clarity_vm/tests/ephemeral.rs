@@ -432,8 +432,8 @@ fn test_ephemeral_nakamoto_block_replay_simple() {
     );
 
     // read out all Nakamoto blocks
-    let sortdb = peer.sortdb.take().unwrap();
-    let mut stacks_node = peer.stacks_node.take().unwrap();
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
     let naka_tip =
         NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
             .unwrap()
@@ -735,8 +735,8 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
     let (mut peer, _other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(&observer));
 
     // read out all Nakamoto blocks
-    let sortdb = peer.sortdb.take().unwrap();
-    let mut stacks_node = peer.stacks_node.take().unwrap();
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
     let naka_tip =
         NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
             .unwrap()

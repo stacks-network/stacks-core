@@ -1106,9 +1106,7 @@ impl Config {
 
     pub fn add_initial_balance(&mut self, address: String, amount: u64) {
         let new_balance = InitialBalance {
-            address: PrincipalData::parse_standard_principal(&address)
-                .unwrap()
-                .into(),
+            address: PrincipalData::parse(&address).unwrap().into(),
             amount,
         };
         self.initial_balances.push(new_balance);

@@ -123,11 +123,11 @@ fn test_stream_nakamoto_blocks() {
     .is_err());
 
     let nakamoto_tip = {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let ih = sortdb.index_handle(&tip.sortition_id);
         let nakamoto_tip = ih.get_nakamoto_tip().unwrap().unwrap();
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
         nakamoto_tip
     };
 
