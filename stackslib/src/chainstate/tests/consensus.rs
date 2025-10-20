@@ -12,8 +12,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::cell::LazyCell;
 use std::collections::{BTreeSet, HashMap};
+use std::sync::LazyLock;
 
 use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
@@ -62,7 +62,7 @@ pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65d
 pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
 /// The private key for the faucet account.
-pub const FAUCET_PRIV_KEY: LazyCell<StacksPrivateKey> = LazyCell::new(|| {
+pub static FAUCET_PRIV_KEY: LazyLock<StacksPrivateKey> = LazyLock::new(|| {
     StacksPrivateKey::from_hex("510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101")
         .expect("Failed to parse private key")
 });
@@ -781,11 +781,10 @@ impl ConsensusTest<'_> {
         // Set up chainstate to start at Epoch 3.0
         // We don't really ever want the reward cycle to force a new signer set...
         // so for now just set the cycle length to a high value (100)
-        let faucet_priv_key = FAUCET_PRIV_KEY.clone();
         let mut boot_plan = NakamotoBootPlan::new(test_name)
             .with_pox_constants(100, 3)
             .with_initial_balances(initial_balances)
-            .with_private_key(faucet_priv_key);
+            .with_private_key(FAUCET_PRIV_KEY.clone());
         let epochs = epoch_3_0_onwards(
             (boot_plan.pox_constants.pox_4_activation_height
                 + boot_plan.pox_constants.reward_cycle_length
