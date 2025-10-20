@@ -77,5 +77,5 @@ properties:
           type: string
           description: transaction id
         vm_error:
-          type: string
+          type: [string, "null"]
           description: optional vm error (for runtime failures)
