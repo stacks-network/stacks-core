@@ -1194,23 +1194,7 @@ impl TypedNativeFunction {
                 )
                 .map_err(|_| CheckErrors::Expects("Bad constructor".into()))?,
             }))),
-            ToAscii => Simple(SimpleNativeFunction(FunctionType::UnionArgs(
-                vec![
-                    TypeSignature::IntType,
-                    TypeSignature::UIntType,
-                    TypeSignature::BoolType,
-                    TypeSignature::PrincipalType,
-                    TypeSignature::TO_ASCII_BUFFER_MAX,
-                    TypeSignature::STRING_UTF8_MAX,
-                ],
-                TypeSignature::new_response(
-                    TypeSignature::TO_ASCII_STRING_ASCII_MAX,
-                    TypeSignature::UIntType,
-                )
-                .map_err(|_| {
-                    CheckErrors::Expects("FATAL: Legal Clarity response type marked invalid".into())
-                })?,
-            ))),
+            ToAscii => Special(SpecialNativeFunction(&conversions::check_special_to_ascii)),
             RestrictAssets => Special(SpecialNativeFunction(
                 &post_conditions::check_restrict_assets,
             )),
