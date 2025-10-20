@@ -17,8 +17,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::LazyLock;
+use std::thread;
 use std::time::{Duration, Instant};
-use std::{cmp, thread};
 
 use clarity::boot_util::boot_code_id;
 use clarity::vm::costs::ExecutionCost;
@@ -1657,8 +1657,6 @@ impl BlockMinerThread {
             }
         };
 
-        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
-
         // Check if we can and should include a time-based tenure extend.
         if self.last_block_mined.is_some() {
             if self.config.miner.replay_transactions
@@ -1671,35 +1669,13 @@ impl BlockMinerThread {
                 info!("Tenure extend: In replay, always extending tenure");
                 self.tenure_extend_reset();
             } else {
-                // Do not extend if we have spent < 50% of the budget and < 50% of the tenure size limit, since it is
+                // Do not extend if we have spent < 50% of the budget, since it is
                 // not necessary.
-
-                let mut tenure_size_usage = 0;
-
-                if let Some(total_tenure_size) =
-                    match NakamotoChainState::get_block_header_nakamoto_total_tenure_size(
-                        chainstate.db(),
-                        &parent_block_id,
-                    ) {
-                        Ok(total_tenure_size) => total_tenure_size,
-                        Err(e) => match e {
-                            ChainstateError::DBError(e) => {
-                                return Err(NakamotoNodeError::DBError(e))
-                            }
-                            _ => return Err(NakamotoNodeError::UnexpectedChainState),
-                        },
-                    }
-                {
-                    tenure_size_usage =
-                        total_tenure_size / cmp::max(1, self.config.miner.max_tenure_bytes / 100);
-                }
 
                 let usage = self
                     .tenure_budget
                     .proportion_largest_dimension(&self.tenure_cost);
-                if usage < self.config.miner.tenure_extend_cost_threshold
-                    && tenure_size_usage < self.config.miner.tenure_extend_cost_threshold
-                {
+                if usage < self.config.miner.tenure_extend_cost_threshold {
                     return Ok(NakamotoTenureInfo {
                         coinbase_tx: None,
                         tenure_change_tx: None,
@@ -1726,6 +1702,7 @@ impl BlockMinerThread {
             }
         }
 
+        let parent_block_id = parent_block_info.stacks_parent_header.index_block_hash();
         let mut payload = TenureChangePayload {
             tenure_consensus_hash: self.burn_election_block.consensus_hash.clone(),
             prev_tenure_consensus_hash: parent_tenure_info.parent_tenure_consensus_hash.clone(),
