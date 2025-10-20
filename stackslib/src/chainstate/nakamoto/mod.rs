@@ -928,6 +928,7 @@ impl NakamotoBlockHeader {
         parent_block_id: StacksBlockId,
         bitvec_len: u16,
         parent_timestamp: u64,
+        timestamp: u64,
     ) -> NakamotoBlockHeader {
         NakamotoBlockHeader {
             version: NAKAMOTO_BLOCK_VERSION,
@@ -937,7 +938,7 @@ impl NakamotoBlockHeader {
             parent_block_id,
             tx_merkle_root: Sha512Trunc256Sum([0u8; 32]),
             state_index_root: TrieHash([0u8; 32]),
-            timestamp: std::cmp::max(parent_timestamp, get_epoch_time_secs()),
+            timestamp: std::cmp::max(parent_timestamp, timestamp),
             miner_signature: MessageSignature::empty(),
             signer_signature: vec![],
             pox_treatment: BitVec::ones(bitvec_len)
@@ -1650,8 +1651,15 @@ impl NakamotoBlock {
         chain_id: u32,
         epoch_id: StacksEpochId,
     ) -> bool {
-        if self.txs.is_empty()
-            || !StacksBlock::validate_transactions_unique(&self.txs)
+        if self.txs.is_empty() {
+            warn!("Block with zero transactions is invalid";
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id()
+            );
+            return false;
+        }
+        if !StacksBlock::validate_transactions_unique(&self.txs)
             || !StacksBlock::validate_transactions_network(&self.txs, mainnet)
             || !StacksBlock::validate_transactions_chain_id(&self.txs, chain_id)
         {
@@ -1675,7 +1683,16 @@ impl NakamotoBlock {
             );
             return false;
         };
-        StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id)
+        if !StacksBlock::validate_transactions_static_epoch(&self.txs, epoch_id) {
+            warn!("Block has a transaction that is not supporteed in this epoch";
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id(),
+                "epoch_id" => %epoch_id
+            );
+            return false;
+        }
+        true
     }
 }
 

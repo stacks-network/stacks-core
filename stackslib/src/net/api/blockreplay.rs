@@ -133,6 +133,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
             block.header.pox_treatment.len(),
             None,
             None,
+            Some(block.header.timestamp),
         ) {
             Ok(builder) => builder,
             Err(e) => return Err(e),

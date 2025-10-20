@@ -345,6 +345,7 @@ fn replay_block(
         original_block.header.pox_treatment.len(),
         None,
         Some(100),
+        Some(original_block.header.timestamp),
     )
     .unwrap();
 

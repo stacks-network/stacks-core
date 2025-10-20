@@ -795,6 +795,7 @@ impl TestStacksNode {
                     1,
                     None,
                     None,
+                    None,
                 )?
             } else {
                 NakamotoBlockBuilder::new_first_block(

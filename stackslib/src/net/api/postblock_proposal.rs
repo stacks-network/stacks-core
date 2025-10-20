@@ -579,6 +579,7 @@ impl NakamotoBlockProposal {
             self.block.header.pox_treatment.len(),
             None,
             None,
+            Some(self.block.header.timestamp),
         )?;
 
         let mut miner_tenure_info =
@@ -635,9 +636,6 @@ impl NakamotoBlockProposal {
             .signer_signature
             .clone_from(&self.block.header.signer_signature);
 
-        // Clone the timestamp from the block proposal, which has already been validated
-        block.header.timestamp = self.block.header.timestamp;
-
         // Assuming `tx_merkle_root` has been checked we don't need to hash the whole block
         let expected_block_header_hash = self.block.header.block_hash();
         let computed_block_header_hash = block.header.block_hash();
@@ -648,8 +646,8 @@ impl NakamotoBlockProposal {
                 "reason" => "Block hash is not as expected",
                 "expected_block_header_hash" => %expected_block_header_hash,
                 "computed_block_header_hash" => %computed_block_header_hash,
-                //"expected_block" => %serde_json::to_string(&serde_json::to_value(&self.block).unwrap()).unwrap(),
-                //"computed_block" => %serde_json::to_string(&serde_json::to_value(&block).unwrap()).unwrap(),
+                "expected_block" => ?self.block,
+                "computed_block" => ?block,
             );
             return Err(BlockValidateRejectReason {
                 reason: "Block hash is not as expected".into(),
@@ -725,6 +723,7 @@ impl NakamotoBlockProposal {
             self.block.header.pox_treatment.len(),
             None,
             None,
+            Some(self.block.header.timestamp),
         )?;
         let (mut replay_chainstate, _) =
             StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;
