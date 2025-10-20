@@ -1011,14 +1011,14 @@ impl ConsensusTest<'_> {
     fn compute_block_marf_root_hash(
         &mut self,
         block_time: u64,
-        block_txs: &Vec<StacksTransaction>,
+        block_txs: &[StacksTransaction],
     ) -> Result<TrieHash, String> {
         let node = self.chain.stacks_node.as_mut().unwrap();
         let sortdb = self.chain.sortdb.as_ref().unwrap();
         let burndb_conn = sortdb.index_handle_at_tip();
         let chainstate = &mut node.chainstate;
 
-        let chain_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        let chain_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
             .unwrap()
             .unwrap();
 
