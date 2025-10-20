@@ -19,7 +19,7 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
+use clarity::vm::errors::{Error as ClarityError, InterpreterError, RuntimeErrorType};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
@@ -401,13 +401,16 @@ pub fn handle_contract_call(
                 global_context.log_stacking(sender, *amount)?;
             }
             _ => {
+                let msg = "Unreachable: failed to log STX delegation in PoX-4 delegate-stx call";
                 // This should be unreachable!
                 error!(
-                    "Unreachable: failed to log STX delegation in PoX-4 delegate-stx call";
+                    "{msg}";
                     "sender" => ?sender_opt,
                     "arg0" => ?args.first(),
                 );
-                return Err(ClarityError::Runtime(RuntimeErrorType::Unreachable, None));
+                return Err(ClarityError::Interpreter(InterpreterError::Expect(
+                    msg.into(),
+                )));
             }
         }
     }

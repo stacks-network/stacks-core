@@ -1127,19 +1127,13 @@ impl TestStacksNode {
         let mut sort_handle = sortdb.index_handle(&sort_tip);
 
         // Force the block to be added to the nakamoto_staging_blocks table
-        let config = stacks_node.chainstate.config();
-        let (headers_conn, staging_db_tx) =
-            stacks_node.chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
-            &config,
+            &mut stacks_node.chainstate,
             &nakamoto_block,
             &mut sort_handle,
-            &staging_db_tx,
-            headers_conn,
             &reward_set,
             NakamotoBlockObtainMethod::Pushed,
         )?;
-        staging_db_tx.commit()?;
         debug!("Accepted Nakamoto block {}", &nakamoto_block.block_id());
         // Actually attempt to process the accepted block added to nakamoto_staging_blocks
         // Will attempt to execute the transactions via a call to append_block
