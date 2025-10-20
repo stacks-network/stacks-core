@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use crate::vm::Value;
 use clarity_types::types::{CharType, SequenceData, TraitIdentifier};
+use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::build_ast;
 use crate::vm::costs::cost_functions::{linear, CostValues};
@@ -13,8 +13,7 @@ use crate::vm::errors::InterpreterResult;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::QualifiedContractIdentifier;
-use crate::vm::ClarityVersion;
-use stacks_common::types::StacksEpochId;
+use crate::vm::{ClarityVersion, Value};
 
 // TODO:
 // contract-call? - get source from database
@@ -176,14 +175,13 @@ impl SummingExecutionCost {
     }
 }
 
-/// Parse Clarity source code and calculate its static execution cost
-///
-/// theoretically you could inspect the tree at any node to get the spot cost
-pub fn static_cost(source: &str, clarity_version: &ClarityVersion) -> Result<StaticCost, String> {
+fn make_ast(
+    source: &str,
+    epoch: StacksEpochId,
+    clarity_version: &ClarityVersion,
+) -> Result<crate::vm::ast::ContractAST, String> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let mut cost_tracker = ();
-    let epoch = StacksEpochId::latest(); // XXX this should be matched with the clarity version
-
     let ast = build_ast(
         &contract_identifier,
         source,
@@ -192,23 +190,59 @@ pub fn static_cost(source: &str, clarity_version: &ClarityVersion) -> Result<Sta
         epoch,
     )
     .map_err(|e| format!("Parse error: {:?}", e))?;
+    Ok(ast)
+}
+
+/// somewhat of a passthrough since we don't have to build the whole context we can jsut return the cost of the single expression
+fn static_cost_native(
+    source: &str,
+    cost_map: &HashMap<String, StaticCost>,
+    clarity_version: &ClarityVersion,
+) -> Result<StaticCost, String> {
+    let epoch = StacksEpochId::latest(); // XXX this should be matched with the clarity version
+    let ast = make_ast(source, epoch, clarity_version)?;
+    let exprs = &ast.expressions;
+    let user_args = UserArgumentsContext::new();
+    let expr = &exprs[0];
+    let cost_analysis_tree =
+        build_cost_analysis_tree(&expr, &user_args, cost_map, clarity_version)?;
+
+    let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
+    Ok(summing_cost.into())
+}
+/// Parse Clarity source code and calculate its static execution cost for the specified function
+pub fn static_cost(
+    source: &str,
+    clarity_version: &ClarityVersion,
+) -> Result<HashMap<String, StaticCost>, String> {
+    let epoch = StacksEpochId::latest(); // XXX this should be matched with the clarity version
+    let ast = make_ast(source, epoch, clarity_version)?;
 
     if ast.expressions.is_empty() {
         return Err("No expressions found".to_string());
     }
-
-    // TODO what happens if multiple expressions are selected?
-    let expr = &ast.expressions[0];
+    let exprs = &ast.expressions;
     let user_args = UserArgumentsContext::new();
-    let cost_analysis_tree = build_cost_analysis_tree(expr, &user_args, clarity_version)?;
+    let mut costs = HashMap::new();
+    for expr in exprs {
+        let cost_analysis_tree =
+            build_cost_analysis_tree(expr, &user_args, &costs, clarity_version)?;
 
-    let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
-    Ok(summing_cost.into())
+        let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
+        costs.insert(
+            expr.match_atom()
+                .map(|name| name.to_string())
+                .unwrap_or_default(),
+            summing_cost.into(),
+        );
+    }
+    Ok(costs)
 }
 
 fn build_cost_analysis_tree(
     expr: &SymbolicExpression,
     user_args: &UserArgumentsContext,
+    cost_map: &HashMap<String, StaticCost>,
     clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
     match &expr.expr {
@@ -221,11 +255,12 @@ fn build_cost_analysis_tree(
                     return build_function_definition_cost_analysis_tree(
                         list,
                         user_args,
+                        cost_map,
                         clarity_version,
                     );
                 }
             }
-            build_listlike_cost_analysis_tree(list, "list", user_args, clarity_version)
+            build_listlike_cost_analysis_tree(list, user_args, cost_map, clarity_version)
         }
         SymbolicExpressionType::AtomValue(value) => {
             let cost = calculate_value_cost(value)?;
@@ -279,6 +314,7 @@ fn parse_atom_expression(
 fn build_function_definition_cost_analysis_tree(
     list: &[SymbolicExpression],
     _user_args: &UserArgumentsContext,
+    cost_map: &HashMap<String, StaticCost>,
     clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
     let define_type = list[0]
@@ -324,7 +360,7 @@ fn build_function_definition_cost_analysis_tree(
     }
 
     // Process the function body with the function's user arguments context
-    let body_tree = build_cost_analysis_tree(body, &function_user_args, clarity_version)?;
+    let body_tree = build_cost_analysis_tree(body, &function_user_args, cost_map, clarity_version)?;
     children.push(body_tree);
 
     // Create the function definition node with zero cost (function definitions themselves don't have execution cost)
@@ -335,42 +371,50 @@ fn build_function_definition_cost_analysis_tree(
     ))
 }
 
+fn get_function_name(expr: &SymbolicExpression) -> Result<ClarityName, String> {
+    match &expr.expr {
+        SymbolicExpressionType::Atom(name) => Ok(name.clone()),
+        _ => Err("First element must be an atom (function name)".to_string()),
+    }
+}
+
 /// Helper function to build expression trees for both lists and tuples
 fn build_listlike_cost_analysis_tree(
-    items: &[SymbolicExpression],
-    container_type: &str,
+    exprs: &[SymbolicExpression],
     user_args: &UserArgumentsContext,
+    cost_map: &HashMap<String, StaticCost>,
     clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
-    let function_name = match &items[0].expr {
-        SymbolicExpressionType::Atom(name) => name,
-        _ => {
-            return Err(format!(
-                "First element of {} must be an atom (function name)",
-                container_type
-            ));
-        }
-    };
-
-    let args = &items[1..];
     let mut children = Vec::new();
 
-    // Build children for all arguments
-    for arg in args {
-        children.push(build_cost_analysis_tree(arg, user_args, clarity_version)?);
+    // Build children for all exprs
+    for expr in exprs[1..].iter() {
+        children.push(build_cost_analysis_tree(
+            expr,
+            user_args,
+            cost_map,
+            clarity_version,
+        )?);
     }
 
+    let function_name = get_function_name(&exprs[0])?;
     // Try to lookup the function as a native function first
-    let expr_node = if let Some(native_function) =
+    let (expr_node, cost) = if let Some(native_function) =
         NativeFunctions::lookup_by_name_at_version(function_name.as_str(), clarity_version)
     {
-        CostExprNode::NativeFunction(native_function)
+        CostExprNode::NativeFunction(native_function);
+        let cost = calculate_function_cost_from_native_function(
+            native_function,
+            children.len() as u64,
+            clarity_version,
+        )?;
+        (CostExprNode::NativeFunction(native_function), cost)
     } else {
-        // If not a native function, treat as user-defined function
-        CostExprNode::UserFunction(function_name.clone())
+        // If not a native function, treat as user-defined function and look it up
+        let expr_node = CostExprNode::UserFunction(function_name.clone());
+        let cost = calculate_function_cost(function_name.to_string(), cost_map)?;
+        (expr_node, cost)
     };
-
-    let cost = calculate_function_cost_from_name(function_name.as_str(), children.len() as u64)?;
 
     // Handle special cases for string arguments to functions that include their processing cost
     if FUNCTIONS_WITH_ZERO_STRING_ARG_COST.contains(&function_name.as_str()) {
@@ -384,6 +428,15 @@ fn build_listlike_cost_analysis_tree(
     Ok(CostAnalysisNode::new(expr_node, cost, children))
 }
 
+// this is a bit tricky, we need to ensure the previously defined function is
+// within the cost_map already or we need to find it and compute the cost first
+fn calculate_function_cost(
+    function_name: String,
+    cost_map: &HashMap<String, StaticCost>,
+) -> Result<StaticCost, String> {
+    let cost = cost_map.get(&function_name).unwrap_or(&StaticCost::ZERO);
+    Ok(cost.clone())
+}
 /// This function is no longer needed - we now use NativeFunctions::lookup_by_name_at_version
 /// directly in build_listlike_cost_analysis_tree
 
@@ -432,11 +485,12 @@ fn calculate_value_cost(value: &Value) -> Result<StaticCost, String> {
     }
 }
 
-fn calculate_function_cost_from_name(
-    function_name: &str,
+fn calculate_function_cost_from_native_function(
+    native_function: NativeFunctions,
     arg_count: u64,
+    clarity_version: &ClarityVersion,
 ) -> Result<StaticCost, String> {
-    let cost_function = match get_cost_function_for_name(function_name) {
+    let cost_function = match get_cost_function_for_native(native_function, clarity_version) {
         Some(cost_fn) => cost_fn,
         None => {
             // TODO: zero cost for now
@@ -451,111 +505,132 @@ fn calculate_function_cost_from_name(
     })
 }
 
-/// Convert a function name string to its corresponding cost function
-fn get_cost_function_for_name(name: &str) -> Option<fn(u64) -> InterpreterResult<ExecutionCost>> {
-    // Map function names to their cost functions using the existing enum structure
-    match name {
-        "+" | "add" => Some(Costs3::cost_add),
-        "-" | "sub" => Some(Costs3::cost_sub),
-        "*" | "mul" => Some(Costs3::cost_mul),
-        "/" | "div" => Some(Costs3::cost_div),
-        "mod" => Some(Costs3::cost_mod),
-        "pow" => Some(Costs3::cost_pow),
-        "sqrti" => Some(Costs3::cost_sqrti),
-        "log2" => Some(Costs3::cost_log2),
-        "to-int" | "to-uint" | "int-cast" => Some(Costs3::cost_int_cast),
-        "is-eq" | "=" | "eq" => Some(Costs3::cost_eq),
-        ">=" | "geq" => Some(Costs3::cost_geq),
-        "<=" | "leq" => Some(Costs3::cost_leq),
-        ">" | "ge" => Some(Costs3::cost_ge),
-        "<" | "le" => Some(Costs3::cost_le),
-        "xor" => Some(Costs3::cost_xor),
-        "not" => Some(Costs3::cost_not),
-        "and" => Some(Costs3::cost_and),
-        "or" => Some(Costs3::cost_or),
-        "concat" => Some(Costs3::cost_concat),
-        "len" => Some(Costs3::cost_len),
-        "as-max-len?" => Some(Costs3::cost_as_max_len),
-        "list" => Some(Costs3::cost_list_cons),
-        "element-at" | "element-at?" => Some(Costs3::cost_element_at),
-        "index-of" | "index-of?" => Some(Costs3::cost_index_of),
-        "fold" => Some(Costs3::cost_fold),
-        "map" => Some(Costs3::cost_map),
-        "filter" => Some(Costs3::cost_filter),
-        "append" => Some(Costs3::cost_append),
-        "tuple-get" => Some(Costs3::cost_tuple_get),
-        "tuple-merge" => Some(Costs3::cost_tuple_merge),
-        "tuple" => Some(Costs3::cost_tuple_cons),
-        "some" => Some(Costs3::cost_some_cons),
-        "ok" => Some(Costs3::cost_ok_cons),
-        "err" => Some(Costs3::cost_err_cons),
-        "default-to" => Some(Costs3::cost_default_to),
-        "unwrap!" => Some(Costs3::cost_unwrap_ret),
-        "unwrap-err!" => Some(Costs3::cost_unwrap_err_or_ret),
-        "is-ok" => Some(Costs3::cost_is_okay),
-        "is-none" => Some(Costs3::cost_is_none),
-        "is-err" => Some(Costs3::cost_is_err),
-        "is-some" => Some(Costs3::cost_is_some),
-        "unwrap-panic" => Some(Costs3::cost_unwrap),
-        "unwrap-err-panic" => Some(Costs3::cost_unwrap_err),
-        "try!" => Some(Costs3::cost_try_ret),
-        "if" => Some(Costs3::cost_if),
-        "match" => Some(Costs3::cost_match),
-        "begin" => Some(Costs3::cost_begin),
-        "let" => Some(Costs3::cost_let),
-        "asserts!" => Some(Costs3::cost_asserts),
-        "hash160" => Some(Costs3::cost_hash160),
-        "sha256" => Some(Costs3::cost_sha256),
-        "sha512" => Some(Costs3::cost_sha512),
-        "sha512/256" => Some(Costs3::cost_sha512t256),
-        "keccak256" => Some(Costs3::cost_keccak256),
-        "secp256k1-recover?" => Some(Costs3::cost_secp256k1recover),
-        "secp256k1-verify" => Some(Costs3::cost_secp256k1verify),
-        "print" => Some(Costs3::cost_print),
-        "contract-call?" => Some(Costs3::cost_contract_call),
-        "contract-of" => Some(Costs3::cost_contract_of),
-        "principal-of?" => Some(Costs3::cost_principal_of),
-        "at-block" => Some(Costs3::cost_at_block),
-        "load-contract" => Some(Costs3::cost_load_contract),
-        "create-map" => Some(Costs3::cost_create_map),
-        "create-var" => Some(Costs3::cost_create_var),
-        "create-non-fungible-token" => Some(Costs3::cost_create_nft),
-        "create-fungible-token" => Some(Costs3::cost_create_ft),
-        "map-get?" => Some(Costs3::cost_fetch_entry),
-        "map-set!" => Some(Costs3::cost_set_entry),
-        "var-get" => Some(Costs3::cost_fetch_var),
-        "var-set!" => Some(Costs3::cost_set_var),
-        "contract-storage" => Some(Costs3::cost_contract_storage),
-        "get-block-info?" => Some(Costs3::cost_block_info),
-        "get-burn-block-info?" => Some(Costs3::cost_burn_block_info),
-        "stx-get-balance" => Some(Costs3::cost_stx_balance),
-        "stx-transfer?" => Some(Costs3::cost_stx_transfer),
-        "stx-transfer-memo?" => Some(Costs3::cost_stx_transfer_memo),
-        "stx-account" => Some(Costs3::cost_stx_account),
-        "ft-mint?" => Some(Costs3::cost_ft_mint),
-        "ft-transfer?" => Some(Costs3::cost_ft_transfer),
-        "ft-get-balance" => Some(Costs3::cost_ft_balance),
-        "ft-get-supply" => Some(Costs3::cost_ft_get_supply),
-        "ft-burn?" => Some(Costs3::cost_ft_burn),
-        "nft-mint?" => Some(Costs3::cost_nft_mint),
-        "nft-transfer?" => Some(Costs3::cost_nft_transfer),
-        "nft-get-owner?" => Some(Costs3::cost_nft_owner),
-        "nft-burn?" => Some(Costs3::cost_nft_burn),
-        "buff-to-int-le?" => Some(Costs3::cost_buff_to_int_le),
-        "buff-to-uint-le?" => Some(Costs3::cost_buff_to_uint_le),
-        "buff-to-int-be?" => Some(Costs3::cost_buff_to_int_be),
-        "buff-to-uint-be?" => Some(Costs3::cost_buff_to_uint_be),
-        "to-consensus-buff?" => Some(Costs3::cost_to_consensus_buff),
-        "from-consensus-buff?" => Some(Costs3::cost_from_consensus_buff),
-        "is-standard?" => Some(Costs3::cost_is_standard),
-        "principal-destruct" => Some(Costs3::cost_principal_destruct),
-        "principal-construct?" => Some(Costs3::cost_principal_construct),
-        "as-contract" => Some(Costs3::cost_as_contract),
-        "string-to-int?" => Some(Costs3::cost_string_to_int),
-        "string-to-uint?" => Some(Costs3::cost_string_to_uint),
-        "int-to-ascii" => Some(Costs3::cost_int_to_ascii),
-        "int-to-utf8?" => Some(Costs3::cost_int_to_utf8),
-        _ => None, // TODO
+/// Convert a NativeFunctions enum variant to its corresponding cost function
+/// TODO: This assumes Costs3 but should find a way to use the clarity version passed in
+fn get_cost_function_for_native(
+    function: NativeFunctions,
+    _clarity_version: &ClarityVersion,
+) -> Option<fn(u64) -> InterpreterResult<ExecutionCost>> {
+    use crate::vm::functions::NativeFunctions::*;
+
+    // Map NativeFunctions enum variants to their cost functions
+    match function {
+        Add => Some(Costs3::cost_add),
+        Subtract => Some(Costs3::cost_sub),
+        Multiply => Some(Costs3::cost_mul),
+        Divide => Some(Costs3::cost_div),
+        Modulo => Some(Costs3::cost_mod),
+        Power => Some(Costs3::cost_pow),
+        Sqrti => Some(Costs3::cost_sqrti),
+        Log2 => Some(Costs3::cost_log2),
+        ToInt | ToUInt => Some(Costs3::cost_int_cast),
+        Equals => Some(Costs3::cost_eq),
+        CmpGeq => Some(Costs3::cost_geq),
+        CmpLeq => Some(Costs3::cost_leq),
+        CmpGreater => Some(Costs3::cost_ge),
+        CmpLess => Some(Costs3::cost_le),
+        BitwiseXor | BitwiseXor2 => Some(Costs3::cost_xor),
+        Not | BitwiseNot => Some(Costs3::cost_not),
+        And | BitwiseAnd => Some(Costs3::cost_and),
+        Or | BitwiseOr => Some(Costs3::cost_or),
+        Concat => Some(Costs3::cost_concat),
+        Len => Some(Costs3::cost_len),
+        AsMaxLen => Some(Costs3::cost_as_max_len),
+        ListCons => Some(Costs3::cost_list_cons),
+        ElementAt | ElementAtAlias => Some(Costs3::cost_element_at),
+        IndexOf | IndexOfAlias => Some(Costs3::cost_index_of),
+        Fold => Some(Costs3::cost_fold),
+        Map => Some(Costs3::cost_map),
+        Filter => Some(Costs3::cost_filter),
+        Append => Some(Costs3::cost_append),
+        TupleGet => Some(Costs3::cost_tuple_get),
+        TupleMerge => Some(Costs3::cost_tuple_merge),
+        TupleCons => Some(Costs3::cost_tuple_cons),
+        ConsSome => Some(Costs3::cost_some_cons),
+        ConsOkay => Some(Costs3::cost_ok_cons),
+        ConsError => Some(Costs3::cost_err_cons),
+        DefaultTo => Some(Costs3::cost_default_to),
+        UnwrapRet => Some(Costs3::cost_unwrap_ret),
+        UnwrapErrRet => Some(Costs3::cost_unwrap_err_or_ret),
+        IsOkay => Some(Costs3::cost_is_okay),
+        IsNone => Some(Costs3::cost_is_none),
+        IsErr => Some(Costs3::cost_is_err),
+        IsSome => Some(Costs3::cost_is_some),
+        Unwrap => Some(Costs3::cost_unwrap),
+        UnwrapErr => Some(Costs3::cost_unwrap_err),
+        TryRet => Some(Costs3::cost_try_ret),
+        If => Some(Costs3::cost_if),
+        Match => Some(Costs3::cost_match),
+        Begin => Some(Costs3::cost_begin),
+        Let => Some(Costs3::cost_let),
+        Asserts => Some(Costs3::cost_asserts),
+        Hash160 => Some(Costs3::cost_hash160),
+        Sha256 => Some(Costs3::cost_sha256),
+        Sha512 => Some(Costs3::cost_sha512),
+        Sha512Trunc256 => Some(Costs3::cost_sha512t256),
+        Keccak256 => Some(Costs3::cost_keccak256),
+        Secp256k1Recover => Some(Costs3::cost_secp256k1recover),
+        Secp256k1Verify => Some(Costs3::cost_secp256k1verify),
+        Print => Some(Costs3::cost_print),
+        ContractCall => Some(Costs3::cost_contract_call),
+        ContractOf => Some(Costs3::cost_contract_of),
+        PrincipalOf => Some(Costs3::cost_principal_of),
+        AtBlock => Some(Costs3::cost_at_block),
+        CreateMap => Some(Costs3::cost_create_map),
+        CreateVar => Some(Costs3::cost_create_var),
+        CreateNonFungibleToken => Some(Costs3::cost_create_nft),
+        CreateFungibleToken => Some(Costs3::cost_create_ft),
+        FetchEntry => Some(Costs3::cost_fetch_entry),
+        SetEntry => Some(Costs3::cost_set_entry),
+        FetchVar => Some(Costs3::cost_fetch_var),
+        SetVar => Some(Costs3::cost_set_var),
+        ContractStorage => Some(Costs3::cost_contract_storage),
+        GetBlockInfo => Some(Costs3::cost_block_info),
+        GetBurnBlockInfo => Some(Costs3::cost_burn_block_info),
+        GetStxBalance => Some(Costs3::cost_stx_balance),
+        StxTransfer => Some(Costs3::cost_stx_transfer),
+        StxTransferMemo => Some(Costs3::cost_stx_transfer_memo),
+        StxGetAccount => Some(Costs3::cost_stx_account),
+        MintToken => Some(Costs3::cost_ft_mint),
+        TransferToken => Some(Costs3::cost_ft_transfer),
+        GetTokenBalance => Some(Costs3::cost_ft_balance),
+        GetTokenSupply => Some(Costs3::cost_ft_get_supply),
+        BurnToken => Some(Costs3::cost_ft_burn),
+        MintAsset => Some(Costs3::cost_nft_mint),
+        TransferAsset => Some(Costs3::cost_nft_transfer),
+        GetAssetOwner => Some(Costs3::cost_nft_owner),
+        BurnAsset => Some(Costs3::cost_nft_burn),
+        BuffToIntLe => Some(Costs3::cost_buff_to_int_le),
+        BuffToUIntLe => Some(Costs3::cost_buff_to_uint_le),
+        BuffToIntBe => Some(Costs3::cost_buff_to_int_be),
+        BuffToUIntBe => Some(Costs3::cost_buff_to_uint_be),
+        ToConsensusBuff => Some(Costs3::cost_to_consensus_buff),
+        FromConsensusBuff => Some(Costs3::cost_from_consensus_buff),
+        IsStandard => Some(Costs3::cost_is_standard),
+        PrincipalDestruct => Some(Costs3::cost_principal_destruct),
+        PrincipalConstruct => Some(Costs3::cost_principal_construct),
+        AsContract | AsContractSafe => Some(Costs3::cost_as_contract),
+        StringToInt => Some(Costs3::cost_string_to_int),
+        StringToUInt => Some(Costs3::cost_string_to_uint),
+        IntToAscii => Some(Costs3::cost_int_to_ascii),
+        IntToUtf8 => Some(Costs3::cost_int_to_utf8),
+        BitwiseLShift => Some(Costs3::cost_bitwise_left_shift),
+        BitwiseRShift => Some(Costs3::cost_bitwise_right_shift),
+        Slice => Some(Costs3::cost_slice),
+        ReplaceAt => Some(Costs3::cost_replace_at),
+        GetStacksBlockInfo => Some(Costs3::cost_block_info),
+        GetTenureInfo => Some(Costs3::cost_burn_block_info), // XXX ???
+        ContractHash => Some(Costs3::cost_contract_hash),
+        ToAscii => Some(Costs3::cost_to_ascii),
+        RestrictAssets => None,        // TODO: add cost function
+        AllowanceWithStx => None,      // TODO: add cost function
+        AllowanceWithFt => None,       // TODO: add cost function
+        AllowanceWithNft => None,      // TODO: add cost function
+        AllowanceWithStacking => None, // TODO: add cost function
+        AllowanceAll => None,          // TODO: add cost function
+        InsertEntry => None,           // TODO: add cost function
+        DeleteEntry => None,           // TODO: add cost function
+        StxBurn => None,               // TODO: add cost function
     }
 }
 
@@ -650,6 +725,14 @@ mod tests {
 
     use super::*;
 
+    fn static_cost_native_test(
+        source: &str,
+        clarity_version: &ClarityVersion,
+    ) -> Result<StaticCost, String> {
+        let cost_map = HashMap::new();
+        static_cost_native(source, &cost_map, clarity_version)
+    }
+
     fn build_test_ast(src: &str) -> crate::vm::ast::ContractAST {
         let contract_identifier = QualifiedContractIdentifier::transient();
         let mut cost_tracker = ();
@@ -657,7 +740,7 @@ mod tests {
             &contract_identifier,
             src,
             &mut cost_tracker,
-            ClarityVersion::Clarity1,
+            ClarityVersion::Clarity3,
             StacksEpochId::latest(),
         )
         .unwrap();
@@ -667,7 +750,7 @@ mod tests {
     #[test]
     fn test_constant() {
         let source = "9001";
-        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
+        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
         assert_eq!(cost.min.runtime, 0);
         assert_eq!(cost.max.runtime, 0);
     }
@@ -675,7 +758,7 @@ mod tests {
     #[test]
     fn test_simple_addition() {
         let source = "(+ 1 2)";
-        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
+        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
 
         // Min: linear(2, 11, 125) = 11*2 + 125 = 147
         assert_eq!(cost.min.runtime, 147);
@@ -685,7 +768,7 @@ mod tests {
     #[test]
     fn test_arithmetic() {
         let source = "(- u4 (+ u1 u2))";
-        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
+        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
         assert_eq!(cost.min.runtime, 147 + 147);
         assert_eq!(cost.max.runtime, 147 + 147);
     }
@@ -693,7 +776,7 @@ mod tests {
     #[test]
     fn test_nested_operations() {
         let source = "(* (+ u1 u2) (- u3 u4))";
-        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
+        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
         // multiplication: 13*2 + 125 = 151
         assert_eq!(cost.min.runtime, 151 + 147 + 147);
         assert_eq!(cost.max.runtime, 151 + 147 + 147);
@@ -702,7 +785,7 @@ mod tests {
     #[test]
     fn test_string_concat_min_max() {
         let source = r#"(concat "hello" "world")"#;
-        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
+        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
 
         // For concat with 2 arguments:
         // linear(2, 37, 220) = 37*2 + 220 = 294
@@ -713,7 +796,7 @@ mod tests {
     #[test]
     fn test_string_len_min_max() {
         let source = r#"(len "hello")"#;
-        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
+        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
 
         // cost: 429 (constant) - len doesn't depend on string size
         assert_eq!(cost.min.runtime, 429);
@@ -723,7 +806,7 @@ mod tests {
     #[test]
     fn test_branching() {
         let source = "(if (> 3 0) (ok (concat \"hello\" \"world\")) (ok \"asdf\"))";
-        let cost = static_cost(source, &ClarityVersion::Clarity1).unwrap();
+        let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
         // min: 147 raw string
         // max: 294 (concat)
 
@@ -742,10 +825,12 @@ mod tests {
         let ast = build_test_ast(src);
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
+        let cost_map = HashMap::new(); // Empty cost map for tests
         let cost_tree =
-            build_cost_analysis_tree(expr, &user_args, &ClarityVersion::Clarity1).unwrap();
+            build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
+                .unwrap();
 
-        // Root should be an If node with branching=true
+        // Root should be an If node
         assert!(matches!(
             cost_tree.expr,
             CostExprNode::NativeFunction(NativeFunctions::If)
@@ -760,12 +845,13 @@ mod tests {
         ));
         assert_eq!(gt_node.children.len(), 2);
 
+        // The comparison node has 3 children: the function name, left operand, right operand
         let left_val = &gt_node.children[0];
         let right_val = &gt_node.children[1];
         assert!(matches!(left_val.expr, CostExprNode::AtomValue(_)));
         assert!(matches!(right_val.expr, CostExprNode::AtomValue(_)));
 
-        let ok_true_node = &cost_tree.children[1];
+        let ok_true_node = &cost_tree.children[2];
         assert!(matches!(
             ok_true_node.expr,
             CostExprNode::NativeFunction(NativeFunctions::ConsOkay)
@@ -786,8 +872,10 @@ mod tests {
         let ast = build_test_ast(src);
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
+        let cost_map = HashMap::new(); // Empty cost map for tests
         let cost_tree =
-            build_cost_analysis_tree(expr, &user_args, &ClarityVersion::Clarity1).unwrap();
+            build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
+                .unwrap();
 
         assert!(matches!(
             cost_tree.expr,
@@ -817,8 +905,10 @@ mod tests {
         let ast = build_test_ast(src);
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
+        let cost_map = HashMap::new(); // Empty cost map for tests
         let cost_tree =
-            build_cost_analysis_tree(expr, &user_args, &ClarityVersion::Clarity1).unwrap();
+            build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
+                .unwrap();
 
         assert!(matches!(
             cost_tree.expr,
@@ -838,8 +928,10 @@ mod tests {
         let ast = build_test_ast(src);
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
+        let cost_map = HashMap::new(); // Empty cost map for tests
         let cost_tree =
-            build_cost_analysis_tree(expr, &user_args, &ClarityVersion::Clarity1).unwrap();
+            build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
+                .unwrap();
 
         // Should have 3 children: UserArgument for (x uint), UserArgument for (y uint), and the body (+ x y)
         assert_eq!(cost_tree.children.len(), 3);

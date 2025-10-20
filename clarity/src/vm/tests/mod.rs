@@ -24,6 +24,8 @@ use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
 
+#[cfg(test)]
+mod analysis;
 mod assets;
 mod contracts;
 #[cfg(test)]
