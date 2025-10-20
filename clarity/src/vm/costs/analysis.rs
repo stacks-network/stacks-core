@@ -576,15 +576,15 @@ fn get_cost_function_for_native(
         ContractOf => Some(Costs3::cost_contract_of),
         PrincipalOf => Some(Costs3::cost_principal_of),
         AtBlock => Some(Costs3::cost_at_block),
-        CreateMap => Some(Costs3::cost_create_map),
-        CreateVar => Some(Costs3::cost_create_var),
-        CreateNonFungibleToken => Some(Costs3::cost_create_nft),
-        CreateFungibleToken => Some(Costs3::cost_create_ft),
+        // CreateMap => Some(Costs3::cost_create_map),
+        // CreateVar => Some(Costs3::cost_create_var),
+        // CreateNonFungibleToken => Some(Costs3::cost_create_nft),
+        // CreateFungibleToken => Some(Costs3::cost_create_ft),
         FetchEntry => Some(Costs3::cost_fetch_entry),
         SetEntry => Some(Costs3::cost_set_entry),
         FetchVar => Some(Costs3::cost_fetch_var),
         SetVar => Some(Costs3::cost_set_var),
-        ContractStorage => Some(Costs3::cost_contract_storage),
+        // ContractStorage => Some(Costs3::cost_contract_storage),
         GetBlockInfo => Some(Costs3::cost_block_info),
         GetBurnBlockInfo => Some(Costs3::cost_burn_block_info),
         GetStxBalance => Some(Costs3::cost_stx_balance),
@@ -619,18 +619,18 @@ fn get_cost_function_for_native(
         Slice => Some(Costs3::cost_slice),
         ReplaceAt => Some(Costs3::cost_replace_at),
         GetStacksBlockInfo => Some(Costs3::cost_block_info),
-        GetTenureInfo => Some(Costs3::cost_burn_block_info), // XXX ???
+        GetTenureInfo => Some(Costs3::cost_block_info),
         ContractHash => Some(Costs3::cost_contract_hash),
         ToAscii => Some(Costs3::cost_to_ascii),
+        InsertEntry => Some(Costs3::cost_set_entry),
+        DeleteEntry => Some(Costs3::cost_set_entry),
+        StxBurn => Some(Costs3::cost_stx_transfer),
         RestrictAssets => None,        // TODO: add cost function
         AllowanceWithStx => None,      // TODO: add cost function
         AllowanceWithFt => None,       // TODO: add cost function
         AllowanceWithNft => None,      // TODO: add cost function
         AllowanceWithStacking => None, // TODO: add cost function
         AllowanceAll => None,          // TODO: add cost function
-        InsertEntry => None,           // TODO: add cost function
-        DeleteEntry => None,           // TODO: add cost function
-        StxBurn => None,               // TODO: add cost function
     }
 }
 
