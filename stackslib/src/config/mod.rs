@@ -3059,6 +3059,9 @@ pub struct MinerConfig {
     pub stackerdb_timeout: Duration,
     /// Defines them maximum numnber of bytes to allow in a tenure.
     /// The miner will stop mining if the limit is reached.
+    /// ---
+    /// @default: [`DEFAULT_MAX_TENURE_BYTES`]
+    /// @units: bytes.
     pub max_tenure_bytes: u64,
     /// Enable logging of skipped transactions (generally used for tests)
     /// ---
