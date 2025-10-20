@@ -1084,15 +1084,16 @@ impl Value {
     }
 
     pub fn string_utf8_from_unicode_scalars(scalars: Vec<u8>) -> Result<Value> {
+        // Ensure input length is divisible by 4
+        if scalars.len() % 4 != 0 {
+            return Err(CheckErrors::InvalidCharactersDetected.into());
+        }
+
         let chars_result: Result<Vec<char>> = scalars
-            .chunks(4)
+            .chunks_exact(4)
             .map(|chunk| {
-                if chunk.len() == 4 {
-                    let value = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-                    std::char::from_u32(value).ok_or(CheckErrors::InvalidCharactersDetected.into())
-                } else {
-                    Err(CheckErrors::InvalidCharactersDetected.into())
-                }
+                let value = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                std::char::from_u32(value).ok_or(CheckErrors::InvalidCharactersDetected.into())
             })
             .collect();
 
