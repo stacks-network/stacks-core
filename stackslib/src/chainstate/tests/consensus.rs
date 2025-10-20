@@ -713,6 +713,8 @@ pub struct ExpectedBlockOutput {
     pub transactions: Vec<ExpectedTransactionOutput>,
     /// The total execution cost of the block.
     pub total_block_cost: ExecutionCost,
+    /// The epoch in which the test block was expected to be evaluated
+    pub evaluated_epoch: StacksEpochId,
 }
 
 /// Represents the expected result of a consensus test.
@@ -754,6 +756,7 @@ impl ExpectedResult {
                     marf_hash,
                     transactions,
                     total_block_cost,
+                    evaluated_epoch: epoch_receipt.evaluated_epoch,
                 })
             }
             Err(e) => ExpectedResult::Failure(e.to_string()),
