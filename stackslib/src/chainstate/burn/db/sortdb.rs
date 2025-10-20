@@ -2410,6 +2410,19 @@ impl<'a> SortitionHandleConn<'a> {
             }
         };
 
+        let epoch_id = SortitionDB::get_stacks_epoch(self.conn(), effective_height.into())
+            .map_err(|e| {
+                error!("Failed to get epoch for effective prepare phase end block position: {e}");
+                e
+            })?
+            .expect("FATAL: no epoch defined")
+            .epoch_id;
+        let anchor_threshold = if epoch_id >= StacksEpochId::Epoch30 {
+            1
+        } else {
+            pox_consts.anchor_threshold
+        };
+
         let prepare_end = block_height;
         let prepare_begin = prepare_end.saturating_sub(pox_consts.prepare_length);
 
@@ -2478,7 +2491,7 @@ impl<'a> SortitionHandleConn<'a> {
             if confirmed_by > max_confirmed_by {
                 max_confirmed_by = confirmed_by;
             }
-            if confirmed_by >= pox_consts.anchor_threshold {
+            if confirmed_by >= anchor_threshold {
                 // find the sortition at height
                 let sn =
                     SortitionDB::get_ancestor_snapshot(self, candidate, &self.context.chain_tip)?
