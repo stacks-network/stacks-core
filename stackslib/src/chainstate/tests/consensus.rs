@@ -709,12 +709,12 @@ pub struct ExpectedTransactionOutput {
 pub struct ExpectedBlockOutput {
     /// The expected block marf
     pub marf_hash: TrieHash,
+    /// The epoch in which the test block was expected to be evaluated
+    pub evaluated_epoch: StacksEpochId,
     /// The expected outputs for each transaction, in input order.
     pub transactions: Vec<ExpectedTransactionOutput>,
     /// The total execution cost of the block.
     pub total_block_cost: ExecutionCost,
-    /// The epoch in which the test block was expected to be evaluated
-    pub evaluated_epoch: StacksEpochId,
 }
 
 /// Represents the expected result of a consensus test.
@@ -737,26 +737,25 @@ impl ExpectedResult {
             Ok(epoch_receipt) => {
                 let transactions: Vec<ExpectedTransactionOutput> = epoch_receipt
                     .tx_receipts
-                    .iter()
+                    .into_iter()
                     .map(|r| {
-                        let tx = match &r.transaction {
-                            TransactionOrigin::Stacks(tx) => Some(tx.payload.clone()),
+                        let tx = match r.transaction {
+                            TransactionOrigin::Stacks(tx) => Some(tx.payload),
                             TransactionOrigin::Burn(..) => None,
                         };
                         ExpectedTransactionOutput {
                             tx,
-                            return_type: r.result.clone(),
-                            cost: r.execution_cost.clone(),
-                            vm_error: r.vm_error.clone(),
+                            return_type: r.result,
+                            cost: r.execution_cost,
+                            vm_error: r.vm_error,
                         }
                     })
                     .collect();
-                let total_block_cost = epoch_receipt.anchored_block_cost.clone();
                 ExpectedResult::Success(ExpectedBlockOutput {
                     marf_hash,
-                    transactions,
-                    total_block_cost,
                     evaluated_epoch: epoch_receipt.evaluated_epoch,
+                    transactions,
+                    total_block_cost: epoch_receipt.anchored_block_cost,
                 })
             }
             Err(e) => ExpectedResult::Failure(e.to_string()),
@@ -782,10 +781,11 @@ impl ConsensusTest<'_> {
         // Set up chainstate to start at Epoch 3.0
         // We don't really ever want the reward cycle to force a new signer set...
         // so for now just set the cycle length to a high value (100)
+        let faucet_priv_key = FAUCET_PRIV_KEY.clone();
         let mut boot_plan = NakamotoBootPlan::new(test_name)
             .with_pox_constants(100, 3)
             .with_initial_balances(initial_balances)
-            .with_private_key(FAUCET_PRIV_KEY.clone());
+            .with_private_key(faucet_priv_key);
         let epochs = epoch_3_0_onwards(
             (boot_plan.pox_constants.pox_4_activation_height
                 + boot_plan.pox_constants.reward_cycle_length
@@ -876,7 +876,7 @@ impl ConsensusTest<'_> {
             "--------- Processed block: {sig_hash} ---------";
             "block" => ?nakamoto_block
         );
-        let remapped_result = res.map(|receipt| receipt.unwrap()).into();
+        let remapped_result = res.map(|receipt| receipt.unwrap());
         // Restore chainstate for the next block
         self.chain.sortdb = Some(sortdb);
         self.chain.stacks_node = Some(stacks_node);
@@ -1042,7 +1042,7 @@ impl ConsensusTest<'_> {
             chain_tip.burn_header_height,
         );
         clarity_tx.rollback_block();
-        return result;
+        result
     }
 
     /// This is where the real MARF computation happens.
@@ -1052,7 +1052,7 @@ impl ConsensusTest<'_> {
     fn inner_compute_block_marf_root_hash(
         clarity_tx: &mut ClarityTx,
         block_time: u64,
-        block_txs: &Vec<StacksTransaction>,
+        block_txs: &[StacksTransaction],
         burn_header_height: u32,
     ) -> Result<TrieHash, String> {
         clarity_tx
