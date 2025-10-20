@@ -5,6 +5,7 @@ expression: result
 [
   Success(ExpectedBlockOutput(
     marf_hash: "7dc0aaa26bad4b0300a451df39c8ce76beff0b49da2db3fce47d63b87509c32e",
+    evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
@@ -32,6 +33,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "4e611b18dc48b4ad2825a92431834e3bab0c69393e99a0fd6e5c18c4023a7705",
+    evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
@@ -59,6 +61,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "46da815cdf0c9816d304feb9771763a4ff424b8362e559bbe0981305e6efd889",
+    evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
@@ -86,6 +89,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "5fa759b7495ff89f5274d907b105f9afdfaa7f78942952b60a53b2c921e19607",
+    evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_1-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
@@ -113,6 +117,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "159b15f8004355f25117d9a35d11a55f38c80c7886b9cba5ed63a454fc9a0112",
+    evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_1-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
@@ -140,6 +145,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "ed275e6d1c8a6cf8afa1c0836aa00fb02e63b3a3cd263137ed4627e8fa23d50c",
+    evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_1-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
@@ -167,6 +173,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "68b0d2bb6af72ff3d906da9fb1647f82b689fb7eefb88bff0c3d7324811bc7ff",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
@@ -194,6 +201,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "2df07ee1b39c63c331bd882265dd335326f179cb46ac59229238f70a55af7926",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
@@ -221,6 +229,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "8b4b06c870fd5b66e33fe4f1496509cc182827c2e175851d31b85ef00e161625",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_2-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
@@ -248,6 +257,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "ed3ac24606bfab532195a58a924461dadda0c0e5e52c58d50004293f10a9ffa8",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
@@ -275,6 +285,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "af5b3fcf2446019e5179753ca3d5a9c87bfd4992db44f23ff265d713051684fc",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
@@ -302,6 +313,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "ab1b2f5cc50cbc4a44efacfa273bebc6a8613324e8c41fd092cd99813f7a5641",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
@@ -329,6 +341,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "38b0d2fe231731c95ab452ed2e048abfafaf163416a6304af8845d5963fb4347",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
@@ -356,6 +369,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "34f0b0577b92091983d86b293c3c78ce83a129fa94bc125bec5c8ebf08f91308",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
@@ -383,6 +397,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "a9cf5345902cba7d1529cc72f23a1ceed8d0addcbc2d608163513233fcf76f1d",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
@@ -410,6 +425,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "c290afd1e6546e3efa21a1403dd0cd2845a9b5dffd288c907ef2ff40b5328e5f",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
@@ -437,6 +453,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "d616f061a5fb3377b12d60a6af69d280bfc3df72f5d00bf4dff0063003a39500",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
@@ -464,6 +481,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "677f80720b7d3ab147d595942e54ab6d1c16bf91628ca1d9b9fbf18a4456ca3f",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
@@ -491,6 +509,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "c0d6892c54926e704f2b79f5bfcea311b6ecbfd1709de05d8ed817f54f392e1c",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
@@ -518,6 +537,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "bc08a038f2c9819baeb15f306063c351b2ad4d2b6297de98e5019c0655ac29d1",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
@@ -545,6 +565,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "deda548b30bd858b6b42b638258ea0a45919972b339604544090af42f7c4330b",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
@@ -572,6 +593,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "1f8603c7d580008f986774bc4a624d429d5b45b4a4385c14656a5398bf8a56ed",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
@@ -599,6 +621,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "59df1ff6ea26ae936061b8565b962dfbd0d9420efedbf9c9aefb43365e4da789",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
@@ -626,6 +649,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "fb5d51ffb295367d9dcd567775618bd54b21c56a9503c2678fac49f53d5e23fa",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
@@ -653,6 +677,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "505471f1004e5ab38ef24a05b22422b8d66c9313a85c1d9c3470204d7e38f422",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
@@ -680,6 +705,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "5260eec1120a1caeaceb27842cb4e4a235cbb0791fb67682499bb3796d07c31a",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
@@ -707,6 +733,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "105587537589f0bdad491c5cbcdfcffea475176a064c01ffd7f61a1eedd15af5",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
@@ -734,6 +761,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "861d1186952ddb0e242bfbe997ea9860cc6739880b47a0c268d7211d54942740",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
@@ -761,6 +789,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "235447452a8921fe9bbf8999194cd001e0ded05bfcbf220b5408be28a4b505f8",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
@@ -788,6 +817,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "74ea86662425f6fe76a58bb677e85aaab12ca27b2ec9a2e0c69bbb401275a859",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
@@ -815,6 +845,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "795d447db68ddb26b9fd4d091f9e0643c48d44cf34b4c584b916ffe4281c5041",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
@@ -842,6 +873,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "228ad67aa6b7422fc7c8dbbc31c3e8e3042fe8c6bbd6d6a7407788b6d6902388",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_3-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
@@ -869,6 +901,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "31234b0b5cbda935741846fc6aee0138858ee589a8610587485fe2ac6ccbde3b",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_3-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
@@ -896,6 +929,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "5254245eb17bc1de6da56501a52b9a5f5fb8fd19c40eac285778a46eddc864c8",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_3-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
@@ -923,6 +957,7 @@ expression: result
   )),
   Success(ExpectedBlockOutput(
     marf_hash: "9a7ed0c58f9c0611f61c78a71741c7f0256402e5493843e6b1e327a8e7f2157c",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_3-Clarity4, function_name: bar, function_args: [[UInt(1)]])",
