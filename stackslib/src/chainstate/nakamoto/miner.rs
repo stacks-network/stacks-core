@@ -18,8 +18,8 @@ use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::operations::*;
@@ -265,6 +265,7 @@ impl NakamotoBlockBuilder {
         bitvec_len: u16,
         soft_limit: Option<ExecutionCost>,
         contract_limit_percentage: Option<u8>,
+        timestamp: Option<u64>,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -303,6 +304,7 @@ impl NakamotoBlockBuilder {
                     .as_stacks_nakamoto()
                     .map(|b| b.timestamp)
                     .unwrap_or(0),
+                timestamp.unwrap_or(get_epoch_time_secs()),
             ),
             soft_limit,
             contract_limit_percentage,
@@ -668,6 +670,7 @@ impl NakamotoBlockBuilder {
             signer_bitvec_len,
             None,
             settings.mempool_settings.contract_cost_limit_percentage,
+            None,
         )?;
 
         let ts_start = get_epoch_time_ms();
