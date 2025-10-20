@@ -27,6 +27,7 @@ use clarity::vm::types::StandardPrincipalData;
 use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::sleep_ms;
 
 use super::TestRPC;
 use crate::burnchains::Txid;
@@ -272,6 +273,7 @@ fn test_try_make_response() {
             8,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -322,6 +324,10 @@ fn test_try_make_response() {
         chain_id: 0x80000000,
         replay_txs: None,
     };
+
+    // deliberately delay by more than 1 second so that the timestamp of the endpoint differs from
+    // the timestamp of the block
+    sleep_ms(2000);
 
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
@@ -535,6 +541,7 @@ fn replay_validation_test(
             None,
             None,
             8,
+            None,
             None,
             None,
         )
