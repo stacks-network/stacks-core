@@ -102,7 +102,9 @@ pub struct NakamotoBootPlan {
     pub network_id: u32,
     pub txindex: bool,
     pub epochs: Option<EpochList<ExecutionCost>>,
+    /// Additional transactions to include in the tip block
     pub tip_transactions: Vec<StacksTransaction>,
+    /// Do not fail if a transaction returns error (by default the BootPlan will stop on tx failure)
     pub ignore_transaction_errors: bool,
 }
 
