@@ -1656,7 +1656,6 @@ impl BlockMinerThread {
                 }
             }
         };
-
         // Check if we can and should include a time-based tenure extend.
         if self.last_block_mined.is_some() {
             if self.config.miner.replay_transactions
@@ -1671,7 +1670,6 @@ impl BlockMinerThread {
             } else {
                 // Do not extend if we have spent < 50% of the budget, since it is
                 // not necessary.
-
                 let usage = self
                     .tenure_budget
                     .proportion_largest_dimension(&self.tenure_cost);
