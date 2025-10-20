@@ -3061,6 +3061,10 @@ pub struct MinerConfig {
     /// The miner will stop mining if the limit is reached.
     pub max_tenure_bytes: u64,
     /// Enable logging of skipped transactions (generally used for tests)
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Primarily intended for testing purposes.
     pub log_skipped_transactions: bool,
 }
 
