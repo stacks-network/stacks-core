@@ -47,8 +47,8 @@ use crate::vm::types::{
 };
 
 pub const STORE_CONTRACT_SRC_INTERFACE: bool = true;
-const TENURE_HEIGHT_KEY: &str = "_stx-data::tenure_height";
-const CLARITY_STORAGE_BLOCK_TIME_KEY: &str = "_stx-data::clarity_storage::block_time";
+pub const TENURE_HEIGHT_KEY: &str = "_stx-data::tenure_height";
+pub const CLARITY_STORAGE_BLOCK_TIME_KEY: &str = "_stx-data::clarity_storage::block_time";
 
 pub type StacksEpoch = GenericStacksEpoch<ExecutionCost>;
 

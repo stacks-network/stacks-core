@@ -4,9 +4,12 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "cc77d584dea4a29e4d15efffc3306a0e6513d5b516903121c3c149cd85600d5d",
+    marf_hash: "95999ab12ae2162f2dd25c4a7f7807017b3b5d20f28a53248e37c9864f923718",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
           data: Bool(true),
@@ -20,6 +23,8 @@ expression: result
         ),
       ),
       ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
           data: Bool(true),
@@ -33,6 +38,8 @@ expression: result
         ),
       ),
       ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
           data: Bool(true),
@@ -55,9 +62,12 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8e80ece06d148b967241484040d26041c817ad9d8753a5d8d2afd284d0e172bc",
+    marf_hash: "7e9b86e5b0ff545908784c1c674d1354228ce2884395ced13f7c9e4eaa7ecfd0",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
           data: Bool(true),
@@ -71,6 +81,8 @@ expression: result
         ),
       ),
       ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
           data: Bool(true),
@@ -84,108 +96,8 @@ expression: result
         ),
       ),
       ExpectedTransactionOutput(
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 0,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "aeb567f75a6a551252cedbbd882060d46dda38f0d949431b503fd435664338da",
-    transactions: [
-      ExpectedTransactionOutput(
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 0,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "88bbf16581aeb1b8d38b0cff4ca1f852ce264744b1e62eb7c1a88167ce97f87b",
-    transactions: [
-      ExpectedTransactionOutput(
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
+        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: true,
           data: Bool(true),
