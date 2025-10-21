@@ -149,10 +149,10 @@ impl MessageSignature {
     /// Generates place-holder data (for testing purposes only).
     #[cfg(any(test, feature = "testing"))]
     pub fn from_raw(sig: &[u8]) -> MessageSignature {
-        const LEN: usize = 65;
-        let mut buf = [0u8; LEN];
-        let n = sig.len().min(LEN);
-        buf[..n].copy_from_slice(&sig[..n]);
+        let mut buf = [0u8; 65];
+        for (dst, src) in buf.iter_mut().zip(sig.iter().copied()) {
+            *dst = src;
+        }
         MessageSignature(buf)
     }
 
@@ -180,7 +180,9 @@ impl MessageSignature {
 
     /// Converts from VRS to RSV.
     pub fn to_rsv(&self) -> Vec<u8> {
-        [&self.0[1..], &self.0[0..1]].concat()
+        let mut out = self.0;
+        out.rotate_left(1);
+        out.to_vec()
     }
 }
 
