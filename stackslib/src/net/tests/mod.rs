@@ -25,7 +25,7 @@ pub mod relay;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::types::EpochList;
+use clarity::types::{EpochList, StacksEpochId};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
@@ -400,17 +400,19 @@ impl NakamotoBootPlan {
         }
     }
 
-    /// Make a chainstate and transition it into the Nakamoto epoch.
+    /// Make a chainstate capable of transitioning into the Nakamoto epoch.
     /// The node needs to be stacking; otherwise, Nakamoto won't activate.
-    pub fn boot_nakamoto_chainstate(
+    pub fn to_chainstate(
         self,
         observer: Option<&TestEventObserver>,
+        current_block: Option<u64>,
     ) -> TestChainstate<'_> {
-        let chainstate_config = self.build_nakamoto_chainstate_config();
+        let mut chainstate_config = self.build_nakamoto_chainstate_config();
+        if let Some(current_block) = current_block {
+            chainstate_config.current_block = current_block;
+        }
         let mut chain = TestChainstate::new_with_observer(chainstate_config, observer);
         chain.mine_malleablized_blocks = self.malleablized_blocks;
-        let mut chain_nonce = 0;
-        chain.advance_to_nakamoto_epoch(&self.private_key, &mut chain_nonce);
         chain
     }
 
@@ -449,18 +451,13 @@ impl NakamotoBootPlan {
             other_peers.push(other_peer);
         }
 
-        let mut peer_nonce = 0;
-        let mut other_peer_nonces = vec![0; other_peers.len()];
-
         // Advance primary peer and other peers to Nakamoto epoch
         peer.chain
-            .advance_to_nakamoto_epoch(&self.private_key, &mut peer_nonce);
-        for (other_peer, other_peer_nonce) in
-            other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
-        {
+            .advance_to_epoch_boundary(&self.private_key, StacksEpochId::Epoch30);
+        for other_peer in &mut other_peers {
             other_peer
                 .chain
-                .advance_to_nakamoto_epoch(&self.private_key, other_peer_nonce);
+                .advance_to_epoch_boundary(&self.private_key, StacksEpochId::Epoch30);
         }
 
         (peer, other_peers)

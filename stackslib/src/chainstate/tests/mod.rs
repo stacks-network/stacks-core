@@ -16,6 +16,12 @@ pub mod consensus;
 
 use std::fs;
 
+use clarity::consts::{
+    PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
+    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
+    PEER_VERSION_EPOCH_3_3, STACKS_EPOCH_MAX,
+};
 use clarity::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
@@ -53,9 +59,12 @@ use crate::chainstate::stacks::boot::test::{get_parent_tip, make_pox_4_lockup_ch
 use crate::chainstate::stacks::db::{StacksChainState, *};
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
-use crate::core::{EpochList, StacksEpoch, StacksEpochExtension, BOOT_BLOCK_HASH};
+use crate::core::{
+    EpochList, StacksEpoch, StacksEpochExtension, BLOCK_LIMIT_MAINNET_21, BOOT_BLOCK_HASH,
+};
 use crate::net::relay::Relayer;
 use crate::net::test::TestEventObserver;
+use crate::net::tests::NakamotoBootPlan;
 use crate::util_lib::boot::{boot_code_test_addr, boot_code_tx_auth};
 use crate::util_lib::signed_structured_data::pox4::{
     make_pox_4_signer_key_signature, Pox4SignatureTopic,
@@ -363,18 +372,99 @@ impl<'a> TestChainstate<'a> {
         }
     }
 
-    // Advances a TestChainstate to the Nakamoto epoch
-    pub fn advance_to_nakamoto_epoch(&mut self, private_key: &StacksPrivateKey, nonce: &mut usize) {
-        let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(private_key));
-        let default_pox_addr =
-            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
+    /// Advances the chainstate to the specified epoch boundary by creating a tenure change block per burn block height.
+    /// Panics if already past the target epoch activation height.
+    pub fn advance_to_epoch_boundary(
+        &mut self,
+        private_key: &StacksPrivateKey,
+        target_epoch: StacksEpochId,
+    ) {
+        let mut burn_block_height = self.get_burn_block_height();
+        let mut target_height = self
+            .config
+            .epochs
+            .as_ref()
+            .expect("Epoch configuration missing")
+            .iter()
+            .find(|e| e.epoch_id == target_epoch)
+            .expect("Target epoch not found")
+            .start_height;
 
-        let mut sortition_height = self.get_burn_block_height();
-        debug!("\n\n======================");
-        debug!("PoxConstants = {:#?}", &self.config.burnchain.pox_constants);
-        debug!("tip = {sortition_height}");
-        debug!("========================\n\n");
+        assert!(
+            burn_block_height <= target_height,
+            "Already advanced past target epoch ({target_epoch}) activation height ({target_height}). Current burn block height: {burn_block_height}."
+        );
+        target_height = target_height.saturating_sub(1);
 
+        debug!("Advancing to epoch {target_epoch} boundary at {target_height}. Current burn block height: {burn_block_height}");
+
+        let epoch_25_height = self
+            .config
+            .epochs
+            .as_ref()
+            .expect("Epoch configuration missing")
+            .iter()
+            .find_map(|e| {
+                if e.epoch_id == StacksEpochId::Epoch25 {
+                    Some(e.start_height)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(u64::MAX);
+
+        let epoch_30_height = self
+            .config
+            .epochs
+            .as_ref()
+            .expect("Epoch configuration missing")
+            .iter()
+            .find_map(|e| {
+                if e.epoch_id == StacksEpochId::Epoch30 {
+                    Some(e.start_height)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(u64::MAX);
+
+        let mut mined_pox_4_lockup = false;
+        let current_epoch = SortitionDB::get_stacks_epoch(self.sortdb().conn(), burn_block_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+        while burn_block_height < target_height {
+            if burn_block_height < epoch_30_height - 1 {
+                // Before we can mine pox 4 lockup, make sure we mine at least one block.
+                // If we have mined the lockup already, just mine a regular tenure
+                // Note, we cannot mine a pox 4 lockup, if it isn't activated yet
+                if !mined_pox_4_lockup
+                    && burn_block_height > self.config.current_block
+                    && burn_block_height >= epoch_25_height
+                {
+                    debug!("Mining pox-4 lockup");
+                    self.mine_pox_4_lockup(private_key);
+                    mined_pox_4_lockup = true;
+                } else {
+                    debug!("Mining pre-nakamoto tenure");
+                    let stacks_block = self.tenure_with_txs(&[]);
+                    let (stacks_tip_ch, stacks_tip_bh) =
+                        SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn())
+                            .expect("Failed to get canonical chain tip");
+                    let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
+                    assert_eq!(stacks_block, stacks_tip);
+                }
+            } else {
+                debug!("Mining post-nakamoto tenure");
+                self.mine_nakamoto_tenure();
+            }
+            burn_block_height = self.get_burn_block_height();
+        }
+    }
+
+    /// This must be called after pox 4 activation
+    pub fn mine_pox_4_lockup(&mut self, private_key: &StacksPrivateKey) {
+        let sortition_height = self.get_burn_block_height();
         let epoch_25_height = self
             .config
             .epochs
@@ -384,34 +474,18 @@ impl<'a> TestChainstate<'a> {
             .find(|e| e.epoch_id == StacksEpochId::Epoch25)
             .unwrap()
             .start_height;
-
-        let epoch_30_height = self
-            .config
-            .epochs
-            .as_ref()
-            .unwrap()
-            .iter()
-            .find(|e| e.epoch_id == StacksEpochId::Epoch30)
-            .unwrap()
-            .start_height;
-
-        // Advance to just past PoX-4 instantiation
-        let mut blocks_produced = false;
-        while sortition_height <= epoch_25_height {
-            self.tenure_with_txs(&[], nonce);
-            sortition_height = self.get_burn_block_height();
-            blocks_produced = true;
-        }
-
-        // Ensure at least one block is produced before PoX-4 lockups
-        if !blocks_produced {
-            self.tenure_with_txs(&[], nonce);
-            sortition_height = self.get_burn_block_height();
-        }
-
-        debug!("\n\n======================");
-        debug!("Make PoX-4 lockups");
-        debug!("========================\n\n");
+        assert!(
+            sortition_height >= epoch_25_height,
+            "Cannot mine pox-4 lockups if pox-4 is not activated"
+        );
+        assert!(!self
+                    .config
+                    .burnchain
+                    .is_in_prepare_phase(sortition_height), "We cannot apply the pox 4 lockup. We are already in the prepare phase of the following reward cycle. Examine your bootstrap setup.");
+                    
+        let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(private_key));
+        let default_pox_addr =
+            PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
 
         let reward_cycle = self
             .config
@@ -460,49 +534,65 @@ impl<'a> TestChainstate<'a> {
             })
             .collect();
 
-        let stacks_block = self.tenure_with_txs(&stack_txs, nonce);
+        let stacks_block = self.tenure_with_txs(&stack_txs);
         let (stacks_tip_ch, stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
         let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
         assert_eq!(stacks_block, stacks_tip);
+    }
 
-        debug!("\n\n======================");
-        debug!("Advance to the Prepare Phase");
-        debug!("========================\n\n");
+    pub fn mine_nakamoto_tenure(&mut self) {
+        let burn_block_height = self.get_burn_block_height();
+        let (burn_ops, mut tenure_change, miner_key) =
+            self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
+        let (_, header_hash, consensus_hash) = self.next_burnchain_block(burn_ops);
+        let vrf_proof = self.make_nakamoto_vrf_proof(miner_key);
 
-        // Advance to the prepare phase
-        while !self.config.burnchain.is_in_prepare_phase(sortition_height) {
-            let (stacks_tip_ch, stacks_tip_bh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
-            let old_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-            let stacks_block = self.tenure_with_txs(&[], nonce);
-            let (stacks_tip_ch, stacks_tip_bh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
-            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-            assert_ne!(old_tip, stacks_tip);
-            sortition_height = self.get_burn_block_height();
+        tenure_change.tenure_consensus_hash = consensus_hash.clone();
+        tenure_change.burn_view_consensus_hash = consensus_hash.clone();
+        let tenure_change_tx = self.miner.make_nakamoto_tenure_change(tenure_change);
+        let coinbase_tx = self.miner.make_nakamoto_coinbase(None, vrf_proof);
+
+        let blocks_and_sizes = self
+            .make_nakamoto_tenure(tenure_change_tx, coinbase_tx, Some(0))
+            .unwrap();
+        assert_eq!(
+            blocks_and_sizes.len(),
+            1,
+            "Mined more than one Nakamoto block"
+        );
+    }
+
+    /// Advance a TestChainstate into the provided epoch.
+    /// Does nothing if chainstate is already in the target epoch. Panics if it is past the epoch.
+    pub fn advance_into_epoch(
+        &mut self,
+        private_key: &StacksPrivateKey,
+        target_epoch: StacksEpochId,
+    ) {
+        let burn_block_height = self.get_burn_block_height();
+        let current_epoch =
+            SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), burn_block_height)
+                .unwrap()
+                .unwrap()
+                .epoch_id;
+        assert!(
+            current_epoch <= target_epoch,
+            "Already advanced past target epoch ({target_epoch}). Currently in epoch {current_epoch} at burn block height: {burn_block_height}."
+        );
+        // Don't bother advancing to the boundary if we are already in it.
+        if current_epoch < target_epoch {
+            self.advance_to_epoch_boundary(private_key, target_epoch);
+            if target_epoch < StacksEpochId::Epoch30 {
+                self.tenure_with_txs(&[]);
+            } else {
+                self.mine_nakamoto_tenure();
+            }
         }
-
-        debug!("\n\n======================");
-        debug!("Advance to Epoch 3.0");
-        debug!("========================\n\n");
-
-        // Advance to Epoch 3.0
-        while sortition_height < epoch_30_height - 1 {
-            let (stacks_tip_ch, stacks_tip_bh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
-            let old_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-            self.tenure_with_txs(&[], nonce);
-            let (stacks_tip_ch, stacks_tip_bh) =
-                SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
-            let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
-            assert_ne!(old_tip, stacks_tip);
-            sortition_height = self.get_burn_block_height();
-        }
-
-        debug!("\n\n======================");
-        debug!("Welcome to Nakamoto!");
-        debug!("========================\n\n");
+        let burn_block_height = self.get_burn_block_height();
+        debug!(
+            "Advanced into epoch {target_epoch}. Current burn block height: {burn_block_height}"
+        );
     }
 
     pub fn get_burnchain_db(&self, readwrite: bool) -> BurnchainDB {
@@ -1044,21 +1134,33 @@ impl<'a> TestChainstate<'a> {
         self.stacks_node.as_ref().unwrap()
     }
 
-    /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce, and then increments
-    /// the provided reference.
-    pub fn tenure_with_txs(
+    /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce. Processes
+    /// the tenure and then increments the provided nonce reference.
+    pub fn tenure_with_txs(&mut self, txs: &[StacksTransaction]) -> StacksBlockId {
+        let (burn_ops, stacks_block, microblocks) = self.make_tenure_with_txs(txs);
+
+        let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
+        self.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
+
+        StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
+    }
+
+    /// Make a pre-naka tenure with the given transactions
+    pub fn make_tenure_with_txs(
         &mut self,
         txs: &[StacksTransaction],
-        coinbase_nonce: &mut usize,
-    ) -> StacksBlockId {
+    ) -> (
+        Vec<BlockstackOperationType>,
+        StacksBlock,
+        Vec<StacksMicroblock>,
+    ) {
         let microblock_privkey = self.miner.next_microblock_privkey();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
         let tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.as_ref().unwrap().conn())
             .unwrap();
         let burnchain = self.config.burnchain.clone();
-
-        let (burn_ops, stacks_block, microblocks) = self.make_tenure(
+        self.make_tenure(
             |ref mut miner,
              ref mut sortdb,
              ref mut chainstate,
@@ -1066,7 +1168,7 @@ impl<'a> TestChainstate<'a> {
              ref parent_opt,
              ref parent_microblock_header_opt| {
                 let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
-                let coinbase_tx = make_coinbase(miner, *coinbase_nonce);
+                let coinbase_tx = make_coinbase(miner, tip.block_height.try_into().unwrap());
 
                 let mut block_txs = vec![coinbase_tx];
                 block_txs.extend_from_slice(txs);
@@ -1089,14 +1191,7 @@ impl<'a> TestChainstate<'a> {
                     .unwrap();
                 (anchored_block, vec![])
             },
-        );
-
-        let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
-        self.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
-
-        *coinbase_nonce += 1;
-
-        StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
+        )
     }
 
     /// Make a tenure, using `tenure_builder` to generate a Stacks block and a list of
@@ -1518,4 +1613,309 @@ impl<'a> TestChainstate<'a> {
         self.stacks_node = Some(stacks_node);
         Ok(block_data)
     }
+
+    /// Create an epoch list for testing Epoch 2.5 onwards
+    pub fn epoch_2_5_onwards(first_burnchain_height: u64) -> EpochList {
+        info!(
+            "StacksEpoch 2.5 onwards unit test first_burnchain_height = {first_burnchain_height}"
+        );
+        EpochList::new(&[
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch22,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_2,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch23,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_3,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch24,
+                start_height: 0,
+                end_height: 0,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch25,
+                start_height: 0,
+                end_height: first_burnchain_height,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_2_5,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch30,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height + 1,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_3_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch31,
+                start_height: first_burnchain_height + 1,
+                end_height: first_burnchain_height + 2,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_3_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch32,
+                start_height: first_burnchain_height + 2,
+                end_height: first_burnchain_height + 3,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_3_2,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch33,
+                start_height: first_burnchain_height + 3,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+                network_epoch: PEER_VERSION_EPOCH_3_3,
+            },
+        ])
+    }
+
+    pub fn all_epochs(first_burnchain_height: u64) -> EpochList {
+        info!("StacksEpoch all_epochs first_burn_height = {first_burnchain_height}");
+
+        EpochList::new(&[
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch10,
+                start_height: 0,
+                end_height: first_burnchain_height,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_1_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch20,
+                start_height: first_burnchain_height,
+                end_height: first_burnchain_height + 1,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch2_05,
+                start_height: first_burnchain_height + 1,
+                end_height: first_burnchain_height + 2,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_05,
+            },
+            StacksEpoch {
+                // Give a few extra blocks for pre naka blocks
+                // Since we may want to create multiple stacks blocks 
+                // per epoch (epsecially for clarity version testing)
+                epoch_id: StacksEpochId::Epoch21,
+                start_height: first_burnchain_height + 2,
+                end_height: first_burnchain_height + 6,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch22,
+                start_height: first_burnchain_height + 6,
+                end_height: first_burnchain_height + 10,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_2,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch23,
+                start_height: first_burnchain_height + 10,
+                end_height: first_burnchain_height + 14,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_3,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch24,
+                start_height: first_burnchain_height + 14,
+                end_height: first_burnchain_height + 18,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_4,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch25,
+                // Give an extra burn block for epoch 25 to activate pox-4
+                start_height: first_burnchain_height + 18,
+                end_height: first_burnchain_height + 22,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_2_5,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch30,
+                start_height: first_burnchain_height + 22,
+                end_height: first_burnchain_height + 23,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_3_0,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch31,
+                start_height: first_burnchain_height + 23,
+                end_height: first_burnchain_height + 24,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_3_1,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch32,
+                start_height: first_burnchain_height + 24,
+                end_height: first_burnchain_height + 25,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_3_2,
+            },
+            StacksEpoch {
+                epoch_id: StacksEpochId::Epoch33,
+                start_height: first_burnchain_height + 25,
+                end_height: STACKS_EPOCH_MAX,
+                block_limit: ExecutionCost::max_value(),
+                network_epoch: PEER_VERSION_EPOCH_3_2,
+            },
+        ])
+    }
+}
+
+#[test]
+/// Tests that we can instantiate a chainstate from nothing and advance sequentially through every epoch
+fn advance_through_all_epochs() {
+    let privk = StacksPrivateKey::random();
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(7, 1)
+        .with_private_key(privk.clone());
+    let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
+        + boot_plan.pox_constants.reward_cycle_length
+        + 1) as u64;
+    let epochs = TestChainstate::all_epochs(first_burnchain_height);
+    boot_plan = boot_plan.with_epochs(epochs);
+    let mut chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
+    let burn_block_height = chainstate.get_burn_block_height();
+    let current_epoch =
+        SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(current_epoch, StacksEpochId::Epoch20);
+
+    // Make sure we can advance through every single epoch.
+    for target_epoch in [
+        StacksEpochId::Epoch2_05,
+        StacksEpochId::Epoch21,
+        StacksEpochId::Epoch22,
+        StacksEpochId::Epoch23,
+        StacksEpochId::Epoch24,
+        StacksEpochId::Epoch25,
+        StacksEpochId::Epoch30,
+        StacksEpochId::Epoch31,
+        StacksEpochId::Epoch32,
+        StacksEpochId::Epoch33,
+    ] {
+        chainstate.advance_to_epoch_boundary(&privk, target_epoch);
+        let burn_block_height = chainstate.get_burn_block_height();
+        let current_epoch =
+            SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
+                .unwrap()
+                .unwrap()
+                .epoch_id;
+        assert!(current_epoch < target_epoch);
+        let next_epoch =
+            SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height + 1)
+                .unwrap()
+                .unwrap()
+                .epoch_id;
+        assert_eq!(next_epoch, target_epoch);
+    }
+}
+
+#[test]
+/// Tests that we can instantiate a chainstate from nothing and
+/// bootstrap to nakamoto
+fn advance_to_nakamoto_bootstrapped() {
+    let privk = StacksPrivateKey::random();
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(7, 1)
+        .with_private_key(privk.clone());
+    boot_plan.pox_constants.reward_cycle_length = 5;
+    boot_plan.pox_constants.prepare_length = 2;
+    let epochs = TestChainstate::epoch_2_5_onwards(
+        (boot_plan.pox_constants.pox_4_activation_height
+            + boot_plan.pox_constants.reward_cycle_length
+            + 1) as u64,
+    );
+    boot_plan = boot_plan.with_epochs(epochs);
+    let mut chainstate = boot_plan.to_chainstate(None, None);
+    chainstate.advance_to_epoch_boundary(&privk, StacksEpochId::Epoch30);
+    let burn_block_height = chainstate.get_burn_block_height();
+    let current_epoch =
+        SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(current_epoch, StacksEpochId::Epoch25);
+    let next_epoch =
+        SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height + 1)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(next_epoch, StacksEpochId::Epoch30);
+}
+
+#[test]
+/// Tests that we can instantiate a chainstate from nothing and
+/// bootstrap directly from nakamoto and across it
+fn advance_through_nakamoto_bootstrapped() {
+    let privk = StacksPrivateKey::random();
+    let mut boot_plan = NakamotoBootPlan::new(function_name!())
+        .with_pox_constants(7, 1)
+        .with_private_key(privk.clone());
+    let epochs = TestChainstate::epoch_2_5_onwards(
+        (boot_plan.pox_constants.pox_4_activation_height
+            + boot_plan.pox_constants.reward_cycle_length
+            + 1) as u64,
+    );
+    let activation_height = boot_plan.pox_constants.pox_4_activation_height;
+    boot_plan = boot_plan.with_epochs(epochs);
+    let mut chainstate = boot_plan.to_chainstate(None, Some(activation_height.into()));
+    // Make sure we can advance through every single epoch.
+    chainstate.advance_to_epoch_boundary(&privk, StacksEpochId::Epoch33);
+    let burn_block_height = chainstate.get_burn_block_height();
+    let current_epoch =
+        SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(current_epoch, StacksEpochId::Epoch32);
+    let next_epoch =
+        SortitionDB::get_stacks_epoch(chainstate.sortdb().conn(), burn_block_height + 1)
+            .unwrap()
+            .unwrap()
+            .epoch_id;
+    assert_eq!(next_epoch, StacksEpochId::Epoch33);
 }

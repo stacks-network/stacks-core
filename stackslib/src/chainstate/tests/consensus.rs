@@ -17,14 +17,11 @@ use std::sync::LazyLock;
 
 use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
-use clarity::consts::{
-    CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
-    PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
-    PEER_VERSION_EPOCH_3_3, STACKS_EPOCH_MAX,
+use clarity::consts::CHAIN_ID_TESTNET;
+use clarity::types::chainstate::{
+    StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
 };
-use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash};
-use clarity::types::{StacksEpoch, StacksEpochId};
+use clarity::types::StacksEpochId;
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
@@ -41,15 +38,13 @@ use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochRece
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksTransaction, TenureChangeCause, TransactionContractCall,
-    TransactionPayload, TransactionSmartContract, MINER_BLOCK_CONSENSUS_HASH,
-    MINER_BLOCK_HEADER_HASH,
+    Error as ChainstateError, StacksTransaction, TransactionContractCall, TransactionPayload,
+    TransactionSmartContract, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
     make_contract_call, make_contract_publish_versioned, make_stacks_transfer_tx, to_addr,
 };
-use crate::core::{EpochList, BLOCK_LIMIT_MAINNET_21};
 use crate::net::tests::NakamotoBootPlan;
 
 /// The epochs to test for consensus are the current and upcoming epochs.
@@ -116,13 +111,13 @@ impl ContractConsensusTest<'_> {
 
     /// Generates and executes the given transaction in a new block.
     /// Increases the nonce if the transaction succeeds.
-    fn append_tx_block(&mut self, tx_spec: &TestTxSpec) -> ExpectedResult {
+    fn append_tx_block(&mut self, tx_spec: &TestTxSpec, is_naka_block: bool) -> ExpectedResult {
         let tx = self.tx_factory.generate_tx(tx_spec);
         let block = TestBlock {
             transactions: vec![tx],
         };
 
-        let result = self.consensus_test.append_block(block);
+        let result = self.consensus_test.append_block(block, is_naka_block);
 
         if let ExpectedResult::Success(_) = result {
             self.tx_factory.increase_nonce_for_tx(tx_spec);
@@ -195,7 +190,13 @@ impl ContractConsensusTest<'_> {
         // Create epoch blocks by pairing each epoch with its corresponding transactions
         let mut results = vec![];
         all_epochs.into_iter().for_each(|epoch| {
-            self.consensus_test.advance_to_epoch(epoch);
+            // Use the miner as the sender to prevent messing with the block transaction nonces of the deployer/callers
+            let private_key = self.consensus_test.chain.miner.nakamoto_miner_key();
+            self.consensus_test
+                .chain
+                .advance_into_epoch(&private_key, epoch);
+
+            let is_naka_block = epoch >= StacksEpochId::Epoch30;
             if deploy_epochs.contains(&epoch) {
                 let clarity_versions = clarity_versions_for_epoch(epoch);
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace(".", "_"));
@@ -205,24 +206,30 @@ impl ContractConsensusTest<'_> {
                         version.to_string().replace(" ", "")
                     );
                     contract_names.push(name.clone());
-                    let result = self.append_tx_block(&TestTxSpec::ContractDeploy {
-                        sender,
-                        name: &name,
-                        code: contract_code,
-                        clarity_version: Some(*version),
-                    });
+                    let result = self.append_tx_block(
+                        &TestTxSpec::ContractDeploy {
+                            sender,
+                            name: &name,
+                            code: contract_code,
+                            clarity_version: Some(*version),
+                        },
+                        is_naka_block,
+                    );
                     results.push(result);
                 });
             }
             if call_epochs.contains(&epoch) {
                 contract_names.iter().for_each(|contract_name| {
-                    let result = self.append_tx_block(&TestTxSpec::ContractCall {
-                        sender,
-                        contract_addr: &contract_addr,
-                        contract_name,
-                        function_name,
-                        args: function_args,
-                    });
+                    let result = self.append_tx_block(
+                        &TestTxSpec::ContractCall {
+                            sender,
+                            contract_addr: &contract_addr,
+                            contract_name,
+                            function_name,
+                            args: function_args,
+                        },
+                        is_naka_block,
+                    );
                     results.push(result);
                 });
             }
@@ -549,97 +556,6 @@ impl TestTxFactory {
     }
 }
 
-fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
-    info!("StacksEpoch unit_test first_burn_height = {first_burnchain_height}");
-
-    EpochList::new(&[
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch10,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_1_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_05,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch21,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_1,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch22,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_2,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch23,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_3,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch24,
-            start_height: 0,
-            end_height: 0,
-            block_limit: ExecutionCost::max_value(),
-            network_epoch: PEER_VERSION_EPOCH_2_4,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch25,
-            start_height: 0,
-            end_height: first_burnchain_height,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_5,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch30,
-            start_height: first_burnchain_height,
-            end_height: first_burnchain_height + 1,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_0,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch31,
-            start_height: first_burnchain_height + 1,
-            end_height: first_burnchain_height + 2,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_1,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch32,
-            start_height: first_burnchain_height + 2,
-            end_height: first_burnchain_height + 3,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_2,
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch33,
-            start_height: first_burnchain_height + 3,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_3,
-        },
-    ])
-}
-
 /// Custom serializer for `Option<TransactionPayload>` to improve snapshot readability.
 /// This avoids large diffs in snapshots due to code body changes and focuses on key fields.
 fn serialize_opt_tx_payload<S>(
@@ -778,64 +694,21 @@ pub struct ConsensusTest<'a> {
 impl ConsensusTest<'_> {
     /// Creates a new `ConsensusTest` with the given test name and initial balances.
     pub fn new(test_name: &str, initial_balances: Vec<(PrincipalData, u64)>) -> Self {
-        // Set up chainstate to start at Epoch 3.0
-        // We don't really ever want the reward cycle to force a new signer set...
-        // so for now just set the cycle length to a high value (100)
+        // Set up chainstate to support Naka.
         let mut boot_plan = NakamotoBootPlan::new(test_name)
             .with_pox_constants(100, 3)
             .with_initial_balances(initial_balances)
             .with_private_key(FAUCET_PRIV_KEY.clone());
-        let epochs = epoch_3_0_onwards(
-            (boot_plan.pox_constants.pox_4_activation_height
-                + boot_plan.pox_constants.reward_cycle_length
-                + 1) as u64,
-        );
+        let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
+            + boot_plan.pox_constants.reward_cycle_length
+            + 1) as u64;
+        let epochs = TestChainstate::epoch_2_5_onwards(first_burnchain_height);
         boot_plan = boot_plan.with_epochs(epochs);
-        let chain = boot_plan.boot_nakamoto_chainstate(None);
-
+        let chain = boot_plan.to_chainstate(None, None);
         Self { chain }
     }
 
-    /// Advances the chainstate to the specified epoch. Creating a tenure change block per burn block height
-    pub fn advance_to_epoch(&mut self, target_epoch: StacksEpochId) {
-        let burn_block_height = self.chain.get_burn_block_height();
-        let mut current_epoch =
-            SortitionDB::get_stacks_epoch(self.chain.sortdb().conn(), burn_block_height)
-                .unwrap()
-                .unwrap()
-                .epoch_id;
-        assert!(current_epoch <= target_epoch, "Chainstate is already at a higher epoch than the target. Current epoch: {current_epoch}. Target epoch: {target_epoch}");
-        while current_epoch < target_epoch {
-            let (burn_ops, mut tenure_change, miner_key) = self
-                .chain
-                .begin_nakamoto_tenure(TenureChangeCause::BlockFound);
-            let (_, header_hash, consensus_hash) = self.chain.next_burnchain_block(burn_ops);
-            let vrf_proof = self.chain.make_nakamoto_vrf_proof(miner_key);
-
-            tenure_change.tenure_consensus_hash = consensus_hash.clone();
-            tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-            let tenure_change_tx = self.chain.miner.make_nakamoto_tenure_change(tenure_change);
-            let coinbase_tx = self.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
-
-            let blocks_and_sizes = self
-                .chain
-                .make_nakamoto_tenure(tenure_change_tx, coinbase_tx, Some(0))
-                .unwrap();
-            assert_eq!(
-                blocks_and_sizes.len(),
-                1,
-                "Mined more than one Nakamoto block"
-            );
-            let burn_block_height = self.chain.get_burn_block_height();
-            current_epoch =
-                SortitionDB::get_stacks_epoch(self.chain.sortdb().conn(), burn_block_height)
-                    .unwrap()
-                    .unwrap()
-                    .epoch_id;
-        }
-    }
-
-    /// Appends a single block to the chain and returns the result.
+    /// Appends a single block to the chain as a Nakamoto block and returns the result.
     ///
     /// This method takes a [`TestBlock`] containing a list of transactions, constructs
     /// a fully valid [`NakamotoBlock`], processes it against the current chainstate.
@@ -847,7 +720,7 @@ impl ConsensusTest<'_> {
     /// # Returns
     ///
     /// A [`ExpectedResult`] with the outcome of the block processing.
-    pub fn append_block(&mut self, block: TestBlock) -> ExpectedResult {
+    fn append_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
         debug!("--------- Running block {block:?} ---------");
         let (nakamoto_block, block_size) = self.construct_nakamoto_block(block);
         let mut sortdb = self.chain.sortdb.take().unwrap();
@@ -882,6 +755,44 @@ impl ConsensusTest<'_> {
         ExpectedResult::create_from(remapped_result, expected_marf)
     }
 
+    /// Appends a single block to the chain as a Pre-Nakamoto block and returns the result.
+    ///
+    /// This method takes a [`TestBlock`] containing a list of transactions, constructs
+    /// a fully valid [`StacksBlock`], processes it against the current chainstate.
+    ///
+    /// # Arguments
+    ///
+    /// * `block` - The test block to be processed and appended to the chain.
+    /// * `coinbase_nonce` - The coinbase nonce to use and increment
+    ///
+    /// # Returns
+    ///
+    /// A [`ExpectedResult`] with the outcome of the block processing.
+    fn append_pre_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
+        todo!("Append a pre nakamoto block");
+    }
+
+    /// Appends a single block to the chain and returns the result.
+    ///
+    /// This method takes a [`TestBlock`] containing a list of transactions, whether the epoch [`is_naka_epoch`] ,
+    /// constructing a fully valid [`StacksBlock`] or [`NakamotoBlock`] accordingly, processes it against the current chainstate.
+    ///
+    /// # Arguments
+    ///
+    /// * `block` - The test block to be processed and appended to the chain.
+    /// * `coinbase_nonce` - The coinbase nonce to use and increment
+    ///
+    /// # Returns
+    ///
+    /// A [`ExpectedResult`] with the outcome of the block processing.
+    pub fn append_block(&mut self, block: TestBlock, is_naka_epoch: bool) -> ExpectedResult {
+        if is_naka_epoch {
+            self.append_nakamoto_block(block)
+        } else {
+            self.append_pre_nakamoto_block(block)
+        }
+    }
+
     /// Executes a full test plan by processing blocks across multiple epochs.
     ///
     /// This function serves as the primary test runner. It iterates through the
@@ -902,20 +813,11 @@ impl ConsensusTest<'_> {
         epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
     ) -> Vec<ExpectedResult> {
         // Validate blocks
-        for (epoch_id, blocks) in epoch_blocks.iter() {
-            assert!(
-                !matches!(
-                    *epoch_id,
-                    StacksEpochId::Epoch10
-                        | StacksEpochId::Epoch20
-                        | StacksEpochId::Epoch2_05
-                        | StacksEpochId::Epoch21
-                        | StacksEpochId::Epoch22
-                        | StacksEpochId::Epoch23
-                        | StacksEpochId::Epoch24
-                        | StacksEpochId::Epoch25
-                ),
-                "Pre-Nakamoto Tenures are not Supported"
+        for (epoch_id, blocks) in &epoch_blocks {
+            assert_ne!(
+                *epoch_id,
+                StacksEpochId::Epoch10,
+                "Epoch10 is not supported"
             );
             assert!(
                 !blocks.is_empty(),
@@ -933,10 +835,12 @@ impl ConsensusTest<'_> {
                 "--------- Processing epoch {epoch:?} with {} blocks ---------",
                 blocks.len()
             );
-            self.advance_to_epoch(epoch);
+            // Use the miner key to prevent messing with FAUCET nonces.
+            let miner_key = self.chain.miner.nakamoto_miner_key();
+            self.chain.advance_into_epoch(&miner_key, epoch);
 
             for block in blocks {
-                results.push(self.append_block(block));
+                results.push(self.append_block(block, epoch >= StacksEpochId::Epoch30));
             }
         }
         results

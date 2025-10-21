@@ -364,13 +364,11 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
 ) -> Result<Option<(RewardCycleInfo, StacksHeaderInfo)>, Error> {
     let cycle_start_height = burnchain.nakamoto_first_block_of_cycle(reward_cycle);
 
+    let epoch_30 =
+        SortitionDB::get_stacks_epoch_by_epoch_id(sort_db.conn(), &StacksEpochId::Epoch30)?
+            .unwrap_or_else(|| panic!("FATAL: no Nakamoto epoch defined"));
     let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), cycle_start_height)?
-        .unwrap_or_else(|| {
-            panic!(
-                "FATAL: no epoch defined for burn height {}",
-                cycle_start_height
-            )
-        });
+        .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {cycle_start_height}"));
 
     // Find the first Stacks block in this reward cycle's preceding prepare phase.
     // This block will have invoked `.signers.stackerdb-set-signer-slots()` with the reward set.
@@ -378,7 +376,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     // unique (and since Nakamoto Stacks blocks are processed in order, the anchor block
     // cannot change later).
     let first_epoch30_reward_cycle = burnchain
-        .block_height_to_reward_cycle(epoch_at_height.start_height)
+        .block_height_to_reward_cycle(epoch_30.start_height)
         .expect("FATAL: no reward cycle for epoch 3.0 start height");
 
     if !epoch_at_height
