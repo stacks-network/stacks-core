@@ -51,26 +51,20 @@ pub enum Secp256r1Error {
 }
 
 /// A Secp256r1 public key
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Secp256r1PublicKey {
-    #[serde(
-        serialize_with = "secp256r1_pubkey_serialize",
-        deserialize_with = "secp256r1_pubkey_deserialize"
-    )]
     key: P256VerifyingKey,
     compressed: bool,
 }
+impl_byte_array_serde!(Secp256r1PublicKey);
 
 /// A Secp256r1 private key
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Secp256r1PrivateKey {
-    #[serde(
-        serialize_with = "secp256r1_privkey_serialize",
-        deserialize_with = "secp256r1_privkey_deserialize"
-    )]
     key: P256SigningKey,
     compress_public: bool,
 }
+impl_byte_array_serde!(Secp256r1PrivateKey);
 
 impl MessageSignature {
     /// Creates an "empty" signature (all zeros). Note this is not a valid signature.
@@ -117,7 +111,7 @@ impl MessageSignature {
 impl Secp256r1PublicKey {
     /// Generates a new random public key (for testing purposes only).
     #[cfg(any(test, feature = "testing"))]
-    pub fn new() -> Secp256r1PublicKey {
+    pub fn random() -> Secp256r1PublicKey {
         Secp256r1PublicKey::from_private(&Secp256r1PrivateKey::random())
     }
 
@@ -206,7 +200,7 @@ impl Secp256r1PublicKey {
 #[cfg(any(test, feature = "testing"))]
 impl Default for Secp256r1PublicKey {
     fn default() -> Self {
-        Self::new()
+        Self::random()
     }
 }
 
@@ -231,8 +225,6 @@ impl Secp256r1PrivateKey {
         let mut re_hashed_seed = Vec::from(seed);
         loop {
             if let Ok(mut sk) = Secp256r1PrivateKey::from_slice(&re_hashed_seed[..]) {
-                // set this to true: LocalPeer will be doing this anyways,
-                //  and that's currently the only way this method is used
                 sk.set_compress_public(true);
                 return sk;
             } else {
@@ -319,56 +311,6 @@ impl Secp256r1PrivateKey {
         let signature: P256Signature = self.key.sign(data_hash);
         Ok(MessageSignature::from_p256_signature(&signature))
     }
-}
-
-fn secp256r1_pubkey_serialize<S: serde::Serializer>(
-    pubk: &P256VerifyingKey,
-    s: S,
-) -> Result<S::Ok, S::Error> {
-    let public_key = P256PublicKey::from(pubk);
-    let encoded_point = public_key.to_encoded_point(true); // always serialize as compressed
-    let key_hex = to_hex(encoded_point.as_bytes());
-    s.serialize_str(key_hex.as_str())
-}
-
-fn secp256r1_pubkey_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<P256VerifyingKey, D::Error> {
-    let key_hex = String::deserialize(d)?;
-    let key_bytes = hex_bytes(&key_hex).map_err(de_Error::custom)?;
-
-    let encoded_point = EncodedPoint::from_bytes(&key_bytes).map_err(de_Error::custom)?;
-    let public_key =
-        Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&encoded_point))
-            .ok_or_else(|| de_Error::custom("Invalid public key"))?;
-    Ok(P256VerifyingKey::from(public_key))
-}
-
-fn secp256r1_privkey_serialize<S: serde::Serializer>(
-    privk: &P256SigningKey,
-    s: S,
-) -> Result<S::Ok, S::Error> {
-    let key_hex = to_hex(privk.to_bytes().as_slice());
-    s.serialize_str(key_hex.as_str())
-}
-
-fn secp256r1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<P256SigningKey, D::Error> {
-    let key_hex = String::deserialize(d)?;
-    let key_bytes = hex_bytes(&key_hex).map_err(de_Error::custom)?;
-
-    if key_bytes.len() != 32 {
-        return Err(de_Error::custom("Private key must be 32 bytes"));
-    }
-
-    let mut key_array = [0u8; 32];
-    key_array.copy_from_slice(&key_bytes);
-
-    let secret_key =
-        P256SecretKey::from_bytes(&GenericArray::from(key_array)).map_err(de_Error::custom)?;
-
-    Ok(P256SigningKey::from(secret_key))
 }
 
 /// Verify a secp256r1 signature.
