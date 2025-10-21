@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::token::Token;
 use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
@@ -23,6 +24,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
+use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrors;
@@ -59,13 +61,13 @@ fn type_check_helper(exp: &str) -> Result<TypeSignature, CheckError> {
 fn type_check_helper_version(
     exp: &str,
     version: ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<TypeSignature, CheckError> {
-    mem_run_analysis(exp, version, StacksEpochId::latest())
-        .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    mem_run_analysis(exp, version, epoch).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
 fn type_check_helper_v1(exp: &str) -> Result<TypeSignature, CheckError> {
-    type_check_helper_version(exp, ClarityVersion::Clarity1)
+    type_check_helper_version(exp, ClarityVersion::Clarity1, StacksEpochId::latest())
 }
 
 fn buff_type(size: u32) -> TypeSignature {
@@ -274,7 +276,12 @@ fn test_get_block_info() {
             expected,
             &format!(
                 "{}",
-                type_check_helper_version(good_test, ClarityVersion::Clarity2).unwrap()
+                type_check_helper_version(
+                    good_test,
+                    ClarityVersion::Clarity2,
+                    StacksEpochId::latest()
+                )
+                .unwrap()
             )
         );
     }
@@ -283,7 +290,12 @@ fn test_get_block_info() {
             expected_v210,
             &format!(
                 "{}",
-                type_check_helper_version(good_test_v210, ClarityVersion::Clarity2).unwrap()
+                type_check_helper_version(
+                    good_test_v210,
+                    ClarityVersion::Clarity2,
+                    StacksEpochId::latest()
+                )
+                .unwrap()
             )
         );
     }
@@ -291,7 +303,7 @@ fn test_get_block_info() {
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(
             *expected,
-            *type_check_helper_version(bad_test, ClarityVersion::Clarity2)
+            *type_check_helper_version(bad_test, ClarityVersion::Clarity2, StacksEpochId::latest())
                 .unwrap_err()
                 .err
         );
@@ -343,6 +355,71 @@ fn test_get_burn_block_info() {
 }
 
 #[apply(test_clarity_versions)]
+fn test_define_functions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let good = [
+        "(define-private (foo (a uint) (b int)) true)",
+        "(define-public (bar (x (buff 32))) (ok x))",
+        "(define-read-only (baz (p principal)) p)",
+    ];
+
+    for good_test in good.iter() {
+        mem_type_check(good_test).unwrap();
+    }
+
+    // Tests that fail only after epoch 3.3
+    let bad = [
+        format!(
+            "(define-private (foo {}) true)",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| format!("(param-{} uint)", i))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+        format!(
+            "(define-public (foo {}) (ok true))",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| format!("(param-{} uint)", i))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+        format!(
+            "(define-read-only (foo {}) true)",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| format!("(param-{} uint)", i))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+    ];
+    let bad_expected = [
+        CheckErrors::TooManyFunctionParameters(
+            MAX_FUNCTION_PARAMETERS + 1,
+            MAX_FUNCTION_PARAMETERS,
+        ),
+        CheckErrors::TooManyFunctionParameters(
+            MAX_FUNCTION_PARAMETERS + 1,
+            MAX_FUNCTION_PARAMETERS,
+        ),
+        CheckErrors::TooManyFunctionParameters(
+            MAX_FUNCTION_PARAMETERS + 1,
+            MAX_FUNCTION_PARAMETERS,
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        if epoch.limits_parameter_and_method_count() {
+            assert_eq!(
+                *expected,
+                *type_check_helper_version(bad_test, version, epoch)
+                    .unwrap_err()
+                    .err
+            );
+        } else {
+            mem_type_check(bad_test).unwrap();
+        }
+    }
+}
+
+#[apply(test_clarity_versions)]
 fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(define-trait trait-1 ((get-1 (uint) (response uint uint))))",
@@ -359,30 +436,74 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
         "(define-trait trait-1 ((get-1 uint uint)))",
         "(define-trait trait-1 ((get-1 (uint) (uint))))",
         "(define-trait trait-1 ((get-1 (response uint uint))))",
-        "(define-trait trait-1)",
-        "(define-trait)",
+        "(define-trait trait-1 ((get-1 (uint) (response uint uint)) u1))",
     ];
     let bad_expected = [
         CheckErrors::InvalidTypeDescription,
         CheckErrors::DefineTraitBadSignature,
         CheckErrors::DefineTraitBadSignature,
         CheckErrors::InvalidTypeDescription,
+        CheckErrors::DefineTraitBadSignature,
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 
-    let bad = ["(define-trait trait-1)", "(define-trait)"];
+    // Tests that fail before type-checker
+    let bad = [
+        "(define-trait trait-1)",
+        "(define-trait)",
+        "(define-trait trait-1 ((get-1 (uint) (response uint uint)))) u1)",
+    ];
     let bad_expected = [
         ParseErrors::DefineTraitBadSignature,
         ParseErrors::DefineTraitBadSignature,
+        ParseErrors::UnexpectedToken(Token::Rparen),
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
         assert_eq!(*expected, *res.err);
+    }
+
+    // Tests that fail only after epoch 3.3
+    let bad = [
+        format!(
+            "(define-trait trait-1 ({}))",
+            (0..(MAX_TRAIT_METHODS + 1))
+                .map(|i| format!("(method-{} (uint) (response uint uint))", i))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+        format!(
+            "(define-trait trait-1 ((method ({}) (response uint uint))))",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| "uint".to_string())
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+    ];
+    let bad_expected = [
+        CheckErrors::TraitTooManyMethods(MAX_TRAIT_METHODS + 1, MAX_TRAIT_METHODS),
+        CheckErrors::TooManyFunctionParameters(
+            MAX_FUNCTION_PARAMETERS + 1,
+            MAX_FUNCTION_PARAMETERS,
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        if epoch.limits_parameter_and_method_count() {
+            assert_eq!(
+                *expected,
+                *type_check_helper_version(bad_test, version, epoch)
+                    .unwrap_err()
+                    .err
+            );
+        } else {
+            mem_type_check(bad_test).unwrap();
+        }
     }
 }
 

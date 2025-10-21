@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Renamed Clarity 4's new `block-time` to `stacks-block-time`
+- Added limits in the type-checker for the number of parameters in functions (maximum 256), and the number of methods in traits (maximum 256). These limits are enforced starting in Epoch 3.3.
 
 ## [3.2.0.0.2]
 

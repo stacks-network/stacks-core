@@ -789,6 +789,23 @@ impl StacksEpochId {
             StacksEpochId::Epoch33 => true,
         }
     }
+
+    pub fn limits_parameter_and_method_count(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
+        }
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {
