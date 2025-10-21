@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt;
 use std::hash::{Hash, Hasher};
 
 use k256::ecdsa::signature::hazmat::PrehashVerifier;
@@ -27,6 +26,7 @@ use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use k256::{EncodedPoint, PublicKey as K256PublicKey, SecretKey as K256SecretKey};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
+use thiserror::Error;
 
 use crate::types::{PrivateKey, PublicKey};
 use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
@@ -53,27 +53,20 @@ impl Default for SchnorrSignature {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Error)]
 pub enum Secp256k1Error {
+    #[error("Invalid key")]
     InvalidKey,
+    #[error("Invalid signature")]
     InvalidSignature,
+    #[error("Invalid message")]
     InvalidMessage,
+    #[error("Invalid recovery ID")]
     InvalidRecoveryId,
+    #[error("Signing failed")]
     SigningFailed,
+    #[error("Recovery failed")]
     RecoveryFailed,
-}
-
-impl fmt::Display for Secp256k1Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Secp256k1Error::InvalidKey => write!(f, "Invalid key"),
-            Secp256k1Error::InvalidSignature => write!(f, "Invalid signature"),
-            Secp256k1Error::InvalidMessage => write!(f, "Invalid message"),
-            Secp256k1Error::InvalidRecoveryId => write!(f, "Invalid recovery ID"),
-            Secp256k1Error::SigningFailed => write!(f, "Signing failed"),
-            Secp256k1Error::RecoveryFailed => write!(f, "Recovery failed"),
-        }
-    }
 }
 
 /// An ECDSA recoverable signature, which includes the recovery ID.

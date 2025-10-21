@@ -13,8 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt;
-
 use p256::ecdsa::signature::{Signer, Verifier};
 use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
@@ -24,6 +22,7 @@ use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use p256::{EncodedPoint, PublicKey as P256PublicKey, SecretKey as P256SecretKey};
 use serde::de::{Deserialize, Error as de_Error};
 use serde::Serialize;
+use thiserror::Error;
 
 use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
 
@@ -35,27 +34,20 @@ impl_array_hexstring_fmt!(MessageSignature);
 impl_byte_array_newtype!(MessageSignature, u8, 64);
 impl_byte_array_serde!(MessageSignature);
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Error)]
 pub enum Secp256r1Error {
+    #[error("Invalid key")]
     InvalidKey,
+    #[error("Invalid signature")]
     InvalidSignature,
+    #[error("Invalid message")]
     InvalidMessage,
+    #[error("Invalid recovery ID")]
     InvalidRecoveryId,
+    #[error("Signing failed")]
     SigningFailed,
+    #[error("Recovery failed")]
     RecoveryFailed,
-}
-
-impl fmt::Display for Secp256r1Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Secp256r1Error::InvalidKey => write!(f, "Invalid key"),
-            Secp256r1Error::InvalidSignature => write!(f, "Invalid signature"),
-            Secp256r1Error::InvalidMessage => write!(f, "Invalid message"),
-            Secp256r1Error::InvalidRecoveryId => write!(f, "Invalid recovery ID"),
-            Secp256r1Error::SigningFailed => write!(f, "Signing failed"),
-            Secp256r1Error::RecoveryFailed => write!(f, "Recovery failed"),
-        }
-    }
 }
 
 /// A Secp256r1 public key
