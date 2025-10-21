@@ -14,15 +14,17 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
+
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::OwnedEnvironment;
-use crate::vm::costs::analysis::static_cost;
+use crate::vm::costs::analysis::{build_cost_analysis_tree, static_cost, UserArgumentsContext};
 use crate::vm::costs::ExecutionCost;
 use crate::vm::tests::{tl_env_factory, TopLevelMemoryEnvironmentGenerator};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use crate::vm::ClarityVersion;
+use crate::vm::{ast, ClarityVersion};
 
 const SIMPLE_TRAIT_SRC: &str = r#"(define-trait mytrait (
   (somefunc (uint uint) (response uint uint))
@@ -173,6 +175,42 @@ fn test_complex_trait_implementation_costs(
         }
         Err(e) => {
             println!("Static cost analysis failed: {}", e);
+        }
+    }
+}
+
+#[test]
+fn test_build_cost_analysis_tree_function_definition() {
+    let source = r#"(define-public (somefunc (a uint))
+  (ok (+ a 1))
+)"#;
+
+    let contract_id = QualifiedContractIdentifier::transient();
+    let ast = ast::parse(
+        &contract_id,
+        source,
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch32,
+    )
+    .expect("Failed to parse source code");
+
+    let expr = &ast[0];
+    let user_args = UserArgumentsContext::new();
+    let cost_map = HashMap::new();
+
+    let clarity_version = ClarityVersion::Clarity3;
+    let result = build_cost_analysis_tree(expr, &user_args, &cost_map, &clarity_version);
+
+    match result {
+        Ok((function_name, node)) => {
+            assert_eq!(function_name, Some("somefunc".to_string()));
+            assert!(matches!(
+                node.expr,
+                crate::vm::costs::analysis::CostExprNode::UserFunction(_)
+            ));
+        }
+        Err(e) => {
+            panic!("Expected Ok result, got error: {}", e);
         }
     }
 }

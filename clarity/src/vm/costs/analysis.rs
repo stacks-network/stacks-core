@@ -20,6 +20,8 @@ use crate::vm::{ClarityVersion, Value};
 // type-checking
 // lookups
 // unwrap evaluates both branches (https://github.com/clarity-lang/reference/issues/59)
+// possibly use ContractContext? Enviornment? we need to use this somehow to
+//   provide full view of a contract, rather than passing in source
 
 const STRING_COST_BASE: u64 = 36;
 const STRING_COST_MULTIPLIER: u64 = 3;
@@ -27,6 +29,15 @@ const STRING_COST_MULTIPLIER: u64 = 3;
 /// Functions where string arguments have zero cost because the function
 /// cost includes their processing
 const FUNCTIONS_WITH_ZERO_STRING_ARG_COST: &[&str] = &["concat", "len"];
+
+/// Function definition keywords in Clarity
+const FUNCTION_DEFINITION_KEYWORDS: &[&str] =
+    &["define-public", "define-private", "define-read-only"];
+
+/// Check if a function name is a function definition keyword
+fn is_function_definition(function_name: &str) -> bool {
+    FUNCTION_DEFINITION_KEYWORDS.contains(&function_name)
+}
 
 #[derive(Debug, Clone)]
 pub enum CostExprNode {
@@ -204,7 +215,7 @@ fn static_cost_native(
     let exprs = &ast.expressions;
     let user_args = UserArgumentsContext::new();
     let expr = &exprs[0];
-    let cost_analysis_tree =
+    let (_, cost_analysis_tree) =
         build_cost_analysis_tree(&expr, &user_args, cost_map, clarity_version)?;
 
     let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
@@ -225,7 +236,7 @@ pub fn static_cost(
     let user_args = UserArgumentsContext::new();
     let mut costs = HashMap::new();
     for expr in exprs {
-        let cost_analysis_tree =
+        let (_, cost_analysis_tree) =
             build_cost_analysis_tree(expr, &user_args, &costs, clarity_version)?;
 
         let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
@@ -239,57 +250,71 @@ pub fn static_cost(
     Ok(costs)
 }
 
-fn build_cost_analysis_tree(
+pub fn build_cost_analysis_tree(
     expr: &SymbolicExpression,
     user_args: &UserArgumentsContext,
     cost_map: &HashMap<String, StaticCost>,
     clarity_version: &ClarityVersion,
-) -> Result<CostAnalysisNode, String> {
+) -> Result<(Option<String>, CostAnalysisNode), String> {
     match &expr.expr {
         SymbolicExpressionType::List(list) => {
             if let Some(function_name) = list.first().and_then(|first| first.match_atom()) {
-                if function_name.as_str() == "define-public"
-                    || function_name.as_str() == "define-private"
-                    || function_name.as_str() == "define-read-only"
-                {
-                    return build_function_definition_cost_analysis_tree(
+                if is_function_definition(function_name.as_str()) {
+                    let (returned_function_name, cost_analysis_tree) =
+                        build_function_definition_cost_analysis_tree(
+                            list,
+                            user_args,
+                            cost_map,
+                            clarity_version,
+                        )?;
+                    Ok((Some(returned_function_name), cost_analysis_tree))
+                } else {
+                    let cost_analysis_tree = build_listlike_cost_analysis_tree(
                         list,
                         user_args,
                         cost_map,
                         clarity_version,
-                    );
+                    )?;
+                    Ok((None, cost_analysis_tree))
                 }
+            } else {
+                let cost_analysis_tree =
+                    build_listlike_cost_analysis_tree(list, user_args, cost_map, clarity_version)?;
+                Ok((None, cost_analysis_tree))
             }
-            build_listlike_cost_analysis_tree(list, user_args, cost_map, clarity_version)
         }
         SymbolicExpressionType::AtomValue(value) => {
             let cost = calculate_value_cost(value)?;
-            Ok(CostAnalysisNode::leaf(
-                CostExprNode::AtomValue(value.clone()),
-                cost,
+            Ok((
+                None,
+                CostAnalysisNode::leaf(CostExprNode::AtomValue(value.clone()), cost),
             ))
         }
         SymbolicExpressionType::LiteralValue(value) => {
             let cost = calculate_value_cost(value)?;
-            Ok(CostAnalysisNode::leaf(
-                CostExprNode::AtomValue(value.clone()),
-                cost,
+            Ok((
+                None,
+                CostAnalysisNode::leaf(CostExprNode::AtomValue(value.clone()), cost),
             ))
         }
         SymbolicExpressionType::Atom(name) => {
             let expr_node = parse_atom_expression(name, user_args)?;
-            Ok(CostAnalysisNode::leaf(expr_node, StaticCost::ZERO))
+            Ok((None, CostAnalysisNode::leaf(expr_node, StaticCost::ZERO)))
         }
-        SymbolicExpressionType::Field(field_identifier) => Ok(CostAnalysisNode::leaf(
-            CostExprNode::FieldIdentifier(field_identifier.clone()),
-            StaticCost::ZERO,
+        SymbolicExpressionType::Field(field_identifier) => Ok((
+            None,
+            CostAnalysisNode::leaf(
+                CostExprNode::FieldIdentifier(field_identifier.clone()),
+                StaticCost::ZERO,
+            ),
         )),
-        SymbolicExpressionType::TraitReference(trait_name, _trait_definition) => {
-            Ok(CostAnalysisNode::leaf(
+        SymbolicExpressionType::TraitReference(trait_name, _trait_definition) => Ok((
+            None,
+            CostAnalysisNode::leaf(
                 CostExprNode::TraitReference(trait_name.clone()),
                 StaticCost::ZERO,
-            ))
-        }
+            ),
+        )),
     }
 }
 
@@ -316,13 +341,14 @@ fn build_function_definition_cost_analysis_tree(
     _user_args: &UserArgumentsContext,
     cost_map: &HashMap<String, StaticCost>,
     clarity_version: &ClarityVersion,
-) -> Result<CostAnalysisNode, String> {
+) -> Result<(String, CostAnalysisNode), String> {
     let define_type = list[0]
         .match_atom()
         .ok_or("Expected atom for define type")?;
     let signature = list[1]
         .match_list()
         .ok_or("Expected list for function signature")?;
+    println!("signature: {:?}", signature);
     let body = &list[2];
 
     let mut children = Vec::new();
@@ -360,14 +386,23 @@ fn build_function_definition_cost_analysis_tree(
     }
 
     // Process the function body with the function's user arguments context
-    let body_tree = build_cost_analysis_tree(body, &function_user_args, cost_map, clarity_version)?;
+    let (_, body_tree) =
+        build_cost_analysis_tree(body, &function_user_args, cost_map, clarity_version)?;
     children.push(body_tree);
 
+    // Get the function name from the signature
+    let function_name = signature[0]
+        .match_atom()
+        .ok_or("Expected atom for function name")?;
+
     // Create the function definition node with zero cost (function definitions themselves don't have execution cost)
-    Ok(CostAnalysisNode::new(
-        CostExprNode::UserFunction(define_type.clone()),
-        StaticCost::ZERO,
-        children,
+    Ok((
+        function_name.clone().to_string(),
+        CostAnalysisNode::new(
+            CostExprNode::UserFunction(define_type.clone()),
+            StaticCost::ZERO,
+            children,
+        ),
     ))
 }
 
@@ -389,12 +424,8 @@ fn build_listlike_cost_analysis_tree(
 
     // Build children for all exprs
     for expr in exprs[1..].iter() {
-        children.push(build_cost_analysis_tree(
-            expr,
-            user_args,
-            cost_map,
-            clarity_version,
-        )?);
+        let (_, child_tree) = build_cost_analysis_tree(expr, user_args, cost_map, clarity_version)?;
+        children.push(child_tree);
     }
 
     let function_name = get_function_name(&exprs[0])?;
@@ -826,7 +857,7 @@ mod tests {
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_map = HashMap::new(); // Empty cost map for tests
-        let cost_tree =
+        let (_, cost_tree) =
             build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
                 .unwrap();
 
@@ -873,7 +904,7 @@ mod tests {
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_map = HashMap::new(); // Empty cost map for tests
-        let cost_tree =
+        let (_, cost_tree) =
             build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
                 .unwrap();
 
@@ -906,7 +937,7 @@ mod tests {
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_map = HashMap::new(); // Empty cost map for tests
-        let cost_tree =
+        let (_, cost_tree) =
             build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
                 .unwrap();
 
@@ -929,7 +960,7 @@ mod tests {
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_map = HashMap::new(); // Empty cost map for tests
-        let cost_tree =
+        let (_, cost_tree) =
             build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
                 .unwrap();
 
