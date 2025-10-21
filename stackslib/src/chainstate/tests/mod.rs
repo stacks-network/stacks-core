@@ -482,7 +482,7 @@ impl<'a> TestChainstate<'a> {
                     .config
                     .burnchain
                     .is_in_prepare_phase(sortition_height), "We cannot apply the pox 4 lockup. We are already in the prepare phase of the following reward cycle. Examine your bootstrap setup.");
-                    
+
         let addr = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(private_key));
         let default_pox_addr =
             PoxAddress::from_legacy(AddressHashMode::SerializeP2PKH, addr.bytes().clone());
@@ -1734,7 +1734,7 @@ impl<'a> TestChainstate<'a> {
             },
             StacksEpoch {
                 // Give a few extra blocks for pre naka blocks
-                // Since we may want to create multiple stacks blocks 
+                // Since we may want to create multiple stacks blocks
                 // per epoch (epsecially for clarity version testing)
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: first_burnchain_height + 2,
@@ -1765,36 +1765,36 @@ impl<'a> TestChainstate<'a> {
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch25,
-                // Give an extra burn block for epoch 25 to activate pox-4
+                // Give an extra couple burn blocks for epoch 25 to activate pox-4
                 start_height: first_burnchain_height + 18,
-                end_height: first_burnchain_height + 22,
+                end_height: first_burnchain_height + 24,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_2_5,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height + 22,
-                end_height: first_burnchain_height + 23,
+                start_height: first_burnchain_height + 24,
+                end_height: first_burnchain_height + 25,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_3_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height + 23,
-                end_height: first_burnchain_height + 24,
+                start_height: first_burnchain_height + 25,
+                end_height: first_burnchain_height + 26,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_3_1,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch32,
-                start_height: first_burnchain_height + 24,
-                end_height: first_burnchain_height + 25,
+                start_height: first_burnchain_height + 26,
+                end_height: first_burnchain_height + 27,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_3_2,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch33,
-                start_height: first_burnchain_height + 25,
+                start_height: first_burnchain_height + 27,
                 end_height: STACKS_EPOCH_MAX,
                 block_limit: ExecutionCost::max_value(),
                 network_epoch: PEER_VERSION_EPOCH_3_2,

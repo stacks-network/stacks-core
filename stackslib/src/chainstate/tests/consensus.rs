@@ -696,15 +696,17 @@ impl ConsensusTest<'_> {
     pub fn new(test_name: &str, initial_balances: Vec<(PrincipalData, u64)>) -> Self {
         // Set up chainstate to support Naka.
         let mut boot_plan = NakamotoBootPlan::new(test_name)
-            .with_pox_constants(100, 3)
+            .with_pox_constants(7, 1)
             .with_initial_balances(initial_balances)
             .with_private_key(FAUCET_PRIV_KEY.clone());
+        boot_plan.pox_constants.reward_cycle_length = 5;
+        boot_plan.pox_constants.prepare_length = 2;
         let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
             + boot_plan.pox_constants.reward_cycle_length
             + 1) as u64;
-        let epochs = TestChainstate::epoch_2_5_onwards(first_burnchain_height);
+        let epochs = TestChainstate::all_epochs(first_burnchain_height);
         boot_plan = boot_plan.with_epochs(epochs);
-        let chain = boot_plan.to_chainstate(None, None);
+        let chain = boot_plan.to_chainstate(None, Some(first_burnchain_height));
         Self { chain }
     }
 
@@ -769,7 +771,40 @@ impl ConsensusTest<'_> {
     ///
     /// A [`ExpectedResult`] with the outcome of the block processing.
     fn append_pre_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
-        todo!("Append a pre nakamoto block");
+        let (ch, bh) =
+            SortitionDB::get_canonical_stacks_chain_tip_hash(self.chain.sortdb_ref().conn())
+                .unwrap();
+        let tip_id = StacksBlockId::new(&ch, &bh);
+        let (burn_ops, stacks_block, microblocks) =
+            self.chain.make_tenure_with_txs(&block.transactions);
+        let (_, _, consensus_hash) = self.chain.next_burnchain_block(burn_ops);
+
+        debug!(
+            "--------- Processing Pre-Nakamoto block ---------";
+            "block" => ?stacks_block
+        );
+
+        let mut stacks_node = self.chain.stacks_node.take().unwrap();
+        let mut sortdb = self.chain.sortdb.take().unwrap();
+        let expected_marf = stacks_block.header.state_index_root;
+        let res = TestStacksNode::process_pre_nakamoto_next_ready_block(
+            &mut stacks_node,
+            &mut sortdb,
+            &mut self.chain.miner,
+            &ch,
+            &mut self.chain.coord,
+            &stacks_block,
+            &microblocks,
+        );
+        debug!(
+            "--------- Processed Pre-Nakamoto block ---------";
+            "block" => ?stacks_block
+        );
+        let remapped_result = res.map(|receipt| receipt.unwrap());
+        // Restore chainstate for the next block
+        self.chain.sortdb = Some(sortdb);
+        self.chain.stacks_node = Some(stacks_node);
+        ExpectedResult::create_from(remapped_result, expected_marf)
     }
 
     /// Appends a single block to the chain and returns the result.
