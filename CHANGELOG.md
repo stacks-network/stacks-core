@@ -7,6 +7,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ## Unreleased
 
+### Added
+
+- New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
+
 ### Changed
 
 - Renamed Clarity 4's new `block-time` to `stacks-block-time`

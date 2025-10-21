@@ -57,7 +57,10 @@ use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use crate::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
 use crate::net::atlas::AtlasConfig;
-use crate::net::connection::{ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS};
+use crate::net::connection::{
+    ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
+    DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
+};
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::EpochList;
@@ -3601,6 +3604,17 @@ pub struct ConnectionOptionsFile {
     /// @default: 30
     /// @units: seconds
     pub read_only_max_execution_time_secs: Option<u64>,
+
+    /// Maximum time (in seconds) to spend validating a block when processing
+    /// a block proposal received via the `/v3/block_proposal` RPC endpoint.
+    ///
+    /// If a block takes longer than this timeout to validate, it will be aborted.
+    /// This prevents the node from getting stuck on slow validations when processing
+    /// a block proposal.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS`]
+    /// @units: seconds
+    pub block_proposal_validation_timeout_secs: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3755,6 +3769,9 @@ impl ConnectionOptionsFile {
             read_only_max_execution_time_secs: self
                 .read_only_max_execution_time_secs
                 .unwrap_or(default.read_only_max_execution_time_secs),
+            block_proposal_validation_timeout_secs: self
+                .block_proposal_validation_timeout_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
             ..default
         })
     }
