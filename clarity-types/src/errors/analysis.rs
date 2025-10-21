@@ -484,13 +484,25 @@ pub enum CheckErrorKind {
     AtBlockClosureMustBeReadOnly,
 
     // contract post-conditions
+    /// Post-condition expects a list of asset allowances but received invalid input.
+    /// The first `String` wraps the function name, and the second `i32` wraps the argument number.
     ExpectedListOfAllowances(String, i32),
+    /// Allowance expressions are only allowed in specific contexts (`restrict-assets?` or `as-contract?`).
     AllowanceExprNotAllowed,
+    /// Expected an allowance expression but found invalid input.
+    /// The `String` wraps the unexpected input.
     ExpectedAllowanceExpr(String),
+    /// `with-all-assets-unsafe` is not allowed in this context.
     WithAllAllowanceNotAllowed,
+    /// `with-all-assets-unsafe` cannot be used alongside other allowances.
     WithAllAllowanceNotAlone,
+    /// `with-nft` allowance requires a list of asset identifiers.
     WithNftExpectedListOfIdentifiers,
+    /// `with-nft` allowance identifiers list exceeds the maximum allowed length.
+    /// The first `u32` represents the maximum length, and the second represents the actual length.
     MaxIdentifierLengthExceeded(u32, u32),
+    /// Too many allowances specified in post-condition.
+    /// The first `usize` represents the maximum allowed, and the second represents the actual count.
     TooManyAllowances(usize, usize),
 }
 
