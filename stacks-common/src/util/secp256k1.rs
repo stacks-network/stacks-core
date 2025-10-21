@@ -149,12 +149,10 @@ impl MessageSignature {
     /// Generates place-holder data (for testing purposes only).
     #[cfg(any(test, feature = "testing"))]
     pub fn from_raw(sig: &[u8]) -> MessageSignature {
-        let mut buf = [0u8; 65];
-        if sig.len() < 65 {
-            buf[..sig.len()].copy_from_slice(sig);
-        } else {
-            buf.copy_from_slice(&sig[..65]);
-        }
+        const LEN: usize = 65;
+        let mut buf = [0u8; LEN];
+        let n = sig.len().min(LEN);
+        buf[..n].copy_from_slice(&sig[..n]);
         MessageSignature(buf)
     }
 
@@ -162,16 +160,18 @@ impl MessageSignature {
     pub fn from_secp256k1_recoverable(sig: &RecoverableSignature) -> MessageSignature {
         let (recid, bytes) = sig.serialize_compact();
         let mut ret_bytes = [0u8; 65];
-        let recovery_id_byte = recid.to_byte();
-        ret_bytes[0] = recovery_id_byte;
-        ret_bytes[1..=64].copy_from_slice(&bytes[..64]);
+        if let Some((first, rest)) = ret_bytes.split_first_mut() {
+            *first = recid.to_byte();
+            rest.copy_from_slice(&bytes);
+        }
         MessageSignature(ret_bytes)
     }
 
     /// Converts to a secp256k1::ecdsa::RecoverableSignature.
     pub fn to_secp256k1_recoverable(&self) -> Option<RecoverableSignature> {
-        let recovery_id = K256RecoveryId::from_byte(self.0[0])?;
-        let signature = K256Signature::from_slice(&self.0[1..65]).ok()?;
+        let (recid_byte, sig_bytes) = self.0.split_first()?;
+        let recovery_id = K256RecoveryId::from_byte(*recid_byte)?;
+        let signature = K256Signature::from_slice(sig_bytes).ok()?;
         Some(RecoverableSignature {
             signature,
             recovery_id,
