@@ -20,8 +20,6 @@ use p256::ecdsa::{
 use p256::elliptic_curve::generic_array::GenericArray;
 use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use p256::{EncodedPoint, PublicKey as P256PublicKey, SecretKey as P256SecretKey};
-use serde::de::{Deserialize, Error as de_Error};
-use serde::Serialize;
 use thiserror::Error;
 
 use crate::util::hash::{hex_bytes, to_hex, Sha256Sum};
@@ -329,20 +327,12 @@ pub fn secp256r1_verify(
         return Err(Secp256r1Error::InvalidSignature);
     }
 
-    let encoded_point =
-        EncodedPoint::from_bytes(pubkey_arr).map_err(|_| Secp256r1Error::InvalidKey)?;
-
-    let public_key =
-        Option::<P256PublicKey>::from(P256PublicKey::from_encoded_point(&encoded_point))
-            .ok_or(Secp256r1Error::InvalidKey)?;
-    let verifying_key = P256VerifyingKey::from(public_key);
-
-    let signature =
-        P256Signature::from_slice(signature_arr).map_err(|_| Secp256r1Error::InvalidSignature)?;
-
-    verifying_key
-        .verify(message_arr, &signature)
-        .map_err(|_| Secp256r1Error::InvalidSignature)
+    let pk = Secp256r1PublicKey::from_slice(pubkey_arr).map_err(|_| Secp256r1Error::InvalidKey)?;
+    let sig =
+        MessageSignature::from_bytes(signature_arr).ok_or(Secp256r1Error::InvalidSignature)?;
+    pk.verify_digest(message_arr, &sig)
+        .map_err(|_| Secp256r1Error::InvalidSignature)?;
+    Ok(())
 }
 
 #[cfg(test)]
