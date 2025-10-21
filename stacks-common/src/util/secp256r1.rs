@@ -44,8 +44,6 @@ pub enum Secp256r1Error {
     InvalidRecoveryId,
     #[error("Signing failed")]
     SigningFailed,
-    #[error("Recovery failed")]
-    RecoveryFailed,
 }
 
 /// A Secp256r1 public key
@@ -174,24 +172,24 @@ impl Secp256r1PublicKey {
     }
 
     /// Verify a signature against a message hash.
+    /// Returns Ok(()) if the signature is valid, or an error otherwise.
     pub fn verify_digest(
         &self,
         msg_hash: &[u8],
         sig: &MessageSignature,
-    ) -> Result<bool, &'static str> {
+    ) -> Result<(), Secp256r1Error> {
         if msg_hash.len() != 32 {
-            return Err("Invalid message: must be a 32-byte hash");
+            return Err(Secp256r1Error::InvalidMessage);
         }
 
         let p256_sig = sig
             .to_p256_signature()
-            .map_err(|_| "Invalid signature: failed to decode signature")?;
+            .map_err(|_| Secp256r1Error::InvalidSignature)?;
 
         // Verify the signature
-        match self.key.verify(msg_hash, &p256_sig) {
-            Ok(()) => Ok(true),
-            Err(_) => Ok(false),
-        }
+        self.key
+            .verify(msg_hash, &p256_sig)
+            .map_err(|_| Secp256r1Error::InvalidSignature)
     }
 }
 
@@ -319,20 +317,16 @@ pub fn secp256r1_verify(
     signature_arr: &[u8],
     pubkey_arr: &[u8],
 ) -> Result<(), Secp256r1Error> {
-    if message_arr.len() != 32 {
-        return Err(Secp256r1Error::InvalidMessage);
-    }
-
-    if signature_arr.len() != 64 {
-        return Err(Secp256r1Error::InvalidSignature);
-    }
+    let msg: &[u8; 32] = message_arr
+        .try_into()
+        .map_err(|_| Secp256r1Error::InvalidMessage)?;
+    let sig_bytes: &[u8; 64] = signature_arr
+        .try_into()
+        .map_err(|_| Secp256r1Error::InvalidSignature)?;
 
     let pk = Secp256r1PublicKey::from_slice(pubkey_arr).map_err(|_| Secp256r1Error::InvalidKey)?;
-    let sig =
-        MessageSignature::from_bytes(signature_arr).ok_or(Secp256r1Error::InvalidSignature)?;
-    pk.verify_digest(message_arr, &sig)
-        .map_err(|_| Secp256r1Error::InvalidSignature)?;
-    Ok(())
+    let sig = MessageSignature::from_bytes(sig_bytes).ok_or(Secp256r1Error::InvalidSignature)?;
+    pk.verify_digest(msg, &sig)
 }
 
 #[cfg(test)]
@@ -391,9 +385,8 @@ mod tests {
         let msg_hash = Sha256Sum::from_data(msg).as_bytes().to_vec();
 
         let sig = privk.sign(&msg_hash).unwrap();
-        let valid = pubk.verify_digest(&msg_hash, &sig).unwrap();
-
-        assert!(valid);
+        pubk.verify_digest(&msg_hash, &sig)
+            .expect("invalid signature");
     }
 
     #[test]
@@ -406,9 +399,10 @@ mod tests {
         let msg_hash = Sha256Sum::from_data(msg).as_bytes().to_vec();
 
         let sig = privk1.sign(&msg_hash).unwrap();
-        let valid = pubk2.verify_digest(&msg_hash, &sig).unwrap();
-
-        assert!(!valid);
+        let e = pubk2
+            .verify_digest(&msg_hash, &sig)
+            .expect_err("expected an error");
+        assert_eq!(e, Secp256r1Error::InvalidSignature);
     }
 
     #[test]
