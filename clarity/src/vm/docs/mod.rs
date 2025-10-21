@@ -1369,8 +1369,8 @@ const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
     snippet: "secp256k1-recover? ${1:message-hash} ${2:signature}",
     output_type: "(response (buff 33) uint)",
     signature: "(secp256k1-recover? message-hash signature)",
-    description: "The `secp256k1-recover?` function recovers the public key used to sign the message whose sha256 is `message-hash`
-with the provided `signature`. The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.
+    description: "The `secp256k1-recover?` function recovers the public key used to sign the hash, `message-hash`, typically
+a sha256 hash, with the provided `signature`. The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.
 On success, it returns the public key as a 33-byte buffer. This function may fail with one of the following error codes:
 
 * `(err u1)` - the signature does not match the message hash
@@ -1388,7 +1388,7 @@ const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
     signature: "(secp256k1-verify message-hash signature public-key)",
     description: "The `secp256k1-verify` function verifies that the provided signature of the message-hash
 was signed with the private key that generated the public key.
-The `message-hash` is the `sha256` of the message.
+The `message-hash` is typically the `sha256` of a message.
 The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.",
     example: "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
@@ -1408,7 +1408,7 @@ const SECP256R1VERIFY_API: SpecialAPI = SpecialAPI {
     signature: "(secp256r1-verify message-hash signature public-key)",
     description: "The `secp256r1-verify` function verifies that the provided signature of the message-hash
 was signed with the private key that generated the public key.
-`message-hash` is the `sha256` of the message and `signature` is the raw 64-byte signature.
+`message-hash` is typically the `sha256` of a message and `signature` is the raw 64-byte signature.
 Note that this is NOT the Bitcoin (or default Stacks) signature scheme, secp256k1, but rather the
 NIST P-256 curve (also known as secp256r1).",
     example: "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8
