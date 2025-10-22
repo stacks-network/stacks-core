@@ -146,12 +146,18 @@ impl DefinedFunction {
             self.arguments.len(),
         )?;
 
-        for arg_type in self.arg_types.iter() {
-            runtime_cost(
-                ClarityCostFunction::InnerTypeCheckCost,
-                env,
-                arg_type.size()?,
-            )?;
+        if env.epoch().uses_arg_size_for_cost() {
+            for arg in args.iter() {
+                runtime_cost(ClarityCostFunction::InnerTypeCheckCost, env, arg.size()?)?;
+            }
+        } else {
+            for arg_type in self.arg_types.iter() {
+                runtime_cost(
+                    ClarityCostFunction::InnerTypeCheckCost,
+                    env,
+                    arg_type.size()?,
+                )?;
+            }
         }
 
         let mut context = LocalContext::new();

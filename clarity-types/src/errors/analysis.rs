@@ -482,6 +482,28 @@ pub enum CheckErrorKind {
     WriteAttemptedInReadOnly,
     /// `at-block` closure must be read-only but contains write operations.
     AtBlockClosureMustBeReadOnly,
+
+    // contract post-conditions
+    /// Post-condition expects a list of asset allowances but received invalid input.
+    /// The first `String` wraps the function name, and the second `i32` wraps the argument number.
+    ExpectedListOfAllowances(String, i32),
+    /// Allowance expressions are only allowed in specific contexts (`restrict-assets?` or `as-contract?`).
+    AllowanceExprNotAllowed,
+    /// Expected an allowance expression but found invalid input.
+    /// The `String` wraps the unexpected input.
+    ExpectedAllowanceExpr(String),
+    /// `with-all-assets-unsafe` is not allowed in this context.
+    WithAllAllowanceNotAllowed,
+    /// `with-all-assets-unsafe` cannot be used alongside other allowances.
+    WithAllAllowanceNotAlone,
+    /// `with-nft` allowance requires a list of asset identifiers.
+    WithNftExpectedListOfIdentifiers,
+    /// `with-nft` allowance identifiers list exceeds the maximum allowed length.
+    /// The first `u32` represents the maximum length, and the second represents the actual length.
+    MaxIdentifierLengthExceeded(u32, u32),
+    /// Too many allowances specified in post-condition.
+    /// The first `usize` represents the maximum allowed, and the second represents the actual count.
+    TooManyAllowances(usize, usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -792,6 +814,14 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
             CheckErrorKind::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
             CheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
+            CheckErrorKind::ExpectedListOfAllowances(fn_name, arg_num) => format!("{fn_name} expects a list of asset allowances as argument {arg_num}"),
+            CheckErrorKind::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
+            CheckErrorKind::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
+            CheckErrorKind::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
+            CheckErrorKind::WithAllAllowanceNotAlone => "with-all-assets-unsafe must not be used along with other allowances".into(),
+            CheckErrorKind::WithNftExpectedListOfIdentifiers => "with-nft allowance must include a list of asset identifiers".into(),
+            CheckErrorKind::MaxIdentifierLengthExceeded(max_len, len) => format!("with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
+            CheckErrorKind::TooManyAllowances(max_allowed, found) => format!("too many allowances specified, the maximum is {max_allowed}, found {found}"),
         }
     }
 

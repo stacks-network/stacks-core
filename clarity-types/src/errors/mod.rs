@@ -68,7 +68,7 @@ pub enum VmExecutionError {
     Internal(VmInternalError),
     /// Errors that occur during runtime execution of Clarity code, such as arithmetic errors or
     /// invalid operations, expected as part of contract evaluation.
-    /// The `RuntimeErrorType` wraps the specific runtime error, and the `Option<StackTrace>` provides
+    /// The `RuntimeError` wraps the specific runtime error, and the `Option<StackTrace>` provides
     /// an optional stack trace for debugging, if available.
     Runtime(RuntimeError, Option<StackTrace>),
     /// Errors triggered during Clarity contract evaluation that cause early termination with

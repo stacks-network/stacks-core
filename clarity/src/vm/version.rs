@@ -29,6 +29,13 @@ impl ClarityVersion {
         ClarityVersion::Clarity4
     }
 
+    pub const ALL: &'static [ClarityVersion] = &[
+        ClarityVersion::Clarity1,
+        ClarityVersion::Clarity2,
+        ClarityVersion::Clarity3,
+        ClarityVersion::Clarity4,
+    ];
+
     pub fn default_for_epoch(epoch_id: StacksEpochId) -> ClarityVersion {
         match epoch_id {
             StacksEpochId::Epoch10 => {
