@@ -93,15 +93,6 @@ impl MessageSignature {
     pub fn to_p256_signature(&self) -> Result<P256Signature, Secp256r1Error> {
         P256Signature::from_slice(&self.0).map_err(|_| Secp256r1Error::InvalidSignature)
     }
-
-    /// Converts to DER format
-    pub fn to_der(&self) -> Vec<u8> {
-        if let Ok(sig) = self.to_p256_signature() {
-            sig.to_der().as_bytes().to_vec()
-        } else {
-            vec![]
-        }
-    }
 }
 
 impl Secp256r1PublicKey {
