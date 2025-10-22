@@ -1,13 +1,13 @@
 use std::ops::Deref;
 
+use clarity::util::get_epoch_time_secs;
 use clarity::vm::analysis::arithmetic_checker::ArithmeticOnlyChecker;
-use clarity::vm::ast::ASTRules;
+use clarity::vm::analysis::mem_type_check;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::*;
 use clarity::vm::errors::{CheckErrors, Error};
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
-use clarity::vm::tooling::mem_type_check;
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
     TupleData, Value,
@@ -30,8 +30,11 @@ use crate::chainstate::stacks::boot::{
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::chainstate::stacks::{C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *};
-use crate::clarity_vm::clarity::{ClarityBlockConnection, Error as ClarityError};
-use crate::clarity_vm::database::marf::{MarfedKV, WritableMarfStore};
+use crate::clarity_vm::clarity::{
+    ClarityBlockConnection, ClarityMarfStore, ClarityMarfStoreTransaction, Error as ClarityError,
+    WritableMarfStore,
+};
+use crate::clarity_vm::database::marf::MarfedKV;
 use crate::core::{
     StacksEpoch, StacksEpochId, BITCOIN_REGTEST_FIRST_BLOCK_HASH,
     BITCOIN_REGTEST_FIRST_BLOCK_HEIGHT, BITCOIN_REGTEST_FIRST_BLOCK_TIMESTAMP,
@@ -136,48 +139,69 @@ impl ClarityTestSim {
         self.tenure_height + 100
     }
 
+    /// Common setup logic for executing blocks in tests
+    /// Returns (store, headers_db, burn_db, current_epoch)
+    fn setup_block_environment(
+        &'_ mut self,
+        new_tenure: bool,
+    ) -> (
+        Box<dyn WritableMarfStore + '_>,
+        TestSimHeadersDB,
+        TestSimBurnStateDB,
+        StacksEpochId,
+    ) {
+        let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
+            &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
+            &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
+        ));
+
+        self.block_height += 1;
+        if new_tenure {
+            self.tenure_height += 1;
+        }
+
+        let headers_db = TestSimHeadersDB {
+            height: self.block_height,
+        };
+        let burn_db = TestSimBurnStateDB {
+            epoch_bounds: self.epoch_bounds.clone(),
+            pox_constants: PoxConstants::test_default(),
+            height: (self.tenure_height + 100).try_into().unwrap(),
+        };
+
+        let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
+
+        // Setup common block metadata
+        let mut db = store.as_clarity_db(&headers_db, &burn_db);
+        if cur_epoch.clarity_uses_tip_burn_block() {
+            db.begin();
+            db.set_tenure_height(self.tenure_height as u32)
+                .expect("FAIL: unable to set tenure height in Clarity database");
+            db.commit()
+                .expect("FAIL: unable to commit tenure height in Clarity database");
+        }
+
+        if cur_epoch.uses_marfed_block_time() {
+            db.begin();
+            db.setup_block_metadata(Some(get_epoch_time_secs()))
+                .expect("FAIL: unable to set block time in Clarity database");
+            db.commit()
+                .expect("FAIL: unable to commit block time in Clarity database");
+        }
+
+        (store, headers_db, burn_db, cur_epoch)
+    }
+
     pub fn execute_next_block_as_conn_with_tenure<F, R>(&mut self, new_tenure: bool, f: F) -> R
     where
         F: FnOnce(&mut ClarityBlockConnection) -> R,
     {
-        let r = {
-            let mut store = self.marf.begin(
-                &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
-                &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-            );
+        let (store, headers_db, burn_db, cur_epoch) = self.setup_block_environment(new_tenure);
 
-            self.block_height += 1;
-            if new_tenure {
-                self.tenure_height += 1;
-            }
-
-            let headers_db = TestSimHeadersDB {
-                height: self.block_height,
-            };
-            let burn_db = TestSimBurnStateDB {
-                epoch_bounds: self.epoch_bounds.clone(),
-                pox_constants: PoxConstants::test_default(),
-                height: (self.tenure_height + 100).try_into().unwrap(),
-            };
-
-            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
-
-            let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            if cur_epoch.clarity_uses_tip_burn_block() {
-                db.begin();
-                db.set_tenure_height(self.tenure_height as u32)
-                    .expect("FAIL: unable to set tenure height in Clarity database");
-                db.commit()
-                    .expect("FAIL: unable to commit tenure height in Clarity database");
-            }
-
-            let mut block_conn =
-                ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
-            let r = f(&mut block_conn);
-            block_conn.commit_block();
-
-            r
-        };
+        let mut block_conn =
+            ClarityBlockConnection::new_test_conn(store, &headers_db, &burn_db, cur_epoch);
+        let r = f(&mut block_conn);
+        block_conn.commit_block();
 
         r
     }
@@ -193,40 +217,13 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        let mut store = self.marf.begin(
-            &StacksBlockId(test_sim_height_to_hash(self.block_height, self.fork)),
-            &StacksBlockId(test_sim_height_to_hash(self.block_height + 1, self.fork)),
-        );
+        let (mut store, headers_db, burn_db, cur_epoch) = self.setup_block_environment(new_tenure);
 
-        self.block_height += 1;
-        if new_tenure {
-            self.tenure_height += 1;
-        }
+        debug!("Execute block in epoch {}", &cur_epoch);
 
-        let r = {
-            let headers_db = TestSimHeadersDB {
-                height: self.block_height,
-            };
-            let burn_db = TestSimBurnStateDB {
-                epoch_bounds: self.epoch_bounds.clone(),
-                pox_constants: PoxConstants::test_default(),
-                height: (self.tenure_height + 100).try_into().unwrap(),
-            };
-
-            let cur_epoch = Self::check_and_bump_epoch(&mut store, &headers_db, &burn_db);
-            debug!("Execute block in epoch {}", &cur_epoch);
-
-            let mut db = store.as_clarity_db(&headers_db, &burn_db);
-            if cur_epoch.clarity_uses_tip_burn_block() {
-                db.begin();
-                db.set_tenure_height(self.tenure_height as u32)
-                    .expect("FAIL: unable to set tenure height in Clarity database");
-                db.commit()
-                    .expect("FAIL: unable to commit tenure height in Clarity database");
-            }
-            let mut owned_env = OwnedEnvironment::new_toplevel(db);
-            f(&mut owned_env)
-        };
+        let db = store.as_clarity_db(&headers_db, &burn_db);
+        let mut owned_env = OwnedEnvironment::new_toplevel(db);
+        let r = f(&mut owned_env);
 
         store.test_commit();
 
@@ -240,8 +237,8 @@ impl ClarityTestSim {
         self.execute_next_block_with_tenure(true, f)
     }
 
-    fn check_and_bump_epoch(
-        store: &mut WritableMarfStore,
+    fn check_and_bump_epoch<'a>(
+        store: &mut Box<dyn WritableMarfStore + 'a>,
         headers_db: &TestSimHeadersDB,
         burn_db: &dyn BurnStateDB,
     ) -> StacksEpochId {
@@ -268,10 +265,10 @@ impl ClarityTestSim {
     where
         F: FnOnce(&mut OwnedEnvironment) -> R,
     {
-        let mut store = self.marf.begin(
+        let mut store: Box<dyn WritableMarfStore> = Box::new(self.marf.begin(
             &StacksBlockId(test_sim_height_to_hash(parent_height, self.fork)),
             &StacksBlockId(test_sim_height_to_hash(parent_height + 1, self.fork + 1)),
-        );
+        ));
 
         let r = {
             let headers_db = TestSimHeadersDB {
@@ -509,10 +506,6 @@ impl BurnStateDB for TestSimBurnStateDB {
             None
         }
     }
-
-    fn get_ast_rules(&self, _block_height: u32) -> ASTRules {
-        ASTRules::PrecheckSize
-    }
 }
 
 #[cfg(test)]
@@ -523,11 +516,10 @@ impl HeadersDB for TestSimHeadersDB {
     ) -> Option<BurnchainHeaderHash> {
         if *id_bhh == *FIRST_INDEX_BLOCK_HASH {
             Some(BurnchainHeaderHash::from_hex(BITCOIN_REGTEST_FIRST_BLOCK_HASH).unwrap())
+        } else if self.get_burn_block_height_for_block(id_bhh).is_none() {
+            None
         } else {
-            if self.get_burn_block_height_for_block(id_bhh).is_none() {
-                return None;
-            }
-            Some(BurnchainHeaderHash(id_bhh.0.clone()))
+            Some(BurnchainHeaderHash(id_bhh.0))
         }
     }
 
@@ -562,7 +554,7 @@ impl HeadersDB for TestSimHeadersDB {
             if self.get_burn_block_height_for_block(id_bhh).is_none() {
                 return None;
             }
-            Some(BlockHeaderHash(id_bhh.0.clone()))
+            Some(BlockHeaderHash(id_bhh.0))
         }
     }
 
@@ -672,7 +664,6 @@ fn pox_2_contract_caller_units() {
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap()
@@ -688,7 +679,6 @@ fn pox_2_contract_caller_units() {
                                                            (lock-period uint))
                                    (contract-call? .pox-2 stack-stx amount-ustx pox-addr start-burn-ht lock-period))",
             None,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
             .unwrap();
@@ -906,7 +896,6 @@ fn pox_2_lock_extend_units() {
             ClarityVersion::Clarity2,
             &POX_2_TESTNET_CODE,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
         env.execute_in_env(boot_code_addr(false).into(), None, None, |env| {
@@ -1728,7 +1717,7 @@ fn simple_epoch21_test() {
         .expect_err("2.0 'bad' contract should not deploy successfully")
         {
             ClarityError::Analysis(e) => {
-                assert_eq!(e.err, CheckErrors::UnknownFunction("stx-account".into()));
+                assert_eq!(*e.err, CheckErrors::UnknownFunction("stx-account".into()));
             }
             e => panic!("Should have caused an analysis error: {:#?}", e),
         };
@@ -1774,8 +1763,7 @@ fn test_deploy_smart_contract(
     version: ClarityVersion,
 ) -> std::result::Result<(), ClarityError> {
     block.as_transaction(|tx| {
-        let (mut ast, analysis) =
-            tx.analyze_smart_contract(contract_id, version, content, ASTRules::PrecheckSize)?;
+        let (mut ast, analysis) = tx.analyze_smart_contract(contract_id, version, content)?;
         tx.initialize_smart_contract(
             contract_id,
             version,
@@ -1827,7 +1815,6 @@ fn recency_tests() {
             ClarityVersion::Clarity2,
             &BOOT_CODE_POX_TESTNET,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap()
     });
@@ -1905,7 +1892,6 @@ fn delegation_tests() {
             ClarityVersion::Clarity2,
             &BOOT_CODE_POX_TESTNET,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap()
     });
@@ -2483,7 +2469,6 @@ fn test_vote_withdrawal() {
             ClarityVersion::Clarity1,
             &BOOT_CODE_COST_VOTING,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -2675,7 +2660,6 @@ fn test_vote_fail() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -2891,7 +2875,6 @@ fn test_vote_confirm() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 
@@ -3013,7 +2996,6 @@ fn test_vote_too_many_confirms() {
             COST_VOTING_CONTRACT_TESTNET.clone(),
             &BOOT_CODE_COST_VOTING,
             None,
-            ASTRules::PrecheckSize,
         )
         .unwrap();
 

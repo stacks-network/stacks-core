@@ -58,7 +58,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     pub fn load_node_and_hash(
         &self,
         block_id: u32,
-        trieptr: &TriePtr,
+        trieptr: TriePtr,
     ) -> Option<(TrieNodeType, TrieHash)> {
         match (
             self.load_node(block_id, trieptr),
@@ -70,16 +70,16 @@ impl<T: MarfTrieId> TrieCacheState<T> {
     }
 
     /// Obtain a possibly-cached node
-    pub fn load_node(&self, block_id: u32, trieptr: &TriePtr) -> Option<TrieNodeType> {
+    pub fn load_node(&self, block_id: u32, trieptr: TriePtr) -> Option<TrieNodeType> {
         self.node_cache
-            .get(&TrieNodeAddr(block_id, trieptr.clone()))
+            .get(&TrieNodeAddr(block_id, trieptr))
             .cloned()
     }
 
     /// Obtain a possibly-cached node hash
-    pub fn load_node_hash(&self, block_id: u32, trieptr: &TriePtr) -> Option<TrieHash> {
+    pub fn load_node_hash(&self, block_id: u32, trieptr: TriePtr) -> Option<TrieHash> {
         self.hash_cache
-            .get(&TrieNodeAddr(block_id, trieptr.clone()))
+            .get(&TrieNodeAddr(block_id, trieptr))
             .cloned()
     }
 
@@ -91,7 +91,7 @@ impl<T: MarfTrieId> TrieCacheState<T> {
         node: TrieNodeType,
         hash: TrieHash,
     ) {
-        self.store_node(block_id, trieptr.clone(), node);
+        self.store_node(block_id, trieptr, node);
         self.store_node_hash(block_id, trieptr, hash)
     }
 
@@ -211,7 +211,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut().load_node(block_id, trieptr)
+            self.state_mut().load_node(block_id, *trieptr)
         }
     }
 
@@ -225,7 +225,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut().load_node_and_hash(block_id, trieptr)
+            self.state_mut().load_node_and_hash(block_id, *trieptr)
         }
     }
 
@@ -234,7 +234,7 @@ impl<T: MarfTrieId> TrieCache<T> {
         if let TrieCache::Noop(_) = self {
             None
         } else {
-            self.state_mut().load_node_hash(block_id, trieptr)
+            self.state_mut().load_node_hash(block_id, *trieptr)
         }
     }
 

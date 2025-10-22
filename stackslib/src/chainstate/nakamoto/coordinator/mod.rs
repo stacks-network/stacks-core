@@ -18,7 +18,6 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use clarity::boot_util::boot_code_id;
-use clarity::vm::ast::ASTRules;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, SortitionId, StacksBlockId,
 };
@@ -154,7 +153,6 @@ impl<T: BlockEventDispatcher> OnChainRewardSetProvider<'_, T> {
                 sort_handle,
                 &boot_code_id(SIGNERS_NAME, chainstate.mainnet),
                 &format!("(map-get? cycle-set-height u{})", cycle),
-                ASTRules::PrecheckSize,
             )
             .map_err(ChainstateError::ClarityError)?
             .expect_optional()
@@ -256,7 +254,7 @@ fn find_prepare_phase_sortitions(
     let mut sns = vec![];
 
     while burnchain.is_in_prepare_phase(height) && height > 0 {
-        let parent_sortition_id = prepare_phase_sn.parent_sortition_id;
+        let parent_sortition_id = prepare_phase_sn.parent_sortition_id.clone();
         sns.push(prepare_phase_sn);
         let Some(sn) = SortitionDB::get_block_snapshot(sort_db.conn(), &parent_sortition_id)?
         else {
@@ -1167,7 +1165,7 @@ impl<
                                 &header,
                                 paid_rewards,
                                 reward_set_info,
-                                &consensus_hash,
+                                consensus_hash,
                             );
                         }
                     },
@@ -1182,7 +1180,7 @@ impl<
             tx.set_burn_block_processed(&next_snapshot.consensus_hash)?;
             tx.commit().map_err(DBError::SqliteError)?;
 
-            let sortition_id = next_snapshot.sortition_id;
+            let sortition_id = next_snapshot.sortition_id.clone();
 
             self.notifier.notify_sortition_processed();
 

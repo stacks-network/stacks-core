@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::mem::replace;
 use std::time::{Duration, Instant};
 
-use hashbrown::{HashMap, HashSet};
+pub use clarity_types::errors::StackTrace;
+use clarity_types::representations::ClarityName;
 use serde::Serialize;
 use serde_json::json;
 use stacks_common::types::chainstate::StacksBlockId;
@@ -31,7 +32,7 @@ use super::analysis::{self, ContractAnalysis};
 #[cfg(feature = "clarity-wasm")]
 use super::clarity_wasm::call_function;
 use super::EvalHook;
-use crate::vm::ast::{ASTRules, ContractAST};
+use crate::vm::ast::ContractAST;
 use crate::vm::callables::{DefinedFunction, FunctionIdentifier};
 use crate::vm::contracts::Contract;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
@@ -44,7 +45,7 @@ use crate::vm::errors::{
     CheckErrors, InterpreterError, InterpreterResult as Result, RuntimeErrorType,
 };
 use crate::vm::events::*;
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::signatures::FunctionSignature;
 use crate::vm::types::{
     AssetIdentifier, BuffData, CallableData, PrincipalData, QualifiedContractIdentifier,
@@ -86,6 +87,7 @@ pub enum AssetMapEntry {
     Burn(u128),
     Token(u128),
     Asset(Vec<Value>),
+    Stacking(u128),
 }
 
 /**
@@ -94,10 +96,16 @@ during the execution of a transaction.
 */
 #[derive(Debug, Clone)]
 pub struct AssetMap {
+    /// Sum of all STX transfers by principal
     stx_map: HashMap<PrincipalData, u128>,
+    /// Sum of all STX burns by principal
     burn_map: HashMap<PrincipalData, u128>,
+    /// Sum of FT transfers by principal, by asset identifier
     token_map: HashMap<PrincipalData, HashMap<AssetIdentifier, u128>>,
+    /// NFT transfers by principal, by asset identifier
     asset_map: HashMap<PrincipalData, HashMap<AssetIdentifier, Vec<Value>>>,
+    /// Amount of STX stacked or delegated for stacking by principal
+    stacking_map: HashMap<PrincipalData, u128>,
 }
 
 impl AssetMap {
@@ -173,11 +181,23 @@ impl AssetMap {
             })
             .collect();
 
+        let stacking: serde_json::map::Map<_, _> = self
+            .stacking_map
+            .iter()
+            .map(|(principal, amount)| {
+                (
+                    format!("{principal}"),
+                    serde_json::value::Value::String(format!("{amount}")),
+                )
+            })
+            .collect();
+
         json!({
             "stx": stx,
             "burns": burns,
             "tokens": tokens,
-            "assets": assets
+            "assets": assets,
+            "stacking": stacking,
         })
     }
 }
@@ -260,8 +280,6 @@ pub struct CallStack {
     apply_depth: usize,
 }
 
-pub type StackTrace = Vec<FunctionIdentifier>;
-
 pub const TRANSIENT_CONTRACT_NAME: &str = "__transient";
 
 impl Default for AssetMap {
@@ -277,6 +295,7 @@ impl AssetMap {
             burn_map: HashMap::new(),
             token_map: HashMap::new(),
             asset_map: HashMap::new(),
+            stacking_map: HashMap::new(),
         }
     }
 
@@ -356,6 +375,13 @@ impl AssetMap {
         Ok(())
     }
 
+    /// Log an amount of STX to be stacked or delegated for stacking by a
+    /// principal. Since any given principal can only stack once, this will
+    /// overwrite any previous amount for the principal.
+    pub fn add_stacking(&mut self, principal: &PrincipalData, amount: u128) {
+        self.stacking_map.insert(principal.clone(), amount);
+    }
+
     // This will add any asset transfer data from other to self,
     //   aborting _all_ changes in the event of an error, leaving self unchanged
     pub fn commit_other(&mut self, mut other: AssetMap) -> Result<()> {
@@ -403,6 +429,10 @@ impl AssetMap {
         for (principal, asset, amount) in to_add.into_iter() {
             let principal_map = self.token_map.entry(principal).or_default();
             principal_map.insert(asset, amount);
+        }
+
+        for (principal, stacking_amount) in other.stacking_map.drain() {
+            self.stacking_map.insert(principal, stacking_amount);
         }
 
         Ok(())
@@ -468,6 +498,14 @@ impl AssetMap {
         assets.get(asset_identifier).copied()
     }
 
+    pub fn get_all_fungible_tokens(
+        &self,
+        principal: &PrincipalData,
+    ) -> Option<&HashMap<AssetIdentifier, u128>> {
+        let assets = self.token_map.get(principal)?;
+        Some(assets)
+    }
+
     pub fn get_nonfungible_tokens(
         &self,
         principal: &PrincipalData,
@@ -475,6 +513,18 @@ impl AssetMap {
     ) -> Option<&Vec<Value>> {
         let assets = self.asset_map.get(principal)?;
         assets.get(asset_identifier)
+    }
+
+    pub fn get_all_nonfungible_tokens(
+        &self,
+        principal: &PrincipalData,
+    ) -> Option<&HashMap<AssetIdentifier, Vec<Value>>> {
+        let assets = self.asset_map.get(principal)?;
+        Some(assets)
+    }
+
+    pub fn get_stacking(&self, principal: &PrincipalData) -> Option<u128> {
+        self.stacking_map.get(principal).copied()
     }
 }
 
@@ -654,7 +704,6 @@ impl<'a> OwnedEnvironment<'a> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-        ast_rules: ASTRules,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         let mut store = crate::vm::database::MemoryBackingStore::new();
         let mut analysis_db = store.as_analysis_db();
@@ -664,7 +713,6 @@ impl<'a> OwnedEnvironment<'a> {
             contract_identifier,
             contract_content,
             sponsor,
-            ast_rules,
             &mut analysis_db,
         )
     }
@@ -682,7 +730,6 @@ impl<'a> OwnedEnvironment<'a> {
     /// * `contract_identifier` - Unique identifier for the contract (principal + contract name)
     /// * `contract_content` - The raw Clarity source code as a string
     /// * `sponsor` - Optional sponsor principal for transaction fees (if `None`, sender pays)
-    /// * `ast_rules` - Parsing rules to apply during AST construction (e.g., `ASTRules::PrecheckSize`)
     /// * `analysis_db` - Mutable reference to a database for analysis data
     ///
     #[cfg(any(test, feature = "testing"))]
@@ -691,7 +738,6 @@ impl<'a> OwnedEnvironment<'a> {
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-        ast_rules: ASTRules,
         analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
@@ -702,7 +748,6 @@ impl<'a> OwnedEnvironment<'a> {
                 exec_env.initialize_contract_with_db(
                     contract_identifier,
                     contract_content,
-                    ast_rules,
                     analysis_db,
                 )
             },
@@ -716,7 +761,6 @@ impl<'a> OwnedEnvironment<'a> {
         version: ClarityVersion,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-        ast_rules: ASTRules,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
             contract_identifier.issuer.clone().into(),
@@ -725,9 +769,7 @@ impl<'a> OwnedEnvironment<'a> {
                 QualifiedContractIdentifier::transient(),
                 version,
             )),
-            |exec_env| {
-                exec_env.initialize_contract(contract_identifier, contract_content, ast_rules)
-            },
+            |exec_env| exec_env.initialize_contract(contract_identifier, contract_content),
         )
     }
 
@@ -745,7 +787,6 @@ impl<'a> OwnedEnvironment<'a> {
     /// * `version` - The Clarity version to use for this contract
     /// * `contract_content` - The raw Clarity source code as a string
     /// * `sponsor` - Optional sponsor principal for transaction fees (if `None`, sender pays)
-    /// * `ast_rules` - Parsing rules to apply during AST construction (e.g., `ASTRules::PrecheckSize`)
     /// * `analysis_db` - Mutable reference to a database for analysis data
     ///
     #[cfg(any(test, feature = "testing"))]
@@ -755,7 +796,6 @@ impl<'a> OwnedEnvironment<'a> {
         version: ClarityVersion,
         contract_content: &str,
         sponsor: Option<PrincipalData>,
-        ast_rules: ASTRules,
         analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<((), AssetMap, Vec<StacksTransactionEvent>)> {
         self.execute_in_env(
@@ -769,7 +809,6 @@ impl<'a> OwnedEnvironment<'a> {
                 exec_env.initialize_contract_with_db(
                     contract_identifier,
                     contract_content,
-                    ast_rules,
                     analysis_db,
                 )
             },
@@ -874,27 +913,17 @@ impl<'a> OwnedEnvironment<'a> {
         )
     }
 
-    pub fn eval_read_only_with_rules(
-        &mut self,
-        contract: &QualifiedContractIdentifier,
-        program: &str,
-        ast_rules: ast::ASTRules,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.execute_in_env(
-            QualifiedContractIdentifier::transient().issuer.into(),
-            None,
-            None,
-            |exec_env| exec_env.eval_read_only_with_rules(contract, program, ast_rules),
-        )
-    }
-
-    #[cfg(any(test, feature = "testing"))]
     pub fn eval_read_only(
         &mut self,
         contract: &QualifiedContractIdentifier,
         program: &str,
     ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>)> {
-        self.eval_read_only_with_rules(contract, program, ast::ASTRules::Typical)
+        self.execute_in_env(
+            QualifiedContractIdentifier::transient().issuer.into(),
+            None,
+            None,
+            |exec_env| exec_env.eval_read_only(contract, program),
+        )
     }
 
     pub fn begin(&mut self) {
@@ -1048,21 +1077,19 @@ impl<'a, 'b> Environment<'a, 'b> {
         )
     }
 
-    pub fn eval_read_only_with_rules(
+    pub fn eval_read_only(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
         program: &str,
-        rules: ast::ASTRules,
     ) -> Result<Value> {
         let clarity_version = self.contract_context.clarity_version;
 
-        let parsed = ast::build_ast_with_rules(
+        let parsed = ast::build_ast(
             contract_identifier,
             program,
             self,
             clarity_version,
             self.global_context.epoch_id,
-            rules,
         )?
         .expressions;
 
@@ -1102,26 +1129,16 @@ impl<'a, 'b> Environment<'a, 'b> {
         result
     }
 
-    #[cfg(any(test, feature = "testing"))]
-    pub fn eval_read_only(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        program: &str,
-    ) -> Result<Value> {
-        self.eval_read_only_with_rules(contract_identifier, program, ast::ASTRules::Typical)
-    }
-
-    pub fn eval_raw_with_rules(&mut self, program: &str, rules: ast::ASTRules) -> Result<Value> {
+    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
         let contract_id = QualifiedContractIdentifier::transient();
         let clarity_version = self.contract_context.clarity_version;
 
-        let parsed = ast::build_ast_with_rules(
+        let parsed = ast::build_ast(
             &contract_id,
             program,
             self,
             clarity_version,
             self.global_context.epoch_id,
-            rules,
         )?
         .expressions;
 
@@ -1133,11 +1150,6 @@ impl<'a, 'b> Environment<'a, 'b> {
         }
         let local_context = LocalContext::new();
         eval(&parsed[0], self, &local_context)
-    }
-
-    #[cfg(any(test, feature = "testing"))]
-    pub fn eval_raw(&mut self, program: &str) -> Result<Value> {
-        self.eval_raw_with_rules(program, ast::ASTRules::Typical)
     }
 
     /// Used only for contract-call! cost short-circuiting. Once the short-circuited cost
@@ -1233,7 +1245,11 @@ impl<'a, 'b> Environment<'a, 'b> {
                         self.epoch(),
                         &expected_type,
                         value.clone(),
-                    ).ok_or_else(|| CheckErrors::TypeValueError(expected_type, value.clone()))?;
+                    ).ok_or_else(|| CheckErrors::TypeValueError(
+                            Box::new(expected_type),
+                            Box::new(value.clone()),
+                        )
+                    )?;
 
                     Ok(sanitized_value)
                 })
@@ -1423,18 +1439,12 @@ impl<'a, 'b> Environment<'a, 'b> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
-        ast_rules: ASTRules,
     ) -> Result<()> {
         let mut store = crate::vm::database::MemoryBackingStore::new();
         let mut analysis_db = store.as_analysis_db();
         analysis_db.begin();
 
-        self.initialize_contract_with_db(
-            contract_identifier,
-            contract_content,
-            ast_rules,
-            &mut analysis_db,
-        )
+        self.initialize_contract_with_db(contract_identifier, contract_content, &mut analysis_db)
     }
 
     /// Initializes a Clarity smart contract with a custom analysis database.
@@ -1462,18 +1472,16 @@ impl<'a, 'b> Environment<'a, 'b> {
         &mut self,
         contract_identifier: QualifiedContractIdentifier,
         contract_content: &str,
-        ast_rules: ASTRules,
         analysis_db: &mut analysis::AnalysisDatabase,
     ) -> Result<()> {
         let clarity_version = self.contract_context.clarity_version;
 
-        let mut contract_ast = ast::build_ast_with_rules(
+        let mut contract_ast = ast::build_ast(
             &contract_identifier,
             contract_content,
             self,
             clarity_version,
             self.global_context.epoch_id,
-            ast_rules,
         )?;
 
         let contract_analysis = analysis::run_analysis(
@@ -1486,7 +1494,12 @@ impl<'a, 'b> Environment<'a, 'b> {
             clarity_version,
             true,
         )
-        .map_err(|(check_error, _)| check_error.err)?;
+        .map_err(|boxed_err| {
+            let (boxed_check_error, _cost_tracker) = *boxed_err;
+            let err = *boxed_check_error.err;
+            error!("Analysis step has failed: {err:?}");
+            err
+        })?;
 
         self.initialize_contract_from_ast(
             contract_identifier,
@@ -1824,6 +1837,12 @@ impl<'a> GlobalContext<'a> {
             .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
     }
 
+    pub fn get_readonly_asset_map(&mut self) -> Result<&AssetMap> {
+        self.asset_maps
+            .last()
+            .ok_or_else(|| InterpreterError::Expect("Failed to obtain asset map".into()).into())
+    }
+
     pub fn log_asset_transfer(
         &mut self,
         sender: &PrincipalData,
@@ -1861,6 +1880,11 @@ impl<'a> GlobalContext<'a> {
 
     pub fn log_stx_burn(&mut self, sender: &PrincipalData, transfered: u128) -> Result<()> {
         self.get_asset_map()?.add_stx_burn(sender, transfered)
+    }
+
+    pub fn log_stacking(&mut self, sender: &PrincipalData, amount: u128) -> Result<()> {
+        self.get_asset_map()?.add_stacking(sender, amount);
+        Ok(())
     }
 
     pub fn execute<F, T>(&mut self, f: F) -> Result<T>
@@ -2004,10 +2028,10 @@ impl<'a> GlobalContext<'a> {
                 self.commit()?;
                 Ok(result)
             } else {
-                Err(
-                    CheckErrors::PublicFunctionMustReturnResponse(TypeSignature::type_of(&result)?)
-                        .into(),
-                )
+                Err(CheckErrors::PublicFunctionMustReturnResponse(Box::new(
+                    TypeSignature::type_of(&result)?,
+                ))
+                .into())
             }
         } else {
             self.roll_back()?;

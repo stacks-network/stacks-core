@@ -19,7 +19,6 @@ use std::thread;
 #[cfg(test)]
 use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::vm::analysis::AnalysisDatabase;
-use clarity::vm::ast::ASTRules;
 use clarity::vm::clarity::TransactionConnection;
 pub use clarity::vm::clarity::{ClarityConnection, Error};
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
@@ -28,7 +27,7 @@ use clarity::vm::database::{
     BurnStateDB, ClarityBackingStore, ClarityDatabase, HeadersDB, RollbackWrapper,
     RollbackWrapperPersistedLog, STXBalance, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::{Error as InterpreterError, InterpreterResult};
 use clarity::vm::events::{STXEventType, STXMintEventData};
 use clarity::vm::representations::SymbolicExpression;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
@@ -40,11 +39,11 @@ use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::signer_set::NakamotoSigners;
 use crate::chainstate::stacks::boot::{
     make_sip_031_body, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
-    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, POX_2_MAINNET_CODE, POX_2_NAME,
-    POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE, POX_4_NAME,
-    SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME, SIGNERS_VOTING_BODY,
-    SIGNERS_VOTING_NAME, SIP_031_NAME,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_TESTNET as BOOT_CODE_COST_VOTING,
+    BOOT_CODE_POX_TESTNET, COSTS_2_NAME, COSTS_3_NAME, COSTS_4_NAME, POX_2_MAINNET_CODE,
+    POX_2_NAME, POX_2_TESTNET_CODE, POX_3_MAINNET_CODE, POX_3_NAME, POX_3_TESTNET_CODE, POX_4_CODE,
+    POX_4_NAME, SIGNERS_BODY, SIGNERS_DB_0_BODY, SIGNERS_DB_1_BODY, SIGNERS_NAME,
+    SIGNERS_VOTING_BODY, SIGNERS_VOTING_NAME, SIP_031_NAME,
 };
 use crate::chainstate::stacks::db::{StacksAccount, StacksChainState};
 use crate::chainstate::stacks::events::{StacksTransactionEvent, StacksTransactionReceipt};
@@ -53,7 +52,9 @@ use crate::chainstate::stacks::{
     Error as ChainstateError, StacksMicroblockHeader, StacksTransaction, TransactionPayload,
     TransactionSmartContract, TransactionVersion,
 };
-use crate::clarity_vm::database::marf::{MarfedKV, ReadOnlyMarfStore, WritableMarfStore};
+use crate::clarity_vm::database::marf::{
+    BoxedClarityMarfStoreTransaction, MarfedKV, ReadOnlyMarfStore,
+};
 use crate::core::{StacksEpoch, StacksEpochId, FIRST_STACKS_BLOCK_ID, GENESIS_EPOCH};
 use crate::util_lib::boot::{boot_code_acc, boot_code_addr, boot_code_id, boot_code_tx_auth};
 use crate::util_lib::db::Error as DatabaseError;
@@ -101,7 +102,7 @@ pub struct ClarityInstance {
 /// issuring event dispatches, before the Clarity database commits.
 ///
 pub struct PreCommitClarityBlock<'a> {
-    datastore: WritableMarfStore<'a>,
+    datastore: Box<dyn WritableMarfStore + 'a>,
     commit_to: StacksBlockId,
 }
 
@@ -109,7 +110,7 @@ pub struct PreCommitClarityBlock<'a> {
 /// A high-level interface for Clarity VM interactions within a single block.
 ///
 pub struct ClarityBlockConnection<'a, 'b> {
-    datastore: WritableMarfStore<'a>,
+    datastore: Box<dyn WritableMarfStore + 'a>,
     header_db: &'b dyn HeadersDB,
     burn_state_db: &'b dyn BurnStateDB,
     cost_track: Option<LimitedCostTracker>,
@@ -132,6 +133,112 @@ pub struct ClarityTransactionConnection<'a, 'b> {
     mainnet: bool,
     chain_id: u32,
     epoch: StacksEpochId,
+}
+
+/// Unified API common to all MARF stores
+pub trait ClarityMarfStore: ClarityBackingStore {
+    /// Instantiate a `ClarityDatabase` out of this MARF store.
+    /// Takes a `HeadersDB` and `BurnStateDB` implementation which are both used by
+    /// `ClarityDatabase` to access Stacks's chainstate and sortition chainstate, respectively.
+    fn as_clarity_db<'b>(
+        &'b mut self,
+        headers_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityDatabase<'b>
+    where
+        Self: Sized,
+    {
+        ClarityDatabase::new(self, headers_db, burn_state_db)
+    }
+
+    /// Instantiate an `AnalysisDatabase` out of this MARF store.
+    fn as_analysis_db(&mut self) -> AnalysisDatabase<'_>
+    where
+        Self: Sized,
+    {
+        AnalysisDatabase::new(self)
+    }
+}
+
+/// A MARF store which can be written to is both a ClarityMarfStore and a
+/// ClarityMarfStoreTransaction (and thus also a ClarityBackingStore).
+pub trait WritableMarfStore:
+    ClarityMarfStore + ClarityMarfStoreTransaction + BoxedClarityMarfStoreTransaction
+{
+}
+
+/// A MARF store transaction for a chainstate block's trie.
+/// This transaction instantiates a trie which builds atop an already-written trie in the
+/// chainstate.  Once committed, it will persist -- it may be built upon, and a subsequent attempt
+/// to build the same trie will fail.
+///
+/// The Stacks node commits tries for one of three purposes:
+/// * It processed a block, and needs to persist its trie in the chainstate proper.
+/// * It mined a block, and needs to persist its trie outside of the chainstate proper. The miner
+/// may build on it later.
+/// * It processed an unconfirmed microblock (Stacks 2.x only), and needs to persist the
+/// unconfirmed chainstate outside of the chainstate proper so that the microblock miner can
+/// continue to build on it and the network can service RPC requests on its state.
+///
+/// These needs are each captured in distinct methods for committing this transaction.
+pub trait ClarityMarfStoreTransaction {
+    /// Commit all inserted metadata and associate it with the block trie identified by `target`.
+    /// It can later be deleted via `drop_metadata_for()` if given the same taret.
+    /// Returns Ok(()) on success
+    /// Returns Err(..) on error
+    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()>;
+
+    /// Drop metadata for a particular block trie that was stored previously via `commit_metadata_to()`.
+    /// This function is idempotent.
+    ///
+    /// Returns Ok(()) if the metadata for the trie identified by `target` was dropped.
+    /// It will be possible to insert it again afterwards.
+    /// Returns Err(..) if the metadata was not successfully dropped.
+    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()>;
+
+    /// Compute the ID of the trie being built.
+    /// In Stacks, this will only be called once all key/value pairs are inserted (and will only be
+    /// called at most once in this transaction's lifetime).
+    fn seal_trie(&mut self) -> TrieHash;
+
+    /// Drop the block trie that this transaction was creating.
+    /// Destroys the transaction.
+    fn drop_current_trie(self);
+
+    /// Drop the unconfirmed state trie that this transaction was creating.
+    /// Destroys the transaction.
+    ///
+    /// Returns Ok(()) on successful deletion of the data
+    /// Returns Err(..) if the deletion failed (this usually isn't recoverable, but recovery is up
+    /// to the caller)
+    fn drop_unconfirmed(self) -> InterpreterResult<()>;
+
+    /// Store the processed block's trie that this transaction was creating.
+    /// The trie's ID must be `target`, so that subsequent tries can be built on it (and so that
+    /// subsequent queries can read from it).  `target` may not be known until it is time to write
+    /// the trie out, which is why it is provided here.
+    ///
+    /// Returns Ok(()) if the block trie was successfully persisted.
+    /// Returns Err(..) if there was an error in trying to persist this block trie.
+    fn commit_to_processed_block(self, target: &StacksBlockId) -> InterpreterResult<()>;
+
+    /// Store a mined block's trie that this transaction was creating.
+    /// This function is distinct from `commit_to_processed_block()` in that the stored block will
+    /// not be added to the chainstate. However, it must be persisted so that the node can later
+    /// build on it.
+    ///
+    /// Returns Ok(()) if the block trie was successfully persisted.
+    /// Returns Err(..) if there was an error trying to persist this MARF trie.
+    fn commit_to_mined_block(self, target: &StacksBlockId) -> InterpreterResult<()>;
+
+    /// Persist the unconfirmed state trie so that other parts of the Stacks node can read from it
+    /// (such as to handle pending transactions or process RPC requests on it).
+    fn commit_unconfirmed(self);
+
+    /// Commit to the current chain tip.
+    /// Used only for testing.
+    #[cfg(test)]
+    fn test_commit(self);
 }
 
 impl<'a, 'b> ClarityTransactionConnection<'a, 'b> {
@@ -196,7 +303,7 @@ macro_rules! using {
 impl ClarityBlockConnection<'_, '_> {
     #[cfg(test)]
     pub fn new_test_conn<'a, 'b>(
-        datastore: WritableMarfStore<'a>,
+        datastore: Box<dyn WritableMarfStore + 'a>,
         header_db: &'b dyn HeadersDB,
         burn_state_db: &'b dyn BurnStateDB,
         epoch: StacksEpochId,
@@ -328,7 +435,7 @@ impl ClarityInstance {
         };
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -352,7 +459,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -378,7 +485,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
-            datastore: writable,
+            datastore: Box::new(writable),
             header_db,
             burn_state_db,
             cost_track,
@@ -394,7 +501,6 @@ impl ClarityInstance {
                     &boot_code_id("costs", use_mainnet),
                     ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -417,7 +523,6 @@ impl ClarityInstance {
                     &boot_code_id("cost-voting", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_COST_VOTING,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -444,7 +549,6 @@ impl ClarityInstance {
                     &boot_code_id("pox", use_mainnet),
                     ClarityVersion::Clarity1,
                     &*BOOT_CODE_POX_TESTNET,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -480,7 +584,7 @@ impl ClarityInstance {
         let cost_track = Some(LimitedCostTracker::new_free());
 
         let mut conn = ClarityBlockConnection {
-            datastore: writable,
+            datastore: Box::new(writable),
             header_db,
             burn_state_db,
             cost_track,
@@ -497,7 +601,6 @@ impl ClarityInstance {
                     &boot_code_id("costs-2", use_mainnet),
                     ClarityVersion::Clarity1,
                     BOOT_CODE_COSTS_2,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -520,7 +623,6 @@ impl ClarityInstance {
                     &boot_code_id("costs-3", use_mainnet),
                     ClarityVersion::Clarity2,
                     BOOT_CODE_COSTS_3,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -543,7 +645,6 @@ impl ClarityInstance {
                     &boot_code_id("pox-2", use_mainnet),
                     ClarityVersion::Clarity2,
                     &*POX_2_TESTNET_CODE,
-                    ASTRules::PrecheckSize,
                 )
                 .unwrap();
             clarity_db
@@ -565,7 +666,7 @@ impl ClarityInstance {
 
     pub fn drop_unconfirmed_state(&mut self, block: &StacksBlockId) -> Result<(), Error> {
         let datastore = self.datastore.begin_unconfirmed(block);
-        datastore.rollback_unconfirmed()?;
+        datastore.drop_unconfirmed()?;
         Ok(())
     }
 
@@ -594,7 +695,47 @@ impl ClarityInstance {
         };
 
         ClarityBlockConnection {
-            datastore,
+            datastore: Box::new(datastore),
+            header_db,
+            burn_state_db,
+            cost_track,
+            mainnet: self.mainnet,
+            chain_id: self.chain_id,
+            epoch: epoch.epoch_id,
+        }
+    }
+
+    /// Begin an ephemeral block, which will not be persisted and which may even already exist in
+    /// the chainstate.
+    pub fn begin_ephemeral<'a, 'b>(
+        &'a mut self,
+        base_tip: &StacksBlockId,
+        ephemeral_next: &StacksBlockId,
+        header_db: &'b dyn HeadersDB,
+        burn_state_db: &'b dyn BurnStateDB,
+    ) -> ClarityBlockConnection<'a, 'b> {
+        let mut datastore = self
+            .datastore
+            .begin_ephemeral(base_tip, ephemeral_next)
+            .expect("FATAL: failed to begin ephemeral block connection");
+
+        let epoch = Self::get_epoch_of(base_tip, header_db, burn_state_db);
+        let cost_track = {
+            let mut clarity_db = datastore.as_clarity_db(&NULL_HEADER_DB, &NULL_BURN_STATE_DB);
+            Some(
+                LimitedCostTracker::new(
+                    self.mainnet,
+                    self.chain_id,
+                    epoch.block_limit.clone(),
+                    &mut clarity_db,
+                    epoch.epoch_id,
+                )
+                .expect("FAIL: problem instantiating cost tracking"),
+            )
+        };
+
+        ClarityBlockConnection {
+            datastore: Box::new(datastore),
             header_db,
             burn_state_db,
             cost_track,
@@ -655,7 +796,6 @@ impl ClarityInstance {
         burn_state_db: &dyn BurnStateDB,
         contract: &QualifiedContractIdentifier,
         program: &str,
-        ast_rules: ASTRules,
     ) -> Result<Value, Error> {
         let mut read_only_conn = self.datastore.begin_read_only(Some(at_block));
         let mut clarity_db = read_only_conn.as_clarity_db(header_db, burn_state_db);
@@ -667,7 +807,7 @@ impl ClarityInstance {
         }?;
 
         let mut env = OwnedEnvironment::new_free(self.mainnet, self.chain_id, clarity_db, epoch_id);
-        env.eval_read_only_with_rules(contract, program, ast_rules)
+        env.eval_read_only(contract, program)
             .map(|(x, _, _)| x)
             .map_err(Error::from)
     }
@@ -745,12 +885,12 @@ impl PreCommitClarityBlock<'_> {
     pub fn commit(self) {
         debug!("Committing Clarity block connection"; "index_block" => %self.commit_to);
         self.datastore
-            .commit_to(&self.commit_to)
+            .commit_to_processed_block(&self.commit_to)
             .expect("FATAL: failed to commit block");
     }
 }
 
-impl<'a> ClarityBlockConnection<'a, '_> {
+impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
     /// Rolls back all changes in the current block by
     /// (1) dropping all writes from the current MARF tip,
     /// (2) rolling back side-storage
@@ -758,7 +898,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
         // this is a "lower-level" rollback than the roll backs performed in
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback Clarity datastore");
-        self.datastore.rollback_block();
+        self.datastore.drop_current_trie();
     }
 
     /// Rolls back all unconfirmed state in the current block by
@@ -769,7 +909,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
         //   ClarityDatabase or AnalysisDatabase -- this is done at the backing store level.
         debug!("Rollback unconfirmed Clarity datastore");
         self.datastore
-            .rollback_unconfirmed()
+            .drop_unconfirmed()
             .expect("FATAL: failed to rollback block");
     }
 
@@ -802,7 +942,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     pub fn commit_to_block(self, final_bhh: &StacksBlockId) -> LimitedCostTracker {
         debug!("Commit Clarity datastore to {}", final_bhh);
         self.datastore
-            .commit_to(final_bhh)
+            .commit_to_processed_block(final_bhh)
             .expect("FATAL: failed to commit block");
 
         self.cost_track.unwrap()
@@ -816,7 +956,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     ///    a miner re-executes a constructed block.
     pub fn commit_mined_block(self, bhh: &StacksBlockId) -> Result<LimitedCostTracker, Error> {
         debug!("Commit mined Clarity datastore to {}", bhh);
-        self.datastore.commit_mined_block(bhh)?;
+        self.datastore.commit_to_mined_block(bhh)?;
 
         Ok(self.cost_track.unwrap())
     }
@@ -885,8 +1025,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             let boot_code_address = boot_code_addr(self.mainnet);
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
-            let costs_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let costs_2_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -903,24 +1042,20 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
                 // initialize with a synthetic transaction
                 debug!("Instantiate .costs-2 contract");
-                let receipt = StacksChainState::process_transaction_payload(
+                StacksChainState::process_transaction_payload(
                     tx_conn,
                     &costs_2_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize,
                     None,
                 )
-                .expect("FATAL: Failed to process PoX 2 contract initialization");
-
-                receipt
+                .expect("FATAL: Failed to process PoX 2 contract initialization")
             });
 
             if initialization_receipt.result != Value::okay_true()
                 || initialization_receipt.post_condition_aborted
             {
                 panic!(
-                    "FATAL: Failure processing Costs 2 contract initialization: {:#?}",
-                    &initialization_receipt
+                    "FATAL: Failure processing Costs 2 contract initialization: {initialization_receipt:#?}"
                 );
             }
 
@@ -998,7 +1133,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let pox_2_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             // upgrade epoch before starting transaction-processing, since .pox-2 needs clarity2
             // features
@@ -1021,7 +1156,6 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     tx_conn,
                     &pox_2_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize,
                     None,
                 )
                 .expect("FATAL: Failed to process PoX 2 contract initialization");
@@ -1073,8 +1207,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 None,
             );
 
-            let costs_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let costs_3_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let costs_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // bump the epoch in the Clarity DB
@@ -1094,7 +1227,6 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     tx_conn,
                     &costs_3_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize,
                     None,
                 )
                 .expect("FATAL: Failed to process costs-3 contract initialization");
@@ -1106,8 +1238,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 || costs_3_initialization_receipt.post_condition_aborted
             {
                 panic!(
-                    "FATAL: Failure processing Costs 3 contract initialization: {:#?}",
-                    &costs_3_initialization_receipt
+                    "FATAL: Failure processing Costs 3 contract initialization: {costs_3_initialization_receipt:#?}"
                 );
             }
 
@@ -1255,8 +1386,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 Some(ClarityVersion::Clarity2),
             );
 
-            let pox_3_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let pox_3_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let pox_3_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1265,7 +1395,6 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     tx_conn,
                     &pox_3_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize,
                     None,
                 )
                 .expect("FATAL: Failed to process PoX 3 contract initialization");
@@ -1375,7 +1504,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
 
             let pox_4_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             let pox_4_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1384,7 +1513,6 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     tx_conn,
                     &pox_4_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize,
                     None,
                 )
                 .expect("FATAL: Failed to process PoX 4 contract initialization");
@@ -1435,7 +1563,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
             );
 
             let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
             let signers_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1444,7 +1572,6 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     tx_conn,
                     &signers_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize,
                     None,
                 )
                 .expect("FATAL: Failed to process .signers contract initialization");
@@ -1482,7 +1609,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     );
 
                     let signers_contract_tx =
-                        StacksTransaction::new(tx_version.clone(), boot_code_auth.clone(), payload);
+                        StacksTransaction::new(tx_version, boot_code_auth.clone(), payload);
 
                     let signers_db_receipt = self.as_transaction(|tx_conn| {
                         // initialize with a synthetic transaction
@@ -1491,7 +1618,6 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                             tx_conn,
                             &signers_contract_tx,
                             &boot_code_account,
-                            ASTRules::PrecheckSize,
                             None,
                         )
                         .expect("FATAL: Failed to process .signers DB contract initialization");
@@ -1522,8 +1648,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 Some(ClarityVersion::Clarity2),
             );
 
-            let signers_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let signers_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let signers_voting_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1532,7 +1657,6 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     tx_conn,
                     &signers_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize,
                     None,
                 )
                 .expect("FATAL: Failed to process .signers-voting contract initialization");
@@ -1655,8 +1779,7 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                 Some(ClarityVersion::Clarity3),
             );
 
-            let sip_031_contract_tx =
-                StacksTransaction::new(tx_version.clone(), boot_code_auth, payload);
+            let sip_031_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
 
             let mut sip_031_initialization_receipt = self.as_transaction(|tx_conn| {
                 // initialize with a synthetic transaction
@@ -1665,7 +1788,6 @@ impl<'a> ClarityBlockConnection<'a, '_> {
                     tx_conn,
                     &sip_031_contract_tx,
                     &boot_code_account,
-                    ASTRules::PrecheckSize,
                     None,
                 )
                 .expect("FATAL: Failed to process .sip-031 contract initialization");
@@ -1710,6 +1832,94 @@ impl<'a> ClarityBlockConnection<'a, '_> {
 
             debug!("Epoch 3.2 initialized");
             (old_cost_tracker, Ok(receipts))
+        })
+    }
+
+    pub fn initialize_epoch_3_3(&mut self) -> Result<Vec<StacksTransactionReceipt>, Error> {
+        // use the `using!` statement to ensure that the old cost_tracker is placed
+        //  back in all branches after initialization
+        using!(self.cost_track, "cost tracker", |old_cost_tracker| {
+            // epoch initialization is *free*.
+            // NOTE: this also means that cost functions won't be evaluated.
+            self.cost_track.replace(LimitedCostTracker::new_free());
+
+            let mainnet = self.mainnet;
+            self.epoch = StacksEpochId::Epoch33;
+
+            /////////////////// .costs-4 ////////////////////////
+            let cost_4_code = BOOT_CODE_COSTS_4;
+
+            let payload = TransactionPayload::SmartContract(
+                TransactionSmartContract {
+                    name: ContractName::try_from(COSTS_4_NAME)
+                        .expect("FATAL: invalid boot-code contract name"),
+                    code_body: StacksString::from_str(cost_4_code)
+                        .expect("FATAL: invalid boot code body"),
+                },
+                None,
+            );
+
+            // get the boot code account information
+            //  for processing the costs-4 contract initialization
+            let tx_version = if mainnet {
+                TransactionVersion::Mainnet
+            } else {
+                TransactionVersion::Testnet
+            };
+
+            let boot_code_address = boot_code_addr(mainnet);
+
+            let boot_code_auth = boot_code_tx_auth(boot_code_address.clone());
+
+            let boot_code_nonce = self.with_clarity_db_readonly(|db| {
+                db.get_account_nonce(&boot_code_address.clone().into())
+                    .expect("FATAL: Failed to boot account nonce")
+            });
+
+            let boot_code_account = StacksAccount {
+                principal: PrincipalData::Standard(boot_code_address.into()),
+                nonce: boot_code_nonce,
+                stx_balance: STXBalance::zero(),
+            };
+
+            let costs_4_contract_tx = StacksTransaction::new(tx_version, boot_code_auth, payload);
+
+            let costs_4_initialization_receipt = self.as_transaction(|tx_conn| {
+                // bump the epoch in the Clarity DB
+                tx_conn
+                    .with_clarity_db(|db| {
+                        db.set_clarity_epoch_version(StacksEpochId::Epoch33)?;
+                        Ok(())
+                    })
+                    .unwrap();
+
+                // require 3.3 rules henceforth in this connection as well
+                tx_conn.epoch = StacksEpochId::Epoch33;
+
+                // initialize with a synthetic transaction
+                info!("Instantiate .costs-4 contract");
+                let receipt = StacksChainState::process_transaction_payload(
+                    tx_conn,
+                    &costs_4_contract_tx,
+                    &boot_code_account,
+                    None,
+                )
+                .expect("FATAL: Failed to process costs-4 contract initialization");
+
+                receipt
+            });
+
+            if costs_4_initialization_receipt.result != Value::okay_true()
+                || costs_4_initialization_receipt.post_condition_aborted
+            {
+                panic!(
+                    "FATAL: Failure processing Costs 4 contract initialization: {:#?}",
+                    &costs_4_initialization_receipt
+                );
+            }
+
+            info!("Epoch 3.3 initialized");
+            (old_cost_tracker, Ok(vec![]))
         })
     }
 
@@ -1764,10 +1974,10 @@ impl<'a> ClarityBlockConnection<'a, '_> {
     }
 
     pub fn seal(&mut self) -> TrieHash {
-        self.datastore.seal()
+        self.datastore.seal_trie()
     }
 
-    pub fn destruct(self) -> WritableMarfStore<'a> {
+    pub fn destruct(self) -> Box<dyn WritableMarfStore + 'a> {
         self.datastore
     }
 
@@ -2161,7 +2371,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                 })
                 .unwrap_err();
@@ -2174,7 +2383,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                 })
                 .unwrap_err();
@@ -2222,7 +2430,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2277,7 +2484,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -2307,7 +2513,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 tx.initialize_smart_contract(
@@ -2339,7 +2544,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 assert!(format!(
@@ -2395,7 +2599,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2458,7 +2661,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2552,7 +2754,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2685,7 +2886,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(
@@ -2752,7 +2952,7 @@ mod tests {
                 panic!("Expects a AbortedByCallback error")
             };
 
-            assert_eq!(result_value, Value::okay(Value::Int(10)).unwrap());
+            assert_eq!(*result_value, Value::okay(Value::Int(10)).unwrap());
 
             // prior transaction should have rolled back due to abort call back!
             assert_eq!(
@@ -2900,36 +3100,20 @@ mod tests {
             );
 
             conn.as_transaction(|clarity_tx| {
-                let receipt = StacksChainState::process_transaction_payload(
-                    clarity_tx,
-                    &tx1,
-                    &account,
-                    ASTRules::PrecheckSize,
-                    None,
-                )
-                .unwrap();
+                let receipt =
+                    StacksChainState::process_transaction_payload(clarity_tx, &tx1, &account, None)
+                        .unwrap();
                 assert!(receipt.post_condition_aborted);
             });
             conn.as_transaction(|clarity_tx| {
-                StacksChainState::process_transaction_payload(
-                    clarity_tx,
-                    &tx2,
-                    &account,
-                    ASTRules::PrecheckSize,
-                    None,
-                )
-                .unwrap();
+                StacksChainState::process_transaction_payload(clarity_tx, &tx2, &account, None)
+                    .unwrap();
             });
 
             conn.as_transaction(|clarity_tx| {
-                let receipt = StacksChainState::process_transaction_payload(
-                    clarity_tx,
-                    &tx3,
-                    &account,
-                    ASTRules::PrecheckSize,
-                    None,
-                )
-                .unwrap();
+                let receipt =
+                    StacksChainState::process_transaction_payload(clarity_tx, &tx3, &account, None)
+                        .unwrap();
 
                 assert!(receipt.post_condition_aborted);
             });
@@ -3040,9 +3224,6 @@ mod tests {
             ) -> Option<(Vec<TupleData>, u128)> {
                 return None;
             }
-            fn get_ast_rules(&self, height: u32) -> ASTRules {
-                ASTRules::Typical
-            }
         }
 
         let burn_state_db = BlockLimitBurnStateDB {};
@@ -3078,7 +3259,6 @@ mod tests {
                         &contract_identifier,
                         ClarityVersion::Clarity1,
                         contract,
-                        ASTRules::PrecheckSize,
                     )
                     .unwrap();
                 conn.initialize_smart_contract(

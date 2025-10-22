@@ -13,14 +13,13 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use crate::vm::errors::Error;
 use crate::vm::types::{TupleData, Value};
 #[cfg(test)]
 use crate::vm::{
     errors::{CheckErrors, ShortReturnType, SyntaxBindingError},
     types::{ListData, SequenceData, TupleTypeSignature, TypeSignature},
 };
-use crate::vm::{execute, ClarityName};
+use crate::vm::{execute, ClarityName, Error};
 
 fn assert_executes(expected: Result<Value, Error>, input: &str) {
     assert_eq!(expected.unwrap(), execute(input).unwrap().unwrap());
@@ -297,7 +296,7 @@ fn test_set_response_variable() {
     "#;
     let contract_src = contract_src.to_string();
     assert_eq!(
-        Err(ShortReturnType::ExpectedValue(Value::Int(5)).into()),
+        Err(ShortReturnType::ExpectedValue(Box::new(Value::Int(5))).into()),
         execute(&contract_src)
     );
 }

@@ -52,7 +52,7 @@ mod platform {
         Cached(Vec<u8>),
     }
 
-    static mut OLD_OUT: *mut Output = 0 as *mut Output;
+    static mut OLD_OUT: *mut Output = ptr::null_mut();
 
     impl io::Write for Output {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {

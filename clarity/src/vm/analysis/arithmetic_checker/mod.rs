@@ -14,16 +14,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub use super::errors::{
-    check_argument_count, check_arguments_at_least, CheckError, CheckErrors, CheckResult,
-};
+use clarity_types::representations::ClarityName;
+
+pub use super::errors::{check_argument_count, check_arguments_at_least, CheckError, CheckErrors};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::functions::define::{DefineFunctions, DefineFunctionsParsed};
 use crate::vm::functions::NativeFunctions;
+use crate::vm::representations::SymbolicExpression;
 use crate::vm::representations::SymbolicExpressionType::{
     Atom, AtomValue, Field, List, LiteralValue, TraitReference,
 };
-use crate::vm::representations::{ClarityName, SymbolicExpression};
 use crate::vm::variables::NativeVariables;
 use crate::vm::ClarityVersion;
 
@@ -142,9 +142,8 @@ impl ArithmeticOnlyChecker<'_> {
         {
             match native_var {
                 ContractCaller | TxSender | TotalLiquidMicroSTX | BlockHeight | BurnBlockHeight
-                | Regtest | TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight => {
-                    Err(Error::VariableForbidden(native_var))
-                }
+                | Regtest | TxSponsor | Mainnet | ChainId | StacksBlockHeight | TenureHeight
+                | StacksBlockTime | CurrentContract => Err(Error::VariableForbidden(native_var)),
                 NativeNone | NativeTrue | NativeFalse => Ok(()),
             }
         } else {
@@ -174,16 +173,38 @@ impl ArithmeticOnlyChecker<'_> {
             | ContractCall | StxTransfer | StxTransferMemo | StxBurn | AtBlock | GetStxBalance
             | GetTokenSupply | BurnToken | FromConsensusBuff | ToConsensusBuff | BurnAsset
             | StxGetAccount => Err(Error::FunctionNotPermitted(function)),
-            Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
-            | Fold | Slice | ReplaceAt => Err(Error::FunctionNotPermitted(function)),
+            Append
+            | Concat
+            | AsMaxLen
+            | ContractOf
+            | PrincipalOf
+            | ListCons
+            | Print
+            | AsContract
+            | ElementAt
+            | ElementAtAlias
+            | IndexOf
+            | IndexOfAlias
+            | Map
+            | Filter
+            | Fold
+            | Slice
+            | ReplaceAt
+            | ContractHash
+            | RestrictAssets
+            | AsContractSafe
+            | AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => Err(Error::FunctionNotPermitted(function)),
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 Err(Error::FunctionNotPermitted(function))
             }
             IsStandard | PrincipalDestruct | PrincipalConstruct => {
                 Err(Error::FunctionNotPermitted(function))
             }
-            IntToAscii | IntToUtf8 | StringToInt | StringToUInt => {
+            IntToAscii | IntToUtf8 | StringToInt | StringToUInt | ToAscii => {
                 Err(Error::FunctionNotPermitted(function))
             }
             Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256

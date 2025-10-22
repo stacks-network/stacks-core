@@ -16,6 +16,7 @@
 
 use std::net::TcpStream;
 use std::str;
+use std::time::Duration;
 
 use clarity::vm::types::QualifiedContractIdentifier;
 use libstackerdb::{
@@ -103,22 +104,34 @@ pub struct StackerDBSession {
     pub stackerdb_contract_id: QualifiedContractIdentifier,
     /// connection to the replica
     sock: Option<TcpStream>,
+    /// The timeout applied to HTTP read and write operations
+    socket_timeout: Duration,
 }
 
 impl StackerDBSession {
     /// instantiate but don't connect
-    pub fn new(host: &str, stackerdb_contract_id: QualifiedContractIdentifier) -> StackerDBSession {
+    pub fn new(
+        host: &str,
+        stackerdb_contract_id: QualifiedContractIdentifier,
+        socket_timeout: Duration,
+    ) -> StackerDBSession {
         StackerDBSession {
             host: host.to_owned(),
             stackerdb_contract_id,
             sock: None,
+            socket_timeout,
         }
     }
 
     /// connect or reconnect to the node
     fn connect_or_reconnect(&mut self) -> Result<(), RPCError> {
         debug!("connect to {}", &self.host);
-        self.sock = Some(TcpStream::connect(&self.host)?);
+        let sock = TcpStream::connect(&self.host)?;
+        // Make sure we don't hang forever if for some reason our node does not
+        // respond as expected such as failing to properly close the connection
+        sock.set_read_timeout(Some(self.socket_timeout))?;
+        sock.set_write_timeout(Some(self.socket_timeout))?;
+        self.sock = Some(sock);
         Ok(())
     }
 
@@ -251,11 +264,49 @@ impl SignerSession for StackerDBSession {
     /// upload a chunk
     fn put_chunk(&mut self, chunk: &StackerDBChunkData) -> Result<StackerDBChunkAckData, RPCError> {
         let body =
-            serde_json::to_vec(chunk).map_err(|e| RPCError::Deserialize(format!("{:?}", &e)))?;
+            serde_json::to_vec(chunk).map_err(|e| RPCError::Deserialize(format!("{e:?}")))?;
         let path = stackerdb_post_chunk_path(self.stackerdb_contract_id.clone());
         let resp_bytes = self.rpc_request("POST", &path, Some("application/json"), &body)?;
         let ack: StackerDBChunkAckData = serde_json::from_slice(&resp_bytes)
-            .map_err(|e| RPCError::Deserialize(format!("{:?}", &e)))?;
+            .map_err(|e| RPCError::Deserialize(format!("{e:?}")))?;
         Ok(ack)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::net::TcpListener;
+    use std::thread;
+
+    use super::*;
+
+    #[test]
+    fn socket_timeout_works_as_expected() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind failed");
+        let addr = listener.local_addr().unwrap();
+
+        let short_timeout = Duration::from_millis(200);
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                // Sleep long enough so the client should hit its timeout
+                std::thread::sleep(short_timeout * 2);
+                let _ = stream.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+            }
+        });
+
+        let contract_id = QualifiedContractIdentifier::transient();
+        let mut session = StackerDBSession::new(&addr.to_string(), contract_id, short_timeout);
+
+        session.connect_or_reconnect().expect("connect failed");
+
+        // This should fail due to the timeout
+        let result = session.rpc_request("GET", "/", None, &[]);
+        match result {
+            Err(RPCError::IO(e)) => {
+                assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock);
+            }
+            other => panic!("expected timeout error, got {other:?}"),
+        }
     }
 }

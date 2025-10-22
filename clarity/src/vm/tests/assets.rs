@@ -25,7 +25,6 @@ use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
 #[allow(unused_imports)]
 use crate::vm::{
-    ast::ASTRules,
     contexts::AssetMapEntry,
     database::MemoryBackingStore,
     errors::{CheckErrors, RuntimeErrorType},
@@ -190,20 +189,13 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     analysis_db.begin();
 
     owned_env
-        .initialize_contract_with_db(
-            token_contract_id.clone(),
-            contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(token_contract_id.clone(), contract, None, &mut analysis_db)
         .unwrap();
     owned_env
         .initialize_contract_with_db(
             second_contract_id.clone(),
             contract_second,
             None,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();
@@ -559,12 +551,7 @@ fn test_simple_token_system(
     let contract_principal = PrincipalData::Contract(token_contract_id.clone());
 
     owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), tokens_contract, None)
         .unwrap();
 
     let (result, asset_map, _events) = execute_transaction(
@@ -858,12 +845,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     let token_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data, "tokens".into());
     let err = owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            bad_0,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), bad_0, None)
         .unwrap_err();
     assert!(matches!(
         err,
@@ -871,12 +853,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     ));
 
     let err = owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            bad_1,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), bad_1, None)
         .unwrap_err();
     assert!(matches!(
         err,
@@ -884,12 +861,7 @@ fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnviro
     ));
 
     owned_env
-        .initialize_contract(
-            token_contract_id.clone(),
-            contract,
-            None,
-            ASTRules::PrecheckSize,
-        )
+        .initialize_contract(token_contract_id.clone(), contract, None)
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(
@@ -964,31 +936,13 @@ fn test_overlapping_nfts(
     analysis_db.begin();
 
     owned_env
-        .initialize_contract_with_db(
-            tokens_contract_id,
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(tokens_contract_id, tokens_contract, None, &mut analysis_db)
         .unwrap();
     owned_env
-        .initialize_contract_with_db(
-            names_contract_id,
-            names_contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(names_contract_id, names_contract, None, &mut analysis_db)
         .unwrap();
     owned_env
-        .initialize_contract_with_db(
-            names_2_contract_id,
-            names_contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(names_2_contract_id, names_contract, None, &mut analysis_db)
         .unwrap();
 }
 
@@ -1045,13 +999,7 @@ fn test_simple_naming_system(
     analysis_db.begin();
 
     owned_env
-        .initialize_contract_with_db(
-            tokens_contract_id,
-            tokens_contract,
-            None,
-            ASTRules::PrecheckSize,
-            &mut analysis_db,
-        )
+        .initialize_contract_with_db(tokens_contract_id, tokens_contract, None, &mut analysis_db)
         .unwrap();
 
     let names_contract_id = QualifiedContractIdentifier::new(p1_std_principal_data, "names".into());
@@ -1060,7 +1008,6 @@ fn test_simple_naming_system(
             names_contract_id.clone(),
             names_contract,
             None,
-            ASTRules::PrecheckSize,
             &mut analysis_db,
         )
         .unwrap();

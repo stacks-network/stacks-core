@@ -15,8 +15,9 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::BTreeMap;
-use std::fmt;
 
+use clarity_types::representations::ClarityName;
+pub use clarity_types::types::FunctionIdentifier;
 use stacks_common::types::StacksEpochId;
 
 use super::costs::{CostErrors, CostOverflowingMath};
@@ -28,7 +29,7 @@ use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{check_argument_count, Error, InterpreterResult as Result};
-use crate::vm::representations::{ClarityName, SymbolicExpression};
+use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
     SequenceSubtype, TraitIdentifier, TupleData, TypeSignature,
@@ -120,17 +121,6 @@ pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
                 .cost_overflow_add(sum)
         })
         .map_err(Error::from)
-}
-
-#[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-pub struct FunctionIdentifier {
-    identifier: String,
-}
-
-impl fmt::Display for FunctionIdentifier {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.identifier)
-    }
 }
 
 impl DefinedFunction {
@@ -244,8 +234,8 @@ impl DefinedFunction {
                     _ => {
                         if !type_sig.admits(env.epoch(), value)? {
                             return Err(CheckErrors::TypeValueError(
-                                type_sig.clone(),
-                                value.clone(),
+                                Box::new(type_sig.clone()),
+                                Box::new(value.clone()),
                             )
                             .into());
                         }
@@ -288,9 +278,11 @@ impl DefinedFunction {
                     }
                     _ => {
                         if !type_sig.admits(env.epoch(), &cast_value)? {
-                            return Err(
-                                CheckErrors::TypeValueError(type_sig.clone(), cast_value).into()
-                            );
+                            return Err(CheckErrors::TypeValueError(
+                                Box::new(type_sig.clone()),
+                                Box::new(cast_value),
+                            )
+                            .into());
                         }
                     }
                 }
@@ -411,18 +403,6 @@ impl CallableType {
     }
 }
 
-impl FunctionIdentifier {
-    fn new_native_function(name: &str) -> FunctionIdentifier {
-        let identifier = format!("_native_:{name}");
-        FunctionIdentifier { identifier }
-    }
-
-    fn new_user_function(name: &str, context: &str) -> FunctionIdentifier {
-        let identifier = format!("{context}:{name}");
-        FunctionIdentifier { identifier }
-    }
-}
-
 // Implicitly cast principals to traits and traits to other traits as needed,
 // recursing into compound types. This function does not check for legality of
 // these casts, as that is done in the type-checker. Note: depth of recursion
@@ -487,9 +467,11 @@ fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Val
                     Some(ty) => ty,
                     None => {
                         // This should be unreachable if the type-checker has already run successfully
-                        return Err(
-                            CheckErrors::TypeValueError(type_sig.clone(), value.clone()).into()
-                        );
+                        return Err(CheckErrors::TypeValueError(
+                            Box::new(type_sig.clone()),
+                            Box::new(value.clone()),
+                        )
+                        .into());
                     }
                 };
                 cast_data_map.insert(name.clone(), clarity2_implicit_cast(to_type, field_value)?);

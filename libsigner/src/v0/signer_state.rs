@@ -53,7 +53,7 @@ impl GlobalStateEvaluator {
     }
 
     /// Determine what the maximum signer protocol version that a majority of signers can support
-    pub fn determine_latest_supported_signer_protocol_version(&mut self) -> Option<u64> {
+    pub fn determine_latest_supported_signer_protocol_version(&self) -> Option<u64> {
         let mut protocol_versions = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
@@ -78,7 +78,7 @@ impl GlobalStateEvaluator {
     }
 
     /// Determine what the global burn view is if there is one
-    pub fn determine_global_burn_view(&mut self) -> Option<(ConsensusHash, u64)> {
+    pub fn determine_global_burn_view(&self) -> Option<(&ConsensusHash, u64)> {
         let mut burn_blocks = HashMap::new();
         for (address, update) in &self.address_updates {
             let Some(weight) = self.address_weights.get(address) else {
@@ -91,14 +91,14 @@ impl GlobalStateEvaluator {
                 .or_insert_with(|| 0);
             *entry += weight;
             if self.reached_agreement(*entry) {
-                return Some((*burn_block, burn_block_height));
+                return Some((burn_block, burn_block_height));
             }
         }
         None
     }
 
     /// Check if there is an agreed upon global state
-    pub fn determine_global_state(&mut self) -> Option<SignerStateMachine> {
+    pub fn determine_global_state(&self) -> Option<SignerStateMachine> {
         let active_signer_protocol_version =
             self.determine_latest_supported_signer_protocol_version()?;
         let mut state_views = HashMap::new();
@@ -114,9 +114,9 @@ impl GlobalStateEvaluator {
             let tx_replay_set = update.content.tx_replay_set();
 
             let state_machine = SignerStateMachine {
-                burn_block: *burn_block,
+                burn_block: burn_block.clone(),
                 burn_block_height,
-                current_miner: current_miner.into(),
+                current_miner: current_miner.clone().into(),
                 active_signer_protocol_version,
                 // We need to calculate the threshold for the tx_replay_set separately
                 tx_replay_set: ReplayTransactionSet::none(),
@@ -396,9 +396,9 @@ pub enum MinerState {
     NoValidMiner,
 }
 
-impl From<&StateMachineUpdateMinerState> for MinerState {
-    fn from(val: &StateMachineUpdateMinerState) -> Self {
-        match *val {
+impl From<StateMachineUpdateMinerState> for MinerState {
+    fn from(val: StateMachineUpdateMinerState) -> Self {
+        match val {
             StateMachineUpdateMinerState::NoValidMiner => MinerState::NoValidMiner,
             StateMachineUpdateMinerState::ActiveMiner {
                 current_miner_pkh,

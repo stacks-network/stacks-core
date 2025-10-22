@@ -32,7 +32,7 @@ pub type StacksPublicKey = Secp256k1PublicKey;
 pub type StacksPrivateKey = Secp256k1PrivateKey;
 
 /// Hash of a Trie node.  This is a SHA2-512/256.
-#[derive(Default)]
+#[derive(Default, Copy)]
 pub struct TrieHash(pub [u8; 32]);
 impl_array_newtype!(TrieHash, u8, 32);
 impl_array_hexstring_fmt!(TrieHash);
@@ -115,7 +115,6 @@ impl_byte_array_newtype!(BlockHeaderHash, u8, 32);
 impl_byte_array_serde!(BlockHeaderHash);
 pub const BLOCK_HEADER_HASH_ENCODED_SIZE: usize = 32;
 
-#[cfg(feature = "log")]
 impl slog::Value for BlockHeaderHash {
     fn serialize(
         &self,
@@ -225,7 +224,7 @@ impl PoxId {
                 break;
             }
             let i = bit - start;
-            if i > 0 && i % 8 == 0 {
+            if i > 0 && i.is_multiple_of(8) {
                 ret.push(0x00);
             }
 

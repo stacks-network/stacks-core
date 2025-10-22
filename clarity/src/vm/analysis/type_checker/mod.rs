@@ -20,7 +20,7 @@ pub mod v2_1;
 
 use stacks_common::types::StacksEpochId;
 
-use super::errors::{CheckErrors, CheckResult};
+use super::errors::{CheckError, CheckErrors};
 pub use super::types::{AnalysisPass, ContractAnalysis};
 use super::AnalysisDatabase;
 use crate::vm::costs::CostTracker;
@@ -34,7 +34,7 @@ impl FunctionType {
         args: &[TypeSignature],
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> CheckResult<TypeSignature> {
+    ) -> Result<TypeSignature, CheckError> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 self.check_args_2_05(accounting, args)
@@ -46,7 +46,8 @@ impl FunctionType {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => self.check_args_2_1(accounting, args, clarity_version),
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => self.check_args_2_1(accounting, args, clarity_version),
             StacksEpochId::Epoch10 => {
                 Err(CheckErrors::Expects("Epoch10 is not supported".into()).into())
             }
@@ -59,7 +60,7 @@ impl FunctionType {
         func_args: &[Value],
         epoch: StacksEpochId,
         clarity_version: ClarityVersion,
-    ) -> CheckResult<TypeSignature> {
+    ) -> Result<TypeSignature, CheckError> {
         match epoch {
             StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => {
                 self.check_args_by_allowing_trait_cast_2_05(db, func_args)
@@ -71,7 +72,8 @@ impl FunctionType {
             | StacksEpochId::Epoch25
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32 => {
+            | StacksEpochId::Epoch32
+            | StacksEpochId::Epoch33 => {
                 self.check_args_by_allowing_trait_cast_2_1(db, clarity_version, func_args)
             }
             StacksEpochId::Epoch10 => {
@@ -92,6 +94,6 @@ fn is_reserved_word_v3(word: &str) -> bool {
 pub fn is_reserved_word(word: &str, version: ClarityVersion) -> bool {
     match version {
         ClarityVersion::Clarity1 | ClarityVersion::Clarity2 => false,
-        ClarityVersion::Clarity3 => is_reserved_word_v3(word),
+        ClarityVersion::Clarity3 | ClarityVersion::Clarity4 => is_reserved_word_v3(word),
     }
 }

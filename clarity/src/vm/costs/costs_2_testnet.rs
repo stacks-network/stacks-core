@@ -745,4 +745,20 @@ impl CostValues for Costs2Testnet {
     fn cost_bitwise_right_shift(n: u64) -> InterpreterResult<ExecutionCost> {
         Err(RuntimeErrorType::NotImplemented.into())
     }
+
+    fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeErrorType::NotImplemented.into())
+    }
+
+    fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeErrorType::NotImplemented.into())
+    }
+
+    fn cost_restrict_assets(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeErrorType::NotImplemented.into())
+    }
+
+    fn cost_as_contract_safe(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeErrorType::NotImplemented.into())
+    }
 }

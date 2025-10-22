@@ -1381,7 +1381,7 @@ impl ConversationP2P {
         &mut self,
         chain_view: &BurnchainView,
         message: &mut StacksMessage,
-    ) -> Result<Option<StacksMessage>, net_error> {
+    ) -> StacksMessage {
         monitoring::increment_msg_counter("p2p_ping".to_string());
 
         let ping_data = match message.payload {
@@ -1389,12 +1389,12 @@ impl ConversationP2P {
             _ => panic!("Message is not a ping"),
         };
         let pong_data = PongData::from_ping(ping_data);
-        Ok(Some(StacksMessage::from_chain_view(
+        StacksMessage::from_chain_view(
             self.version,
             self.network_id,
             chain_view,
             StacksMessageType::Pong(pong_data),
-        )))
+        )
     }
 
     /// Handle an inbound GetNeighbors request.
@@ -1897,13 +1897,13 @@ impl ConversationP2P {
         naddr: NeighborAddress,
         chainstate: &mut StacksChainState,
         getchunkinv: &StackerDBGetChunkInvData,
-    ) -> Result<StacksMessageType, net_error> {
-        Ok(network.make_StackerDBChunksInv_or_Nack(
+    ) -> StacksMessageType {
+        network.make_StackerDBChunksInv_or_Nack(
             naddr,
             chainstate,
             &getchunkinv.contract_id,
             &getchunkinv.rc_consensus_hash,
-        ))
+        )
     }
 
     /// Handle an inbound StackerDBGetChunkInv request.
@@ -1920,7 +1920,7 @@ impl ConversationP2P {
             self.to_neighbor_address(),
             chainstate,
             getchunkinv,
-        )?;
+        );
         self.sign_and_reply(
             network.get_local_peer(),
             network.get_chain_view(),
@@ -1936,19 +1936,17 @@ impl ConversationP2P {
     fn make_stacker_db_getchunk_response(
         network: &PeerNetwork,
         getchunk: &StackerDBGetChunkData,
-    ) -> Result<StacksMessageType, net_error> {
+    ) -> StacksMessageType {
         let local_peer = network.get_local_peer();
         let burnchain_view = network.get_chain_view();
         let stacker_dbs = network.get_stackerdbs();
 
         if burnchain_view.rc_consensus_hash != getchunk.rc_consensus_hash {
             debug!(
-                "{:?}: NACK StackerDBGetChunk; {} != {}",
-                local_peer, &burnchain_view.rc_consensus_hash, &getchunk.rc_consensus_hash
+                "{local_peer:?}: NACK StackerDBGetChunk; {} != {}",
+                &burnchain_view.rc_consensus_hash, &getchunk.rc_consensus_hash
             );
-            return Ok(StacksMessageType::Nack(NackData::new(
-                NackErrorCodes::StaleView,
-            )));
+            return StacksMessageType::Nack(NackData::new(NackErrorCodes::StaleView));
         }
 
         let chunk = match stacker_dbs.get_chunk(
@@ -1963,40 +1961,36 @@ impl ConversationP2P {
                     stacker_dbs.get_slot_version(&getchunk.contract_id, getchunk.slot_id)
                 {
                     // request for a stale chunk
-                    debug!("{:?}: NACK StackerDBGetChunk; version mismatch for requested slot {}.{} for {}. Expected {}", local_peer, getchunk.slot_id, getchunk.slot_version, &getchunk.contract_id, actual_version);
+                    debug!("{local_peer:?}: NACK StackerDBGetChunk; version mismatch for requested slot {}.{} for {}. Expected {actual_version}", getchunk.slot_id, getchunk.slot_version, &getchunk.contract_id);
                     if actual_version > getchunk.slot_version {
-                        return Ok(StacksMessageType::Nack(NackData::new(
+                        return StacksMessageType::Nack(NackData::new(
                             NackErrorCodes::StaleVersion,
-                        )));
+                        ));
                     } else {
-                        return Ok(StacksMessageType::Nack(NackData::new(
+                        return StacksMessageType::Nack(NackData::new(
                             NackErrorCodes::FutureVersion,
-                        )));
+                        ));
                     }
                 }
                 // if we hit a DB error, just treat it as if the DB doesn't exist
                 debug!(
-                    "{:?}: NACK StackerDBGetChunk; unloadable slot {}.{} for {}",
-                    local_peer, getchunk.slot_id, getchunk.slot_version, &getchunk.contract_id
+                    "{local_peer:?}: NACK StackerDBGetChunk; unloadable slot {}.{} for {}",
+                    getchunk.slot_id, getchunk.slot_version, &getchunk.contract_id
                 );
-                return Ok(StacksMessageType::Nack(NackData::new(
-                    NackErrorCodes::NoSuchDB,
-                )));
+                return StacksMessageType::Nack(NackData::new(NackErrorCodes::NoSuchDB));
             }
             Err(e) => {
                 debug!(
-                    "{:?}: failed to get chunk for slot {}.{} for {}: {:?}",
-                    local_peer, getchunk.slot_id, getchunk.slot_version, &getchunk.contract_id, &e
+                    "{local_peer:?}: failed to get chunk for slot {}.{} for {}: {e:?}",
+                    getchunk.slot_id, getchunk.slot_version, &getchunk.contract_id
                 );
 
                 // most likely indicates that this DB doesn't exist
-                return Ok(StacksMessageType::Nack(NackData::new(
-                    NackErrorCodes::NoSuchDB,
-                )));
+                return StacksMessageType::Nack(NackData::new(NackErrorCodes::NoSuchDB));
             }
         };
 
-        Ok(StacksMessageType::StackerDBChunk(chunk))
+        StacksMessageType::StackerDBChunk(chunk)
     }
 
     /// Handle an inbound StackerDBGetChunk request
@@ -2007,7 +2001,7 @@ impl ConversationP2P {
         preamble: &Preamble,
         getchunk: &StackerDBGetChunkData,
     ) -> Result<ReplyHandleP2P, net_error> {
-        let response = ConversationP2P::make_stacker_db_getchunk_response(network, getchunk)?;
+        let response = ConversationP2P::make_stacker_db_getchunk_response(network, getchunk);
         self.sign_and_reply(
             network.get_local_peer(),
             network.get_chain_view(),
@@ -2530,18 +2524,18 @@ impl ConversationP2P {
             StacksMessageType::Handshake(_) => {
                 monitoring::increment_msg_counter("p2p_authenticated_handshake".to_string());
 
-                debug!("{:?}: Got Handshake", &self);
+                debug!("{self:?}: Got Handshake");
                 let (handshake_opt, handled) = self.handle_handshake(network, msg, true, ibd)?;
                 consume = handled;
                 Ok(handshake_opt)
             }
             StacksMessageType::HandshakeAccept(ref data) => {
-                debug!("{:?}: Got HandshakeAccept", &self);
+                debug!("{self:?}: Got HandshakeAccept");
                 self.handle_handshake_accept(network.get_chain_view(), &msg.preamble, data, None)
                     .map(|_| None)
             }
             StacksMessageType::StackerDBHandshakeAccept(ref data, ref db_data) => {
-                debug!("{:?}: Got StackerDBHandshakeAccept", &self);
+                debug!("{self:?}: Got StackerDBHandshakeAccept");
                 self.handle_handshake_accept(
                     network.get_chain_view(),
                     &msg.preamble,
@@ -2551,21 +2545,21 @@ impl ConversationP2P {
                 .map(|_| None)
             }
             StacksMessageType::Ping(_) => {
-                debug!("{:?}: Got Ping", &self);
+                debug!("{self:?}: Got Ping");
 
                 // consume here if unsolicited
                 consume = true;
-                self.handle_ping(network.get_chain_view(), msg)
+                Ok(Some(self.handle_ping(network.get_chain_view(), msg)))
             }
             StacksMessageType::Pong(_) => {
-                debug!("{:?}: Got Pong", &self);
+                debug!("{self:?}: Got Pong");
                 Ok(None)
             }
             StacksMessageType::NatPunchRequest(ref nonce) => {
                 if cfg!(test) && self.connection.options.disable_natpunch {
                     return Err(net_error::InvalidMessage);
                 }
-                debug!("{:?}: Got NatPunchRequest({})", &self, nonce);
+                debug!("{self:?}: Got NatPunchRequest({nonce})");
 
                 consume = true;
                 let msg = self.handle_natpunch_request(network.get_chain_view(), *nonce);
@@ -2575,13 +2569,12 @@ impl ConversationP2P {
                 if cfg!(test) && self.connection.options.disable_natpunch {
                     return Err(net_error::InvalidMessage);
                 }
-                debug!("{:?}: Got NatPunchReply({})", &self, _m.nonce);
+                debug!("{self:?}: Got NatPunchReply({})", _m.nonce);
                 Ok(None)
             }
             _ => {
                 debug!(
-                    "{:?}: Got a data-plane message (type {})",
-                    &self,
+                    "{self:?}: Got a data-plane message (type {})",
                     msg.payload.get_message_name()
                 );
                 Ok(None) // nothing to reply to at this time
@@ -3120,7 +3113,6 @@ mod test {
         let stackerdb = StackerDBs::connect(&stackerdb_path, true).unwrap();
 
         let first_burnchain_block_height = burnchain.first_block_height;
-        let first_burnchain_block_hash = burnchain.first_block_hash;
 
         let mut boot_data = ChainStateBootData::new(burnchain, vec![], None);
 
@@ -3222,20 +3214,20 @@ mod test {
             } else if i == chain_view.burn_stable_block_height {
                 next_snapshot.burn_header_hash = chain_view.burn_stable_block_hash.clone();
             } else {
-                next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32.clone());
+                next_snapshot.burn_header_hash = BurnchainHeaderHash(big_i_bytes_32);
             }
 
             next_snapshot.consensus_hash = ConsensusHash(big_i_bytes_20);
-            next_snapshot.sortition_id = SortitionId(big_i_bytes_32.clone());
+            next_snapshot.sortition_id = SortitionId(big_i_bytes_32);
             next_snapshot.parent_sortition_id = prev_snapshot.sortition_id.clone();
             next_snapshot.ops_hash = OpsHash::from_bytes(&big_i_bytes_32).unwrap();
-            next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32.clone());
-            next_snapshot.winning_block_txid = Txid(big_i_bytes_32.clone());
+            next_snapshot.winning_stacks_block_hash = BlockHeaderHash(big_i_bytes_32);
+            next_snapshot.winning_block_txid = Txid(big_i_bytes_32);
             next_snapshot.total_burn += 1;
             next_snapshot.sortition = true;
             next_snapshot.sortition_hash = next_snapshot
                 .sortition_hash
-                .mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32.clone()));
+                .mix_burn_header(&BurnchainHeaderHash(big_i_bytes_32));
             next_snapshot.num_sortitions += 1;
 
             let mut tx = SortitionHandleTx::begin(sortdb, &prev_snapshot.sortition_id).unwrap();

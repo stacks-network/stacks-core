@@ -142,7 +142,7 @@ impl NakamotoTenureDownloader {
         Self {
             tenure_id_consensus_hash,
             start_block_snapshot_consensus_hash,
-            tenure_start_block_id,
+            tenure_start_block_id: tenure_start_block_id.clone(),
             end_block_snapshot_consensus_hash,
             tenure_end_block_id,
             naddr,
@@ -150,7 +150,7 @@ impl NakamotoTenureDownloader {
             end_signer_keys,
             idle: false,
             state: NakamotoTenureDownloadState::GetTenureStartBlock(
-                tenure_start_block_id.clone(),
+                tenure_start_block_id,
                 get_epoch_time_ms(),
             ),
             tenure_start_block: None,
@@ -489,7 +489,7 @@ impl NakamotoTenureDownloader {
         &self,
         peerhost: PeerHost,
     ) -> Result<Option<StacksHttpRequest>, ()> {
-        let request = match self.state {
+        let request = match &self.state {
             NakamotoTenureDownloadState::GetTenureStartBlock(
                 start_block_id,
                 start_request_time,
@@ -530,7 +530,7 @@ impl NakamotoTenureDownloader {
         chainstate: &mut StacksChainState,
     ) -> Result<(), NetError> {
         loop {
-            match self.state {
+            match &self.state {
                 NakamotoTenureDownloadState::GetTenureStartBlock(
                     start_block_id,
                     start_request_time,
@@ -575,7 +575,7 @@ impl NakamotoTenureDownloader {
                             break;
                         };
 
-                        let tenure_start_block_id = StacksBlockId(coinbase_payload.0.clone());
+                        let tenure_start_block_id = StacksBlockId(coinbase_payload.0);
 
                         info!(
                             "Tenure {} starts at shadow tenure-start {}, not {}",
@@ -584,7 +584,7 @@ impl NakamotoTenureDownloader {
                         self.tenure_start_block_id = tenure_start_block_id.clone();
                         self.state = NakamotoTenureDownloadState::GetTenureStartBlock(
                             tenure_start_block_id,
-                            start_request_time,
+                            *start_request_time,
                         );
                         if let Some((tenure_start_block, _sz)) = chainstate
                             .nakamoto_blocks_db()
@@ -649,7 +649,7 @@ impl NakamotoTenureDownloader {
                             break;
                         };
 
-                        let tenure_end_block_id = StacksBlockId(coinbase_payload.0.clone());
+                        let tenure_end_block_id = StacksBlockId(coinbase_payload.0);
 
                         info!(
                             "Tenure {} ends at shadow tenure-start {}, not {}",
@@ -658,7 +658,7 @@ impl NakamotoTenureDownloader {
                         self.tenure_end_block_id = tenure_end_block_id.clone();
                         self.state = NakamotoTenureDownloadState::GetTenureEndBlock(
                             tenure_end_block_id,
-                            start_request_time,
+                            *start_request_time,
                         );
                         if let Some((tenure_end_block, _sz)) = chainstate
                             .nakamoto_blocks_db()
@@ -755,12 +755,12 @@ impl NakamotoTenureDownloader {
         &mut self,
         response: StacksHttpResponse,
     ) -> Result<Option<Vec<NakamotoBlock>>, NetError> {
-        let handle_result = match self.state {
+        let handle_result = match &self.state {
             NakamotoTenureDownloadState::GetTenureStartBlock(block_id, start_request_time) => {
                 debug!(
                     "Got download response for tenure-start block {} in {}ms",
                     &block_id,
-                    get_epoch_time_ms().saturating_sub(start_request_time)
+                    get_epoch_time_ms().saturating_sub(*start_request_time)
                 );
                 let block = response.decode_nakamoto_block().inspect_err(|e| {
                     warn!("Failed to decode response for a Nakamoto block: {e:?}")
@@ -772,7 +772,7 @@ impl NakamotoTenureDownloader {
                 debug!(
                     "Got download response to tenure-end block {} in {}ms",
                     &block_id,
-                    get_epoch_time_ms().saturating_sub(start_request_time)
+                    get_epoch_time_ms().saturating_sub(*start_request_time)
                 );
                 let block = response.decode_nakamoto_block().inspect_err(|e| {
                     warn!("Failed to decode response for a Nakamoto block: {e:?}")
@@ -784,7 +784,7 @@ impl NakamotoTenureDownloader {
                 debug!(
                     "Got download response for tenure blocks ending at {} in {}ms",
                     &end_block_id,
-                    get_epoch_time_ms().saturating_sub(start_request_time)
+                    get_epoch_time_ms().saturating_sub(*start_request_time)
                 );
                 let blocks = response.decode_nakamoto_tenure().inspect_err(|e| {
                     warn!("Failed to decode response for a Nakamoto tenure: {e:?}")

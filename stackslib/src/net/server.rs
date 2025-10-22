@@ -241,7 +241,7 @@ impl HttpPeer {
         };
 
         let mut new_convo = ConversationHttp::new(
-            client_addr.clone(),
+            client_addr,
             outbound_url.clone(),
             peer_host,
             &self.connection_opts,
@@ -420,7 +420,7 @@ impl HttpPeer {
         event_id: usize,
         client_sock: &mut mio_net::TcpStream,
         convo: &mut ConversationHttp,
-    ) -> Result<(bool, Vec<StacksMessageType>), net_error> {
+    ) -> (bool, Vec<StacksMessageType>) {
         // get incoming bytes and update the state of this conversation.
         let mut convo_dead = false;
         let recv_res = convo.recv(client_sock);
@@ -490,7 +490,7 @@ impl HttpPeer {
             }
         }
 
-        Ok((!convo_dead, msgs))
+        (!convo_dead, msgs)
     }
 
     /// Is an event in the process of connecting?
@@ -551,31 +551,20 @@ impl HttpPeer {
                 Some(ref mut convo) => {
                     // activity on a http socket
                     debug!("Process HTTP data from {convo:?}");
-                    match HttpPeer::process_http_conversation(
+                    let (alive, mut new_msgs) = HttpPeer::process_http_conversation(
                         node_state,
                         *event_id,
                         client_sock,
                         convo,
-                    ) {
-                        Ok((alive, mut new_msgs)) => {
-                            if !alive {
-                                debug!("HTTP convo {convo:?} is no longer alive");
-                                to_remove.push(*event_id);
-                            }
-                            msgs.append(&mut new_msgs);
-                        }
-                        Err(e) => {
-                            info!("Failed to process HTTP convo {convo:?}: {e:?}");
-                            to_remove.push(*event_id);
-                            continue;
-                        }
-                    };
+                    );
+                    if !alive {
+                        debug!("HTTP convo {convo:?} is no longer alive");
+                        to_remove.push(*event_id);
+                    }
+                    msgs.append(&mut new_msgs);
                 }
                 None => {
-                    debug!(
-                        "Rogue HTTP event {} for socket {:?}",
-                        event_id, &client_sock
-                    );
+                    debug!("Rogue HTTP event {event_id} for socket {client_sock:?}");
                     to_remove.push(*event_id);
                 }
             }
@@ -692,8 +681,8 @@ mod test {
         let view = peer.get_burnchain_view().unwrap();
         let (http_sx, http_rx) = sync_channel(1);
 
-        let network_id = peer.config.network_id;
-        let chainstate_path = peer.chainstate_path.clone();
+        let network_id = peer.config.chain_config.network_id;
+        let chainstate_path = peer.chain.chainstate_path.clone();
 
         let (num_events_sx, num_events_rx) = sync_channel(1);
         let http_thread = thread::spawn(move || {

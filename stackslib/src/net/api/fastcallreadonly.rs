@@ -19,7 +19,6 @@ use clarity::vm::analysis::CheckErrors;
 use clarity::vm::ast::parser::v1::CLARITY_NAME_REGEX;
 use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use clarity::vm::errors::Error as ClarityRuntimeError;
 use clarity::vm::errors::Error::Unchecked;
 use clarity::vm::representations::{CONTRACT_NAME_REGEX_STRING, STANDARD_PRINCIPAL_REGEX_STRING};
 use clarity::vm::types::PrincipalData;
@@ -222,21 +221,9 @@ impl RPCRequestHandler for RPCFastCallReadOnlyRequestHandler {
                     &sortdb.index_handle_at_block(chainstate, &tip)?,
                     &tip,
                     |clarity_tx| {
-                        let clarity_version = clarity_tx
-                            .with_analysis_db_readonly(|analysis_db| {
-                                analysis_db.get_clarity_version(&contract_identifier)
-                            })
-                            .map_err(|_| {
-                                ClarityRuntimeError::from(CheckErrors::NoSuchContract(format!(
-                                    "{}",
-                                    &contract_identifier
-                                )))
-                            })?;
-
                         clarity_tx.with_readonly_clarity_env(
                             mainnet,
                             chain_id,
-                            clarity_version,
                             sender,
                             sponsor,
                             LimitedCostTracker::new_free(),

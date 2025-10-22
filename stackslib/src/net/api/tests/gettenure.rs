@@ -34,7 +34,7 @@ use crate::net::ProtocolFamily;
 #[test]
 fn test_try_parse_request() {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
-    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+    let mut http = StacksHttp::new(addr, &ConnectionOptions::default());
 
     let request =
         StacksHttpRequest::new_get_nakamoto_tenure(addr.into(), StacksBlockId([0x11; 32]), None);
@@ -127,11 +127,11 @@ fn test_stream_nakamoto_tenure() {
     .is_err());
 
     let nakamoto_tip = {
-        let sortdb = peer.sortdb.take().unwrap();
+        let sortdb = peer.chain.sortdb.take().unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
         let ih = sortdb.index_handle(&tip.sortition_id);
         let nakamoto_tip = ih.get_nakamoto_tip().unwrap().unwrap();
-        peer.sortdb = Some(sortdb);
+        peer.chain.sortdb = Some(sortdb);
         nakamoto_tip
     };
 

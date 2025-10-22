@@ -18,7 +18,7 @@ use clarity::vm::clarity::ClarityConnection;
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::tests::symbols_from_values;
 use clarity::vm::types::{PrincipalData, StacksAddressExtensions, TupleData};
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity::vm::{ClarityName, ContractName, Value};
 use stacks_common::consts::SIGNER_SLOTS_PER_USER;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, StacksPrivateKey};
 use stacks_common::util::secp256k1::Secp256k1PublicKey;
@@ -350,8 +350,8 @@ pub fn prepare_signers_test<'a>(
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
-    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+    let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
 
     let blocks_and_sizes = peer.make_nakamoto_tenure(
         tenure_change_tx,
@@ -409,8 +409,8 @@ fn advance_blocks(
 
     tenure_change.tenure_consensus_hash = consensus_hash.clone();
     tenure_change.burn_view_consensus_hash = consensus_hash.clone();
-    let tenure_change_tx = peer.miner.make_nakamoto_tenure_change(tenure_change);
-    let coinbase_tx = peer.miner.make_nakamoto_coinbase(None, vrf_proof);
+    let tenure_change_tx = peer.chain.miner.make_nakamoto_tenure_change(tenure_change);
+    let coinbase_tx = peer.chain.miner.make_nakamoto_coinbase(None, vrf_proof);
     let recipient_addr = boot_code_addr(false);
     let blocks_and_sizes = peer.make_nakamoto_tenure(
         tenure_change_tx,
@@ -469,7 +469,6 @@ pub fn readonly_call_with_sortdb(
                     .with_readonly_clarity_env(
                         false,
                         0x80000000,
-                        ClarityVersion::Clarity2,
                         PrincipalData::from(boot_code_addr(false)),
                         None,
                         LimitedCostTracker::new_free(),
@@ -490,14 +489,14 @@ pub fn readonly_call_with_sortdb(
 
 pub fn get_signer_index(
     peer: &mut TestPeer<'_>,
-    latest_block_id: StacksBlockId,
-    signer_address: StacksAddress,
+    latest_block_id: &StacksBlockId,
+    signer_address: &StacksAddress,
     cycle_index: u128,
 ) -> u128 {
     let cycle_mod = cycle_index % 2;
     let signers = readonly_call(
         peer,
-        &latest_block_id,
+        latest_block_id,
         "signers".into(),
         "stackerdb-get-signer-slots-page".into(),
         vec![Value::UInt(cycle_mod)],

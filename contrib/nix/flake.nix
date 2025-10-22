@@ -85,8 +85,8 @@
               (lib.fileset.fileFilter (file: file.hasExt "clar") ../..)
               #
               (craneLib.fileset.commonCargoSources ../../clarity)
-              (craneLib.fileset.commonCargoSources ../../clarity-serialization)
-              ../../clarity-serialization/README.md
+              (craneLib.fileset.commonCargoSources ../../clarity-types)
+              ../../clarity-types/README.md
               (craneLib.fileset.commonCargoSources ../../libsigner)
               (craneLib.fileset.commonCargoSources ../../libstackerdb)
               (craneLib.fileset.commonCargoSources ../../pox-locking)
@@ -96,6 +96,9 @@
               (craneLib.fileset.commonCargoSources ../../stacks-node)
               (craneLib.fileset.commonCargoSources
                 ../tools/config-docs-generator)
+              (craneLib.fileset.commonCargoSources ../../contrib/stacks-inspect)
+              (craneLib.fileset.commonCargoSources ../../contrib/stacks-cli)
+              (craneLib.fileset.commonCargoSources ../../stacks-signer)
             ];
           };
 
@@ -116,6 +119,20 @@
           cargoFeatures = "--features monitoring_prom,slog_json";
           cargoExtraArgs = "${cargoFeatures}";
           src = fileSetForCrate ../..;
+        });
+
+        stacks-inspect = craneLib.buildPackage (individualCrateArgs // rec {
+          inherit version;
+          pname = "stacks-inspect";
+          cargoExtraArgs = "-p ${pname}";
+          src = fileSetForCrate ../../contrib/stacks-inspect;
+        });
+
+        stacks-cli = craneLib.buildPackage (individualCrateArgs // rec {
+          inherit version;
+          pname = "stacks-cli";
+          cargoExtraArgs = "-p ${pname}";
+          src = fileSetForCrate ../../contrib/stacks-cli;
         });
 
         stacks-node-app = {
@@ -141,7 +158,7 @@
         };
       in with pkgs; {
         packages = {
-          inherit stacks-signer stacks-core;
+          inherit stacks-signer stacks-core stacks-cli stacks-inspect;
           default = stacks-core;
         };
 
@@ -175,7 +192,7 @@
             set +x
           '';
 
-          packages = [ rust-analyzer bitcoind ]
+          packages = [ rust-analyzer bitcoind cargo-nextest ]
             ++ lib.optionals pkgs.stdenv.isDarwin [ ];
         };
       });

@@ -14,12 +14,11 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use hashbrown::HashMap;
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckError, CheckErrors, CheckResult};
+use crate::vm::analysis::errors::{CheckError, CheckErrors};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
@@ -65,7 +64,7 @@ impl TypeMap {
         &mut self,
         expr: &SymbolicExpression,
         type_sig: TypeSignature,
-    ) -> CheckResult<()> {
+    ) -> Result<(), CheckError> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 if map.insert(expr.id, type_sig).is_some() {
@@ -84,20 +83,6 @@ impl TypeMap {
         }
     }
 
-    /// Like set_type but forcing a change if already set
-    pub fn overwrite_type(&mut self, expr: &SymbolicExpression, type_sig: TypeSignature) {
-        if let TypeMapDataType::Map(ref mut map) = self.map {
-            map.insert(expr.id, type_sig);
-        }
-    }
-
-    pub fn get_type(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
-        match self.map {
-            TypeMapDataType::Map(ref map) => map.get(&expr.id),
-            _ => None,
-        }
-    }
-
     pub fn get_type_expected(&self, expr: &SymbolicExpression) -> Option<&TypeSignature> {
         match self.map {
             TypeMapDataType::Map(ref map) => map.get(&expr.id),
@@ -112,7 +97,7 @@ impl TypeMap {
     ///
     /// [concretize]: TypeSignature::concretize
     /// [ListUnionType]: TypeSignature::ListUnionType
-    pub fn concretize(&mut self) -> CheckResult<()> {
+    pub fn concretize(&mut self) -> Result<(), CheckError> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 for ty in map.values_mut() {
@@ -137,7 +122,7 @@ impl TypingContext<'_> {
         }
     }
 
-    pub fn extend(&self) -> CheckResult<TypingContext<'_>> {
+    pub fn extend(&self) -> Result<TypingContext<'_>, CheckError> {
         if self.depth >= MAX_CONTEXT_DEPTH {
             Err(CheckError::new(CheckErrors::MaxContextDepthReached))
         } else {
