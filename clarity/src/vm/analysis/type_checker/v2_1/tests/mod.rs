@@ -40,6 +40,7 @@ use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
 mod assets;
 pub mod contracts;
+pub mod conversions;
 mod post_conditions;
 
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
