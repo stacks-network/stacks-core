@@ -181,18 +181,18 @@ fn test_complex_trait_implementation_costs(
 
 #[test]
 fn test_build_cost_analysis_tree_function_definition() {
-    let source = r#"(define-public (somefunc (a uint))
+    let src = r#"(define-public (somefunc (a uint))
   (ok (+ a 1))
 )"#;
 
     let contract_id = QualifiedContractIdentifier::transient();
     let ast = ast::parse(
         &contract_id,
-        source,
+        src,
         ClarityVersion::Clarity3,
         StacksEpochId::Epoch32,
     )
-    .expect("Failed to parse source code");
+    .expect("Failed to parse");
 
     let expr = &ast[0];
     let user_args = UserArgumentsContext::new();
@@ -213,4 +213,26 @@ fn test_build_cost_analysis_tree_function_definition() {
             panic!("Expected Ok result, got error: {}", e);
         }
     }
+}
+
+#[test]
+fn test_dependent_function_calls() {
+    let src = r#"(define-public (add-one (a uint))
+  (begin
+    (print "somefunc")
+    (somefunc a)
+  )
+)
+(define-private (somefunc (a uint))
+  (ok (+ a 1))
+)"#;
+
+    let contract_id = QualifiedContractIdentifier::transient();
+    let function_map = static_cost(src, &ClarityVersion::Clarity3).unwrap();
+
+    let add_one_cost = function_map.get("add-one").unwrap();
+    let somefunc_cost = function_map.get("somefunc").unwrap();
+
+    assert!(add_one_cost.min.runtime >= somefunc_cost.min.runtime);
+    assert!(add_one_cost.max.runtime >= somefunc_cost.max.runtime);
 }

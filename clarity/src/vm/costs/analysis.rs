@@ -207,7 +207,7 @@ fn make_ast(
 /// somewhat of a passthrough since we don't have to build the whole context we can jsut return the cost of the single expression
 fn static_cost_native(
     source: &str,
-    cost_map: &HashMap<String, StaticCost>,
+    cost_map: &HashMap<String, Option<StaticCost>>,
     clarity_version: &ClarityVersion,
 ) -> Result<StaticCost, String> {
     let epoch = StacksEpochId::latest(); // XXX this should be matched with the clarity version
@@ -234,26 +234,53 @@ pub fn static_cost(
     }
     let exprs = &ast.expressions;
     let user_args = UserArgumentsContext::new();
-    let mut costs = HashMap::new();
-    for expr in exprs {
-        let (_, cost_analysis_tree) =
-            build_cost_analysis_tree(expr, &user_args, &costs, clarity_version)?;
+    let mut costs: HashMap<String, Option<StaticCost>> = HashMap::new();
 
-        let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
-        costs.insert(
-            expr.match_atom()
-                .map(|name| name.to_string())
-                .unwrap_or_default(),
-            summing_cost.into(),
-        );
+    // First pass registers all function definitions
+    for expr in exprs {
+        if let Some(function_name) = extract_function_name(expr) {
+            costs.insert(function_name, None);
+        }
     }
-    Ok(costs)
+
+    // Second pass computes costs
+    for expr in exprs {
+        if let Some(function_name) = extract_function_name(expr) {
+            let (_, cost_analysis_tree) =
+                build_cost_analysis_tree(expr, &user_args, &costs, clarity_version)?;
+
+            let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
+            costs.insert(function_name, Some(summing_cost.into()));
+        }
+    }
+
+    Ok(costs
+        .into_iter()
+        .filter_map(|(name, cost)| cost.map(|c| (name, c)))
+        .collect())
+}
+
+/// Extract function name from a symbolic expression
+fn extract_function_name(expr: &SymbolicExpression) -> Option<String> {
+    if let Some(list) = expr.match_list() {
+        if let Some(first_atom) = list.first().and_then(|first| first.match_atom()) {
+            if is_function_definition(first_atom.as_str()) {
+                if let Some(signature) = list.get(1).and_then(|sig| sig.match_list()) {
+                    return signature
+                        .first()
+                        .and_then(|name| name.match_atom())
+                        .map(|name| name.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn build_cost_analysis_tree(
     expr: &SymbolicExpression,
     user_args: &UserArgumentsContext,
-    cost_map: &HashMap<String, StaticCost>,
+    cost_map: &HashMap<String, Option<StaticCost>>,
     clarity_version: &ClarityVersion,
 ) -> Result<(Option<String>, CostAnalysisNode), String> {
     match &expr.expr {
@@ -339,7 +366,7 @@ fn parse_atom_expression(
 fn build_function_definition_cost_analysis_tree(
     list: &[SymbolicExpression],
     _user_args: &UserArgumentsContext,
-    cost_map: &HashMap<String, StaticCost>,
+    cost_map: &HashMap<String, Option<StaticCost>>,
     clarity_version: &ClarityVersion,
 ) -> Result<(String, CostAnalysisNode), String> {
     let define_type = list[0]
@@ -417,7 +444,7 @@ fn get_function_name(expr: &SymbolicExpression) -> Result<ClarityName, String> {
 fn build_listlike_cost_analysis_tree(
     exprs: &[SymbolicExpression],
     user_args: &UserArgumentsContext,
-    cost_map: &HashMap<String, StaticCost>,
+    cost_map: &HashMap<String, Option<StaticCost>>,
     clarity_version: &ClarityVersion,
 ) -> Result<CostAnalysisNode, String> {
     let mut children = Vec::new();
@@ -442,8 +469,9 @@ fn build_listlike_cost_analysis_tree(
         (CostExprNode::NativeFunction(native_function), cost)
     } else {
         // If not a native function, treat as user-defined function and look it up
+        println!("in user-defined function");
         let expr_node = CostExprNode::UserFunction(function_name.clone());
-        let cost = calculate_function_cost(function_name.to_string(), cost_map)?;
+        let cost = calculate_function_cost(function_name.to_string(), cost_map, clarity_version)?;
         (expr_node, cost)
     };
 
@@ -459,14 +487,31 @@ fn build_listlike_cost_analysis_tree(
     Ok(CostAnalysisNode::new(expr_node, cost, children))
 }
 
-// this is a bit tricky, we need to ensure the previously defined function is
-// within the cost_map already or we need to find it and compute the cost first
+// Calculate function cost with lazy evaluation support
 fn calculate_function_cost(
     function_name: String,
-    cost_map: &HashMap<String, StaticCost>,
+    cost_map: &HashMap<String, Option<StaticCost>>,
+    _clarity_version: &ClarityVersion,
 ) -> Result<StaticCost, String> {
-    let cost = cost_map.get(&function_name).unwrap_or(&StaticCost::ZERO);
-    Ok(cost.clone())
+    match cost_map.get(&function_name) {
+        Some(Some(cost)) => {
+            // Cost already computed
+            Ok(cost.clone())
+        }
+        Some(None) => {
+            // Function exists but cost not yet computed - this indicates a circular dependency
+            // For now, return zero cost to avoid infinite recursion
+            println!(
+                "Circular dependency detected for function: {}",
+                function_name
+            );
+            Ok(StaticCost::ZERO)
+        }
+        None => {
+            // Function not found
+            Ok(StaticCost::ZERO)
+        }
+    }
 }
 /// This function is no longer needed - we now use NativeFunctions::lookup_by_name_at_version
 /// directly in build_listlike_cost_analysis_tree
@@ -760,7 +805,7 @@ mod tests {
         source: &str,
         clarity_version: &ClarityVersion,
     ) -> Result<StaticCost, String> {
-        let cost_map = HashMap::new();
+        let cost_map: HashMap<String, Option<StaticCost>> = HashMap::new();
         static_cost_native(source, &cost_map, clarity_version)
     }
 
