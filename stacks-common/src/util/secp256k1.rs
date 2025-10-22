@@ -24,8 +24,6 @@ use k256::ecdsa::{
 use k256::elliptic_curve::generic_array::GenericArray;
 use k256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 use k256::{EncodedPoint, PublicKey as K256PublicKey, SecretKey as K256SecretKey};
-use serde::de::{Deserialize, Error as de_Error};
-use serde::Serialize;
 use thiserror::Error;
 
 use crate::types::{PrivateKey, PublicKey};
@@ -110,27 +108,19 @@ impl From<(K256Signature, K256RecoveryId)> for RecoverableSignature {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Secp256k1PublicKey {
-    // serde is broken for secp256k1, so do it ourselves
-    #[serde(
-        serialize_with = "secp256k1_pubkey_serialize",
-        deserialize_with = "secp256k1_pubkey_deserialize"
-    )]
     key: K256VerifyingKey,
     compressed: bool,
 }
+impl_byte_array_serde!(Secp256k1PublicKey);
 
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Secp256k1PrivateKey {
-    // serde is broken for secp256k1, so do it ourselves
-    #[serde(
-        serialize_with = "secp256k1_privkey_serialize",
-        deserialize_with = "secp256k1_privkey_deserialize"
-    )]
     key: K256SigningKey,
     compress_public: bool,
 }
+impl_byte_array_serde!(Secp256k1PrivateKey);
 
 impl Hash for Secp256k1PublicKey {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -471,56 +461,6 @@ impl PrivateKey for Secp256k1PrivateKey {
     }
 }
 
-fn secp256k1_pubkey_serialize<S: serde::Serializer>(
-    pubk: &K256VerifyingKey,
-    s: S,
-) -> Result<S::Ok, S::Error> {
-    let public_key = K256PublicKey::from(pubk);
-    let encoded_point = public_key.to_encoded_point(true); // always serialize as compressed
-    let key_hex = to_hex(encoded_point.as_bytes());
-    s.serialize_str(key_hex.as_str())
-}
-
-fn secp256k1_pubkey_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<K256VerifyingKey, D::Error> {
-    let key_hex = String::deserialize(d)?;
-    let key_bytes = hex_bytes(&key_hex).map_err(de_Error::custom)?;
-
-    let encoded_point = EncodedPoint::from_bytes(&key_bytes).map_err(de_Error::custom)?;
-    let public_key =
-        Option::<K256PublicKey>::from(K256PublicKey::from_encoded_point(&encoded_point))
-            .ok_or_else(|| de_Error::custom("Invalid public key"))?;
-    Ok(K256VerifyingKey::from(public_key))
-}
-
-fn secp256k1_privkey_serialize<S: serde::Serializer>(
-    privk: &K256SigningKey,
-    s: S,
-) -> Result<S::Ok, S::Error> {
-    let key_hex = to_hex(privk.to_bytes().as_slice());
-    s.serialize_str(key_hex.as_str())
-}
-
-fn secp256k1_privkey_deserialize<'de, D: serde::Deserializer<'de>>(
-    d: D,
-) -> Result<K256SigningKey, D::Error> {
-    let key_hex = String::deserialize(d)?;
-    let key_bytes = hex_bytes(&key_hex).map_err(de_Error::custom)?;
-
-    if key_bytes.len() != 32 {
-        return Err(de_Error::custom("Private key must be 32 bytes"));
-    }
-
-    let mut key_array = [0u8; 32];
-    key_array.copy_from_slice(&key_bytes);
-
-    let secret_key =
-        K256SecretKey::from_bytes(&GenericArray::from(key_array)).map_err(de_Error::custom)?;
-
-    Ok(K256SigningKey::from(secret_key))
-}
-
 /// Recovers a public key from a message hash and a recoverable signature.
 /// The returned public key is in compressed format (33 bytes).
 pub fn secp256k1_recover(
@@ -609,12 +549,39 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_serialize_compressed() {
+    fn to_rsv_rotates_recovery_byte() {
+        let mut bytes = [0u8; 65];
+        for (idx, slot) in bytes.iter_mut().enumerate() {
+            *slot = idx as u8;
+        }
+        let sig = MessageSignature(bytes);
+
+        let rsv = sig.to_rsv();
+
+        assert_eq!(rsv.len(), 65);
+        assert_eq!(rsv[0], 1, "R should start where VRS's R begins");
+        assert_eq!(rsv[63], 64, "S should end with last signature byte");
+        assert_eq!(rsv[64], 0, "V should move to the tail after rotation");
+    }
+
+    #[test]
+    fn test_privkey_parse_serialize_compressed() {
         let mut t1 = Secp256k1PrivateKey::random();
         t1.set_compress_public(true);
         let h_comp = t1.to_hex();
+        let json_comp = serde_json::to_string(&t1).unwrap();
+        assert_eq!(json_comp, format!("\"{h_comp}\""));
+        let deser_comp: Secp256k1PrivateKey = serde_json::from_str(&json_comp).unwrap();
+        assert_eq!(deser_comp.to_hex(), h_comp);
+        assert!(deser_comp.compress_public());
+
         t1.set_compress_public(false);
         let h_uncomp = t1.to_hex();
+        let json_uncomp = serde_json::to_string(&t1).unwrap();
+        assert_eq!(json_uncomp, format!("\"{h_uncomp}\""));
+        let deser_uncomp: Secp256k1PrivateKey = serde_json::from_str(&json_uncomp).unwrap();
+        assert_eq!(deser_uncomp.to_hex(), h_uncomp);
+        assert!(!deser_uncomp.compress_public());
 
         assert!(h_comp != h_uncomp);
         assert_eq!(h_comp.len(), 66);
@@ -636,6 +603,43 @@ mod tests {
         t1.set_compress_public(true);
 
         assert_eq!(Secp256k1PrivateKey::from_hex(&h_comp), Ok(t1));
+    }
+
+    #[test]
+    fn test_pubkey_parse_serialize_compressed() {
+        let privk = Secp256k1PrivateKey::random();
+        let mut pubk = Secp256k1PublicKey::from_private(&privk);
+
+        pubk.set_compressed(true);
+        let h_comp = pubk.to_hex();
+        let json_comp = serde_json::to_string(&pubk).unwrap();
+        assert_eq!(json_comp, format!("\"{}\"", h_comp));
+        let deser_comp: Secp256k1PublicKey = serde_json::from_str(&json_comp).unwrap();
+        assert_eq!(deser_comp.to_hex(), h_comp);
+        assert!(deser_comp.compressed());
+
+        pubk.set_compressed(false);
+        let h_uncomp = pubk.to_hex();
+        let json_uncomp = serde_json::to_string(&pubk).unwrap();
+        assert_eq!(json_uncomp, format!("\"{}\"", h_uncomp));
+        let deser_uncomp: Secp256k1PublicKey = serde_json::from_str(&json_uncomp).unwrap();
+        assert_eq!(deser_uncomp.to_hex(), h_uncomp);
+        assert!(!deser_uncomp.compressed());
+
+        assert!(h_comp != h_uncomp);
+        assert_eq!(h_comp.len(), 66);
+        assert_eq!(h_uncomp.len(), 130);
+
+        assert!(Secp256k1PublicKey::from_hex(&h_comp).unwrap().compressed());
+        assert!(!Secp256k1PublicKey::from_hex(&h_uncomp)
+            .unwrap()
+            .compressed());
+
+        assert_eq!(Secp256k1PublicKey::from_hex(&h_uncomp), Ok(pubk.clone()));
+
+        pubk.set_compressed(true);
+
+        assert_eq!(Secp256k1PublicKey::from_hex(&h_comp), Ok(pubk));
     }
 
     #[test]

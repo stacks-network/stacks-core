@@ -334,12 +334,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_serialize_compressed() {
+    fn test_privkey_parse_serialize_compressed() {
         let mut t1 = Secp256r1PrivateKey::random();
         t1.set_compress_public(true);
         let h_comp = t1.to_hex();
+        let json_comp = serde_json::to_string(&t1).unwrap();
+        assert_eq!(json_comp, format!("\"{h_comp}\""));
+        let deser_comp: Secp256r1PrivateKey = serde_json::from_str(&json_comp).unwrap();
+        assert_eq!(deser_comp.to_hex(), h_comp);
+        assert!(deser_comp.compress_public());
+
         t1.set_compress_public(false);
         let h_uncomp = t1.to_hex();
+        let json_uncomp = serde_json::to_string(&t1).unwrap();
+        assert_eq!(json_uncomp, format!("\"{h_uncomp}\""));
+        let deser_uncomp: Secp256r1PrivateKey = serde_json::from_str(&json_uncomp).unwrap();
+        assert_eq!(deser_uncomp.to_hex(), h_uncomp);
+        assert!(!deser_uncomp.compress_public());
 
         assert!(h_comp != h_uncomp);
         assert_eq!(h_comp.len(), 66);
@@ -361,6 +372,43 @@ mod tests {
         t1.set_compress_public(true);
 
         assert_eq!(Secp256r1PrivateKey::from_hex(&h_comp), Ok(t1));
+    }
+
+    #[test]
+    fn test_pubkey_parse_serialize_compressed() {
+        let privk = Secp256r1PrivateKey::random();
+        let mut pubk = Secp256r1PublicKey::from_private(&privk);
+
+        pubk.set_compressed(true);
+        let h_comp = pubk.to_hex();
+        let json_comp = serde_json::to_string(&pubk).unwrap();
+        assert_eq!(json_comp, format!("\"{}\"", h_comp));
+        let deser_comp: Secp256r1PublicKey = serde_json::from_str(&json_comp).unwrap();
+        assert_eq!(deser_comp.to_hex(), h_comp);
+        assert!(deser_comp.compressed());
+
+        pubk.set_compressed(false);
+        let h_uncomp = pubk.to_hex();
+        let json_uncomp = serde_json::to_string(&pubk).unwrap();
+        assert_eq!(json_uncomp, format!("\"{}\"", h_uncomp));
+        let deser_uncomp: Secp256r1PublicKey = serde_json::from_str(&json_uncomp).unwrap();
+        assert_eq!(deser_uncomp.to_hex(), h_uncomp);
+        assert!(!deser_uncomp.compressed());
+
+        assert!(h_comp != h_uncomp);
+        assert_eq!(h_comp.len(), 66);
+        assert_eq!(h_uncomp.len(), 130);
+
+        assert!(Secp256r1PublicKey::from_hex(&h_comp).unwrap().compressed());
+        assert!(!Secp256r1PublicKey::from_hex(&h_uncomp)
+            .unwrap()
+            .compressed());
+
+        assert_eq!(Secp256r1PublicKey::from_hex(&h_uncomp), Ok(pubk.clone()));
+
+        pubk.set_compressed(true);
+
+        assert_eq!(Secp256r1PublicKey::from_hex(&h_comp), Ok(pubk));
     }
 
     #[test]
