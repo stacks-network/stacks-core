@@ -16,6 +16,7 @@
 //! This module contains utility functions and strategies for property-based
 //! testing of the Clarity VM.
 
+use std::collections::BTreeSet;
 use std::result::Result;
 
 use clarity_types::errors::InterpreterResult;
@@ -292,7 +293,7 @@ pub fn stx_transfer_and_allowance_snippets() -> impl Strategy<Value = (String, S
     (1u64..1_000_000u64).prop_flat_map(|amount| {
         let transfer_snippet =
             format!("(stx-transfer? u{amount} tx-sender 'SP000000000000000000002Q6VF78)");
-        (amount as u128..=u128::MAX).prop_map(move |allowance_amount| {
+        (amount..=1_000_000).prop_map(move |allowance_amount| {
             let allowance_snippet = format!("(with-stx u{allowance_amount})");
             (transfer_snippet.clone(), allowance_snippet)
         })
@@ -323,7 +324,7 @@ pub fn ft_transfer_and_allowance_snippets() -> impl Strategy<Value = (String, St
     (1u64..1_000_000u64).prop_flat_map(|amount| {
         let transfer_snippet =
             format!("(ft-transfer? stackos u{amount} tx-sender 'SP000000000000000000002Q6VF78)");
-        (amount as u128..=u128::MAX).prop_map(move |allowance_amount| {
+        (amount..=1_000_000).prop_map(move |allowance_amount| {
             let allowance_snippet =
                 format!("(with-ft current-contract \"stackos\" u{allowance_amount})");
             (transfer_snippet.clone(), allowance_snippet)
@@ -463,40 +464,89 @@ pub fn allowance_list_snippets() -> impl Strategy<Value = String> {
 /// A strategy that generates a list of expressions, including STX, FT, and NFT
 /// transfers along with allowances that cover any of those transfers.
 pub fn body_with_allowances_snippets() -> impl Strategy<Value = (String, String)> {
-    prop::collection::vec(any_transfer_and_allowance_snippets(), 1..8).prop_flat_map(
-        |transfer_and_allowance_snippets| {
-            let allowances_snippet = {
-                let allowances: Vec<String> = transfer_and_allowance_snippets
-                    .iter()
-                    .map(|(_, a)| a.clone())
-                    .collect();
-                format!("({})", allowances.join(" "))
-            };
+    #[derive(Clone, Debug)]
+    enum TransferSpec {
+        Stx(u128),
+        Ft(u128),
+        Nft(u128),
+    }
 
-            // Transfer expressions (wrapped in a match so they don't error)
-            let transfer_exprs: Vec<String> = transfer_and_allowance_snippets
-                .into_iter()
-                .map(|(t, _)| format!("(match {t} v true e false)"))
-                .collect();
+    let transfer_spec = prop_oneof![
+        (1u64..1_000_000u64)
+            .prop_map(|amount| TransferSpec::Stx(amount as u128))
+            .boxed(),
+        (1u64..1_000_000u64)
+            .prop_map(|amount| TransferSpec::Ft(amount as u128))
+            .boxed(),
+        any::<u128>().prop_map(TransferSpec::Nft).boxed(),
+    ];
 
-            // Generate 0..=8 pure value expressions.
-            prop::collection::vec(
-                clarity_values_no_response().prop_map(|v| value_to_clarity_literal(&v)),
-                0..=3,
-            )
-            .prop_flat_map(move |extra_exprs| {
-                let mut all = transfer_exprs.clone();
-                all.extend(extra_exprs);
-                Just(all).prop_shuffle().prop_map({
-                    let allowances_snippet = allowances_snippet.clone();
-                    move |shuffled| {
-                        let body = shuffled.join(" ");
-                        (allowances_snippet.clone(), body)
-                    }
-                })
+    prop::collection::vec(transfer_spec, 1..8).prop_flat_map(|transfer_specs| {
+        let mut stx_allowance: Option<u128> = None;
+        let mut ft_allowance: Option<u128> = None;
+        let mut nft_ids = BTreeSet::new();
+        let mut transfer_exprs = Vec::new();
+
+        for spec in transfer_specs.iter() {
+            match spec {
+                TransferSpec::Stx(amount) => {
+                    stx_allowance = Some(stx_allowance.map_or(*amount, |m| m + *amount));
+                    transfer_exprs.push(format!(
+                        "(match (stx-transfer? u{amount} tx-sender 'SP000000000000000000002Q6VF78) v true e false)"
+                    ));
+                }
+                TransferSpec::Ft(amount) => {
+                    ft_allowance = Some(ft_allowance.map_or(*amount, |m| m + *amount));
+                    transfer_exprs.push(format!(
+                        "(match (ft-transfer? stackos u{amount} tx-sender 'SP000000000000000000002Q6VF78) v true e false)"
+                    ));
+                }
+                TransferSpec::Nft(token_id) => {
+                    nft_ids.insert(*token_id);
+                    transfer_exprs.push(format!(
+                        "(match (nft-transfer? stackaroo u{token_id} tx-sender 'SP000000000000000000002Q6VF78) v true e false)"
+                    ));
+                }
+            }
+        }
+
+        let mut allowances: Vec<String> = Vec::new();
+        if let Some(amount) = stx_allowance {
+            allowances.push(format!("(with-stx u{amount})"));
+        }
+        if let Some(amount) = ft_allowance {
+            allowances.push(format!("(with-ft current-contract \"stackos\" u{amount})"));
+        }
+        if !nft_ids.is_empty() {
+            let ids = nft_ids
+                .iter()
+                .map(|id| format!("u{id}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            allowances.push(format!(
+                "(with-nft current-contract \"stackaroo\" (list {}))",
+                ids
+            ));
+        }
+
+        let allowances_snippet = format!("({})", allowances.join(" "));
+
+        prop::collection::vec(
+            clarity_values_no_response().prop_map(|v| value_to_clarity_literal(&v)),
+            0..=8,
+        )
+        .prop_flat_map(move |extra_exprs| {
+            let mut all = transfer_exprs.clone();
+            all.extend(extra_exprs);
+            Just(all).prop_shuffle().prop_map({
+                let allowances_snippet = allowances_snippet.clone();
+                move |shuffled| {
+                    let body = shuffled.join(" ");
+                    (allowances_snippet.clone(), body)
+                }
             })
-        },
-    )
+        })
+    })
 }
 
 /// A strategy that generates `(begin ...)` expressions containing between

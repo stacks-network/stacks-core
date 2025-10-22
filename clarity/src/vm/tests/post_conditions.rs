@@ -1392,7 +1392,10 @@ fn test_restrict_assets_with_error_in_body() {
 
 /// Given the results of running a snippet with and without asset restrictions,
 /// assert that the results match and verify that the asset movements are as
-/// expected. `asset_check` is a closure that takes the unrestricted and
+/// expected. If `error_allowed` is true, then it's acceptable for both runs to
+/// error out with the same error, but if it is false, then only successful
+/// runs are allowed.
+/// `asset_check` is a closure that takes the unrestricted and
 /// restricted asset maps and returns a `Result<Option<Value>, TestCaseError>`.
 /// If it returns `Ok(Some(value))`, the test will assert that the restricted
 /// execution returned that value. If it returns `Ok(None)`, the test will
@@ -1403,14 +1406,20 @@ fn assert_results_match<F>(
     unrestricted_result: InterpreterResult<(Option<Value>, AssetMap)>,
     restricted_result: InterpreterResult<(Option<Value>, AssetMap)>,
     asset_check: F,
+    error_allowed: bool,
 ) -> TestCaseResult
 where
     F: Fn(&AssetMap, &AssetMap) -> Result<Option<Value>, TestCaseError>,
 {
     match (unrestricted_result, restricted_result) {
-        (Err(unrestricted_err), Err(restricted_err)) => {
+        (Err(unrestricted_err), Err(restricted_err)) if error_allowed => {
             prop_assert_eq!(unrestricted_err, restricted_err);
             Ok(())
+        }
+        (Err(unrestricted_err), Err(restricted_err)) => {
+            Err(TestCaseError::fail(format!(
+                "Both unrestricted and restricted execution failed, but errors are not allowed. Unrestricted error: {unrestricted_err:?}, Restricted error: {restricted_err:?}"
+            )))
         }
         (Err(unrestricted_err), Ok((restricted_result, _))) => {
             let detail = match restricted_result {
@@ -1517,6 +1526,7 @@ proptest! {
                     Ok(None)
                 }
             },
+            true,
         )
         .unwrap();
     }
@@ -1554,6 +1564,7 @@ proptest! {
                     Ok(None)
                 }
             },
+            true,
         )
         .unwrap();
     }
@@ -1592,6 +1603,7 @@ proptest! {
                     Ok(None)
                 }
             },
+            true,
         )
         .unwrap();
     }
@@ -1651,6 +1663,7 @@ proptest! {
                     Ok(None)
                 }
             },
+            true,
         )
         .unwrap();
     }
@@ -1668,6 +1681,7 @@ proptest! {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
                 Ok(None)
             },
+            true,
         )
         .unwrap();
     }
@@ -1688,6 +1702,7 @@ proptest! {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
                 Ok(None)
             },
+            false,
         )
         .unwrap();
     }
