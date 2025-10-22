@@ -1389,7 +1389,8 @@ const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
     description: "The `secp256k1-verify` function verifies that the provided signature of the message-hash
 was signed with the private key that generated the public key.
 The `message-hash` is typically the `sha256` of a message.
-The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.",
+The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.
+High-S signatures are rejected to enforce the canonical low-S form and prevent malleable signatures.",
     example: "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
  0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
@@ -1409,6 +1410,7 @@ const SECP256R1VERIFY_API: SpecialAPI = SpecialAPI {
     description: "The `secp256r1-verify` function verifies that the provided signature of the message-hash
 was signed with the private key that generated the public key.
 `message-hash` is typically the `sha256` of a message and `signature` is the raw 64-byte signature.
+High-S signatures are allowed.
 Note that this is NOT the Bitcoin (or default Stacks) signature scheme, secp256k1, but rather the
 NIST P-256 curve (also known as secp256r1).",
     example: "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8
