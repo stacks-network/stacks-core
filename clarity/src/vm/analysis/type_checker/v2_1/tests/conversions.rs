@@ -23,7 +23,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
 use crate::vm::tests::test_clarity_versions;
-use crate::vm::ClarityVersion;
+use crate::vm::{execute_with_parameters, ClarityVersion};
 
 /// Pass various types to `to-ascii?`
 #[apply(test_clarity_versions)]
@@ -107,6 +107,15 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
             )),
         ),
         (
+            // Note that this will result in a runtime error due to the emoji, but
+            // type-checking should pass.
+            "(to-ascii? u\"This is fine. \\u{1F605}\")",
+            "utf8 string with emoji",
+            Ok(to_ascii_response_type(
+                TypeSignature::new_ascii_type_checked(15),
+            )),
+        ),
+        (
             "(to-ascii? u\"I am serious, and don't call me Shirley.\")",
             "utf8 string",
             Ok(to_ascii_response_type(
@@ -180,5 +189,19 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         };
 
         assert_eq!(&actual, expected, "Failed for test case: {description}");
+
+        if let Ok(Some(expected_type)) = expected {
+            assert!(
+                expected_type
+                    .admits(
+                        &epoch,
+                        &execute_with_parameters(source, version, epoch, false)
+                            .expect("execution failed")
+                            .expect("no return value")
+                    )
+                    .expect("admits failed"),
+                "Expected type did not admit run time value for test case: {description}"
+            );
+        }
     }
 }
