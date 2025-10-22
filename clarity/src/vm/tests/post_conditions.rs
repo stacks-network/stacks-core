@@ -34,8 +34,8 @@ use super::proptest_utils::{
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
 use crate::vm::tests::proptest_utils::{
-    allowance_list_snippets, ft_mint_snippets, ft_transfer_snippets, match_response_snippets,
-    nft_mint_snippets, nft_transfer_snippets, try_response_snippets,
+    allowance_list_snippets, body_with_allowances_snippets, ft_mint_snippets, ft_transfer_snippets,
+    match_response_snippets, nft_mint_snippets, nft_transfer_snippets, try_response_snippets,
 };
 use crate::vm::ClarityVersion;
 
@@ -1523,7 +1523,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_errors_when_no_ft_allowance(
-        ft_mint in match_response_snippets(ft_mint_snippets()), ft_transfer in try_response_snippets(ft_transfer_snippets())
+        ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())), ft_transfer in try_response_snippets(ft_transfer_snippets())
     ) {
         let setup_code = format!("{TOKEN_DEFINITIONS} {ft_mint}");
         let body_program = format!(
@@ -1560,7 +1560,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_errors_when_no_nft_allowance(
-        nft_mint in match_response_snippets(nft_mint_snippets()), nft_transfer in try_response_snippets(nft_transfer_snippets())
+        nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())), nft_transfer in try_response_snippets(nft_transfer_snippets())
     ) {
         let setup_code = format!("{TOKEN_DEFINITIONS} {nft_mint}");
         let body_program = format!(
@@ -1661,6 +1661,26 @@ proptest! {
     ) {
         let snippet = format!("(as-contract? ((with-all-assets-unsafe)) {body})");
         let c3_snippet = format!("(as-contract {body})");
+        assert_results_match(
+            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3),
+            execute_and_return_asset_map(&snippet),
+            |unrestricted_assets, restricted_assets| {
+                prop_assert_eq!(unrestricted_assets, restricted_assets);
+                Ok(None)
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn prop_as_contract_with_transfers_and_allowances_matches_clarity3(
+        allowances_and_body in body_with_allowances_snippets(),
+        ft_mint in ft_mint_snippets("tx-sender".into()),
+        nft_mint in nft_mint_snippets("tx-sender".into()),
+    ) {
+        let (allowances, body) = allowances_and_body;
+        let snippet = format!("{TOKEN_DEFINITIONS}(as-contract? {allowances} {ft_mint} {nft_mint} {body})");
+        let c3_snippet = format!("{TOKEN_DEFINITIONS}(as-contract (begin {ft_mint} {nft_mint} {body}))");
         assert_results_match(
             execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3),
             execute_and_return_asset_map(&snippet),

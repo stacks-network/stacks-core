@@ -285,11 +285,25 @@ pub fn stx_transfer_snippets() -> impl Strategy<Value = String> {
     })
 }
 
+/// A strategy that generates STX transfer snippets with amounts between
+/// 1 and 1,000,000 micro-STX and a corresponding allowance to use with
+/// `as-contract?` or `restrict-assets?`.
+pub fn stx_transfer_and_allowance_snippets() -> impl Strategy<Value = (String, String)> {
+    (1u64..1_000_000u64).prop_flat_map(|amount| {
+        let transfer_snippet =
+            format!("(stx-transfer? u{amount} tx-sender 'SP000000000000000000002Q6VF78)");
+        (amount as u128..=u128::MAX).prop_map(move |allowance_amount| {
+            let allowance_snippet = format!("(with-stx u{allowance_amount})");
+            (transfer_snippet.clone(), allowance_snippet)
+        })
+    })
+}
+
 /// A strategy that generates FT mint snippets with amounts between
 /// 1 and 1,000,000 units of the token. The FT contract is always
 /// `current-contract` and the token name is always `stackos`.
-pub fn ft_mint_snippets() -> impl Strategy<Value = String> {
-    (1u64..1_000_000u64).prop_map(|amount| format!("(ft-mint? stackos u{amount} tx-sender)"))
+pub fn ft_mint_snippets(recipient: String) -> impl Strategy<Value = String> {
+    (1u64..1_000_000u64).prop_map(move |amount| format!("(ft-mint? stackos u{amount} {recipient})"))
 }
 
 /// A strategy that generates FT transfer snippets with amounts between
@@ -301,11 +315,27 @@ pub fn ft_transfer_snippets() -> impl Strategy<Value = String> {
     })
 }
 
+/// A strategy that generates FT transfer snippets with amounts between
+/// 1 and 1,000,000 units of the token and a corresponding allowance to use with
+/// `as-contract?` or `restrict-assets?`. The FT contract is always
+/// `current-contract` and the token name is always `stackos`.
+pub fn ft_transfer_and_allowance_snippets() -> impl Strategy<Value = (String, String)> {
+    (1u64..1_000_000u64).prop_flat_map(|amount| {
+        let transfer_snippet =
+            format!("(ft-transfer? stackos u{amount} tx-sender 'SP000000000000000000002Q6VF78)");
+        (amount as u128..=u128::MAX).prop_map(move |allowance_amount| {
+            let allowance_snippet =
+                format!("(with-ft current-contract \"stackos\" u{allowance_amount})");
+            (transfer_snippet.clone(), allowance_snippet)
+        })
+    })
+}
+
 /// A strategy that generates NFT mint snippets. The NFT contract is always
 /// `current-contract` and the token name is always `stackaroo`. A random
 /// `uint` identifier is generated for each snippet.
-pub fn nft_mint_snippets() -> impl Strategy<Value = String> {
-    any::<u128>().prop_map(|id| format!("(nft-mint? stackaroo u{id} tx-sender)"))
+pub fn nft_mint_snippets(recipient: String) -> impl Strategy<Value = String> {
+    any::<u128>().prop_map(move |id| format!("(nft-mint? stackaroo u{id} {recipient})"))
 }
 
 /// A strategy that generates NFT transfer snippets. The NFT contract is always
@@ -315,6 +345,39 @@ pub fn nft_transfer_snippets() -> impl Strategy<Value = String> {
     any::<u128>().prop_map(|id| {
         format!("(nft-transfer? stackaroo u{id} tx-sender 'SP000000000000000000002Q6VF78)")
     })
+}
+
+/// A strategy that generates NFT transfer snippets with a corresponding
+/// allowance to use with `as-contract?` or `restrict-assets?`. The NFT
+/// contract is always `current-contract` and the token name is always
+/// `stackaroo`. A random list of u128 IDs is generated for the allowance, then
+/// one of those is transferred.
+pub fn nft_transfer_and_allowance_snippets() -> impl Strategy<Value = (String, String)> {
+    prop::collection::vec(any::<u128>(), 1..=MAX_NFT_IDENTIFIERS as usize).prop_flat_map(|ids| {
+        let allowance_snippet = format!(
+            "(with-nft current-contract \"stackaroo\" (list {}))",
+            ids.iter()
+                .map(|id| format!("u{id}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+
+        // Choose one of those ids to transfer
+        prop::sample::select(ids).prop_map(move |transfer_id| {
+            let transfer_snippet = format!(
+                "(nft-transfer? stackaroo u{transfer_id} tx-sender 'SP000000000000000000002Q6VF78)"
+            );
+            (transfer_snippet, allowance_snippet.clone())
+        })
+    })
+}
+
+pub fn any_transfer_and_allowance_snippets() -> impl Strategy<Value = (String, String)> {
+    prop_oneof![
+        stx_transfer_and_allowance_snippets().boxed(),
+        ft_transfer_and_allowance_snippets().boxed(),
+        nft_transfer_and_allowance_snippets().boxed(),
+    ]
 }
 
 /// A strategy that generates a `try!`-wrapped version of the given
@@ -395,6 +458,45 @@ pub fn allowance_list_snippets() -> impl Strategy<Value = String> {
             format!("({})", allowances.join(" "))
         }
     })
+}
+
+/// A strategy that generates a list of expressions, including STX, FT, and NFT
+/// transfers along with allowances that cover any of those transfers.
+pub fn body_with_allowances_snippets() -> impl Strategy<Value = (String, String)> {
+    prop::collection::vec(any_transfer_and_allowance_snippets(), 1..8).prop_flat_map(
+        |transfer_and_allowance_snippets| {
+            let allowances_snippet = {
+                let allowances: Vec<String> = transfer_and_allowance_snippets
+                    .iter()
+                    .map(|(_, a)| a.clone())
+                    .collect();
+                format!("({})", allowances.join(" "))
+            };
+
+            // Transfer expressions (wrapped in a match so they don't error)
+            let transfer_exprs: Vec<String> = transfer_and_allowance_snippets
+                .into_iter()
+                .map(|(t, _)| format!("(match {t} v true e false)"))
+                .collect();
+
+            // Generate 0..=8 pure value expressions.
+            prop::collection::vec(
+                clarity_values_no_response().prop_map(|v| value_to_clarity_literal(&v)),
+                0..=3,
+            )
+            .prop_flat_map(move |extra_exprs| {
+                let mut all = transfer_exprs.clone();
+                all.extend(extra_exprs);
+                Just(all).prop_shuffle().prop_map({
+                    let allowances_snippet = allowances_snippet.clone();
+                    move |shuffled| {
+                        let body = shuffled.join(" ");
+                        (allowances_snippet.clone(), body)
+                    }
+                })
+            })
+        },
+    )
 }
 
 /// A strategy that generates `(begin ...)` expressions containing between
