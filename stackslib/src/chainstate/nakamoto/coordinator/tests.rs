@@ -3855,7 +3855,7 @@ fn nakamoto_coordinator_sip034_tenure_extensions_epoch_gated_3_3() {
                 Err(ChainstateError::InvalidStacksBlock(msg)) => {
                     let faulty_block_id = faulty_block_id.take().expect("Found more than one faulty block");
                     assert_eq!(faulty_block_id, block.block_id());
-                    assert!(msg.contains("Included tenure change payload with specific extend budget dimension, but unsupported by epoch"));
+                    assert!(msg.contains("Included tenure change cause ExtendedRuntime with specific extend budget dimension, but unsupported by epoch 3.2"));
                 }
                 Err(e) => {
                     panic!("Unexpected error {:?}", &e);
