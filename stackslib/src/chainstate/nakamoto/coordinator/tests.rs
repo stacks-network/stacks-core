@@ -3498,7 +3498,7 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
         );
 
         // the specified dimension of the 5th block in the tenure must be the same as the runtime
-        // dimension of the first block.  But the runtime costs from the first block up until the
+        // dimension of the first block.  But that dimension's costs from the first block up until the
         // 5th block must all increase.
         let first_block_cost = blocks_and_sizes[0].2.clone();
         let tc_block_cost = blocks_and_sizes[5].2.clone();
