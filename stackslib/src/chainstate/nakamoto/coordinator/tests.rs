@@ -3527,22 +3527,42 @@ pub fn simple_nakamoto_coordinator_sip034_tenure_extensions(
             TenureChangeCause::ExtendedReadCount => {
                 assert!(tc_block_cost.read_count < last_cost.read_count);
                 assert_eq!(tc_block_cost.read_count, first_block_cost.read_count);
+                assert!(tc_block_cost.runtime > last_cost.runtime);
+                assert!(tc_block_cost.read_length > last_cost.read_length);
+                assert!(tc_block_cost.write_count > last_cost.write_count);
+                assert!(tc_block_cost.write_length > last_cost.write_length);
             }
             TenureChangeCause::ExtendedReadLength => {
                 assert!(tc_block_cost.read_length < last_cost.read_length);
                 assert_eq!(tc_block_cost.read_length, first_block_cost.read_length);
+                assert!(tc_block_cost.runtime > last_cost.runtime);
+                assert!(tc_block_cost.read_count > last_cost.read_count);
+                assert!(tc_block_cost.write_count > last_cost.write_count);
+                assert!(tc_block_cost.write_length > last_cost.write_length);
             }
             TenureChangeCause::ExtendedWriteCount => {
                 assert!(tc_block_cost.write_count < last_cost.write_count);
                 assert_eq!(tc_block_cost.write_count, first_block_cost.write_count);
+                assert!(tc_block_cost.runtime > last_cost.runtime);
+                assert!(tc_block_cost.read_count > last_cost.read_count);
+                assert!(tc_block_cost.read_length > last_cost.read_length);
+                assert!(tc_block_cost.write_length > last_cost.write_length);
             }
             TenureChangeCause::ExtendedWriteLength => {
                 assert!(tc_block_cost.write_length < last_cost.write_length);
                 assert_eq!(tc_block_cost.write_length, first_block_cost.write_length);
+                assert!(tc_block_cost.runtime > last_cost.runtime);
+                assert!(tc_block_cost.read_count > last_cost.read_count);
+                assert!(tc_block_cost.read_length > last_cost.read_length);
+                assert!(tc_block_cost.write_count > last_cost.write_count);
             }
             TenureChangeCause::ExtendedRuntime => {
                 assert!(tc_block_cost.runtime < last_cost.runtime);
                 assert_eq!(tc_block_cost.runtime, first_block_cost.runtime);
+                assert!(tc_block_cost.read_count > last_cost.read_count);
+                assert!(tc_block_cost.read_length > last_cost.read_length);
+                assert!(tc_block_cost.write_count > last_cost.write_count);
+                assert!(tc_block_cost.write_length > last_cost.write_length);
             }
         }
 

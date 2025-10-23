@@ -1499,9 +1499,9 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
-                if payload.cause.is_tenure_extension_any() {
+                if !payload.cause.is_new_tenure() {
                     debug!(
-                        "TenureChange {:?} extends block tenure (confirms {} blocks)",
+                        "TenureChange {:?} extends existing block tenure (confirms {} blocks)",
                         &payload.cause, &payload.previous_tenure_blocks
                     );
                 }

@@ -79,7 +79,9 @@ use crate::chainstate::stacks::db::blocks::DummyEventDispatcher;
 use crate::chainstate::stacks::db::{
     DBConfig as ChainstateConfig, StacksChainState, StacksDBConn, StacksDBTx,
 };
-use crate::chainstate::stacks::{MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH};
+use crate::chainstate::stacks::{
+    TenureChangeCause, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+};
 use crate::clarity::vm::clarity::TransactionConnection;
 use crate::clarity_vm::clarity::{ClarityInstance, PreCommitClarityBlock};
 use crate::clarity_vm::database::SortitionDBRef;
@@ -1151,7 +1153,17 @@ impl NakamotoBlock {
             );
             return Err(err);
         };
-        if !tc_payload.cause.is_tenure_extension_any() {
+        let is_tenure_extension = match tc_payload.cause {
+            TenureChangeCause::BlockFound => false,
+            TenureChangeCause::Extended
+            | TenureChangeCause::ExtendedReadCount
+            | TenureChangeCause::ExtendedReadLength
+            | TenureChangeCause::ExtendedWriteCount
+            | TenureChangeCause::ExtendedWriteLength
+            | TenureChangeCause::ExtendedRuntime => true,
+        };
+
+        if !is_tenure_extension {
             // not a tenure-extend, and can't be valid since all other tenure-change types require
             // a coinbase (which is not present)
             warn!("Invalid block -- tenure tx cause is not an extension";
@@ -1663,6 +1675,11 @@ impl NakamotoBlock {
             || !StacksBlock::validate_transactions_network(&self.txs, mainnet)
             || !StacksBlock::validate_transactions_chain_id(&self.txs, chain_id)
         {
+            warn!("Block has duplicate transactions, invalid network, and/or invalid chain_id";
+                "consensus_hash" => %self.header.consensus_hash,
+                "stacks_block_hash" => %self.header.block_hash(),
+                "stacks_block_id" => %self.header.block_id()
+            );
             return false;
         }
         if self.is_wellformed_tenure_start_block().is_err() {
@@ -4097,7 +4114,7 @@ impl NakamotoChainState {
                     })?;
                 if !epoch.epoch_id.supports_specific_budget_extends() {
                     return Err(ChainstateError::InvalidStacksBlock(format!(
-                        "Included tenure change payload with specific extend budget dimension, but unsupported by epoch"
+                        "Included tenure change cause {tenure_cause:?} with specific extend budget dimension, but unsupported by epoch {}", &epoch.epoch_id
                     )));
                 }
             }

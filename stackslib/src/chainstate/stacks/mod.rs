@@ -754,19 +754,6 @@ impl TenureChangeCause {
         }
     }
 
-    /// Does this cause represent a tenure extension of any kind?
-    pub fn is_tenure_extension_any(&self) -> bool {
-        match self {
-            TenureChangeCause::BlockFound => false,
-            TenureChangeCause::Extended
-            | TenureChangeCause::ExtendedRuntime
-            | TenureChangeCause::ExtendedReadCount
-            | TenureChangeCause::ExtendedReadLength
-            | TenureChangeCause::ExtendedWriteCount
-            | TenureChangeCause::ExtendedWriteLength => true,
-        }
-    }
-
     /// Explicit equality check, so as to avoid any accidental incomplete equality checks with the
     /// new SIP-034 tenure change cause variants
     pub fn is_eq(&self, other: &Self) -> bool {
