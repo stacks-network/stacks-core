@@ -213,6 +213,11 @@ pub enum ExecutionTimeTracker {
     },
 }
 
+pub trait NativeFunctionsProfiler {
+    fn start(&mut self, identifier: &FunctionIdentifier, args: &Vec<Value>);
+    fn end(&mut self);
+}
+
 /** GlobalContext represents the outermost context for a single transaction's
      execution. It tracks an asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
@@ -1582,6 +1587,7 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
+            native_functions_profiler: None,
         }
     }
 

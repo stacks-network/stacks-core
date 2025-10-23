@@ -83,8 +83,18 @@ pub enum NativeHandle {
 }
 
 impl NativeHandle {
-    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> Result<Value> {
-        match self {
+    pub fn apply(
+        &self,
+        identifier: &FunctionIdentifier,
+        mut args: Vec<Value>,
+        env: &mut Environment,
+    ) -> Result<Value> {
+        println!("\n\nXYZ\n\n");
+        if let Some(profiler) = env.global_context.native_functions_profiler.take() {
+            profiler.start(identifier, &args);
+            env.global_context.native_functions_profiler = Some(profiler);
+        }
+        let result = match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
                 function(
@@ -104,7 +114,12 @@ impl NativeHandle {
             }
             Self::MoreArg(function) => function(args),
             Self::MoreArgEnv(function) => function(args, env),
+        };
+        if let Some(profiler) = env.global_context.native_functions_profiler.take() {
+            profiler.end();
+            env.global_context.native_functions_profiler = Some(profiler);
         }
+        result
     }
 }
 

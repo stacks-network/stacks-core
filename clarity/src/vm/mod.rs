@@ -227,6 +227,7 @@ pub fn apply(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
+    println!("\n\nAPPLY\n\n");
     let identifier = function.get_identifier();
     // Aaron: in non-debug executions, we shouldn't track a full call-stack.
     //        only enough to do recursion detection.
@@ -241,13 +242,24 @@ pub fn apply(
         return Err(RuntimeErrorType::MaxStackDepthReached.into());
     }
 
+    println!("\n\nAPPLY {:?}\n\n", identifier);
+
     if let CallableType::SpecialFunction(_, function) = function {
         env.call_stack.insert(&identifier, track_recursion);
+        if let Some(profiler) = env.global_context.native_functions_profiler.take() {
+            profiler.start(&identifier, &args);
+            env.global_context.native_functions_profiler = Some(profiler);
+        }
         let mut resp = function(args, env, context);
+        if let Some(profiler) = env.global_context.native_functions_profiler.take() {
+            profiler.end();
+            env.global_context.native_functions_profiler = Some(profiler);
+        }
         add_stack_trace(&mut resp, env);
         env.call_stack.remove(&identifier, track_recursion)?;
         resp
     } else {
+        println!("\n\nZZZZZZZZZZZZZZZZ\n\n");
         let mut used_memory = 0;
         let mut evaluated_args = Vec::with_capacity(args.len());
         env.call_stack.incr_apply_depth();
@@ -279,7 +291,7 @@ pub fn apply(
             CallableType::NativeFunction(_, function, cost_function) => {
                 runtime_cost(cost_function.clone(), env, evaluated_args.len())
                     .map_err(Error::from)
-                    .and_then(|_| function.apply(evaluated_args, env))
+                    .and_then(|_| function.apply(&identifier, evaluated_args, env))
             }
             CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
                 let cost_input = if env.epoch() >= &StacksEpochId::Epoch2_05 {
@@ -289,7 +301,7 @@ pub fn apply(
                 };
                 runtime_cost(cost_function.clone(), env, cost_input)
                     .map_err(Error::from)
-                    .and_then(|_| function.apply(evaluated_args, env))
+                    .and_then(|_| function.apply(&identifier, evaluated_args, env))
             }
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
             _ => return Err(InterpreterError::Expect("Should be unreachable.".into()).into()),
@@ -613,11 +625,16 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
+    use std::env;
+    use std::fs::File;
+
+    use clarity_types::types::{FunctionIdentifier, ResponseData};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
     use super::ClarityVersion;
     use crate::vm::callables::{DefineType, DefinedFunction};
+    use crate::vm::contexts::NativeFunctionsProfiler;
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
@@ -686,5 +703,79 @@ mod test {
             None,
         );
         assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
+    }
+
+    struct LinuxPerfProfiler {
+        hello: String,
+    }
+
+    impl NativeFunctionsProfiler for LinuxPerfProfiler {
+        fn start(&mut self, identifier: &FunctionIdentifier, args: &Vec<Value>) {
+            println!("AAA {:?}", identifier);
+            panic!("HEY");
+        }
+
+        fn end(&mut self) {
+            println!("BBB {}", self.hello);
+        }
+    }
+
+    #[test]
+    fn test_native_functions_benchmark() {
+        let Ok(json_path) = env::var("NATIVE_FUNCTIONS_BENCHMARK") else {
+            return;
+        };
+
+        println!("JSON {}", json_path);
+
+        let func_body = SymbolicExpression::list(vec![
+            SymbolicExpression::atom("to-ascii?".into()),
+            SymbolicExpression::atom_value(Value::Int(1)),
+        ]);
+
+        let context = LocalContext::new();
+        let contract_context = ContractContext::new(
+            QualifiedContractIdentifier::transient(),
+            ClarityVersion::Clarity4,
+        );
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            StacksEpochId::Epoch33,
+        );
+
+        let mut profiler = LinuxPerfProfiler {
+            hello: "Hey!".into(),
+        };
+
+        let mut call_stack = CallStack::new();
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+        env.global_context.native_functions_profiler = Some(&mut profiler);
+        let value = Value::string_ascii_from_bytes("1".into()).unwrap();
+        let response = Value::Response(ResponseData {
+            committed: true,
+            data: Box::new(value),
+        });
+
+        let hey = eval(&func_body, &mut env, &context);
+
+        //assert_eq!(Ok(response), eval(&func_body, &mut env, &context));
+
+        let file = File::create(json_path).unwrap();
+
+        let benchmark_value = serde_json::json!({"native_functions": ["a", "b"]});
+
+        serde_json::to_writer_pretty(file, &benchmark_value).unwrap();
     }
 }
