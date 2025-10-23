@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Changed
 
 - Renamed Clarity 4's new `block-time` to `stacks-block-time`
+- Improve cost-tracking for type-checking function arguments in epoch 3.3 (see [#6425](https://github.com/stacks-network/stacks-core/issues/6425))
 
 ## [3.2.0.0.2]
 

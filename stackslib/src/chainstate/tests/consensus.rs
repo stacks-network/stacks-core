@@ -12,8 +12,8 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
-use std::cell::LazyCell;
 use std::collections::{BTreeSet, HashMap};
+use std::sync::LazyLock;
 
 use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
@@ -62,7 +62,7 @@ pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65d
 pub const SK_3: &str = "cb95ddd0fe18ec57f4f3533b95ae564b3f1ae063dbf75b46334bd86245aef78501";
 
 /// The private key for the faucet account.
-pub const FAUCET_PRIV_KEY: LazyCell<StacksPrivateKey> = LazyCell::new(|| {
+pub static FAUCET_PRIV_KEY: LazyLock<StacksPrivateKey> = LazyLock::new(|| {
     StacksPrivateKey::from_hex("510f96a8efd0b11e211733c1ac5e3fa6f3d3fcdd62869e376c47decb3e14fea101")
         .expect("Failed to parse private key")
 });
@@ -606,35 +606,35 @@ fn epoch_3_0_onwards(first_burnchain_height: u64) -> EpochList {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 0,
             end_height: first_burnchain_height,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: first_burnchain_height,
             end_height: first_burnchain_height + 1,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: first_burnchain_height + 1,
             end_height: first_burnchain_height + 2,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: first_burnchain_height + 2,
             end_height: first_burnchain_height + 3,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: first_burnchain_height + 3,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_3_3,
         },
     ])
@@ -709,6 +709,8 @@ pub struct ExpectedTransactionOutput {
 pub struct ExpectedBlockOutput {
     /// The expected block marf
     pub marf_hash: TrieHash,
+    /// The epoch in which the test block was expected to be evaluated
+    pub evaluated_epoch: StacksEpochId,
     /// The expected outputs for each transaction, in input order.
     pub transactions: Vec<ExpectedTransactionOutput>,
     /// The total execution cost of the block.
@@ -735,25 +737,25 @@ impl ExpectedResult {
             Ok(epoch_receipt) => {
                 let transactions: Vec<ExpectedTransactionOutput> = epoch_receipt
                     .tx_receipts
-                    .iter()
+                    .into_iter()
                     .map(|r| {
-                        let tx = match &r.transaction {
-                            TransactionOrigin::Stacks(tx) => Some(tx.payload.clone()),
+                        let tx = match r.transaction {
+                            TransactionOrigin::Stacks(tx) => Some(tx.payload),
                             TransactionOrigin::Burn(..) => None,
                         };
                         ExpectedTransactionOutput {
                             tx,
-                            return_type: r.result.clone(),
-                            cost: r.execution_cost.clone(),
-                            vm_error: r.vm_error.clone(),
+                            return_type: r.result,
+                            cost: r.execution_cost,
+                            vm_error: r.vm_error,
                         }
                     })
                     .collect();
-                let total_block_cost = epoch_receipt.anchored_block_cost.clone();
                 ExpectedResult::Success(ExpectedBlockOutput {
                     marf_hash,
+                    evaluated_epoch: epoch_receipt.evaluated_epoch,
                     transactions,
-                    total_block_cost,
+                    total_block_cost: epoch_receipt.anchored_block_cost,
                 })
             }
             Err(e) => ExpectedResult::Failure(e.to_string()),
@@ -873,7 +875,7 @@ impl ConsensusTest<'_> {
             "--------- Processed block: {sig_hash} ---------";
             "block" => ?nakamoto_block
         );
-        let remapped_result = res.map(|receipt| receipt.unwrap()).into();
+        let remapped_result = res.map(|receipt| receipt.unwrap());
         // Restore chainstate for the next block
         self.chain.sortdb = Some(sortdb);
         self.chain.stacks_node = Some(stacks_node);
@@ -1009,14 +1011,14 @@ impl ConsensusTest<'_> {
     fn compute_block_marf_root_hash(
         &mut self,
         block_time: u64,
-        block_txs: &Vec<StacksTransaction>,
+        block_txs: &[StacksTransaction],
     ) -> Result<TrieHash, String> {
         let node = self.chain.stacks_node.as_mut().unwrap();
         let sortdb = self.chain.sortdb.as_ref().unwrap();
         let burndb_conn = sortdb.index_handle_at_tip();
         let chainstate = &mut node.chainstate;
 
-        let chain_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), &sortdb)
+        let chain_tip = NakamotoChainState::get_canonical_block_header(chainstate.db(), sortdb)
             .unwrap()
             .unwrap();
 
@@ -1039,7 +1041,7 @@ impl ConsensusTest<'_> {
             chain_tip.burn_header_height,
         );
         clarity_tx.rollback_block();
-        return result;
+        result
     }
 
     /// This is where the real MARF computation happens.
@@ -1049,7 +1051,7 @@ impl ConsensusTest<'_> {
     fn inner_compute_block_marf_root_hash(
         clarity_tx: &mut ClarityTx,
         block_time: u64,
-        block_txs: &Vec<StacksTransaction>,
+        block_txs: &[StacksTransaction],
         burn_header_height: u32,
     ) -> Result<TrieHash, String> {
         clarity_tx
