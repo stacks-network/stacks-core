@@ -57,7 +57,10 @@ use crate::cost_estimates::fee_scalar::ScalarFeeRateEstimator;
 use crate::cost_estimates::metrics::{CostMetric, ProportionalDotProduct, UnitMetric};
 use crate::cost_estimates::{CostEstimator, FeeEstimator, PessimisticEstimator, UnitEstimator};
 use crate::net::atlas::AtlasConfig;
-use crate::net::connection::{ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS};
+use crate::net::connection::{
+    ConnectionOptions, DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS,
+    DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
+};
 use crate::net::{Neighbor, NeighborAddress, NeighborKey};
 use crate::types::chainstate::BurnchainHeaderHash;
 use crate::types::EpochList;
@@ -126,6 +129,9 @@ const DEFAULT_TENURE_EXTEND_COST_THRESHOLD: u64 = 50;
 /// Default number of milliseconds that the miner should sleep between mining
 /// attempts when the mempool is empty.
 const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
+/// Default maximum execution time in seconds for a miner to process a transaction
+/// before timing out.
+const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
 
@@ -3040,7 +3046,7 @@ pub struct MinerConfig {
     /// transaction is skipped. This prevents potentially long-running or
     /// infinite-loop transactions from blocking block production.
     /// ---
-    /// @default: `None` (no execution time limit)
+    /// @default: Some([`DEFAULT_MAX_EXECUTION_TIME_SECS`])
     /// @units: seconds
     pub max_execution_time_secs: Option<u64>,
     /// TODO: remove this option when its no longer a testing feature and it becomes default behaviour
@@ -3103,7 +3109,7 @@ impl Default for MinerConfig {
                 rejections_timeouts_default_map.insert(30, Duration::from_secs(0));
                 rejections_timeouts_default_map
             },
-            max_execution_time_secs: None,
+            max_execution_time_secs: Some(DEFAULT_MAX_EXECUTION_TIME_SECS),
             replay_transactions: false,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
         }
@@ -3601,6 +3607,17 @@ pub struct ConnectionOptionsFile {
     /// @default: 30
     /// @units: seconds
     pub read_only_max_execution_time_secs: Option<u64>,
+
+    /// Maximum time (in seconds) to spend validating a block when processing
+    /// a block proposal received via the `/v3/block_proposal` RPC endpoint.
+    ///
+    /// If a block takes longer than this timeout to validate, it will be aborted.
+    /// This prevents the node from getting stuck on slow validations when processing
+    /// a block proposal.
+    /// ---
+    /// @default: [`DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS`]
+    /// @units: seconds
+    pub block_proposal_validation_timeout_secs: Option<u64>,
 }
 
 impl ConnectionOptionsFile {
@@ -3755,6 +3772,9 @@ impl ConnectionOptionsFile {
             read_only_max_execution_time_secs: self
                 .read_only_max_execution_time_secs
                 .unwrap_or(default.read_only_max_execution_time_secs),
+            block_proposal_validation_timeout_secs: self
+                .block_proposal_validation_timeout_secs
+                .unwrap_or(DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS),
             ..default
         })
     }
