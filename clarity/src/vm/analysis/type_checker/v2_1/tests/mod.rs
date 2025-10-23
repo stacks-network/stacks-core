@@ -43,6 +43,17 @@ pub mod contracts;
 pub mod conversions;
 mod post_conditions;
 
+const SECP256_MESSAGE_HASH: &str =
+    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+const SECP256K1_SIGNATURE: &str =
+    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40";
+const SECP256K1_SIGNATURE_TOO_LONG: &str =
+    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f4041";
+const SECP256K1_PUBLIC_KEY: &str =
+    "0xfffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0df";
+const SECP256R1_SIGNATURE: &str =
+    "0x000306090c0f1215181b1e2124272a2d303336393c3f4245484b4e5154575a5d606366696c6f7275787b7e8184878a8d909396999c9fa2a5a8abaeb1b4b7babd";
+
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
 pub fn mem_type_check(exp: &str) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     mem_run_analysis(
@@ -3855,5 +3866,194 @@ fn test_nested_bad_type_signature_syntax_bindings() {
     for (bad_code, expected_err) in bad.iter().zip(expected.iter()) {
         debug!("test nested bad syntax binding: '{}'", bad_code);
         assert_eq!(*expected_err, *type_check_helper(bad_code).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_secp256k1_recover_type_check() {
+    let good_expr = format!(
+        "(secp256k1-recover? {} {})",
+        SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE
+    );
+    let type_result = type_check_helper(&good_expr).unwrap();
+    assert_eq!("(response (buff 33) uint)", type_result.to_string());
+
+    let buffer_66_type = TypeSignature::SequenceType(BufferType(
+        BufferLength::try_from(66u32).expect("BufferLength::try_from failed"),
+    ));
+
+    let bad_cases = [
+        (
+            "(secp256k1-recover?)".to_string(),
+            CheckErrors::IncorrectArgumentCount(2, 0),
+        ),
+        (
+            format!(
+                "(secp256k1-recover? {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::IncorrectArgumentCount(2, 3),
+        ),
+        (
+            format!(
+                "(secp256k1-recover? {} {})",
+                SECP256K1_SIGNATURE, SECP256K1_SIGNATURE
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+        (
+            format!(
+                "(secp256k1-recover? {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE_TOO_LONG
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_65),
+                Box::new(buffer_66_type.clone()),
+            ),
+        ),
+    ];
+
+    for (bad_expr, expected_err) in bad_cases.iter() {
+        println!("checking bad expr: {}", bad_expr);
+        let result = type_check_helper(bad_expr);
+        assert!(
+            result.is_err(),
+            "expression `{}` unexpectedly type-checked",
+            bad_expr
+        );
+        assert_eq!(*expected_err, *result.unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_secp256k1_verify_type_check() {
+    let good_expr = format!(
+        "(secp256k1-verify {} {} {})",
+        SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
+    );
+    assert_eq!("bool", type_check_helper(&good_expr).unwrap().to_string());
+
+    let buffer_66_type = TypeSignature::SequenceType(BufferType(
+        BufferLength::try_from(66u32).expect("BufferLength::try_from failed"),
+    ));
+
+    let bad_cases = [
+        (
+            "(secp256k1-verify)".to_string(),
+            CheckErrors::IncorrectArgumentCount(3, 0),
+        ),
+        (
+            format!(
+                "(secp256k1-verify {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE
+            ),
+            CheckErrors::IncorrectArgumentCount(3, 2),
+        ),
+        (
+            format!(
+                "(secp256k1-verify {} {} {})",
+                SECP256K1_SIGNATURE, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+        (
+            format!(
+                "(secp256k1-verify {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE_TOO_LONG, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_65),
+                Box::new(buffer_66_type.clone()),
+            ),
+        ),
+        (
+            format!(
+                "(secp256k1-verify {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_SIGNATURE
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_33),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+    ];
+
+    for (bad_expr, expected_err) in bad_cases.iter() {
+        let result = type_check_helper(bad_expr);
+        assert!(
+            result.is_err(),
+            "expression `{}` unexpectedly type-checked",
+            bad_expr
+        );
+        assert_eq!(*expected_err, *result.unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_secp256r1_verify_type_check() {
+    let good_expr = format!(
+        "(secp256r1-verify {} {} {})",
+        SECP256_MESSAGE_HASH, SECP256R1_SIGNATURE, SECP256K1_PUBLIC_KEY
+    );
+    assert_eq!("bool", type_check_helper(&good_expr).unwrap().to_string());
+
+    let bad_cases = [
+        (
+            "(secp256r1-verify)".to_string(),
+            CheckErrors::IncorrectArgumentCount(3, 0),
+        ),
+        (
+            format!(
+                "(secp256r1-verify {} {})",
+                SECP256_MESSAGE_HASH, SECP256R1_SIGNATURE
+            ),
+            CheckErrors::IncorrectArgumentCount(3, 2),
+        ),
+        (
+            format!(
+                "(secp256r1-verify {} {} {})",
+                SECP256K1_SIGNATURE, SECP256R1_SIGNATURE, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+        (
+            format!(
+                "(secp256r1-verify {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_64),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+        (
+            format!(
+                "(secp256r1-verify {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256R1_SIGNATURE, SECP256K1_SIGNATURE
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_33),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+    ];
+
+    for (bad_expr, expected_err) in bad_cases.iter() {
+        let result = type_check_helper(bad_expr);
+        assert!(
+            result.is_err(),
+            "expression `{}` unexpectedly type-checked",
+            bad_expr
+        );
+        assert_eq!(*expected_err, *result.unwrap_err().err);
     }
 }

@@ -19,9 +19,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::thread::{self, JoinHandle};
-#[cfg(any(test, feature = "testing"))]
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
@@ -237,17 +235,18 @@ impl NakamotoBlockProposal {
         sortdb: SortitionDB,
         mut chainstate: StacksChainState,
         receiver: Box<dyn ProposalCallbackReceiver>,
+        timeout_secs: u64,
     ) -> Result<JoinHandle<()>, std::io::Error> {
         thread::Builder::new()
             .name("block-proposal".into())
             .spawn(move || {
-                let result =
-                    self.validate(&sortdb, &mut chainstate)
-                        .map_err(|reason| BlockValidateReject {
-                            signer_signature_hash: self.block.header.signer_signature_hash(),
-                            reason_code: reason.reason_code,
-                            reason: reason.reason,
-                        });
+                let result = self
+                    .validate(&sortdb, &mut chainstate, timeout_secs)
+                    .map_err(|reason| BlockValidateReject {
+                        signer_signature_hash: self.block.header.signer_signature_hash(),
+                        reason_code: reason.reason_code,
+                        reason: reason.reason,
+                    });
                 receiver.notify_proposal_result(result);
             })
     }
@@ -406,6 +405,7 @@ impl NakamotoBlockProposal {
         &self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
+        timeout_secs: u64,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
         #[cfg(any(test, feature = "testing"))]
         {
@@ -587,7 +587,18 @@ impl NakamotoBlockProposal {
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
+        let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
+
         for (i, tx) in self.block.txs.iter().enumerate() {
+            let now = Instant::now();
+            if now >= block_deadline {
+                return Err(BlockValidateRejectReason {
+                    reason: format!("Problematic tx {i}: execution time expired"),
+                    reason_code: ValidateRejectCode::BadTransaction,
+                });
+            }
+            let remaining = block_deadline.saturating_duration_since(now);
+
             let tx_len = tx.tx_len();
 
             let tx_result = builder.try_mine_tx_with_len(
@@ -595,7 +606,7 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
+                Some(remaining),
             );
             let err = match tx_result {
                 TransactionResult::Success(_) => Ok(()),
@@ -1036,7 +1047,14 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                     )
                 })?;
             let thread_info = block_proposal
-                .spawn_validation_thread(sortdb, chainstate, receiver)
+                .spawn_validation_thread(
+                    sortdb,
+                    chainstate,
+                    receiver,
+                    network
+                        .get_connection_opts()
+                        .block_proposal_validation_timeout_secs,
+                )
                 .map_err(|_e| {
                     (
                         TOO_MANY_REQUESTS_STATUS,
