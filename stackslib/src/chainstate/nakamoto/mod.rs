@@ -3479,6 +3479,12 @@ impl NakamotoChainState {
                         return Err(ChainstateError::TenureTooBigError);
                     }
                 };
+            } else {
+                warn!(
+                    "Unable to retrieve total tenure size";
+                    "consensus_hash" => %new_tip.consensus_hash,
+                    "parent_block_id" => %new_tip.parent_block_id,
+                );
             }
         }
 
