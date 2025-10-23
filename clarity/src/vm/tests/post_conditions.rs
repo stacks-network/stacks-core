@@ -1689,14 +1689,35 @@ proptest! {
     #[test]
     fn prop_as_contract_with_transfers_and_allowances_matches_clarity3(
         allowances_and_body in body_with_allowances_snippets(),
-        ft_mint in ft_mint_snippets("tx-sender".into()),
-        nft_mint in nft_mint_snippets("tx-sender".into()),
+        ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())),
+        nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())),
     ) {
         let (allowances, body) = allowances_and_body;
         let snippet = format!("{TOKEN_DEFINITIONS}(as-contract? {allowances} {ft_mint} {nft_mint} {body})");
         let c3_snippet = format!("{TOKEN_DEFINITIONS}(as-contract (begin {ft_mint} {nft_mint} {body}))");
         assert_results_match(
             execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3),
+            execute_and_return_asset_map(&snippet),
+            |unrestricted_assets, restricted_assets| {
+                prop_assert_eq!(unrestricted_assets, restricted_assets);
+                Ok(None)
+            },
+            false,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn prop_restrict_assets_with_transfers_and_allowances_ok(
+        allowances_and_body in body_with_allowances_snippets(),
+        ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())),
+        nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())),
+    ) {
+        let (allowances, body) = allowances_and_body;
+        let snippet = format!("{TOKEN_DEFINITIONS}(restrict-assets? tx-sender {allowances} {ft_mint} {nft_mint} {body})");
+        let simple_snippet = format!("{TOKEN_DEFINITIONS}(begin {ft_mint} {nft_mint} {body})");
+        assert_results_match(
+            execute_and_return_asset_map_versioned(&simple_snippet, ClarityVersion::Clarity3),
             execute_and_return_asset_map(&snippet),
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
