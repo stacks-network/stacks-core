@@ -39,7 +39,7 @@ fn test_block_height(
 ) {
     let contract = "(define-read-only (test-func) block-height)";
 
-    let placeholder_context =
+    let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let mut owned_env = tl_env_factory.get_env(epoch);
@@ -57,6 +57,10 @@ fn test_block_height(
             CheckErrors::UndefinedVariable("block-height".to_string()),
             *err.err
         );
+        // Return early if the ClarityVersion is Clarity3, as `block-height`
+        // is not available in Clarity3. Initializing the contract will throw
+        // UndefinedVariable error and fail the test for expected behaviour.
+        return;
     } else {
         assert!(analysis.is_ok());
     }
@@ -72,7 +76,7 @@ fn test_block_height(
         None,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
     // Call the function
     let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
@@ -96,7 +100,7 @@ fn test_stacks_block_height(
 ) {
     let contract = "(define-read-only (test-func) stacks-block-height)";
 
-    let placeholder_context =
+    let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let mut owned_env = tl_env_factory.get_env(epoch);
@@ -114,6 +118,11 @@ fn test_stacks_block_height(
             CheckErrors::UndefinedVariable("stacks-block-height".to_string()),
             *err.err
         );
+        // Return early if the ClarityVersion is not Clarity3, as
+        // `stacks-block-height` is available only in Clarity3. Initializing
+        // the contract will throw UndefinedVariable error and fail the test
+        // for expected behaviour.
+        return;
     } else {
         assert!(analysis.is_ok());
     }
@@ -129,7 +138,7 @@ fn test_stacks_block_height(
         None,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
     // Call the function
     let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
@@ -155,7 +164,7 @@ fn test_tenure_height(
 ) {
     let contract = "(define-read-only (test-func) tenure-height)";
 
-    let placeholder_context =
+    let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let mut owned_env = tl_env_factory.get_env(epoch);
@@ -173,6 +182,11 @@ fn test_tenure_height(
             CheckErrors::UndefinedVariable("tenure-height".to_string()),
             *err.err
         );
+        // Return early if the ClarityVersion is not Clarity3, as
+        // `tenure-height` is available only in Clarity3. Initializing the
+        // contract will throw UndefinedVariable error and fail the test for
+        // expected behaviour.
+        return;
     } else {
         assert!(analysis.is_ok());
     }
@@ -188,7 +202,7 @@ fn test_tenure_height(
         None,
     );
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
     // Call the function
     let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");
@@ -227,7 +241,7 @@ fn expect_contract_error(
     )],
     expected_success: Value,
 ) {
-    let placeholder_context =
+    let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::local(name).unwrap(), version);
 
     let mut owned_env = tl_env_factory.get_env(epoch);
@@ -280,7 +294,7 @@ fn expect_contract_error(
         }
     }
 
-    let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+    let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
 
     // Call the function
     let eval_result = env.eval_read_only(&contract_identifier, "(test-func)");

@@ -19,7 +19,6 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 #![cfg_attr(test, allow(unused_variables, unused_assignments))]
-
 #[allow(unused_imports)]
 #[macro_use(o, slog_log, slog_trace, slog_debug, slog_info, slog_warn, slog_error)]
 extern crate slog;
@@ -40,9 +39,16 @@ pub extern crate rstest_reuse;
 #[macro_use]
 extern crate stacks_common;
 
+#[cfg(feature = "rusqlite")]
+pub extern crate rusqlite;
+
+pub use stacks_common::address::{
+    C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
+    C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
+};
 pub use stacks_common::{
-    codec, consts, impl_array_hexstring_fmt, impl_array_newtype, impl_byte_array_message_codec,
-    impl_byte_array_serde, types, util,
+    address, codec, consts, impl_array_hexstring_fmt, impl_array_newtype,
+    impl_byte_array_message_codec, impl_byte_array_serde, types, util,
 };
 
 #[macro_use]

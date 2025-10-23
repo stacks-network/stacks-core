@@ -16,12 +16,14 @@
 
 use std::collections::{HashMap, HashSet};
 
+use clar2wasm::compile_contract;
 use clarity::vm::analysis::types::ContractAnalysis;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::diagnostic::DiagnosableError;
+use clarity::vm::errors::{Error as InterpreterError, WasmError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -1274,7 +1276,7 @@ impl StacksChainState {
                     clarity_version,
                     &contract_code_str,
                 );
-                let (contract_ast, contract_analysis) = match analysis_resp {
+                let (mut contract_ast, contract_analysis) = match analysis_resp {
                     Ok(x) => x,
                     Err(e) => {
                         match e {
@@ -1328,12 +1330,21 @@ impl StacksChainState {
                     .expect("BUG: total block cost decreased");
                 let sponsor = tx.sponsor_address().map(|a| a.to_account_principal());
 
+                debug!("Compiling the contract to wasm binary");
+                let mut module = compile_contract(contract_analysis.clone()).map_err(|e| {
+                    Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(
+                        e.message(),
+                    )))
+                })?;
+                contract_ast.wasm_module = Some(module.emit_wasm());
+
                 // execution -- if this fails due to a runtime error, then the transaction is still
                 // accepted, but the contract does not materialize (but the sender is out their fee).
                 let initialize_resp = clarity_tx.initialize_smart_contract(
                     &contract_id,
                     clarity_version,
-                    &contract_ast,
+                    &mut contract_ast,
+                    &contract_analysis,
                     &contract_code_str,
                     sponsor,
                     |asset_map, _| {
@@ -9988,6 +9999,20 @@ pub mod test {
 
         let signed_call_foo_tx_clar2 = signer.get_tx().unwrap();
 
+        // Build callable argument typed to the trait <foo>
+        let foo_impl_qci =
+            QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap();
+        let trait_id = TraitIdentifier::new(
+            StandardPrincipalData::from(addr.clone()),
+            ContractName::from("foo"),
+            ClarityName::from("foo"),
+        );
+        let callable_arg = Value::some(Value::CallableContract(CallableData {
+            contract_identifier: foo_impl_qci,
+            trait_identifier: Some(trait_id),
+        }))
+        .unwrap();
+
         let mut tx_test_call_foo = StacksTransaction::new(
             TransactionVersion::Testnet,
             auth,
@@ -9995,10 +10020,7 @@ pub mod test {
                 addr.clone(),
                 "call-foo",
                 "call-do-it",
-                vec![Value::some(Value::Principal(PrincipalData::Contract(
-                    QualifiedContractIdentifier::parse(&format!("{}.foo-impl", &addr)).unwrap(),
-                )))
-                .unwrap()],
+                vec![callable_arg],
             )
             .unwrap(),
         );

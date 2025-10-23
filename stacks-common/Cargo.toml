@@ -1,25 +1,16 @@
 [package]
 name = "stacks-common"
-version = "0.0.1"
+version = "0.0.2"
 authors = [
-    "Jude Nelson <jude@stacks.org>",
-    "Aaron Blankstein <aaron@blockstack.com>",
-    "Ludo Galabru <ludovic@blockstack.com>",
+  "Jude Nelson <jude@stacks.org>",
+  "Aaron Blankstein <aaron@blockstack.com>",
+  "Ludo Galabru <ludovic@blockstack.com>",
 ]
-license = "GPLv3"
+license = "GPL-3.0-only"
 homepage = "https://github.com/blockstack/stacks-blockchain"
 repository = "https://github.com/blockstack/stacks-blockchain"
-description = "Common modules for blockstack_lib, libclarity"
-keywords = [
-    "stacks",
-    "stx",
-    "bitcoin",
-    "crypto",
-    "blockstack",
-    "decentralized",
-    "dapps",
-    "blockchain",
-]
+description = "Common modules for stackslib, libclarity"
+keywords = ["stacks", "stx", "bitcoin", "crypto", "blockchain"]
 readme = "README.md"
 resolver = "2"
 edition = "2021"
@@ -31,8 +22,8 @@ path = "./src/libcommon.rs"
 
 [dependencies]
 chrono = { version = "0.4.41", default-features = false, features = ["clock"] }
-curve25519-dalek = { version = "4.1.3", default-features = false, features = ["serde"] }
-ed25519-dalek = { workspace = true }
+curve25519-dalek = { version = "4.1.3", default-features = false, features = ["serde"], optional = true }
+ed25519-dalek = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 lazy_static = { workspace = true }
 ripemd = { version = "0.1.1", default-features = false }
@@ -48,16 +39,29 @@ getrandom = { version = "0.2", default-features = false, optional = true }
 rand = { workspace = true, optional = true }
 slog-json = { version = "2.3.0", default-features = false, optional = true }
 
+# clarity-wasm
+sha2 = "0.10"
+percent-encoding = "2.1.0"
+libsecp256k1 = { version = "0.5.0", optional = true }
+rusqlite = { workspace = true, optional = true }
+
 [target.'cfg(unix)'.dependencies]
 nix = {version = "0.23", default-features = false, optional = true}
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = [
-    "consoleapi",
-    "handleapi",
-    "synchapi",
-    "winbase",
+  "consoleapi",
+  "handleapi",
+  "synchapi",
+  "winbase",
 ], optional = true }
+
+[target.'cfg(windows)'.dev-dependencies]
+winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
+
+[dependencies.time]
+version = "0.3.34"
+features = ["std"]
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 secp256k1 = { version = "0.24.3", default-features = false, features = ["std","serde", "recovery"] }
@@ -66,23 +70,21 @@ rusqlite = { workspace = true, optional = true }
 [target.'cfg(target_family = "wasm")'.dependencies]
 libsecp256k1 = { version = "0.7.2", default-features = false, features = ["hmac", "lazy-static-context"] }
 
+[dev-dependencies]
+rand_core = { workspace = true }
+proptest = "1.6.0"
+
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
 
 [target.'cfg(any(not(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64")), any(target_os="windows")))'.dependencies]
 sha2 = { version = "0.10" }
 
-[dev-dependencies]
-proptest = "1.6.0"
-
-[target.'cfg(windows)'.dev-dependencies]
-winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
-
 [build-dependencies]
 toml = { workspace = true }
 
 [features]
-default = ["developer-mode", "ctrlc-handler", "rand"]
+default = ["rusqlite", "vrf", "developer-mode", "ctrlc-handler", "rand"]
 developer-mode = []
 # Enables graceful shutdown handling for Ctrl+C (SIGINT) signals.
 # This pulls in the `nix` or `winapi` dependency.
@@ -96,7 +98,8 @@ serde = []
 testing = ["rand"]
 bech32_std = []
 bech32_strict = []
-
+vrf = ["ed25519-dalek", "curve25519-dalek"]
+wasm = ["developer-mode", "getrandom"]
 # Wasm-specific features for easier configuration
 wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context"]
 wasm-deterministic = ["getrandom/custom"]

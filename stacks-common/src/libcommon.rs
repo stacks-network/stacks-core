@@ -37,6 +37,7 @@ pub mod deps_common {
     pub mod ctrlc;
 }
 
+#[cfg(not(feature = "wasm"))]
 pub mod bitvec;
 
 pub mod consts {

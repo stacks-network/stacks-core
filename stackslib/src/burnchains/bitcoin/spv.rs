@@ -743,7 +743,7 @@ impl SpvClient {
         header: BlockHeader,
         height: u64,
     ) -> Result<(), btc_error> {
-        let sql = "INSERT OR REPLACE INTO headers 
+        let sql = "INSERT OR REPLACE INTO headers
         (version, prev_blockhash, merkle_root, time, bits, nonce, height, hash)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)";
         let args = params![
@@ -994,7 +994,7 @@ impl SpvClient {
             Some(child_header) => {
                 // contiguous?
                 if last_block_header.header.bitcoin_hash() != child_header.header.prev_blockhash {
-                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})", 
+                    warn!("Received discontiguous headers at height {}: we have child {:?} ({}), but were given {:?} ({})",
                           end_height, &child_header, child_header.header.bitcoin_hash(), &last_block_header, &last_block_header.header.bitcoin_hash());
                     return Err(btc_error::NoncontiguousHeader);
                 }

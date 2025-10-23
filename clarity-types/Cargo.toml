@@ -19,12 +19,15 @@ serde_derive = { workspace = true }
 slog = { workspace = true }
 stacks_common = { package = "stacks-common", path = "../stacks-common", default-features = false }
 
+# clarity-wasm
+wasmtime = { version = "15.0.0", optional = true }
+
 [dev-dependencies]
 mutants = "0.0.3"
 rstest = "0.17.0"
 
 [features]
-default = []
+default = ["clarity-wasm"]
 testing = []
 developer-mode = ["stacks_common/developer-mode"]
 slog_json = ["stacks_common/slog_json"]
@@ -33,3 +36,6 @@ rusqlite = ["stacks_common/rusqlite", "dep:rusqlite", "dep:serde_json"]
 # Wasm-specific features for easier configuration
 wasm-web = ["stacks_common/wasm-web"]
 wasm-deterministic = ["stacks_common/wasm-deterministic"]
+
+# clarity-wasm
+clarity-wasm = ["wasmtime"]

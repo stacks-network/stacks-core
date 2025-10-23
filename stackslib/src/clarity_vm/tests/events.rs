@@ -268,6 +268,9 @@ fn test_emit_stx_burn_nok() {
     assert!(events.is_empty());
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
+#[cfg(not(feature = "clarity-wasm"))]
 #[test]
 fn test_emit_nested_print_nok() {
     let contract = "(define-public (emit-event-nok)
@@ -277,6 +280,23 @@ fn test_emit_nested_print_nok() {
         (define-public (emit-event-ok)
             (begin
                 (emit-event-nok)
+                (print \"foo\")
+                (ok u1)))";
+
+    let (value, events) = helper_execute(contract, "emit-event-ok");
+    assert_eq!(value, Value::okay(Value::UInt(1)).unwrap());
+    assert_eq!(events.len(), 1);
+}
+
+#[test]
+fn test_emit_nested_print_nok_valid_contract() {
+    let contract = "(define-public (emit-event-nok)
+            (begin
+                (print \"bar\")
+                (err u1)))
+        (define-public (emit-event-ok)
+            (begin
+                (unwrap-err! (emit-event-nok) (err u1))
                 (print \"foo\")
                 (ok u1)))";
 

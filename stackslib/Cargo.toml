@@ -28,8 +28,9 @@ rand_core = { workspace = true }
 rand_chacha = { workspace = true }
 serde = "1"
 serde_derive = "1"
+sha3 = "0.10.1"
 ripemd = "0.1.1"
-regex = "1"
+regex = "1.9.3"
 mio = "0.6"
 lazy_static = "1.4.0"
 url = "2.1.0"
@@ -43,8 +44,9 @@ pox-locking = { path = "../pox-locking" }
 libstackerdb = { path = "../libstackerdb" }
 siphasher = "0.3.7"
 rusqlite = { workspace = true }
-time = "0.3.41"
+time = { version = "0.3.41", features = ["std"] }
 toml = { workspace = true }
+clar2wasm = { git = "https://github.com/stx-labs/clarity-wasm.git", branch = "sync-wasm-develop"}
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -69,9 +71,9 @@ workspace = true
 [dev-dependencies]
 assert-json-diff = "1.0.0"
 stdext = "0.3.1"
-stx-genesis = { path = "../stx-genesis"}
-clarity = { features = ["default", "testing"], path = "../clarity" }
-stacks-common = { features = ["default", "testing"], path = "../stacks-common" }
+stx-genesis = { path = "../stx-genesis" }
+clarity = { path = "../clarity", features = ["default", "testing"] }
+stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
 rstest = "0.17.0"
 rstest_reuse = "0.5.0"
 mutants = "0.0.3"
@@ -82,12 +84,13 @@ proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 insta = { version = "1.37.0", features = ["ron"] }
 
 [features]
-default = []
+default = ["clarity-wasm"]
 profile-sqlite = []
 disable-costs = []
 developer-mode = ["clarity/developer-mode"]
 monitoring_prom = ["prometheus"]
 slog_json = ["stacks-common/slog_json", "clarity/slog_json", "pox-locking/slog_json"]
+clarity-wasm = []
 testing = ["chrono", "stacks-common/testing", "clarity/testing"]
 
 [target.'cfg(all(any(target_arch = "x86_64", target_arch = "x86", target_arch = "aarch64"), not(any(target_os="windows"))))'.dependencies]

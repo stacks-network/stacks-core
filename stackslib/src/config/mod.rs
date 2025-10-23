@@ -1722,9 +1722,9 @@ pub const EPOCH_CONFIG_3_3_0: &str = "3.3";
 #[serde(deny_unknown_fields)]
 pub struct BurnchainConfigFile {
     pub chain: Option<String>,
-    pub mode: Option<String>,
     pub chain_id: Option<u32>,
     pub burn_fee_cap: Option<u64>,
+    pub mode: Option<String>,
     pub commit_anchor_block_within: Option<u64>,
     pub peer_host: Option<String>,
     pub peer_port: Option<u16>,

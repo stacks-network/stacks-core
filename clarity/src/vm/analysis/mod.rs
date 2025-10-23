@@ -37,8 +37,6 @@ pub use self::types::{AnalysisPass, ContractAnalysis};
 #[cfg(feature = "rusqlite")]
 use crate::vm::ast::build_ast;
 use crate::vm::costs::LimitedCostTracker;
-#[cfg(feature = "rusqlite")]
-use crate::vm::database::MemoryBackingStore;
 use crate::vm::database::STORE_CONTRACT_SRC_INTERFACE;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::QualifiedContractIdentifier;
@@ -58,7 +56,7 @@ pub fn mem_type_check(
         .map_err(|_| CheckErrors::Expects("Failed to build AST".into()))?
         .expressions;
 
-    let mut marf = MemoryBackingStore::new();
+    let mut marf = crate::vm::database::MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
     let cost_tracker = LimitedCostTracker::new_free();
     match run_analysis(

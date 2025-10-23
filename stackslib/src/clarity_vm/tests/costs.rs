@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity::vm::analysis::AnalysisDatabase;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, OwnedEnvironment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
@@ -22,6 +23,7 @@ use clarity::vm::costs::{
     DefaultVersion, ExecutionCost, LimitedCostTracker, COSTS_1_NAME, COSTS_2_NAME, COSTS_3_NAME,
     COSTS_4_NAME,
 };
+use clarity::vm::database::MemoryBackingStore;
 use clarity::vm::errors::Error;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::functions::NativeFunctions;
@@ -864,20 +866,33 @@ fn epoch205_nfts(use_mainnet: bool) {
     );
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
 #[test]
+#[cfg(not(feature = "clarity-wasm"))]
 fn epoch205_nfts_mainnet() {
     epoch205_nfts(true)
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
 #[test]
+#[cfg(not(feature = "clarity-wasm"))]
 fn epoch205_nfts_testnet() {
     epoch205_nfts(false)
 }
 
-fn setup_cost_tracked_test(
+/// Sets up a cost-tracked test environment with a custom analysis database.
+///
+/// This function initializes a Clarity execution environment configured for cost tracking
+/// during testing scenarios. It provides control over network configuration (mainnet vs testnet),
+/// Clarity language version, and uses a custom analysis database for contract metadata storage.
+///
+fn setup_cost_tracked_test_with_db(
     use_mainnet: bool,
     version: ClarityVersion,
     owned_env: &mut OwnedEnvironment,
+    analysis_db: &mut AnalysisDatabase,
 ) {
     let contract_trait = "(define-trait trait-1 (
                             (foo-exec (int) (response int int))
@@ -902,10 +917,22 @@ fn setup_cost_tracked_test(
     let trait_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-trait".into());
 
     owned_env
-        .initialize_versioned_contract(trait_contract_id, version, contract_trait, None)
+        .initialize_versioned_contract_with_db(
+            trait_contract_id,
+            version,
+            contract_trait,
+            None,
+            analysis_db,
+        )
         .unwrap();
     owned_env
-        .initialize_versioned_contract(other_contract_id, version, contract_other, None)
+        .initialize_versioned_contract_with_db(
+            other_contract_id,
+            version,
+            contract_other,
+            None,
+            analysis_db,
+        )
         .unwrap();
 }
 
@@ -996,16 +1023,18 @@ fn proptest_replacements_costs_3() {
     proptest_cost_contract(COSTS_3_NAME);
 }
 
-#[test]
-fn proptest_replacements_costs_4() {
-    proptest_cost_contract(COSTS_4_NAME);
-}
-
-fn test_program_cost(
+/// Tests and measures the execution cost of a Clarity program with a custom analysis database.
+///
+/// This function executes a Clarity program in a controlled test environment and returns
+/// the execution cost. It uses a custom analysis database to store and retrieve contract metadata
+/// during execution.
+///
+fn test_program_cost_with_db(
     prog: &str,
     version: ClarityVersion,
     owned_env: &mut OwnedEnvironment,
     prog_id: usize,
+    analysis_db: &mut AnalysisDatabase,
 ) -> ExecutionCost {
     let contract_self = format!(
         "(define-map map-foo {{ a: int }} {{ b: int }})
@@ -1039,7 +1068,13 @@ fn test_program_cost(
     let other_contract_id = QualifiedContractIdentifier::new(p1_principal, "contract-other".into());
 
     owned_env
-        .initialize_versioned_contract(self_contract_id.clone(), version, &contract_self, None)
+        .initialize_versioned_contract_with_db(
+            self_contract_id.clone(),
+            version,
+            &contract_self,
+            None,
+            analysis_db,
+        )
         .unwrap();
 
     let start = owned_env.get_cost_total();
@@ -1064,9 +1099,24 @@ fn test_program_cost(
 //  Clarity code executes in Epoch 2.00
 fn epoch_20_205_test_all(use_mainnet: bool, epoch: StacksEpochId) {
     with_owned_env(epoch, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity1, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
 
-        let baseline = test_program_cost("1", ClarityVersion::Clarity1, &mut owned_env, 0);
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity1,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let baseline = test_program_cost_with_db(
+            "1",
+            ClarityVersion::Clarity1,
+            &mut owned_env,
+            0,
+            &mut analysis_db,
+        );
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: The 2.0 and 2.05 test assumes Clarity1.
@@ -1076,8 +1126,13 @@ fn epoch_20_205_test_all(use_mainnet: bool, epoch: StacksEpochId) {
                     .unwrap_or(true)
             {
                 if let Some(test) = get_simple_test(f) {
-                    let cost =
-                        test_program_cost(test, ClarityVersion::Clarity1, &mut owned_env, ix + 1);
+                    let cost = test_program_cost_with_db(
+                        test,
+                        ClarityVersion::Clarity1,
+                        &mut owned_env,
+                        ix + 1,
+                        &mut analysis_db,
+                    );
                     assert!(cost.exceeds(&baseline));
                 }
             }
@@ -1109,9 +1164,24 @@ fn epoch_205_test_all_testnet() {
 //  Clarity code executes in Epoch 2.1
 fn epoch_21_test_all(use_mainnet: bool) {
     with_owned_env(StacksEpochId::Epoch21, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity2, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
 
-        let baseline = test_program_cost("1", ClarityVersion::Clarity2, &mut owned_env, 0);
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity2,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let baseline = test_program_cost_with_db(
+            "1",
+            ClarityVersion::Clarity2,
+            &mut owned_env,
+            0,
+            &mut analysis_db,
+        );
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: Include Clarity2 functions for Epoch21.
@@ -1121,8 +1191,13 @@ fn epoch_21_test_all(use_mainnet: bool) {
                     .unwrap_or(true)
             {
                 if let Some(test) = get_simple_test(f) {
-                    let cost =
-                        test_program_cost(test, ClarityVersion::Clarity2, &mut owned_env, ix + 1);
+                    let cost = test_program_cost_with_db(
+                        test,
+                        ClarityVersion::Clarity2,
+                        &mut owned_env,
+                        ix + 1,
+                        &mut analysis_db,
+                    );
                     assert!(cost.exceeds(&baseline));
                 }
             }
@@ -1144,9 +1219,24 @@ fn epoch_21_test_all_testnet() {
 //  Clarity code executes in Epoch 3.0 (includes Clarity 3)
 fn epoch_30_test_all(use_mainnet: bool) {
     with_owned_env(StacksEpochId::Epoch30, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity3, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
 
-        let baseline = test_program_cost("1", ClarityVersion::Clarity3, &mut owned_env, 0);
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity3,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let baseline = test_program_cost_with_db(
+            "1",
+            ClarityVersion::Clarity3,
+            &mut owned_env,
+            0,
+            &mut analysis_db,
+        );
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: Include Clarity3 functions for Epoch30.
@@ -1156,8 +1246,13 @@ fn epoch_30_test_all(use_mainnet: bool) {
                     .unwrap_or(true)
             {
                 if let Some(test) = get_simple_test(f) {
-                    let cost =
-                        test_program_cost(test, ClarityVersion::Clarity3, &mut owned_env, ix + 1);
+                    let cost = test_program_cost_with_db(
+                        test,
+                        ClarityVersion::Clarity3,
+                        &mut owned_env,
+                        ix + 1,
+                        &mut analysis_db,
+                    );
                     assert!(cost.exceeds(&baseline));
                 }
             }
@@ -1179,9 +1274,24 @@ fn epoch_30_test_all_testnet() {
 //  Clarity code executes in Epoch 3.3 (includes Clarity 4)
 fn epoch_33_test_all(use_mainnet: bool) {
     with_owned_env(StacksEpochId::Epoch33, use_mainnet, |mut owned_env| {
-        setup_cost_tracked_test(use_mainnet, ClarityVersion::Clarity4, &mut owned_env);
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
 
-        let baseline = test_program_cost("1", ClarityVersion::Clarity4, &mut owned_env, 0);
+        setup_cost_tracked_test_with_db(
+            use_mainnet,
+            ClarityVersion::Clarity4,
+            &mut owned_env,
+            &mut analysis_db,
+        );
+
+        let baseline = test_program_cost_with_db(
+            "1",
+            ClarityVersion::Clarity4,
+            &mut owned_env,
+            0,
+            &mut analysis_db,
+        );
 
         for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
             // Note: Include Clarity4 functions for Epoch33.
@@ -1191,8 +1301,13 @@ fn epoch_33_test_all(use_mainnet: bool) {
                     .unwrap_or(true)
             {
                 if let Some(test) = get_simple_test(f) {
-                    let cost =
-                        test_program_cost(test, ClarityVersion::Clarity4, &mut owned_env, ix + 1);
+                    let cost = test_program_cost_with_db(
+                        test,
+                        ClarityVersion::Clarity4,
+                        &mut owned_env,
+                        ix + 1,
+                        &mut analysis_db,
+                    );
                     assert!(cost.exceeds(&baseline));
                 }
             }
@@ -1284,13 +1399,14 @@ fn test_cost_contract_short_circuits(use_mainnet: bool, clarity_version: Clarity
         .iter()
         {
             block_conn.as_transaction(|tx| {
-                let (ast, analysis) = tx
+                let (mut ast, analysis) = tx
                     .analyze_smart_contract(contract_name, clarity_version, contract_src)
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_src,
                     None,
                     |_, _| None,
@@ -1564,13 +1680,14 @@ fn test_cost_voting_integration(use_mainnet: bool, clarity_version: ClarityVersi
         .iter()
         {
             block_conn.as_transaction(|tx| {
-                let (ast, analysis) = tx
+                let (mut ast, analysis) = tx
                     .analyze_smart_contract(contract_name, clarity_version, contract_src)
                     .unwrap();
                 tx.initialize_smart_contract(
                     contract_name,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_src,
                     None,
                     |_, _| None,

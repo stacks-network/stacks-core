@@ -5136,14 +5136,15 @@ impl NakamotoChainState {
         // mainnet
         let contract_id = boot_code_id(BOOT_TEST_POX_4_AGG_KEY_CONTRACT, false);
         clarity_tx.connection().as_transaction(|clarity| {
-            let (ast, analysis) = clarity
+            let (mut ast, analysis) = clarity
                 .analyze_smart_contract(&contract_id, ClarityVersion::Clarity2, &contract_content)
                 .unwrap();
             clarity
                 .initialize_smart_contract(
                     &contract_id,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_content,
                     None,
                     |_, _| None,

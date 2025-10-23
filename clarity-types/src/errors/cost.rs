@@ -52,3 +52,5 @@ impl CostErrors {
         matches!(self, CostErrors::InterpreterFailure | CostErrors::Expect(_))
     }
 }
+
+impl std::error::Error for CostErrors {}

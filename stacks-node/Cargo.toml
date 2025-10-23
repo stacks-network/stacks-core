@@ -33,16 +33,17 @@ http-types = { version = "2.12", default-features = false, optional = true }
 thiserror = { workspace = true }
 
 # This dependency is used for the multiversion integration tests which live behind the build-v3-1-0-0-13 feature flag
-signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
-libsigner_v3_1_0_0_13 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true}
-stacks_v3_1_00_13 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
-stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+# signer_v3_1_0_0_13 = { package = "stacks-signer", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+# libsigner_v3_1_0_0_13 = { package = "libsigner", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true}
+# stacks_v3_1_00_13 = { package = "stackslib", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+# stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", optional = true, features = ["testing", "default"]}
+
 [target.'cfg(not(any(target_os = "macos", target_os="windows", target_arch = "arm")))'.dependencies]
 tikv-jemallocator = {workspace = true}
 
 [dev-dependencies]
 warp = "0.3.5"
-tokio = "1.15"
+tokio = { version = "1.15", features = ["rt-multi-thread"] }
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls", "rustls-tls"] }
 clarity = { path = "../clarity", features = ["default", "testing"]}
 stacks-common = { path = "../stacks-common", features = ["default", "testing"] }
@@ -68,7 +69,8 @@ slog_json = ["stacks/slog_json", "stacks-common/slog_json", "clarity/slog_json"]
 prod-genesis-chainstate = []
 default = []
 testing = ["stacks-common/testing", "stacks/testing", "clarity/testing"]
-build-signer-v3-1-0-0-13 = ["signer_v3_1_0_0_13", "libsigner_v3_1_0_0_13", "stacks_v3_1_00_13", "stacks_common_v3_1_00_13"]
+# build-signer-v3-1-0-0-13 = ["signer_v3_1_0_0_13", "libsigner_v3_1_0_0_13", "stacks_v3_1_00_13", "stacks_common_v3_1_00_13"]
+wasm = ["stacks-common/wasm"]
 
 [package.metadata.pinny]
 allowed = ["bitcoind", "flaky", "slow"]

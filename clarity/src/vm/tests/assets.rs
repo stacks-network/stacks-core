@@ -23,8 +23,10 @@ use crate::vm::representations::SymbolicExpression;
 use crate::vm::tests::{test_clarity_versions, test_epochs};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 #[cfg(test)]
+#[allow(unused_imports)]
 use crate::vm::{
     contexts::AssetMapEntry,
+    database::MemoryBackingStore,
     errors::{CheckErrors, RuntimeErrorType},
     tests::{
         execute, is_committed, is_err_code, symbols_from_values, tl_env_factory as env_factory,
@@ -39,7 +41,7 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-read-only (my-ft-get-balance (account principal))
             (ft-get-balance stackaroos account))
          (define-read-only (get-total-supply)
-            (ft-get-supply stackaroos)) 
+            (ft-get-supply stackaroos))
          (define-public (my-token-transfer (to principal) (amount uint))
             (ft-transfer? stackaroos amount tx-sender to))
          (define-public (faucet)
@@ -48,11 +50,11 @@ const FIRST_CLASS_TOKENS: &str = "(define-fungible-token stackaroos)
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
-               (err \"must be in the future\")))
+               (err u100)))
          (define-public (burn (amount uint) (p principal))
            (ft-burn? stackaroos amount p))
-         (begin (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR)
-                (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G)
+         (begin (is-ok (ft-mint? stackaroos u10000 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR))
+                (is-ok (ft-mint? stackaroos u200 'SM2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQVX8X0G))
                 (ft-mint? stackaroos u4 .tokens))";
 
 const ASSET_NAMES: &str =
@@ -86,15 +88,15 @@ const ASSET_NAMES: &str =
            (nft-burn? names name p))
          (define-public (try-bad-transfers)
            (begin
-             (contract-call? .tokens my-token-transfer burn-address u50000)
-             (contract-call? .tokens my-token-transfer burn-address u1000)
-             (contract-call? .tokens my-token-transfer burn-address u1)
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u50000))
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u1000))
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u1))
              (err u0)))
          (define-public (try-bad-transfers-but-ok)
            (begin
-             (contract-call? .tokens my-token-transfer burn-address u50000)
-             (contract-call? .tokens my-token-transfer burn-address u1000)
-             (contract-call? .tokens my-token-transfer burn-address u1)
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u50000))
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u1000))
+             (is-ok (contract-call? .tokens my-token-transfer burn-address u1))
              (ok 0)))
          (define-public (transfer (name int) (recipient principal))
            (let ((transfer-name-result (nft-transfer? names name tx-sender recipient))
@@ -103,8 +105,8 @@ const ASSET_NAMES: &str =
              (begin (unwrap! transfer-name-result transfer-name-result)
                     (unwrap! token-to-contract-result token-to-contract-result)
                     (unwrap! contract-to-burn-result contract-to-burn-result)
-                    (ok 0))))
-         (define-public (register 
+                    (ok true))))
+         (define-public (register
                         (recipient-principal principal)
                         (name int)
                         (salt int))
@@ -182,11 +184,20 @@ fn test_native_stx_ops(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvi
     let second_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data, "second".into());
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     owned_env
-        .initialize_contract(token_contract_id.clone(), contract, None)
+        .initialize_contract_with_db(token_contract_id.clone(), contract, None, &mut analysis_db)
         .unwrap();
     owned_env
-        .initialize_contract(second_contract_id.clone(), contract_second, None)
+        .initialize_contract_with_db(
+            second_contract_id.clone(),
+            contract_second,
+            None,
+            &mut analysis_db,
+        )
         .unwrap();
 
     owned_env.stx_faucet(&(p1_principal), u128::MAX - 1500);
@@ -801,6 +812,9 @@ fn test_simple_token_system(
     assert!(asset_map.to_table().is_empty());
 }
 
+// Test not valid for clarity-wasm runtime
+// Contracts would error in the static analysis pass.
+#[cfg(not(feature = "clarity-wasm"))]
 #[apply(test_epochs)]
 fn test_total_supply(epoch: StacksEpochId, mut env_factory: TopLevelMemoryEnvironmentGenerator) {
     let mut owned_env = env_factory.get_env(epoch);
@@ -917,14 +931,18 @@ fn test_overlapping_nfts(
     let names_2_contract_id =
         QualifiedContractIdentifier::new(p1_std_principal_data, "names-2".into());
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     owned_env
-        .initialize_contract(tokens_contract_id, tokens_contract, None)
+        .initialize_contract_with_db(tokens_contract_id, tokens_contract, None, &mut analysis_db)
         .unwrap();
     owned_env
-        .initialize_contract(names_contract_id, names_contract, None)
+        .initialize_contract_with_db(names_contract_id, names_contract, None, &mut analysis_db)
         .unwrap();
     owned_env
-        .initialize_contract(names_2_contract_id, names_contract, None)
+        .initialize_contract_with_db(names_2_contract_id, names_contract, None, &mut analysis_db)
         .unwrap();
 }
 
@@ -954,7 +972,7 @@ fn test_simple_naming_system(
         panic!("Expected principal data");
     };
 
-    let placeholder_context =
+    let mut placeholder_context =
         ContractContext::new(QualifiedContractIdentifier::transient(), version);
 
     let tokens_contract_id =
@@ -976,13 +994,22 @@ fn test_simple_naming_system(
     let name_hash_expensive_1 = execute("(hash160 2)");
     let name_hash_cheap_0 = execute("(hash160 100001)");
 
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
     owned_env
-        .initialize_contract(tokens_contract_id, tokens_contract, None)
+        .initialize_contract_with_db(tokens_contract_id, tokens_contract, None, &mut analysis_db)
         .unwrap();
 
     let names_contract_id = QualifiedContractIdentifier::new(p1_std_principal_data, "names".into());
     owned_env
-        .initialize_contract(names_contract_id.clone(), names_contract, None)
+        .initialize_contract_with_db(
+            names_contract_id.clone(),
+            names_contract,
+            None,
+            &mut analysis_db,
+        )
         .unwrap();
 
     let (result, _asset_map, _events) = execute_transaction(
@@ -1045,7 +1072,7 @@ fn test_simple_naming_system(
     assert!(is_committed(&result));
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 1)")
                 .unwrap(),
@@ -1316,7 +1343,7 @@ fn test_simple_naming_system(
     assert!(asset_map.to_table().is_empty());
 
     {
-        let mut env = owned_env.get_exec_environment(None, None, &placeholder_context);
+        let mut env = owned_env.get_exec_environment(None, None, &mut placeholder_context);
         assert_eq!(
             env.eval_read_only(&names_contract_id.clone(), "(nft-get-owner? names 5)")
                 .unwrap(),

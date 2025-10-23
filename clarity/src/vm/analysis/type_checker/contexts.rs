@@ -89,6 +89,25 @@ impl TypeMap {
             TypeMapDataType::Set(_) => None,
         }
     }
+
+    /// Concretize tries to [concretize] all the types in the TypeMap.
+    ///
+    /// This is needed for Clarity-Wasm where all types should have a defined representation
+    /// in memory. Since [ListUnionType] doesn't have one, we need to concretize it.
+    ///
+    /// [concretize]: TypeSignature::concretize
+    /// [ListUnionType]: TypeSignature::ListUnionType
+    pub fn concretize(&mut self) -> Result<(), CheckError> {
+        match self.map {
+            TypeMapDataType::Map(ref mut map) => {
+                for ty in map.values_mut() {
+                    *ty = ty.clone().concretize_deep()?;
+                }
+            }
+            TypeMapDataType::Set(_) => {}
+        };
+        Ok(())
+    }
 }
 
 impl TypingContext<'_> {

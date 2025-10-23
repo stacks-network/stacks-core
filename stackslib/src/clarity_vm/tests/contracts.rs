@@ -88,14 +88,15 @@ fn test_get_burn_block_info_eval() {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&contract_identifier, clarity_version, contract)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &contract_identifier,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract,
                     None,
                     |_, _| None,
@@ -203,11 +204,11 @@ fn test_get_block_info_eval_v210() {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&contract_identifier, clarity_version, contract)
                 .unwrap();
             clarity_db
-                .initialize_smart_contract(&contract_identifier, clarity_version, &ast, contract, None, |_, _| None, None)
+                .initialize_smart_contract(&contract_identifier, clarity_version, &mut ast, &analysis, contract, None, |_, _| None, None)
                 .unwrap();
         });
         let mut tx = conn.start_transaction_processing();
@@ -284,11 +285,12 @@ fn publish_contract(
     version: ClarityVersion,
 ) -> Result<(), clarity::vm::clarity::Error> {
     bc.as_transaction(|tx| {
-        let (ast, analysis) = tx.analyze_smart_contract(contract_id, version, contract)?;
+        let (mut ast, analysis) = tx.analyze_smart_contract(contract_id, version, contract)?;
         tx.initialize_smart_contract(
             contract_id,
             version,
-            &ast,
+            &mut ast,
+            &analysis,
             contract,
             None,
             |_, _| None,
@@ -569,14 +571,15 @@ fn trait_with_trait_invocation_cross_epoch() {
         let epoch = conn.get_epoch();
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&math_contract_id, clarity_version, math_trait)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &math_contract_id,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     math_trait,
                     None,
                     |_, _| None,
@@ -589,14 +592,15 @@ fn trait_with_trait_invocation_cross_epoch() {
         });
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&compute_contract_id, clarity_version, compute_trait)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &compute_contract_id,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     compute_trait,
                     None,
                     |_, _| None,
@@ -609,14 +613,15 @@ fn trait_with_trait_invocation_cross_epoch() {
         });
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&impl_compute_id, clarity_version, impl_compute)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &impl_compute_id,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     impl_compute,
                     None,
                     |_, _| None,
@@ -629,14 +634,15 @@ fn trait_with_trait_invocation_cross_epoch() {
         });
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&impl_math_id, clarity_version, impl_math)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &impl_math_id,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     impl_math,
                     None,
                     |_, _| None,
@@ -649,14 +655,15 @@ fn trait_with_trait_invocation_cross_epoch() {
         });
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::default_for_epoch(epoch);
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&use_compute_20_id, clarity_version, use_compute)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &use_compute_20_id,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     use_compute,
                     None,
                     |_, _| None,
@@ -676,14 +683,15 @@ fn trait_with_trait_invocation_cross_epoch() {
         // Publish the contract that uses the trait in both Clarity 1 and Clarity 2
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::Clarity1;
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&use_compute_21_c1_id, clarity_version, use_compute)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &use_compute_21_c1_id,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     use_compute,
                     None,
                     |_, _| None,
@@ -696,14 +704,15 @@ fn trait_with_trait_invocation_cross_epoch() {
         });
         conn.as_transaction(|clarity_db| {
             let clarity_version = ClarityVersion::Clarity2;
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&use_compute_21_c2_id, clarity_version, use_compute)
                 .unwrap();
             clarity_db
                 .initialize_smart_contract(
                     &use_compute_21_c2_id,
                     clarity_version,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     use_compute,
                     None,
                     |_, _| None,
@@ -864,7 +873,7 @@ fn test_block_heights() {
         // Check both contracts in Clarity 1, publish the Clarity 1 contract
         conn.as_transaction(|clarity_db| {
             // analyze the contracts as Clarity 1
-            let (ast, analysis) = clarity_db.analyze_smart_contract(
+            let (mut ast, analysis) = clarity_db.analyze_smart_contract(
                 &contract_identifier1,
                 ClarityVersion::Clarity1,
                 contract_clarity1,
@@ -890,7 +899,8 @@ fn test_block_heights() {
                 .initialize_smart_contract(
                     &contract_identifier1,
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_clarity1,
                     None,
                     |_, _| None,
@@ -935,7 +945,7 @@ fn test_block_heights() {
                 panic!("Bad analysis result: {:?}", &res);
             }
 
-            let (ast, analysis) = clarity_db.analyze_smart_contract(
+            let (mut ast, analysis) = clarity_db.analyze_smart_contract(
                 &contract_identifier2,
                 ClarityVersion::Clarity3,
                 contract_clarity3,
@@ -946,7 +956,8 @@ fn test_block_heights() {
                 .initialize_smart_contract(
                     &contract_identifier2,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_clarity3,
                     None,
                     |_, _| None,
@@ -1149,7 +1160,7 @@ fn test_block_heights_across_versions() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 1 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
@@ -1165,7 +1176,8 @@ fn test_block_heights_across_versions() {
                 .initialize_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| None,
@@ -1179,7 +1191,7 @@ fn test_block_heights_across_versions() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 2 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
@@ -1195,7 +1207,8 @@ fn test_block_heights_across_versions() {
                 .initialize_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| None,
@@ -1214,7 +1227,7 @@ fn test_block_heights_across_versions() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&contract_id_e3c3, ClarityVersion::Clarity3, &contract_e3c3)
                 .unwrap();
 
@@ -1223,7 +1236,8 @@ fn test_block_heights_across_versions() {
                 .initialize_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_e3c3,
                     None,
                     |_, _| None,
@@ -1277,7 +1291,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 1 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
@@ -1290,7 +1304,8 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 .initialize_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| None,
@@ -1304,7 +1319,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 2 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
@@ -1317,7 +1332,8 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 .initialize_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| None,
@@ -1336,7 +1352,7 @@ fn test_block_heights_across_versions_traits_3_from_2() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&contract_id_e3c3, ClarityVersion::Clarity3, &contract_e3c3)
                 .unwrap();
 
@@ -1345,7 +1361,8 @@ fn test_block_heights_across_versions_traits_3_from_2() {
                 .initialize_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_e3c3,
                     None,
                     |_, _| None,
@@ -1418,7 +1435,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 1 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
@@ -1431,7 +1448,8 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 .initialize_smart_contract(
                     &contract_id_e2c1,
                     ClarityVersion::Clarity1,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| None,
@@ -1445,7 +1463,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 2 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
@@ -1458,7 +1476,8 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 .initialize_smart_contract(
                     &contract_id_e2c2,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract_e2c1_2,
                     None,
                     |_, _| None,
@@ -1477,7 +1496,7 @@ fn test_block_heights_across_versions_traits_2_from_3() {
     sim.execute_next_block_as_conn(|conn| {
         conn.as_transaction(|clarity_db| {
             // Analyze the Clarity 3 contract
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&contract_id_e3c3, ClarityVersion::Clarity3, &contract_e3c3)
                 .unwrap();
 
@@ -1486,7 +1505,8 @@ fn test_block_heights_across_versions_traits_2_from_3() {
                 .initialize_smart_contract(
                     &contract_id_e3c3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     &contract_e3c3,
                     None,
                     |_, _| None,
@@ -1551,7 +1571,7 @@ fn test_block_heights_at_block() {
 
         conn.as_transaction(|clarity_db| {
             // Analyze the contract
-            let (ast, analysis) = clarity_db.analyze_smart_contract(
+            let (mut ast, analysis) = clarity_db.analyze_smart_contract(
                 &contract_identifier,
                 ClarityVersion::Clarity3,
                 contract,
@@ -1562,7 +1582,8 @@ fn test_block_heights_at_block() {
                 .initialize_smart_contract(
                     &contract_identifier,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract,
                     None,
                     |_, _| None,
@@ -1611,7 +1632,7 @@ fn test_get_block_info_time() {
 
         conn.as_transaction(|clarity_db| {
             // Analyze the contract as Clarity 2
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&contract_identifier2, ClarityVersion::Clarity2, contract2)
                 .unwrap();
 
@@ -1620,7 +1641,8 @@ fn test_get_block_info_time() {
                 .initialize_smart_contract(
                     &contract_identifier2,
                     ClarityVersion::Clarity2,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract2,
                     None,
                     |_, _| None,
@@ -1629,7 +1651,7 @@ fn test_get_block_info_time() {
                 .unwrap();
 
             // Analyze the contract as Clarity 3
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(&contract_identifier3, ClarityVersion::Clarity3, contract3)
                 .unwrap();
 
@@ -1638,7 +1660,8 @@ fn test_get_block_info_time() {
                 .initialize_smart_contract(
                     &contract_identifier3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract3,
                     None,
                     |_, _| None,
@@ -1647,7 +1670,7 @@ fn test_get_block_info_time() {
                 .unwrap();
 
             // Analyze the contract as Clarity 3
-            let (ast, analysis) = clarity_db
+            let (mut ast, analysis) = clarity_db
                 .analyze_smart_contract(
                     &contract_identifier3_3,
                     ClarityVersion::Clarity3,
@@ -1660,7 +1683,8 @@ fn test_get_block_info_time() {
                 .initialize_smart_contract(
                     &contract_identifier3_3,
                     ClarityVersion::Clarity3,
-                    &ast,
+                    &mut ast,
+                    &analysis,
                     contract3_3,
                     None,
                     |_, _| None,

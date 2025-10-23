@@ -42,7 +42,7 @@ mod traits;
 mod variables;
 
 #[cfg(any(test, feature = "testing"))]
-impl OwnedEnvironment<'_, '_> {
+impl<'a> OwnedEnvironment<'a> {
     pub fn set_tenure_height(&mut self, tenure_height: u32) {
         self.context.database.begin();
         self.context
@@ -192,7 +192,7 @@ pub fn tl_env_factory() -> TopLevelMemoryEnvironmentGenerator {
 
 pub struct MemoryEnvironmentGenerator(MemoryBackingStore);
 impl MemoryEnvironmentGenerator {
-    fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_, '_> {
+    fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_> {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();
@@ -216,7 +216,7 @@ impl MemoryEnvironmentGenerator {
 
 pub struct TopLevelMemoryEnvironmentGenerator(MemoryBackingStore);
 impl TopLevelMemoryEnvironmentGenerator {
-    pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_, '_> {
+    pub fn get_env(&mut self, epoch: StacksEpochId) -> OwnedEnvironment<'_> {
         let mut db = self.0.as_clarity_db();
         db.begin();
         db.set_clarity_epoch_version(epoch).unwrap();

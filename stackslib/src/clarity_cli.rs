@@ -1010,6 +1010,20 @@ fn parse_clarity_version_flag(argv: &mut Vec<String>) -> ClarityVersion {
 
 /// Returns (process-exit-code, Option<json-output>)
 pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_json::Value>) {
+    let mut store = MemoryBackingStore::new();
+    let mut analysis_db = store.as_analysis_db();
+    analysis_db.begin();
+
+    invoke_command_with_db(invoked_by, args, &mut analysis_db)
+}
+
+/// Returns (process-exit-code, Option<json-output>)
+/// Optionally accepts a shared analysis database for contract dependency resolution
+pub fn invoke_command_with_db(
+    invoked_by: &str,
+    args: &[String],
+    analysis_db: &mut AnalysisDatabase,
+) -> (i32, Option<serde_json::Value>) {
     if args.is_empty() {
         print_usage(invoked_by);
         return (1, None);
@@ -1693,11 +1707,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                                 &mut marf,
                                 coverage.as_mut(),
                                 |vm_env| {
-                                    vm_env.initialize_versioned_contract(
+                                    // Use the shared analysis database for contract initialization
+                                    vm_env.initialize_versioned_contract_with_db(
                                         contract_identifier,
                                         clarity_version,
                                         &contract_content,
                                         None,
+                                        analysis_db,
                                     )
                                 },
                             );
@@ -2059,8 +2075,13 @@ mod test {
         assert_eq!(exit, 0);
         assert!(!result["message"].as_str().unwrap().is_empty());
 
+        // Create a shared analysis database for contract dependency resolution
+        let mut store = MemoryBackingStore::new();
+        let mut analysis_db = store.as_analysis_db();
+        analysis_db.begin();
+
         eprintln!("launch tokens");
-        let invoked = invoke_command(
+        let invoked = invoke_command_with_db(
             "test",
             &[
                 "launch".to_string(),
@@ -2068,6 +2089,7 @@ mod test {
                 cargo_workspace_as_string("sample/contracts/tokens.clar"),
                 db_name.clone(),
             ],
+            &mut analysis_db,
         );
 
         let exit = invoked.0;
@@ -2148,7 +2170,7 @@ mod test {
         assert!(result["assets"] == json!(null));
 
         eprintln!("launch names with costs and assets");
-        let invoked = invoke_command(
+        let invoked = invoke_command_with_db(
             "test",
             &[
                 "launch".to_string(),
@@ -2158,6 +2180,7 @@ mod test {
                 "--assets".to_string(),
                 db_name.clone(),
             ],
+            &mut analysis_db,
         );
 
         let exit = invoked.0;
