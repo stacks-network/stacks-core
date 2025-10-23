@@ -576,6 +576,7 @@ fn test_block_proposal_validation_timeout() {
             8,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -588,7 +589,7 @@ fn test_block_proposal_validation_timeout() {
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
-                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .load_tenure_info(chainstate, &burn_dbconn, MinerTenureInfoCause::NoTenureChange)
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
