@@ -20,22 +20,19 @@
 use std::convert::TryFrom;
 
 use clarity_types::errors::{Error as ClarityError, InterpreterResult, ShortReturnType};
-use clarity_types::types::{
-    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
-};
+use clarity_types::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
 use clarity_types::{ClarityName, Value};
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 
-use super::proptest_utils::{
-    begin_block, clarity_values_no_response, execute, execute_and_return_asset_map,
-    execute_and_return_asset_map_versioned, value_to_clarity_literal,
-};
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOWANCES;
 use crate::vm::contexts::AssetMap;
 use crate::vm::tests::proptest_utils::{
-    allowance_list_snippets, body_with_allowances_snippets, ft_mint_snippets, ft_transfer_snippets,
-    match_response_snippets, nft_mint_snippets, nft_transfer_snippets, try_response_snippets,
+    allowance_list_snippets, begin_block, body_with_allowances_snippets,
+    clarity_values_no_response, execute, execute_and_return_asset_map,
+    execute_and_return_asset_map_versioned, ft_mint_snippets, ft_transfer_snippets,
+    match_response_snippets, nft_mint_snippets, nft_transfer_snippets,
+    testnet_standard_principal_strategy, try_response_snippets, value_to_clarity_literal,
 };
 use crate::vm::ClarityVersion;
 
@@ -1509,15 +1506,16 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_errors_when_no_allowances_and_body_moves_stx(
+        sender in testnet_standard_principal_strategy(),
         body in begin_block(),
     ) {
         let snippet = format!("(restrict-assets? tx-sender () {body})");
+        let sender_principal = sender.clone().into();
         assert_results_match(
-            execute_and_return_asset_map(&body),
-            execute_and_return_asset_map(&snippet),
+            execute_and_return_asset_map(&body, sender.clone()),
+            execute_and_return_asset_map(&snippet, sender),
             |unrestricted_assets, restricted_assets| {
-                let sender = PrincipalData::Standard(StandardPrincipalData::transient());
-                let stx_moved = unrestricted_assets.get_stx(&sender).unwrap_or(0);
+                let stx_moved = unrestricted_assets.get_stx(&sender_principal).unwrap_or(0);
                 if stx_moved > 0 {
                     prop_assert_eq!(&AssetMap::new(), restricted_assets);
                     Ok(Some(no_allowance_error()))
@@ -1533,6 +1531,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_errors_when_no_ft_allowance(
+        sender in testnet_standard_principal_strategy(),
         ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())), ft_transfer in try_response_snippets(ft_transfer_snippets())
     ) {
         let setup_code = format!("{TOKEN_DEFINITIONS} {ft_mint}");
@@ -1542,19 +1541,22 @@ proptest! {
         let wrapper_program = format!(
             "{setup_code} (restrict-assets? tx-sender () {ft_transfer})",
         );
+        let sender_principal = sender.clone().into();
         let asset_identifier = AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::transient(),
+            contract_identifier: QualifiedContractIdentifier::new(
+                sender.clone(),
+                "contract".into(),
+            ),
             asset_name: ClarityName::try_from("stackos".to_string())
                 .expect("valid fungible token name"),
         };
 
         assert_results_match(
-            execute_and_return_asset_map(&body_program),
-            execute_and_return_asset_map(&wrapper_program),
+            execute_and_return_asset_map(&body_program, sender.clone()),
+            execute_and_return_asset_map(&wrapper_program, sender),
             move |unrestricted_assets, restricted_assets| {
-                let sender = PrincipalData::Standard(StandardPrincipalData::transient());
                 let moved = unrestricted_assets
-                    .get_fungible_tokens(&sender, &asset_identifier)
+                    .get_fungible_tokens(&sender_principal, &asset_identifier)
                     .unwrap_or(0);
                 if moved > 0 {
                     prop_assert_eq!(&AssetMap::new(), restricted_assets);
@@ -1571,6 +1573,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_errors_when_no_nft_allowance(
+        sender in testnet_standard_principal_strategy(),
         nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())), nft_transfer in try_response_snippets(nft_transfer_snippets())
     ) {
         let setup_code = format!("{TOKEN_DEFINITIONS} {nft_mint}");
@@ -1580,19 +1583,22 @@ proptest! {
         let wrapper_program = format!(
             "{setup_code} (restrict-assets? tx-sender () {nft_transfer})",
         );
+        let sender_principal = sender.clone().into();
         let asset_identifier = AssetIdentifier {
-            contract_identifier: QualifiedContractIdentifier::transient(),
+            contract_identifier: QualifiedContractIdentifier::new(
+                sender.clone(),
+                "contract".into(),
+            ),
             asset_name: ClarityName::try_from("stackaroo".to_string())
                 .expect("valid non-fungible token name"),
         };
 
         assert_results_match(
-            execute_and_return_asset_map(&body_program),
-            execute_and_return_asset_map(&wrapper_program),
+            execute_and_return_asset_map(&body_program, sender.clone()),
+            execute_and_return_asset_map(&wrapper_program, sender),
             move |unrestricted_assets, restricted_assets| {
-                let sender = PrincipalData::Standard(StandardPrincipalData::transient());
                 let moved = unrestricted_assets
-                    .get_nonfungible_tokens(&sender, &asset_identifier)
+                    .get_nonfungible_tokens(&sender_principal, &asset_identifier)
                     .map(|l| l.len())
                     .unwrap_or(0);
                 if moved > 0 {
@@ -1645,15 +1651,17 @@ proptest! {
 
     #[test]
     fn prop_as_contract_errors_when_no_allowances_and_body_moves_stx(
+        sender in testnet_standard_principal_strategy(),
         body in begin_block(),
     ) {
         let snippet = format!("(as-contract? () {body})");
         let c3_snippet = format!("(as-contract {body})");
+        let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+        let contract = PrincipalData::Contract(contract_id);
         assert_results_match(
-            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3),
-            execute_and_return_asset_map(&snippet),
+            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3, sender.clone()),
+            execute_and_return_asset_map(&snippet, sender),
             |unrestricted_assets, restricted_assets| {
-                let contract = PrincipalData::Contract(QualifiedContractIdentifier::transient());
                 let stx_moved = unrestricted_assets.get_stx(&contract).unwrap_or(0);
                 if stx_moved > 0 {
                     prop_assert_eq!(&AssetMap::new(), restricted_assets);
@@ -1670,13 +1678,14 @@ proptest! {
 
     #[test]
     fn prop_as_contract_with_all_assets_unsafe_matches_clarity3(
+        sender in testnet_standard_principal_strategy(),
         body in begin_block(),
     ) {
         let snippet = format!("(as-contract? ((with-all-assets-unsafe)) {body})");
         let c3_snippet = format!("(as-contract {body})");
         assert_results_match(
-            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3),
-            execute_and_return_asset_map(&snippet),
+            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3, sender.clone()),
+            execute_and_return_asset_map(&snippet, sender),
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
                 Ok(None)
@@ -1688,6 +1697,7 @@ proptest! {
 
     #[test]
     fn prop_as_contract_with_transfers_and_allowances_matches_clarity3(
+        sender in testnet_standard_principal_strategy(),
         allowances_and_body in body_with_allowances_snippets(),
         ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())),
         nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())),
@@ -1696,8 +1706,8 @@ proptest! {
         let snippet = format!("{TOKEN_DEFINITIONS}(as-contract? {allowances} {ft_mint} {nft_mint} {body})");
         let c3_snippet = format!("{TOKEN_DEFINITIONS}(as-contract (begin {ft_mint} {nft_mint} {body}))");
         assert_results_match(
-            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3),
-            execute_and_return_asset_map(&snippet),
+            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3, sender.clone()),
+            execute_and_return_asset_map(&snippet, sender),
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
                 Ok(None)
@@ -1709,6 +1719,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_with_transfers_and_allowances_ok(
+        sender in testnet_standard_principal_strategy(),
         allowances_and_body in body_with_allowances_snippets(),
         ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())),
         nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())),
@@ -1717,8 +1728,8 @@ proptest! {
         let snippet = format!("{TOKEN_DEFINITIONS}(restrict-assets? tx-sender {allowances} {ft_mint} {nft_mint} {body})");
         let simple_snippet = format!("{TOKEN_DEFINITIONS}(begin {ft_mint} {nft_mint} {body})");
         assert_results_match(
-            execute_and_return_asset_map_versioned(&simple_snippet, ClarityVersion::Clarity3),
-            execute_and_return_asset_map(&snippet),
+            execute_and_return_asset_map_versioned(&simple_snippet, ClarityVersion::Clarity3, sender.clone()),
+            execute_and_return_asset_map(&snippet, sender),
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
                 Ok(None)

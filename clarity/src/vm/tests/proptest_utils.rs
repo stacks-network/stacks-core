@@ -30,6 +30,8 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
 use proptest::string::string_regex;
+use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
+use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
@@ -47,10 +49,15 @@ const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
 const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::Clarity4;
 const INITIAL_BALANCE: u128 = 1_000_000;
 
-fn initialize_balances(g: &mut GlobalContext) -> Result<(), VmError> {
-    let sender_principal = PrincipalData::Standard(StandardPrincipalData::transient());
-    let contract_id = QualifiedContractIdentifier::transient();
-    let contract_principal = PrincipalData::Contract(contract_id);
+fn initialize_balances(
+    g: &mut GlobalContext,
+    sender: &StandardPrincipalData,
+) -> Result<(), VmError> {
+    let sender_principal = PrincipalData::Standard(sender.clone());
+    let contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
+        sender.clone(),
+        "contract".into(),
+    ));
     let balance = STXBalance::initial(INITIAL_BALANCE);
 
     let mut sender_snapshot = g
@@ -85,20 +92,28 @@ pub fn execute_versioned(
     snippet: &str,
     version: ClarityVersion,
 ) -> InterpreterResult<Option<Value>> {
+    let sender_pk = StacksPrivateKey::random();
+    let sender: StandardPrincipalData = (&sender_pk).into();
+    let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+    let sender_for_init = sender.clone();
     execute_with_parameters_and_call_in_global_context(
         snippet,
         version,
         DEFAULT_EPOCH,
         false,
-        initialize_balances,
+        sender,
+        move |g| initialize_balances(g, &sender_for_init),
     )
 }
 
 /// Execute a Clarity code snippet in a fresh global context with default
 /// parameters, setting up initial balances, returning the resulting value
 /// along with the final asset map.
-pub fn execute_and_return_asset_map(snippet: &str) -> InterpreterResult<(Option<Value>, AssetMap)> {
-    execute_and_return_asset_map_versioned(snippet, DEFAULT_CLARITY_VERSION)
+pub fn execute_and_return_asset_map(
+    snippet: &str,
+    sender: StandardPrincipalData,
+) -> InterpreterResult<(Option<Value>, AssetMap)> {
+    execute_and_return_asset_map_versioned(snippet, DEFAULT_CLARITY_VERSION, sender)
 }
 
 /// Execute a Clarity code snippet with the specified Clarity version in a
@@ -107,13 +122,17 @@ pub fn execute_and_return_asset_map(snippet: &str) -> InterpreterResult<(Option<
 pub fn execute_and_return_asset_map_versioned(
     snippet: &str,
     version: ClarityVersion,
+    sender: StandardPrincipalData,
 ) -> InterpreterResult<(Option<Value>, AssetMap)> {
+    let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+    let sender_for_init = sender.clone();
     execute_call_in_global_context_and_return_asset_map(
         snippet,
         version,
         DEFAULT_EPOCH,
         false,
-        initialize_balances,
+        sender,
+        move |g| initialize_balances(g, &sender_for_init),
     )
 }
 
@@ -633,4 +652,11 @@ pub fn utf8_string_literal(data: &UTF8Data) -> String {
     }
     literal.push('"');
     literal
+}
+
+/// A strategy that generates a random StandardPrincipalData
+pub fn testnet_standard_principal_strategy() -> impl Strategy<Value = StandardPrincipalData> {
+    (uniform20(any::<u8>())).prop_filter_map("Invalid standard principal", |bytes| {
+        StandardPrincipalData::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, bytes).ok()
+    })
 }

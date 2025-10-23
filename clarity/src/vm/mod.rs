@@ -520,6 +520,7 @@ pub fn execute_with_parameters_and_call_in_global_context<F>(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     use_mainnet: bool,
+    sender: clarity_types::types::StandardPrincipalData,
     mut global_context_function: F,
 ) -> Result<Option<Value>>
 where
@@ -529,7 +530,7 @@ where
     use crate::vm::tests::test_only_mainnet_to_chain_id;
     use crate::vm::types::QualifiedContractIdentifier;
 
-    let contract_id = QualifiedContractIdentifier::transient();
+    let contract_id = QualifiedContractIdentifier::new(sender, "contract".into());
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
@@ -557,6 +558,7 @@ pub fn execute_call_in_global_context_and_return_asset_map<F>(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     use_mainnet: bool,
+    sender: clarity_types::types::StandardPrincipalData,
     mut global_context_function: F,
 ) -> Result<(Option<Value>, crate::vm::contexts::AssetMap)>
 where
@@ -566,7 +568,7 @@ where
     use crate::vm::tests::test_only_mainnet_to_chain_id;
     use crate::vm::types::QualifiedContractIdentifier;
 
-    let contract_id = QualifiedContractIdentifier::transient();
+    let contract_id = QualifiedContractIdentifier::new(sender, "contract".into());
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
@@ -599,6 +601,7 @@ pub fn execute_with_parameters(
         clarity_version,
         epoch,
         use_mainnet,
+        clarity_types::types::StandardPrincipalData::transient(),
         |_| Ok(()),
     )
 }
@@ -631,6 +634,7 @@ pub fn execute_with_limited_execution_time(
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch20,
         false,
+        clarity_types::types::StandardPrincipalData::transient(),
         |g| {
             g.set_max_execution_time(max_execution_time);
             Ok(())
