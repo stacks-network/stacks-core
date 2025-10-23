@@ -1218,6 +1218,7 @@ dependencies = [
  "sha3",
  "slog",
  "slog-term",
+ "thiserror",
  "toml",
  "winapi",
 ]
