@@ -227,7 +227,6 @@ pub fn apply(
     env: &mut Environment,
     context: &LocalContext,
 ) -> Result<Value> {
-    println!("\n\nAPPLY\n\n");
     let identifier = function.get_identifier();
     // Aaron: in non-debug executions, we shouldn't track a full call-stack.
     //        only enough to do recursion detection.
@@ -242,24 +241,13 @@ pub fn apply(
         return Err(RuntimeErrorType::MaxStackDepthReached.into());
     }
 
-    println!("\n\nAPPLY {:?}\n\n", identifier);
-
     if let CallableType::SpecialFunction(_, function) = function {
         env.call_stack.insert(&identifier, track_recursion);
-        if let Some(profiler) = env.global_context.native_functions_profiler.take() {
-            profiler.start(&identifier, &args);
-            env.global_context.native_functions_profiler = Some(profiler);
-        }
         let mut resp = function(args, env, context);
-        if let Some(profiler) = env.global_context.native_functions_profiler.take() {
-            profiler.end();
-            env.global_context.native_functions_profiler = Some(profiler);
-        }
         add_stack_trace(&mut resp, env);
         env.call_stack.remove(&identifier, track_recursion)?;
         resp
     } else {
-        println!("\n\nZZZZZZZZZZZZZZZZ\n\n");
         let mut used_memory = 0;
         let mut evaluated_args = Vec::with_capacity(args.len());
         env.call_stack.incr_apply_depth();
@@ -291,7 +279,7 @@ pub fn apply(
             CallableType::NativeFunction(_, function, cost_function) => {
                 runtime_cost(cost_function.clone(), env, evaluated_args.len())
                     .map_err(Error::from)
-                    .and_then(|_| function.apply(&identifier, evaluated_args, env))
+                    .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::NativeFunction205(_, function, cost_function, cost_input_handle) => {
                 let cost_input = if env.epoch() >= &StacksEpochId::Epoch2_05 {
@@ -301,7 +289,7 @@ pub fn apply(
                 };
                 runtime_cost(cost_function.clone(), env, cost_input)
                     .map_err(Error::from)
-                    .and_then(|_| function.apply(&identifier, evaluated_args, env))
+                    .and_then(|_| function.apply(evaluated_args, env))
             }
             CallableType::UserFunction(function) => function.apply(&evaluated_args, env),
             _ => return Err(InterpreterError::Expect("Should be unreachable.".into()).into()),
@@ -625,22 +613,29 @@ pub fn execute_v2(program: &str) -> Result<Option<Value>> {
 
 #[cfg(test)]
 mod test {
+    use std::collections::HashMap;
     use std::env;
     use std::fs::File;
+    use std::time::{Duration, Instant};
 
-    use clarity_types::types::{FunctionIdentifier, ResponseData};
+    use clarity_types::types::ResponseData;
+    use perf_event::events::Hardware;
+    use perf_event::{Builder, Counter};
     use stacks_common::consts::CHAIN_ID_TESTNET;
     use stacks_common::types::StacksEpochId;
 
     use super::ClarityVersion;
     use crate::vm::callables::{DefineType, DefinedFunction};
-    use crate::vm::contexts::NativeFunctionsProfiler;
+    use crate::vm::contexts::{Environment, LocalContext};
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
-    use crate::vm::types::{QualifiedContractIdentifier, TypeSignature};
+    use crate::vm::errors::Error;
+    use crate::vm::functions::NativeFunctions;
+    use crate::vm::types::{QualifiedContractIdentifier, TypeSignature, Value};
+    use crate::vm::variables::NativeVariables;
     use crate::vm::{
-        eval, CallStack, ContractContext, Environment, GlobalContext, LocalContext,
-        SymbolicExpression, Value,
+        ast, eval, eval_all, CallStack, ContractContext, EvalHook, GlobalContext,
+        SymbolicExpression, SymbolicExpressionType,
     };
 
     #[test]
@@ -705,38 +700,192 @@ mod test {
         assert_eq!(Ok(Value::Int(64)), eval(&content[0], &mut env, &context));
     }
 
-    struct LinuxPerfProfiler {
-        hello: String,
+    struct PerfEventExprState {
+        start_instant: Instant,
+        children_duration: Duration,
+        perf_counter: Counter,
+        children_perf_counter: u64,
     }
 
-    impl NativeFunctionsProfiler for LinuxPerfProfiler {
-        fn start(&mut self, identifier: &FunctionIdentifier, args: &Vec<Value>) {
-            println!("AAA {:?}", identifier);
-            panic!("HEY");
+    impl PerfEventExprState {
+        fn new(perf_counter: Counter) -> Self {
+            Self {
+                start_instant: Instant::now(),
+                children_duration: Duration::default(),
+                perf_counter,
+                children_perf_counter: 0,
+            }
+        }
+    }
+
+    #[derive(Serialize)]
+    struct PerfEventExprCounter {
+        expression: String,
+        calls: u64,
+        duration: Duration,
+        instructions: u64,
+    }
+
+    impl PerfEventExprCounter {
+        fn new() -> Self {
+            Self {
+                expression: String::default(),
+                calls: 0,
+                duration: Duration::default(),
+                instructions: 0,
+            }
+        }
+    }
+
+    #[derive(Default)]
+
+    pub struct PerfEventCounterHook {
+        functions_ids: HashMap<u64, String>,
+        expression_states: HashMap<u64, PerfEventExprState>,
+        expression_counters: HashMap<String, PerfEventExprCounter>,
+        call_stack: Vec<u64>,
+    }
+
+    impl PerfEventCounterHook {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    impl EvalHook for PerfEventCounterHook {
+        fn will_begin_eval(
+            &mut self,
+
+            env: &mut Environment,
+
+            _context: &LocalContext,
+
+            expr: &SymbolicExpression,
+        ) {
+            let mut key = None;
+
+            if let SymbolicExpressionType::Atom(atom) = &expr.expr {
+                if let Some(_native_variable) = NativeVariables::lookup_by_name_at_version(
+                    atom.as_str(),
+                    &ClarityVersion::latest(),
+                ) {
+                    key = Some(atom.as_str().to_string());
+                }
+            } else if let SymbolicExpressionType::List(list) = &expr.expr {
+                if let Some((function_name, args)) = list.split_first() {
+                    if let Some(function_name) = function_name.match_atom() {
+                        if let Some(_native_function) = NativeFunctions::lookup_by_name_at_version(
+                            function_name,
+                            &ClarityVersion::latest(),
+                        ) {
+                            let function_name_and_args =
+                                format!("{} ({:?})", function_name, args).to_string();
+
+                            key = Some(function_name_and_args);
+                        }
+                    }
+                }
+            };
+
+            if key.is_none() {
+                return;
+            }
+
+            let function_key = key.unwrap().to_string();
+
+            let counter = self
+                .expression_counters
+                .entry(function_key.clone())
+                .or_insert(PerfEventExprCounter::new());
+
+            counter.expression = function_key.clone();
+            counter.calls += 1;
+
+            let current_cost = env.global_context.cost_track.get_total();
+
+            self.functions_ids.insert(expr.id, function_key);
+
+            self.call_stack.push(expr.id);
+
+            let mut perf_event = Builder::new(Hardware::INSTRUCTIONS).build().unwrap();
+
+            perf_event.enable().unwrap();
+
+            self.expression_states
+                .insert(expr.id, PerfEventExprState::new(perf_event));
         }
 
-        fn end(&mut self) {
-            println!("BBB {}", self.hello);
+        fn did_finish_eval(
+            &mut self,
+
+            env: &mut Environment,
+
+            _context: &LocalContext,
+
+            expr: &SymbolicExpression,
+
+            _res: &Result<Value, Error>,
+        ) {
+            if self.expression_states.contains_key(&expr.id) {
+                let state = self.expression_states.get_mut(&expr.id).unwrap();
+
+                state.perf_counter.disable().unwrap();
+
+                let instructions = state.perf_counter.read().unwrap();
+
+                let mut instructions = state.perf_counter.read().unwrap();
+
+                let function_name = self.functions_ids.get(&expr.id).unwrap().to_string();
+
+                let elapsed = state.start_instant.elapsed();
+
+                let counter = self.expression_counters.get_mut(&function_name).unwrap();
+
+                let duration = elapsed - state.children_duration;
+
+                counter.duration += duration;
+
+                let children_instructions = state.children_perf_counter;
+
+                instructions -= children_instructions;
+
+                counter.instructions += instructions;
+
+                let _expr_id = self.call_stack.pop().unwrap();
+
+                for expr_id in self.call_stack.iter().rev() {
+                    let state = self.expression_states.get_mut(expr_id).unwrap();
+
+                    state.children_duration += duration;
+
+                    state.children_perf_counter += instructions;
+                }
+            }
+        }
+
+        fn did_complete(
+            &mut self,
+
+            _result: core::result::Result<&mut crate::vm::ExecutionResult, String>,
+        ) {
         }
     }
 
     #[test]
     fn test_native_functions_benchmark() {
-        let Ok(json_path) = env::var("NATIVE_FUNCTIONS_BENCHMARK") else {
+        let Ok(json_path) = env::var("CLARITY_BENCHMARK") else {
             return;
         };
 
-        println!("JSON {}", json_path);
-
-        let func_body = SymbolicExpression::list(vec![
-            SymbolicExpression::atom("to-ascii?".into()),
-            SymbolicExpression::atom_value(Value::Int(1)),
-        ]);
+        let benchmark_iterations: u32 = env::var("CLARITY_BENCHMARK_ITERATIONS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1);
 
         let context = LocalContext::new();
-        let contract_context = ContractContext::new(
+        let mut contract_context = ContractContext::new(
             QualifiedContractIdentifier::transient(),
-            ClarityVersion::Clarity4,
+            ClarityVersion::latest(),
         );
 
         let mut marf = MemoryBackingStore::new();
@@ -745,36 +894,61 @@ mod test {
             CHAIN_ID_TESTNET,
             marf.as_clarity_db(),
             LimitedCostTracker::new_free(),
-            StacksEpochId::Epoch33,
+            StacksEpochId::latest(),
         );
 
-        let mut profiler = LinuxPerfProfiler {
-            hello: "Hey!".into(),
-        };
+        let call_stack = CallStack::new();
 
-        let mut call_stack = CallStack::new();
-        let mut env = Environment::new(
-            &mut global_context,
-            &contract_context,
-            &mut call_stack,
-            None,
-            None,
-            None,
-        );
-        env.global_context.native_functions_profiler = Some(&mut profiler);
-        let value = Value::string_ascii_from_bytes("1".into()).unwrap();
-        let response = Value::Response(ResponseData {
-            committed: true,
-            data: Box::new(value),
-        });
+        let mut perf_event_counter_hook = PerfEventCounterHook::new();
 
-        let hey = eval(&func_body, &mut env, &context);
+        let program = r#"
+        (+ 1 1)
+        (+ 1 1 1)
+        (+ 1 1 1 1)
+        (to-ascii? 1)
+        (to-ascii? 10)
+        (to-ascii? 100)
+        (to-ascii? 1000)
+        (to-ascii? 10000)
+        "#;
 
-        //assert_eq!(Ok(response), eval(&func_body, &mut env, &context));
+        {
+            global_context.add_eval_hook(&mut perf_event_counter_hook);
+            let value = Value::string_ascii_from_bytes("1".into()).unwrap();
+            let response = Value::Response(ResponseData {
+                committed: true,
+                data: Box::new(value),
+            });
+
+            let contract_id = QualifiedContractIdentifier::transient();
+
+            let parsed = ast::build_ast(
+                &contract_id,
+                program,
+                &mut (),
+                ClarityVersion::latest(),
+                StacksEpochId::latest(),
+            )
+            .unwrap()
+            .expressions;
+
+            for _ in 0..benchmark_iterations {
+                eval_all(&parsed, &mut contract_context, &mut global_context, None).unwrap();
+            }
+        }
+
+        let mut results: HashMap<String, Vec<PerfEventExprCounter>> = HashMap::new();
+
+        for (key, value) in perf_event_counter_hook.expression_counters {
+            let symbol_name = key.split_whitespace().next().unwrap();
+            let counter = results.entry(symbol_name.to_string()).or_insert(vec![]);
+            counter.push(value);
+            counter.sort_by_key(|peec| peec.expression.clone());
+        }
 
         let file = File::create(json_path).unwrap();
 
-        let benchmark_value = serde_json::json!({"native_functions": ["a", "b"]});
+        let benchmark_value = serde_json::json!(results);
 
         serde_json::to_writer_pretty(file, &benchmark_value).unwrap();
     }

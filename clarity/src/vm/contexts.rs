@@ -239,6 +239,17 @@ pub struct GlobalContext<'a, 'hooks> {
     pub execution_time_tracker: ExecutionTimeTracker,
 }
 
+impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
+    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
+        if let Some(mut hooks) = self.eval_hooks.take() {
+            hooks.push(hook);
+            self.eval_hooks = Some(hooks);
+        } else {
+            self.eval_hooks = Some(vec![hook]);
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ContractContext {
     pub contract_identifier: QualifiedContractIdentifier,
@@ -861,12 +872,7 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
-        if let Some(mut hooks) = self.context.eval_hooks.take() {
-            hooks.push(hook);
-            self.context.eval_hooks = Some(hooks);
-        } else {
-            self.context.eval_hooks = Some(vec![hook]);
-        }
+        self.context.add_eval_hook(hook);
     }
 }
 
@@ -1587,7 +1593,6 @@ impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
             chain_id,
             eval_hooks: None,
             execution_time_tracker: ExecutionTimeTracker::NoTracking,
-            native_functions_profiler: None,
         }
     }
 
