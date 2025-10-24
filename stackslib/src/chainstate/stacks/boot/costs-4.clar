@@ -669,3 +669,6 @@
 
 (define-read-only (cost_as_contract_safe (n uint))
     (runtime (linear n u1 u100))) ;; TODO: needs criterion benchmark
+
+(define-read-only (cost_secp256r1verify (n uint))
+    (runtime u1)) ;; TODO: needs criterion benchmark

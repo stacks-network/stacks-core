@@ -6408,14 +6408,14 @@ fn test_check_chainstate_db_versions() {
         epoch_id: StacksEpochId::Epoch20,
         start_height: 0,
         end_height: 10000,
-        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        block_limit: BLOCK_LIMIT_MAINNET_20,
         network_epoch: PEER_VERSION_EPOCH_2_0,
     };
     let epoch_2_05 = StacksEpoch {
         epoch_id: StacksEpochId::Epoch2_05,
         start_height: 0,
         end_height: 10000,
-        block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+        block_limit: BLOCK_LIMIT_MAINNET_205,
         network_epoch: PEER_VERSION_EPOCH_2_05,
     };
 

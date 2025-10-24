@@ -1422,6 +1422,42 @@ fn test_nested_outer_restrict_assets_with_stx_exceeds() {
 }
 
 #[test]
+fn test_restrict_assets_with_multiple_violations_different_kinds() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-nft current-contract "stackaroo" (list u122)) (with-stx u10))
+    (begin
+      (try! (stx-transfer? u50 tx-sender recipient))
+      (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+    )
+  )
+)"#;
+    let expected = Value::error(Value::UInt(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_multiple_violations_different_kinds_order_2() {
+    let snippet = r#"
+(define-non-fungible-token stackaroo uint)
+(nft-mint? stackaroo u122 tx-sender)
+(nft-mint? stackaroo u123 tx-sender)
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-stx u10) (with-nft current-contract "stackaroo" (list u122)))
+    (begin
+      (try! (nft-transfer? stackaroo u123 tx-sender recipient))
+      (try! (stx-transfer? u50 tx-sender recipient))
+    )
+  )
+)"#;
+    let expected = Value::error(Value::UInt(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
 fn test_nested_inner_restrict_assets_with_stx_exceeds() {
     let snippet = r#"
 (restrict-assets? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM ()

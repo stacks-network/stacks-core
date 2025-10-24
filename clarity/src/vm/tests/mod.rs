@@ -28,6 +28,8 @@ mod assets;
 mod contracts;
 #[cfg(test)]
 mod conversions;
+#[cfg(test)]
+mod crypto;
 mod datamaps;
 mod defines;
 #[cfg(test)]
