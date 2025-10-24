@@ -84,7 +84,7 @@ sha2 = { version = "0.10" }
 toml = { workspace = true }
 
 [features]
-default = ["rusqlite", "vrf", "developer-mode", "ctrlc-handler", "rand"]
+default = ["rusqlite", "vrf", "developer-mode", "ctrlc-handler", "rand", "clarity-wasm"]
 developer-mode = []
 # Enables graceful shutdown handling for Ctrl+C (SIGINT) signals.
 # This pulls in the `nix` or `winapi` dependency.
@@ -103,3 +103,4 @@ wasm = ["developer-mode", "getrandom"]
 # Wasm-specific features for easier configuration
 wasm-web = ["rand", "getrandom/js", "libsecp256k1/static-context"]
 wasm-deterministic = ["getrandom/custom"]
+clarity-wasm = []
