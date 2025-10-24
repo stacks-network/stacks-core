@@ -5,6 +5,7 @@ expression: result
 [
   Success(ExpectedBlockOutput(
     marf_hash: "095b12065b5aa5f0cc29dc004b16507be9fb7964a1d656e891a232931db1810a",
+    evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
@@ -61,7 +62,8 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "912edc362c1540a1504ccfe7c30e312086e452de1a1ffb01323b7d96c84ec5c2",
+    marf_hash: "84fd4d4a87d53924cb9743c1f5448b42d6a4b08f3c8b50feb6f49415ec8dc644",
+    evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
