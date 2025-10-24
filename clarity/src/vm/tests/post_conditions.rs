@@ -1385,6 +1385,56 @@ fn test_restrict_assets_with_error_in_body() {
     assert_eq!(short_return, execute(snippet).unwrap_err());
 }
 
+#[test]
+fn test_restrict_assets_with_receiving_principal() {
+    let snippet = r#"
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? 'SP000000000000000000002Q6VF78 ()
+    (try! (stx-transfer? u10 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_restrict_assets_with_other_principal() {
+    let snippet = r#"
+(let ((recipient 'ST1SJ3DTE5DN7X54YDH5D64R3BCB6A2AG2ZQ8YPD5))
+  (restrict-assets? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM ()
+    (try! (stx-transfer? u10 tx-sender recipient))
+  )
+)"#;
+    let expected = Value::okay_true();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_nested_outer_restrict_assets_with_stx_exceeds() {
+    let snippet = r#"
+(restrict-assets? tx-sender ((with-stx u10))
+  (try! (restrict-assets? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM ()
+    (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
+  ))
+)"#;
+    let expected = Value::error(Value::UInt(0)).unwrap();
+    assert_eq!(expected, execute(snippet).unwrap().unwrap());
+}
+
+#[test]
+fn test_nested_inner_restrict_assets_with_stx_exceeds() {
+    let snippet = r#"
+(restrict-assets? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM ()
+  (try! (restrict-assets? tx-sender ((with-stx u10))
+    (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
+  ))
+)"#;
+    let expected_err = Value::error(Value::UInt(0)).unwrap();
+    let short_return =
+        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+    assert_eq!(short_return, execute(snippet).unwrap_err());
+}
+
 // ---------- Property Tests ----------
 
 /// Given the results of running a snippet with and without asset restrictions,
