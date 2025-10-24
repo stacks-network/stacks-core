@@ -31,8 +31,8 @@ use crate::vm::tests::proptest_utils::{
     allowance_list_snippets, begin_block, body_with_allowances_snippets,
     clarity_values_no_response, execute, execute_and_return_asset_map,
     execute_and_return_asset_map_versioned, ft_mint_snippets, ft_transfer_snippets,
-    match_response_snippets, nft_mint_snippets, nft_transfer_snippets,
-    testnet_standard_principal_strategy, try_response_snippets, value_to_clarity_literal,
+    match_response_snippets, nft_mint_snippets, nft_transfer_snippets, standard_principal_strategy,
+    try_response_snippets, value_to_clarity_literal,
 };
 use crate::vm::ClarityVersion;
 
@@ -1592,7 +1592,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_errors_when_no_allowances_and_body_moves_stx(
-        sender in testnet_standard_principal_strategy(),
+        sender in standard_principal_strategy(),
         body in begin_block(),
     ) {
         let snippet = format!("(restrict-assets? tx-sender () {body})");
@@ -1617,7 +1617,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_errors_when_no_ft_allowance(
-        sender in testnet_standard_principal_strategy(),
+        sender in standard_principal_strategy(),
         ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())), ft_transfer in try_response_snippets(ft_transfer_snippets())
     ) {
         let setup_code = format!("{TOKEN_DEFINITIONS} {ft_mint}");
@@ -1659,7 +1659,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_errors_when_no_nft_allowance(
-        sender in testnet_standard_principal_strategy(),
+        sender in standard_principal_strategy(),
         nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())), nft_transfer in try_response_snippets(nft_transfer_snippets())
     ) {
         let setup_code = format!("{TOKEN_DEFINITIONS} {nft_mint}");
@@ -1737,7 +1737,7 @@ proptest! {
 
     #[test]
     fn prop_as_contract_errors_when_no_allowances_and_body_moves_stx(
-        sender in testnet_standard_principal_strategy(),
+        sender in standard_principal_strategy(),
         body in begin_block(),
     ) {
         let snippet = format!("(as-contract? () {body})");
@@ -1764,7 +1764,7 @@ proptest! {
 
     #[test]
     fn prop_as_contract_with_all_assets_unsafe_matches_clarity3(
-        sender in testnet_standard_principal_strategy(),
+        sender in standard_principal_strategy(),
         body in begin_block(),
     ) {
         let snippet = format!("(as-contract? ((with-all-assets-unsafe)) {body})");
@@ -1783,7 +1783,7 @@ proptest! {
 
     #[test]
     fn prop_as_contract_with_transfers_and_allowances_matches_clarity3(
-        sender in testnet_standard_principal_strategy(),
+        sender in standard_principal_strategy(),
         allowances_and_body in body_with_allowances_snippets(),
         ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())),
         nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())),
@@ -1805,7 +1805,7 @@ proptest! {
 
     #[test]
     fn prop_restrict_assets_with_transfers_and_allowances_ok(
-        sender in testnet_standard_principal_strategy(),
+        sender in standard_principal_strategy(),
         allowances_and_body in body_with_allowances_snippets(),
         ft_mint in match_response_snippets(ft_mint_snippets("tx-sender".into())),
         nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())),

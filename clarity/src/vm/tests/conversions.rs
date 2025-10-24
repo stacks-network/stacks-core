@@ -15,9 +15,15 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use clarity_types::types::MAX_TO_ASCII_BUFFER_LEN;
+use proptest::prelude::*;
 use stacks_common::types::StacksEpochId;
 
 pub use crate::vm::analysis::errors::CheckErrors;
+use crate::vm::tests::proptest_utils::{
+    contract_name_strategy, execute_versioned, standard_principal_strategy,
+    to_ascii_buffer_snippet_strategy, utf8_string_ascii_only_snippet_strategy,
+    utf8_string_snippet_strategy,
+};
 use crate::vm::tests::test_clarity_versions;
 use crate::vm::types::SequenceSubtype::BufferType;
 use crate::vm::types::TypeSignature::SequenceType;
@@ -588,4 +594,144 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
     let result = execute_with_parameters(response_to_ascii, version, epoch, false);
     // This should fail at analysis time since the value is too big
     assert!(result.is_err());
+}
+
+fn evaluate_to_ascii(snippet: &str) -> Value {
+    execute_versioned(snippet, ClarityVersion::Clarity4)
+        .unwrap_or_else(|e| panic!("Execution failed for snippet `{snippet}`: {e:?}"))
+        .unwrap_or_else(|| panic!("Execution returned no value for snippet `{snippet}`"))
+}
+
+proptest! {
+    #[test]
+    fn prop_to_ascii_from_ints(int_value in any::<i128>()) {
+        let snippet = format!("(to-ascii? {int_value})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(int_value.to_string().into_bytes())
+            .expect("int string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_uints(uint_value in any::<u128>()) {
+        let snippet = format!("(to-ascii? u{uint_value})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(format!("u{uint_value}").into_bytes())
+            .expect("uint string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_bools(bool_value in any::<bool>()) {
+        let literal = if bool_value { "true" } else { "false" };
+        let snippet = format!("(to-ascii? {literal})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(literal.as_bytes().to_vec())
+            .expect("bool string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_standard_principals(principal in standard_principal_strategy()) {
+        let literal = format!("'{}", principal);
+        let snippet = format!("(to-ascii? {literal})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(principal.to_string().into_bytes())
+            .expect("principal string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_contract_principals(
+        issuer in standard_principal_strategy(),
+        contract_name in contract_name_strategy(),
+    ) {
+        let contract_name_str = contract_name.to_string();
+        let literal = format!("'{}.{}", issuer, contract_name_str);
+        let snippet = format!("(to-ascii? {literal})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(
+            format!("{}.{}", issuer, contract_name_str).into_bytes()
+        )
+        .expect("contract principal string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_buffers(buffer in to_ascii_buffer_snippet_strategy()) {
+        let snippet = format!("(to-ascii? {buffer})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let expected_inner = Value::string_ascii_from_bytes(buffer.to_string().into_bytes())
+            .expect("buffer string should be valid ASCII");
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_ascii_utf8_strings(utf8_string in utf8_string_ascii_only_snippet_strategy()) {
+        let snippet = format!("(to-ascii? {utf8_string})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let ascii_snippet = &utf8_string[1..]; // Remove the u prefix
+        let expected_inner = execute_versioned(ascii_snippet, ClarityVersion::Clarity4)
+            .unwrap_or_else(|e| panic!("Execution failed for `{ascii_snippet}`: {e:?}"))
+            .unwrap_or_else(|| panic!("Execution returned no value for `{ascii_snippet}`"));
+        let expected = Value::okay(expected_inner).expect("response wrapping should succeed");
+
+        prop_assert_eq!(expected, evaluation);
+    }
+
+    #[test]
+    fn prop_to_ascii_from_utf8_strings(utf8_string in utf8_string_snippet_strategy()) {
+        let snippet = format!("(to-ascii? {utf8_string})");
+        let evaluation = evaluate_to_ascii(&snippet);
+
+        let literal_value = execute_versioned(&utf8_string, ClarityVersion::Clarity4)
+            .unwrap_or_else(|e| panic!("Execution failed for literal `{utf8_string}`: {e:?}"))
+            .unwrap_or_else(|| panic!("Execution returned no value for literal `{utf8_string}`"));
+
+        let utf8_chars = match &literal_value {
+            Value::Sequence(SequenceData::String(CharType::UTF8(data))) => data.data.clone(),
+            _ => panic!("Expected UTF-8 string literal, got `{literal_value:?}`"),
+        };
+        let is_ascii = utf8_chars
+            .iter()
+            .all(|char_bytes| char_bytes.len() == 1 && char_bytes[0].is_ascii());
+
+        if is_ascii {
+            let ascii_bytes: Vec<u8> = utf8_chars
+                .iter()
+                .map(|char_bytes| char_bytes[0])
+                .collect();
+            match Value::string_ascii_from_bytes(ascii_bytes) {
+                Ok(expected_inner) => {
+                    let expected = Value::okay(expected_inner)
+                        .expect("response wrapping should succeed");
+                    prop_assert_eq!(expected, evaluation);
+                }
+                Err(_) => {
+                    prop_assert_eq!(Value::err_uint(1), evaluation);
+                }
+            }
+        } else {
+            prop_assert_eq!(Value::err_uint(1), evaluation);
+        }
+    }
 }

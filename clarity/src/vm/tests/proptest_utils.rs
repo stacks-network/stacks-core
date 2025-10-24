@@ -22,7 +22,7 @@ use std::result::Result;
 use clarity_types::errors::InterpreterResult;
 use clarity_types::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
-    TypeSignature, UTF8Data,
+    TypeSignature, UTF8Data, MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE,
 };
 use clarity_types::{ContractName, Value};
 use proptest::array::uniform20;
@@ -30,9 +30,9 @@ use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
 use proptest::string::string_regex;
-use stacks_common::address::C32_ADDRESS_VERSION_TESTNET_SINGLESIG;
 use stacks_common::types::chainstate::StacksPrivateKey;
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::hash::to_hex;
 
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
     MAX_ALLOWANCES, MAX_NFT_IDENTIFIERS,
@@ -48,6 +48,8 @@ use crate::vm::{
 const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
 const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::Clarity4;
 const INITIAL_BALANCE: u128 = 1_000_000;
+const UTF8_SNIPPET_MAX_SEGMENTS: usize = 16;
+const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\0"];
 
 fn initialize_balances(
     g: &mut GlobalContext,
@@ -134,6 +136,153 @@ pub fn execute_and_return_asset_map_versioned(
         sender,
         move |g| initialize_balances(g, &sender_for_init),
     )
+}
+
+/// A strategy that generates valid Clarity contract names.
+pub fn contract_name_strategy() -> BoxedStrategy<ContractName> {
+    prop_oneof![
+        string_regex("[a-tv-z][a-z0-9-?!]{0,39}").unwrap(),
+        string_regex("u[a-z-?!][a-z0-9-?!]{0,38}").unwrap(),
+    ]
+    .prop_filter_map("Invalid contract name", |name| {
+        ContractName::try_from(name).ok()
+    })
+    .boxed()
+}
+
+/// A strategy that generates `uint` snippets
+pub fn uint_snippet_strategy() -> impl Strategy<Value = String> {
+    any::<u128>().prop_map(|value| format!("u{value}"))
+}
+
+/// A strategy that generates `int` snippets
+pub fn int_snippet_strategy() -> impl Strategy<Value = String> {
+    any::<i128>().prop_map(|value| value.to_string())
+}
+
+/// A strategy that generates `bool` snippets
+pub fn bool_snippet_strategy() -> impl Strategy<Value = String> {
+    any::<bool>().prop_map(|value| value.to_string())
+}
+
+/// A strategy that generates standard `principal`s
+/// The version is restricted to those currently valid: 20, 21, 22, and 26
+pub fn standard_principal_strategy() -> impl Strategy<Value = StandardPrincipalData> {
+    (
+        prop::sample::select(&[20u8, 21u8, 22u8, 26u8]),
+        uniform20(any::<u8>()),
+    )
+        .prop_filter_map("Invalid standard principal", |(version, bytes)| {
+            StandardPrincipalData::new(version, bytes).ok()
+        })
+}
+
+/// A strategy that generates standard `principal` snippets
+pub fn standard_principal_snippet_strategy() -> impl Strategy<Value = String> {
+    standard_principal_strategy().prop_map(|principal| format!("'{principal}"))
+}
+
+/// A strategy that generates contract `principal` snippets
+pub fn contract_principal_snippet_strategy() -> impl Strategy<Value = String> {
+    (standard_principal_strategy(), contract_name_strategy()).prop_map(|(issuer, name)| {
+        let contract_id = QualifiedContractIdentifier::new(issuer, name);
+        format!("'{contract_id}")
+    })
+}
+
+/// A strategy that generates `principal` snippets, either standard or contract
+pub fn principal_snippet_strategy() -> impl Strategy<Value = String> {
+    prop_oneof![
+        standard_principal_snippet_strategy().boxed(),
+        contract_principal_snippet_strategy().boxed(),
+    ]
+}
+
+/// A strategy that generates `buff` snippets
+pub fn buffer_snippet_strategy() -> impl Strategy<Value = String> {
+    vec(any::<u8>(), 0..MAX_VALUE_SIZE as usize).prop_map(|bytes| {
+        let hex = to_hex(&bytes);
+        format!("0x{hex}")
+    })
+}
+
+pub fn to_ascii_buffer_snippet_strategy() -> impl Strategy<Value = String> {
+    vec(any::<u8>(), 0..=MAX_TO_ASCII_BUFFER_LEN as usize).prop_map(|bytes| {
+        let hex = to_hex(&bytes);
+        format!("0x{hex}")
+    })
+}
+
+/// A strategy that generates ASCII snippets
+pub fn ascii_string_snippet_strategy() -> impl Strategy<Value = String> {
+    string_regex(&format!(
+        r#"(?x)
+        "                              # opening quote
+        (?:                            # body: zero or more of...
+          [\x20\x21\x23-\x5B\x5D-\x7E] #   printable ASCII except " and \
+          | \\[\\"ntr]                 #   valid escape sequences
+        ){{0,{}}}                      # up to MAX_VALUE_SIZE
+        "                              # closing quote
+        "#,
+        MAX_VALUE_SIZE
+    ))
+    .unwrap()
+}
+
+/// A strategy that generates UTF8 snippets that only contain ASCII characters
+pub fn utf8_string_ascii_only_snippet_strategy() -> impl Strategy<Value = String> {
+    string_regex(&format!(
+        r#"(?x)
+        u"                             # opening quote
+        (?:                            # body: zero or more of...
+          [\x20\x21\x23-\x5B\x5D-\x7E] #   printable ASCII except " and \
+          | \\[\\"ntr]                 #   valid escape sequences
+        ){{0,{}}}                      # up to MAX_UTF8_VALUE_SIZE
+        "                              # closing quote
+        "#,
+        MAX_UTF8_VALUE_SIZE
+    ))
+    .unwrap()
+}
+
+/// A strategy that generates UTF-8 string snippets
+pub fn utf8_string_snippet_strategy() -> impl Strategy<Value = String> {
+    let ascii_chars: Vec<char> = (0x20u8..=0x7E)
+        .filter(|byte| *byte != b'"' && *byte != b'\\')
+        .map(|byte| byte as char)
+        .collect();
+
+    let ascii_char_segment = prop::sample::select(ascii_chars).prop_map(|ch| ch.to_string());
+
+    let simple_escape_segment =
+        prop::sample::select(&UTF8_SIMPLE_ESCAPES).prop_map(|escape| escape.to_string());
+
+    let unicode_escape_segment =
+        proptest::char::any().prop_map(|ch| format!("\\u{{{:X}}}", ch as u32));
+
+    vec(
+        prop_oneof![
+            ascii_char_segment,
+            simple_escape_segment,
+            unicode_escape_segment,
+        ],
+        0..=MAX_UTF8_VALUE_SIZE as usize,
+    )
+    .prop_map(|segments: Vec<String>| format!("u\"{}\"", segments.concat()))
+}
+
+/// A strategy that generates simple Clarity value snippets
+/// including uint, int, bool, principal, buffer, and string types.
+pub fn simple_value_snippet_strategy() -> impl Strategy<Value = String> {
+    prop_oneof![
+        uint_snippet_strategy().boxed(),
+        int_snippet_strategy().boxed(),
+        bool_snippet_strategy().boxed(),
+        principal_snippet_strategy().boxed(),
+        buffer_snippet_strategy().boxed(),
+        ascii_string_snippet_strategy().boxed(),
+        utf8_string_snippet_strategy().boxed(),
+    ]
 }
 
 /// A strategy that generates Clarity values.
@@ -652,11 +801,4 @@ pub fn utf8_string_literal(data: &UTF8Data) -> String {
     }
     literal.push('"');
     literal
-}
-
-/// A strategy that generates a random StandardPrincipalData
-pub fn testnet_standard_principal_strategy() -> impl Strategy<Value = StandardPrincipalData> {
-    (uniform20(any::<u8>())).prop_filter_map("Invalid standard principal", |bytes| {
-        StandardPrincipalData::new(C32_ADDRESS_VERSION_TESTNET_SINGLESIG, bytes).ok()
-    })
 }
