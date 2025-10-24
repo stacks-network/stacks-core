@@ -17,7 +17,8 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::{
-    check_arguments_at_least, CheckErrorKind, StaticCheckError, TypeChecker, TypingContext,
+    check_arguments_at_least, StaticCheckError, StaticCheckErrorKind, TypeChecker,
+    TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};
@@ -31,14 +32,16 @@ pub fn check_special_fetch_entry(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::BadMapName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(StaticCheckErrorKind::BadMapName)?;
 
     let key_type = checker.type_check(&args[1], context)?;
 
     let (expected_key_type, value_type) = checker
         .contract_context
         .get_map_type(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(StaticCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -55,7 +58,7 @@ pub fn check_special_fetch_entry(
     let option_type = TypeSignature::new_option(value_type.clone())?;
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
-        Err(StaticCheckError::new(CheckErrorKind::TypeError(
+        Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_key_type.clone()),
             Box::new(key_type),
         )))
@@ -71,14 +74,16 @@ pub fn check_special_delete_entry(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(2, args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::BadMapName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(StaticCheckErrorKind::BadMapName)?;
 
     let key_type = checker.type_check(&args[1], context)?;
 
     let (expected_key_type, _) = checker
         .contract_context
         .get_map_type(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(StaticCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -88,7 +93,7 @@ pub fn check_special_delete_entry(
     analysis_typecheck_cost(&mut checker.cost_track, expected_key_type, &key_type)?;
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
-        Err(StaticCheckError::new(CheckErrorKind::TypeError(
+        Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_key_type.clone()),
             Box::new(key_type),
         )))
@@ -104,7 +109,9 @@ fn check_set_or_insert_entry(
 ) -> Result<TypeSignature, StaticCheckError> {
     check_arguments_at_least(3, args)?;
 
-    let map_name = args[0].match_atom().ok_or(CheckErrorKind::BadMapName)?;
+    let map_name = args[0]
+        .match_atom()
+        .ok_or(StaticCheckErrorKind::BadMapName)?;
 
     let key_type = checker.type_check(&args[1], context)?;
     let value_type = checker.type_check(&args[2], context)?;
@@ -112,7 +119,7 @@ fn check_set_or_insert_entry(
     let (expected_key_type, expected_value_type) = checker
         .contract_context
         .get_map_type(map_name)
-        .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?;
+        .ok_or(StaticCheckErrorKind::NoSuchMap(map_name.to_string()))?;
 
     runtime_cost(
         ClarityCostFunction::AnalysisTypeLookup,
@@ -129,12 +136,12 @@ fn check_set_or_insert_entry(
     analysis_typecheck_cost(&mut checker.cost_track, expected_value_type, &value_type)?;
 
     if !expected_key_type.admits_type(&StacksEpochId::Epoch21, &key_type)? {
-        Err(StaticCheckError::new(CheckErrorKind::TypeError(
+        Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_key_type.clone()),
             Box::new(key_type),
         )))
     } else if !expected_value_type.admits_type(&StacksEpochId::Epoch21, &value_type)? {
-        Err(StaticCheckError::new(CheckErrorKind::TypeError(
+        Err(StaticCheckError::new(StaticCheckErrorKind::TypeError(
             Box::new(expected_value_type.clone()),
             Box::new(value_type),
         )))

@@ -2,7 +2,9 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError};
+use crate::vm::analysis::{
+    AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError, StaticCheckErrorKind,
+};
 use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
@@ -76,17 +78,18 @@ impl std::error::Error for ClarityError {
     }
 }
 
+#[cfg(any(test, feature = "testing"))]
 impl From<StaticCheckError> for ClarityError {
     fn from(e: StaticCheckError) -> Self {
         match *e.err {
-            CheckErrorKind::CostOverflow => {
+            StaticCheckErrorKind::CostOverflow => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            CheckErrorKind::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
-            CheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
+            StaticCheckErrorKind::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
+            StaticCheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            CheckErrorKind::ExecutionTimeExpired => {
+            StaticCheckErrorKind::ExecutionTimeExpired => {
                 ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
             _ => ClarityError::StaticCheck(e),
@@ -255,7 +258,7 @@ pub trait TransactionConnection: ClarityConnection {
                     let cost_track = contract_analysis.take_contract_cost_tracker();
                     (cost_track, Ok((contract_ast, contract_analysis)))
                 }
-                Err(e) => (e.1, Err(e.0.into())),
+                Err(e) => (e.1, Err(ClarityError::StaticCheck(e.0))),
             }
         })
     }
@@ -275,13 +278,13 @@ pub trait TransactionConnection: ClarityConnection {
                 Ok(_) => {
                     let result = db
                         .commit()
-                        .map_err(|e| CheckErrorKind::Expects(format!("{e:?}")).into());
+                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
                     (cost_tracker, result)
                 }
                 Err(e) => {
                     let result = db
                         .roll_back()
-                        .map_err(|e| CheckErrorKind::Expects(format!("{e:?}")).into());
+                        .map_err(|e| StaticCheckErrorKind::Expects(format!("{e:?}")).into());
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {

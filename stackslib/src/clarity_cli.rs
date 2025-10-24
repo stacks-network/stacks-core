@@ -43,7 +43,6 @@ use crate::chainstate::stacks::boot::{
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::clarity::vm::analysis::errors::StaticCheckError;
 use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::clarity::vm::ast::build_ast;
 use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
@@ -51,7 +50,9 @@ use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use crate::clarity::vm::errors::{InterpreterResult, RuntimeError, VmExecutionError};
+use crate::clarity::vm::errors::{
+    InterpreterResult, RuntimeError, StaticCheckError, VmExecutionError,
+};
 use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,

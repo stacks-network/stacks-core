@@ -6,7 +6,7 @@ use clarity::vm::analysis::mem_type_check;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::*;
-use clarity::vm::errors::{CheckErrorKind, VmExecutionError};
+use clarity::vm::errors::{CheckErrorKind, StaticCheckErrorKind, VmExecutionError};
 use clarity::vm::test_util::{execute, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB};
 use clarity::vm::types::{
     OptionalData, PrincipalData, QualifiedContractIdentifier, ResponseData, StandardPrincipalData,
@@ -1713,7 +1713,7 @@ fn simple_epoch21_test() {
             ClarityError::StaticCheck(e) => {
                 assert_eq!(
                     *e.err,
-                    CheckErrorKind::UnknownFunction("stx-account".into())
+                    StaticCheckErrorKind::UnknownFunction("stx-account".into())
                 );
             }
             e => panic!("Should have caused an analysis error: {:#?}", e),

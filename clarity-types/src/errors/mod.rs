@@ -20,6 +20,7 @@ pub mod lexer;
 
 use std::{error, fmt};
 
+use analysis::CommonCheckErrorKind;
 pub use analysis::{CheckErrorKind, StaticCheckError};
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
@@ -274,6 +275,14 @@ impl From<ParseError> for VmExecutionError {
     }
 }
 
+// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
+// So there shouldn't be any need to convert it to a VmExecutionError.
+impl From<CommonCheckErrorKind> for VmExecutionError {
+    fn from(err: CommonCheckErrorKind) -> Self {
+        VmExecutionError::Unchecked(err.into())
+    }
+}
+
 impl From<CostErrors> for VmExecutionError {
     fn from(err: CostErrors) -> Self {
         match err {
@@ -300,9 +309,11 @@ impl From<CheckErrorKind> for VmExecutionError {
     }
 }
 
-impl From<(CheckErrorKind, &SymbolicExpression)> for VmExecutionError {
-    fn from(err: (CheckErrorKind, &SymbolicExpression)) -> Self {
-        VmExecutionError::Unchecked(err.0)
+// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
+// So there shouldn't be any need to convert it to a VmExecutionError.
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for VmExecutionError {
+    fn from(err: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
+        VmExecutionError::Unchecked(err.0.into())
     }
 }
 

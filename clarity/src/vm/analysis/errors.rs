@@ -16,5 +16,5 @@
 
 pub use clarity_types::errors::analysis::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
-    StaticCheckError, SyntaxBindingError, SyntaxBindingErrorType,
+    StaticCheckError, StaticCheckErrorKind, SyntaxBindingError, SyntaxBindingErrorType,
 };
