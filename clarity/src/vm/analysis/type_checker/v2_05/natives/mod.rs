@@ -823,7 +823,8 @@ impl TypedNativeFunction {
             | AllowanceWithFt
             | AllowanceWithNft
             | AllowanceWithStacking
-            | AllowanceAll => {
+            | AllowanceAll
+            | Secp256r1Verify => {
                 return Err(CheckErrorKind::Expects(
                     "Clarity 2+ keywords should not show up in 2.05".into(),
                 ));

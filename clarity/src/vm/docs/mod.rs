@@ -1369,8 +1369,8 @@ const SECP256K1RECOVER_API: SpecialAPI = SpecialAPI {
     snippet: "secp256k1-recover? ${1:message-hash} ${2:signature}",
     output_type: "(response (buff 33) uint)",
     signature: "(secp256k1-recover? message-hash signature)",
-    description: "The `secp256k1-recover?` function recovers the public key used to sign the message whose sha256 is `message-hash`
-with the provided `signature`. The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.
+    description: "The `secp256k1-recover?` function recovers the public key used to sign the hash, `message-hash`, typically
+a sha256 hash, with the provided `signature`. The signature includes 64 bytes plus an additional recovery id (00..03) for a total of 65 bytes.
 On success, it returns the public key as a 33-byte buffer. This function may fail with one of the following error codes:
 
 * `(err u1)` - the signature does not match the message hash
@@ -1388,8 +1388,9 @@ const SECP256K1VERIFY_API: SpecialAPI = SpecialAPI {
     signature: "(secp256k1-verify message-hash signature public-key)",
     description: "The `secp256k1-verify` function verifies that the provided signature of the message-hash
 was signed with the private key that generated the public key.
-The `message-hash` is the `sha256` of the message.
-The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.",
+The `message-hash` is typically the `sha256` of a message.
+The signature includes 64 bytes plus an optional additional recovery id (00..03) for a total of 64 or 65 bytes.
+High-S signatures are rejected to enforce the canonical low-S form and prevent malleable signatures.",
     example: "(secp256k1-verify 0xde5b9eb9e7c5592930eb2e30a01369c36586d872082ed8181ee83d2a0ec20f04
  0x8738487ebe69b93d8e51583be8eee50bb4213fc49c767d329632730cc193b873554428fc936ca3569afc15f1c9365f6591d6251a89fee9c9ac661116824d3a1301
  0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns true
@@ -1399,6 +1400,24 @@ The signature includes 64 bytes plus an optional additional recovery id (00..03)
 (secp256k1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
  0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
  0x03adb8de4bfb65db2cfd6120d55c6526ae9c52e675db7e47308636534ba7786110) ;; Returns false"
+};
+
+const SECP256R1VERIFY_API: SpecialAPI = SpecialAPI {
+    input_type: "(buff 32), (buff 64), (buff 33)",
+    snippet: "secp256r1-verify ${1:message-hash} ${2:signature} ${3:public-key})",
+    output_type: "bool",
+    signature: "(secp256r1-verify message-hash signature public-key)",
+    description: "The `secp256r1-verify` function verifies that the provided signature of the message-hash
+was signed with the private key that generated the public key.
+`message-hash` is typically the `sha256` of a message and `signature` is the raw 64-byte signature.
+High-S signatures are allowed.
+Note that this is NOT the Bitcoin (or default Stacks) signature scheme, secp256k1, but rather the
+NIST P-256 curve (also known as secp256r1).",
+    example: "(secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8
+    0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd310eac59293c23e6d6aa8b0c5d9e4e48fa4c4fdf1ace2ba618dc0263b5e90a0903 0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e) ;; Returns true
+(secp256r1-verify 0x0000000000000000000000000000000000000000000000000000000000000000
+    0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+    0x037a6b62e3c8b14f1b5933f5d5ab0509a8e7d95a111b8d3b264d95bfa753b00296) ;; Returns false"
 };
 
 const CONTRACT_CALL_API: SpecialAPI = SpecialAPI {
@@ -2881,6 +2900,7 @@ pub fn make_api_reference(function: &NativeFunctions) -> FunctionAPI {
         AllowanceWithNft => make_for_special(&ALLOWANCE_WITH_NFT, function),
         AllowanceWithStacking => make_for_special(&ALLOWANCE_WITH_STACKING, function),
         AllowanceAll => make_for_special(&ALLOWANCE_WITH_ALL, function),
+        Secp256r1Verify => make_for_special(&SECP256R1VERIFY_API, function),
     }
 }
 

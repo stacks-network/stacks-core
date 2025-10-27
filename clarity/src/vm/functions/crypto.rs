@@ -20,6 +20,7 @@ use stacks_common::address::{
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
+use stacks_common::util::secp256r1::secp256r1_verify;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
@@ -285,5 +286,96 @@ pub fn special_secp256k1_verify(
 
     Ok(Value::Bool(
         secp256k1_verify(message, signature, pubkey).is_ok(),
+    ))
+}
+
+pub fn special_secp256r1_verify(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    // (secp256r1-verify message-hash signature public-key)
+    // message-hash: (buff 32), signature: (buff 64), public-key: (buff 33)
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::Secp256r1verify, env, 0)?;
+
+    let arg0 = args
+        .first()
+        .ok_or(CheckErrors::IncorrectArgumentCount(0, 3))?;
+    let message_value = eval(arg0, env, context)?;
+    let message = match message_value {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 32 {
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_32),
+                    Box::new(message_value),
+                )
+                .into());
+            }
+            data
+        }
+        _ => {
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(message_value),
+            )
+            .into())
+        }
+    };
+
+    let arg1 = args
+        .get(1)
+        .ok_or(CheckErrors::IncorrectArgumentCount(1, 3))?;
+    let signature_value = eval(arg1, env, context)?;
+    let signature = match signature_value {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() > 64 {
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_64),
+                    Box::new(signature_value),
+                )
+                .into());
+            }
+            if data.len() != 64 {
+                return Ok(Value::Bool(false));
+            }
+            data
+        }
+        _ => {
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_64),
+                Box::new(signature_value),
+            )
+            .into())
+        }
+    };
+
+    let arg2 = args
+        .get(2)
+        .ok_or(CheckErrors::IncorrectArgumentCount(2, 3))?;
+    let pubkey_value = eval(arg2, env, context)?;
+    let pubkey = match pubkey_value {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 33 {
+                return Err(CheckErrors::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_33),
+                    Box::new(pubkey_value),
+                )
+                .into());
+            }
+            data
+        }
+        _ => {
+            return Err(CheckErrors::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                Box::new(pubkey_value),
+            )
+            .into())
+        }
+    };
+
+    Ok(Value::Bool(
+        secp256r1_verify(message, signature, pubkey).is_ok(),
     ))
 }
