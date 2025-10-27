@@ -699,8 +699,6 @@ impl ConsensusTest<'_> {
             .with_pox_constants(7, 1)
             .with_initial_balances(initial_balances)
             .with_private_key(FAUCET_PRIV_KEY.clone());
-        boot_plan.pox_constants.reward_cycle_length = 5;
-        boot_plan.pox_constants.prepare_length = 2;
         let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
             + boot_plan.pox_constants.reward_cycle_length
             + 1) as u64;

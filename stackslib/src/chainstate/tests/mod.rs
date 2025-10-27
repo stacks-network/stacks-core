@@ -1754,14 +1754,14 @@ impl<'a> TestChainstate<'a> {
                 epoch_id: StacksEpochId::Epoch20,
                 start_height: first_burnchain_height,
                 end_height: first_burnchain_height + 1,
-                block_limit: ExecutionCost::max_value(),
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_2_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch2_05,
                 start_height: first_burnchain_height + 1,
                 end_height: first_burnchain_height + 2,
-                block_limit: ExecutionCost::max_value(),
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_2_05,
             },
             StacksEpoch {
@@ -1770,65 +1770,65 @@ impl<'a> TestChainstate<'a> {
                 // per epoch (especially for clarity version testing)
                 epoch_id: StacksEpochId::Epoch21,
                 start_height: first_burnchain_height + 2,
-                end_height: first_burnchain_height + 6,
-                block_limit: ExecutionCost::max_value(),
+                end_height: first_burnchain_height + 4,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_2_1,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch22,
-                start_height: first_burnchain_height + 6,
-                end_height: first_burnchain_height + 10,
-                block_limit: ExecutionCost::max_value(),
+                start_height: first_burnchain_height + 4,
+                end_height: first_burnchain_height + 8,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_2_2,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch23,
-                start_height: first_burnchain_height + 10,
-                end_height: first_burnchain_height + 14,
-                block_limit: ExecutionCost::max_value(),
+                start_height: first_burnchain_height + 8,
+                end_height: first_burnchain_height + 12,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_2_3,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch24,
-                start_height: first_burnchain_height + 14,
-                end_height: first_burnchain_height + 18,
-                block_limit: ExecutionCost::max_value(),
+                start_height: first_burnchain_height + 12,
+                end_height: first_burnchain_height + 16,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_2_4,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch25,
                 // Give an extra couple burn blocks for epoch 25 to activate pox-4
-                start_height: first_burnchain_height + 18,
-                end_height: first_burnchain_height + 24,
-                block_limit: ExecutionCost::max_value(),
+                start_height: first_burnchain_height + 16,
+                end_height: first_burnchain_height + 22,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_2_5,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch30,
-                start_height: first_burnchain_height + 24,
-                end_height: first_burnchain_height + 25,
-                block_limit: ExecutionCost::max_value(),
+                start_height: first_burnchain_height + 22,
+                end_height: first_burnchain_height + 23,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_0,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch31,
-                start_height: first_burnchain_height + 25,
-                end_height: first_burnchain_height + 26,
-                block_limit: ExecutionCost::max_value(),
+                start_height: first_burnchain_height + 23,
+                end_height: first_burnchain_height + 24,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_1,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch32,
-                start_height: first_burnchain_height + 26,
-                end_height: first_burnchain_height + 27,
-                block_limit: ExecutionCost::max_value(),
+                start_height: first_burnchain_height + 24,
+                end_height: first_burnchain_height + 25,
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_2,
             },
             StacksEpoch {
                 epoch_id: StacksEpochId::Epoch33,
-                start_height: first_burnchain_height + 27,
+                start_height: first_burnchain_height + 25,
                 end_height: STACKS_EPOCH_MAX,
-                block_limit: ExecutionCost::max_value(),
+                block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
                 network_epoch: PEER_VERSION_EPOCH_3_2,
             },
         ])
@@ -1842,8 +1842,6 @@ fn advance_through_all_epochs() {
     let mut boot_plan = NakamotoBootPlan::new(function_name!())
         .with_pox_constants(7, 1)
         .with_private_key(privk.clone());
-    boot_plan.pox_constants.reward_cycle_length = 5;
-    boot_plan.pox_constants.prepare_length = 2;
     let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
         + boot_plan.pox_constants.reward_cycle_length
         + 1) as u64;
