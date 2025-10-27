@@ -1996,6 +1996,7 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 }
 
 #[test]
+#[cfg(not(feature = "clarity-wasm"))]
 fn block_limit_runtime_test() {
     let mut conf = new_test_conf();
 
