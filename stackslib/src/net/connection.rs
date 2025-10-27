@@ -43,6 +43,9 @@ use crate::net::{
 /// The default maximum age in seconds of a block that can be validated by the block proposal endpoint
 pub const DEFAULT_BLOCK_PROPOSAL_MAX_AGE_SECS: u64 = 600;
 
+/// The default maximum time to spend validating a block proposal in seconds
+pub const DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS: u64 = 60;
+
 /// Receiver notification handle.
 /// When a message with the expected `seq` value arrives, send it to an expected receiver (possibly
 /// in another thread) via the given `receiver_input` channel.
@@ -485,6 +488,9 @@ pub struct ConnectionOptions {
 
     /// max execution time of readonly calls when cost tracking is disabled
     pub read_only_max_execution_time_secs: u64,
+
+    /// Maximum time to spend validating a block proposal in seconds
+    pub block_proposal_validation_timeout_secs: u64,
 }
 
 impl std::default::Default for ConnectionOptions {
@@ -597,6 +603,7 @@ impl std::default::Default for ConnectionOptions {
             test_disable_unsolicited_message_authentication: false,
 
             read_only_max_execution_time_secs: 30,
+            block_proposal_validation_timeout_secs: DEFAULT_BLOCK_PROPOSAL_VALIDATION_TIMEOUT_SECS,
         }
     }
 }

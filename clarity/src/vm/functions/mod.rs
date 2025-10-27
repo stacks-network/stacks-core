@@ -201,6 +201,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     AllowanceWithNft("with-nft", ClarityVersion::Clarity4, None),
     AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, None),
     AllowanceAll("with-all-assets-unsafe", ClarityVersion::Clarity4, None),
+    Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
 });
 
 ///
@@ -586,6 +587,9 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
             | AllowanceWithStacking
             | AllowanceAll => {
                 SpecialFunction("special_allowance", &post_conditions::special_allowance)
+            }
+            Secp256r1Verify => {
+                SpecialFunction("native_secp256r1-verify", &crypto::special_secp256r1_verify)
             }
         };
         Some(callable)

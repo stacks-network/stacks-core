@@ -472,4 +472,9 @@ impl CostValues for Costs4 {
         // TODO: needs criterion benchmark
         Ok(ExecutionCost::runtime(linear(n, 1, 100)))
     }
+
+    fn cost_secp256r1verify(n: u64) -> InterpreterResult<ExecutionCost> {
+        // TODO: needs criterion benchmark
+        Ok(ExecutionCost::runtime(1))
+    }
 }
