@@ -302,12 +302,12 @@ pub fn special_secp256r1_verify(
 
     let arg0 = args
         .first()
-        .ok_or(CheckErrors::IncorrectArgumentCount(0, 3))?;
+        .ok_or(CheckErrorKind::IncorrectArgumentCount(0, 3))?;
     let message_value = eval(arg0, env, context)?;
     let message = match message_value {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_32),
                     Box::new(message_value),
                 )
@@ -316,7 +316,7 @@ pub fn special_secp256r1_verify(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(message_value),
             )
@@ -326,12 +326,12 @@ pub fn special_secp256r1_verify(
 
     let arg1 = args
         .get(1)
-        .ok_or(CheckErrors::IncorrectArgumentCount(1, 3))?;
+        .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 3))?;
     let signature_value = eval(arg1, env, context)?;
     let signature = match signature_value {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 64 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_64),
                     Box::new(signature_value),
                 )
@@ -343,7 +343,7 @@ pub fn special_secp256r1_verify(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_64),
                 Box::new(signature_value),
             )
@@ -353,12 +353,12 @@ pub fn special_secp256r1_verify(
 
     let arg2 = args
         .get(2)
-        .ok_or(CheckErrors::IncorrectArgumentCount(2, 3))?;
+        .ok_or(CheckErrorKind::IncorrectArgumentCount(2, 3))?;
     let pubkey_value = eval(arg2, env, context)?;
     let pubkey = match pubkey_value {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_33),
                     Box::new(pubkey_value),
                 )
@@ -367,7 +367,7 @@ pub fn special_secp256r1_verify(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(pubkey_value),
             )

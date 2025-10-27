@@ -3897,21 +3897,21 @@ fn test_secp256k1_recover_type_check() {
     let bad_cases = [
         (
             "(secp256k1-recover?)".to_string(),
-            CheckErrors::IncorrectArgumentCount(2, 0),
+            CheckErrorKind::IncorrectArgumentCount(2, 0),
         ),
         (
             format!(
                 "(secp256k1-recover? {} {} {})",
                 SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
             ),
-            CheckErrors::IncorrectArgumentCount(2, 3),
+            CheckErrorKind::IncorrectArgumentCount(2, 3),
         ),
         (
             format!(
                 "(secp256k1-recover? {} {})",
                 SECP256K1_SIGNATURE, SECP256K1_SIGNATURE
             ),
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(TypeSignature::BUFFER_65),
             ),
@@ -3921,7 +3921,7 @@ fn test_secp256k1_recover_type_check() {
                 "(secp256k1-recover? {} {})",
                 SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE_TOO_LONG
             ),
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 Box::new(TypeSignature::BUFFER_65),
                 Box::new(buffer_66_type.clone()),
             ),
@@ -3955,21 +3955,21 @@ fn test_secp256k1_verify_type_check() {
     let bad_cases = [
         (
             "(secp256k1-verify)".to_string(),
-            CheckErrors::IncorrectArgumentCount(3, 0),
+            CheckErrorKind::IncorrectArgumentCount(3, 0),
         ),
         (
             format!(
                 "(secp256k1-verify {} {})",
                 SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE
             ),
-            CheckErrors::IncorrectArgumentCount(3, 2),
+            CheckErrorKind::IncorrectArgumentCount(3, 2),
         ),
         (
             format!(
                 "(secp256k1-verify {} {} {})",
                 SECP256K1_SIGNATURE, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
             ),
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(TypeSignature::BUFFER_65),
             ),
@@ -3979,7 +3979,7 @@ fn test_secp256k1_verify_type_check() {
                 "(secp256k1-verify {} {} {})",
                 SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE_TOO_LONG, SECP256K1_PUBLIC_KEY
             ),
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 Box::new(TypeSignature::BUFFER_65),
                 Box::new(buffer_66_type.clone()),
             ),
@@ -3989,7 +3989,7 @@ fn test_secp256k1_verify_type_check() {
                 "(secp256k1-verify {} {} {})",
                 SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_SIGNATURE
             ),
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(TypeSignature::BUFFER_65),
             ),
@@ -4018,21 +4018,21 @@ fn test_secp256r1_verify_type_check() {
     let bad_cases = [
         (
             "(secp256r1-verify)".to_string(),
-            CheckErrors::IncorrectArgumentCount(3, 0),
+            CheckErrorKind::IncorrectArgumentCount(3, 0),
         ),
         (
             format!(
                 "(secp256r1-verify {} {})",
                 SECP256_MESSAGE_HASH, SECP256R1_SIGNATURE
             ),
-            CheckErrors::IncorrectArgumentCount(3, 2),
+            CheckErrorKind::IncorrectArgumentCount(3, 2),
         ),
         (
             format!(
                 "(secp256r1-verify {} {} {})",
                 SECP256K1_SIGNATURE, SECP256R1_SIGNATURE, SECP256K1_PUBLIC_KEY
             ),
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(TypeSignature::BUFFER_65),
             ),
@@ -4042,7 +4042,7 @@ fn test_secp256r1_verify_type_check() {
                 "(secp256r1-verify {} {} {})",
                 SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
             ),
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 Box::new(TypeSignature::BUFFER_64),
                 Box::new(TypeSignature::BUFFER_65),
             ),
@@ -4052,7 +4052,7 @@ fn test_secp256r1_verify_type_check() {
                 "(secp256r1-verify {} {} {})",
                 SECP256_MESSAGE_HASH, SECP256R1_SIGNATURE, SECP256K1_SIGNATURE
             ),
-            CheckErrors::TypeError(
+            CheckErrorKind::TypeError(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(TypeSignature::BUFFER_65),
             ),
