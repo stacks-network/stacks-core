@@ -703,17 +703,29 @@ mod test {
     struct PerfEventExprState {
         start_instant: Instant,
         children_duration: Duration,
-        perf_counter: Counter,
-        children_perf_counter: u64,
+        perf_counter_instructions: Counter,
+        perf_counter_cpu_cycles: Counter,
+        perf_counter_ref_cpu_cycles: Counter,
+        children_perf_counter_instructions: u64,
+        children_perf_counter_cpu_cycles: u64,
+        children_perf_counter_ref_cpu_cycles: u64,
     }
 
     impl PerfEventExprState {
-        fn new(perf_counter: Counter) -> Self {
+        fn new(
+            perf_counter_instructions: Counter,
+            perf_counter_cpu_cycles: Counter,
+            perf_counter_ref_cpu_cycles: Counter,
+        ) -> Self {
             Self {
                 start_instant: Instant::now(),
                 children_duration: Duration::default(),
-                perf_counter,
-                children_perf_counter: 0,
+                perf_counter_instructions,
+                perf_counter_cpu_cycles,
+                perf_counter_ref_cpu_cycles,
+                children_perf_counter_instructions: 0,
+                children_perf_counter_cpu_cycles: 0,
+                children_perf_counter_ref_cpu_cycles: 0,
             }
         }
     }
@@ -721,18 +733,30 @@ mod test {
     #[derive(Serialize)]
     struct PerfEventExprCounter {
         expression: String,
+        args: Vec<String>,
         calls: u64,
         duration: Duration,
         instructions: u64,
+        cpu_cycles: u64,
+        ref_cpu_cycles: u64,
+        avg_instructions: u64,
+        avg_cpu_cycles: u64,
+        avg_ref_cpu_cycles: u64,
     }
 
     impl PerfEventExprCounter {
         fn new() -> Self {
             Self {
                 expression: String::default(),
+                args: vec![],
                 calls: 0,
                 duration: Duration::default(),
                 instructions: 0,
+                cpu_cycles: 0,
+                ref_cpu_cycles: 0,
+                avg_instructions: 0,
+                avg_cpu_cycles: 0,
+                avg_ref_cpu_cycles: 0,
             }
         }
     }
@@ -763,6 +787,7 @@ mod test {
             expr: &SymbolicExpression,
         ) {
             let mut key = None;
+            let mut function_args = vec![];
 
             if let SymbolicExpressionType::Atom(atom) = &expr.expr {
                 if let Some(_native_variable) = NativeVariables::lookup_by_name_at_version(
@@ -780,6 +805,10 @@ mod test {
                         ) {
                             let function_name_and_args =
                                 format!("{} ({:?})", function_name, args).to_string();
+
+                            for arg in args {
+                                function_args.push(arg.expr.to_string());
+                            }
 
                             key = Some(function_name_and_args);
                         }
@@ -799,6 +828,7 @@ mod test {
                 .or_insert(PerfEventExprCounter::new());
 
             counter.expression = function_key.clone();
+            counter.args = function_args;
             counter.calls += 1;
 
             let current_cost = env.global_context.cost_track.get_total();
@@ -807,12 +837,23 @@ mod test {
 
             self.call_stack.push(expr.id);
 
-            let mut perf_event = Builder::new(Hardware::INSTRUCTIONS).build().unwrap();
+            let mut perf_event_instructions = Builder::new(Hardware::INSTRUCTIONS).build().unwrap();
+            let mut perf_event_cpu_cycles = Builder::new(Hardware::CPU_CYCLES).build().unwrap();
+            let mut perf_event_ref_cpu_cycles =
+                Builder::new(Hardware::REF_CPU_CYCLES).build().unwrap();
 
-            perf_event.enable().unwrap();
+            perf_event_instructions.enable().unwrap();
+            perf_event_cpu_cycles.enable().unwrap();
+            perf_event_ref_cpu_cycles.enable().unwrap();
 
-            self.expression_states
-                .insert(expr.id, PerfEventExprState::new(perf_event));
+            self.expression_states.insert(
+                expr.id,
+                PerfEventExprState::new(
+                    perf_event_instructions,
+                    perf_event_cpu_cycles,
+                    perf_event_ref_cpu_cycles,
+                ),
+            );
         }
 
         fn did_finish_eval(
@@ -829,11 +870,13 @@ mod test {
             if self.expression_states.contains_key(&expr.id) {
                 let state = self.expression_states.get_mut(&expr.id).unwrap();
 
-                state.perf_counter.disable().unwrap();
+                state.perf_counter_instructions.disable().unwrap();
+                state.perf_counter_cpu_cycles.disable().unwrap();
+                state.perf_counter_ref_cpu_cycles.disable().unwrap();
 
-                let instructions = state.perf_counter.read().unwrap();
-
-                let mut instructions = state.perf_counter.read().unwrap();
+                let mut instructions = state.perf_counter_instructions.read().unwrap();
+                let mut cpu_cycles = state.perf_counter_cpu_cycles.read().unwrap();
+                let mut ref_cpu_cycles = state.perf_counter_ref_cpu_cycles.read().unwrap();
 
                 let function_name = self.functions_ids.get(&expr.id).unwrap().to_string();
 
@@ -845,11 +888,20 @@ mod test {
 
                 counter.duration += duration;
 
-                let children_instructions = state.children_perf_counter;
-
+                let children_instructions = state.children_perf_counter_instructions;
                 instructions -= children_instructions;
-
                 counter.instructions += instructions;
+                counter.avg_instructions = counter.instructions / counter.calls;
+
+                let children_cpu_cycles = state.children_perf_counter_cpu_cycles;
+                cpu_cycles -= children_cpu_cycles;
+                counter.cpu_cycles += cpu_cycles;
+                counter.avg_cpu_cycles = counter.cpu_cycles / counter.calls;
+
+                let children_ref_cpu_cycles = state.children_perf_counter_ref_cpu_cycles;
+                ref_cpu_cycles -= children_ref_cpu_cycles;
+                counter.ref_cpu_cycles += ref_cpu_cycles;
+                counter.avg_ref_cpu_cycles = counter.ref_cpu_cycles / counter.calls;
 
                 let _expr_id = self.call_stack.pop().unwrap();
 
@@ -858,7 +910,9 @@ mod test {
 
                     state.children_duration += duration;
 
-                    state.children_perf_counter += instructions;
+                    state.children_perf_counter_instructions += instructions;
+                    state.children_perf_counter_cpu_cycles += cpu_cycles;
+                    state.children_perf_counter_ref_cpu_cycles += ref_cpu_cycles;
                 }
             }
         }
@@ -910,6 +964,9 @@ mod test {
         (to-ascii? 100)
         (to-ascii? 1000)
         (to-ascii? 10000)
+        (contract-hash? current-contract)
+        (as-contract? ((with-stx u100)) (+ 1 1) (+ 2 2))
+        (as-contract? ((with-all-assets-unsafe)) (+ 1 1) (+ 2 2))
         "#;
 
         {
