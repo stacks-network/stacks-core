@@ -660,6 +660,8 @@ impl StacksMessageCodec for StacksMicroblockHeader {
         let signature: MessageSignature = read_next(fd)?;
 
         // signature must be well-formed
+        // in tests, we sometimes use invalid signatures
+        #[cfg(not(any(test, feature = "testing")))]
         let _ = signature
             .to_secp256k1_recoverable()
             .ok_or(codec_error::DeserializeError(

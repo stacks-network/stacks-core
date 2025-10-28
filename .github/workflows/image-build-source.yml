@@ -8,7 +8,7 @@ on:
 
 ## Define which docker arch to build for
 env:
-  docker_platforms: "linux/amd64"
+  docker_platforms: "linux/amd64,linux/arm64"
   docker-org: blockstack
 
 concurrency:
@@ -69,7 +69,6 @@ jobs:
             STACKS_NODE_VERSION=${{ env.GITHUB_SHA_SHORT }}
             GIT_BRANCH=${{ env.GITHUB_REF_SHORT }}
             GIT_COMMIT=${{ env.GITHUB_SHA_SHORT }}
-            TARGET_CPU=x86-64-v3
           push: ${{ env.DOCKER_PUSH }}
 
       ## Generate docker image attestation(s)
