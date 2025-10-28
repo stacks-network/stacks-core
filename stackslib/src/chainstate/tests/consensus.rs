@@ -55,7 +55,7 @@ use crate::net::tests::NakamotoBootPlan;
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
 /// Note that contract deploys MUST be done in each epoch >= 2.0.
-const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch32, StacksEpochId::Epoch33];
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch32, StacksEpochId::Epoch33];
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
@@ -100,7 +100,7 @@ const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVe
 /// [`TestTxFactory`] for transaction generation. It provides convenience methods to
 /// automate test scenarios involving contract deployments and calls across multiple
 /// epochs and Clarity versions.
-struct ContractConsensusTest<'a> {
+pub struct ContractConsensusTest<'a> {
     tx_factory: TestTxFactory,
     consensus_test: ConsensusTest<'a>,
 }
@@ -282,14 +282,14 @@ macro_rules! contract_call_consensus_test {
             let contract_name = $contract_name;
 
             // Handle deploy_epochs parameter (default to all epochs >= 3.0 if not provided)
-            let deploy_epochs = StacksEpochId::ALL_GTE_30;
+            let deploy_epochs =  clarity::types::StacksEpochId::ALL_GTE_30;
             $(let deploy_epochs = $deploy_epochs;)?
 
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-            let call_epochs = EPOCHS_TO_TEST;
+            let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
             $(let call_epochs = $call_epochs;)?
 
-            let mut contract_test = ContractConsensusTest::new(function_name!());
+            let mut contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(function_name!());
             let result = contract_test.run(
                 contract_name,
                 $contract_code,
@@ -303,6 +303,7 @@ macro_rules! contract_call_consensus_test {
         }
     };
 }
+pub(crate) use contract_call_consensus_test;
 
 /// Generates a consensus test for contract deployment across multiple Stacks epochs.
 ///
@@ -344,7 +345,7 @@ macro_rules! contract_deploy_consensus_test {
             $name,
             contract_name: $contract_name,
             contract_code: $contract_code,
-            deploy_epochs: EPOCHS_TO_TEST,
+            deploy_epochs: $crate::chainstate::tests::consensus::EPOCHS_TO_TEST,
         );
     };
     (
@@ -353,7 +354,7 @@ macro_rules! contract_deploy_consensus_test {
         contract_code: $contract_code:expr,
         deploy_epochs: $deploy_epochs:expr,
     ) => {
-        contract_call_consensus_test!(
+        $crate::chainstate::tests::consensus::contract_call_consensus_test!(
             $name,
             contract_name: $contract_name,
             contract_code: $contract_code,
@@ -364,6 +365,7 @@ macro_rules! contract_deploy_consensus_test {
         );
     };
 }
+pub(crate) use contract_deploy_consensus_test;
 
 /// The type of transaction to create.
 pub enum TestTxSpec<'a> {
@@ -503,7 +505,7 @@ impl TestTxFactory {
         let tx_bytes = make_contract_publish_versioned(
             sender,
             *nonce,
-            (code.len() * 100) as u64,
+            (1) as u64,
             self.default_chain_id,
             name,
             code,
