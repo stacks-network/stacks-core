@@ -76,6 +76,7 @@ chrono = "0.4.19"
 tempfile = "3.3"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
 insta = { version = "1.37.0", features = ["ron"] }
+clarity-types = { package = "clarity-types", path = "../clarity-types", default-features = false }
 
 [features]
 default = []
