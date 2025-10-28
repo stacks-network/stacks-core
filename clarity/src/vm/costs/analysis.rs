@@ -6,6 +6,7 @@ use clarity_types::types::{CharType, SequenceData, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::build_ast;
+use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::{linear, CostValues};
 use crate::vm::costs::costs_3::Costs3;
 use crate::vm::costs::ExecutionCost;
@@ -221,18 +222,17 @@ fn static_cost_native(
     let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
     Ok(summing_cost.into())
 }
-/// Parse Clarity source code and calculate its static execution cost for the specified function
-pub fn static_cost(
-    source: &str,
+
+pub fn static_cost_from_ast(
+    contract_ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
 ) -> Result<HashMap<String, StaticCost>, String> {
-    let epoch = StacksEpochId::latest(); // XXX this should be matched with the clarity version
-    let ast = make_ast(source, epoch, clarity_version)?;
+    let exprs = &contract_ast.expressions;
 
-    if ast.expressions.is_empty() {
-        return Err("No expressions found".to_string());
+    if exprs.is_empty() {
+        return Err("No expressions found in contract AST".to_string());
     }
-    let exprs = &ast.expressions;
+
     let user_args = UserArgumentsContext::new();
     let mut costs: HashMap<String, Option<StaticCost>> = HashMap::new();
 
@@ -259,6 +259,40 @@ pub fn static_cost(
         .filter_map(|(name, cost)| cost.map(|c| (name, c)))
         .collect())
 }
+
+/// Calculate static execution cost for functions using Environment context
+/// This replaces the old source-string based approach with Environment integration
+pub fn static_cost(
+    env: &mut Environment,
+    contract_identifier: &QualifiedContractIdentifier,
+) -> Result<HashMap<String, StaticCost>, String> {
+    // Get the contract source from the environment's database
+    let contract_source = env
+        .global_context
+        .database
+        .get_contract_src(contract_identifier)
+        .ok_or_else(|| "Contract source not found in database".to_string())?;
+
+    // Get the contract's clarity version from the environment
+    let contract = env
+        .global_context
+        .database
+        .get_contract(contract_identifier)
+        .map_err(|e| format!("Failed to get contract: {:?}", e))?;
+
+    let clarity_version = contract.contract_context.get_clarity_version();
+
+    let epoch = env.global_context.epoch_id;
+    let ast = make_ast(&contract_source, epoch, clarity_version)?;
+
+    static_cost_from_ast(&ast, clarity_version)
+}
+
+// pub fn static_cost_tree(
+//     source: &str,
+//     clarity_version: &ClarityVersion,
+// ) -> Result<HashMap<String, CostAnalysisNode>, String> {
+// }
 
 /// Extract function name from a symbolic expression
 fn extract_function_name(expr: &SymbolicExpression) -> Option<String> {
@@ -469,7 +503,6 @@ fn build_listlike_cost_analysis_tree(
         (CostExprNode::NativeFunction(native_function), cost)
     } else {
         // If not a native function, treat as user-defined function and look it up
-        println!("in user-defined function");
         let expr_node = CostExprNode::UserFunction(function_name.clone());
         let cost = calculate_function_cost(function_name.to_string(), cost_map, clarity_version)?;
         (expr_node, cost)
@@ -499,6 +532,7 @@ fn calculate_function_cost(
             Ok(cost.clone())
         }
         Some(None) => {
+            // Should be impossible but alas..
             // Function exists but cost not yet computed - this indicates a circular dependency
             // For now, return zero cost to avoid infinite recursion
             println!(
@@ -809,6 +843,15 @@ mod tests {
         static_cost_native(source, &cost_map, clarity_version)
     }
 
+    fn static_cost_test(
+        source: &str,
+        clarity_version: &ClarityVersion,
+    ) -> Result<HashMap<String, StaticCost>, String> {
+        let epoch = StacksEpochId::latest();
+        let ast = make_ast(source, epoch, clarity_version)?;
+        static_cost_from_ast(&ast, clarity_version)
+    }
+
     fn build_test_ast(src: &str) -> crate::vm::ast::ContractAST {
         let contract_identifier = QualifiedContractIdentifier::transient();
         let mut cost_tracker = ();
@@ -1050,5 +1093,42 @@ mod tests {
             assert_eq!(name.as_str(), "y");
             assert_eq!(arg_type.as_str(), "uint");
         }
+    }
+
+    #[test]
+    fn test_static_cost_simple_addition() {
+        let source = "(define-public (add (a uint) (b uint)) (+ a b))";
+        let ast_cost = static_cost_test(source, &ClarityVersion::Clarity3).unwrap();
+
+        // Should have one function
+        assert_eq!(ast_cost.len(), 1);
+        assert!(ast_cost.contains_key("add"));
+
+        // Check that the cost is reasonable (non-zero for addition)
+        let add_cost = ast_cost.get("add").unwrap();
+        assert!(add_cost.min.runtime > 0);
+        assert!(add_cost.max.runtime > 0);
+    }
+
+    #[test]
+    fn test_static_cost_multiple_functions() {
+        let source = r#"
+            (define-public (func1 (x uint)) (+ x 1))
+            (define-private (func2 (y uint)) (* y 2))
+        "#;
+        let ast_cost = static_cost_test(source, &ClarityVersion::Clarity3).unwrap();
+
+        // Should have 2 functions
+        assert_eq!(ast_cost.len(), 2);
+
+        // Check that both functions are present
+        assert!(ast_cost.contains_key("func1"));
+        assert!(ast_cost.contains_key("func2"));
+
+        // Check that costs are reasonable
+        let func1_cost = ast_cost.get("func1").unwrap();
+        let func2_cost = ast_cost.get("func2").unwrap();
+        assert!(func1_cost.min.runtime > 0);
+        assert!(func2_cost.min.runtime > 0);
     }
 }
