@@ -155,19 +155,32 @@ impl StacksMessageCodec for TenureChangePayload {
         write_next(fd, &self.burn_view_consensus_hash)?;
         write_next(fd, &self.previous_tenure_end)?;
         write_next(fd, &self.previous_tenure_blocks)?;
-        write_next(fd, &self.cause)?;
+        write_next(fd, &self.cause.as_u8())?;
         write_next(fd, &self.pubkey_hash)
     }
 
     fn consensus_deserialize<R: Read>(fd: &mut R) -> Result<Self, codec_error> {
+        let tenure_consensus_hash = read_next(fd)?;
+        let prev_tenure_consensus_hash = read_next(fd)?;
+        let burn_view_consensus_hash = read_next(fd)?;
+        let previous_tenure_end = read_next(fd)?;
+        let previous_tenure_blocks = read_next(fd)?;
+        let cause_field: u8 = read_next(fd)?;
+        let cause = TenureChangeCause::try_from(cause_field).map_err(|_| {
+            codec_error::DeserializeError(format!(
+                "Unknown cause byte in TenureChange payload: {cause_field}"
+            ))
+        })?;
+        let pubkey_hash = read_next(fd)?;
+
         Ok(Self {
-            tenure_consensus_hash: read_next(fd)?,
-            prev_tenure_consensus_hash: read_next(fd)?,
-            burn_view_consensus_hash: read_next(fd)?,
-            previous_tenure_end: read_next(fd)?,
-            previous_tenure_blocks: read_next(fd)?,
-            cause: read_next(fd)?,
-            pubkey_hash: read_next(fd)?,
+            tenure_consensus_hash,
+            prev_tenure_consensus_hash,
+            burn_view_consensus_hash,
+            previous_tenure_end,
+            previous_tenure_blocks,
+            cause,
+            pubkey_hash,
         })
     }
 }

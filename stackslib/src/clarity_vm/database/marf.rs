@@ -232,16 +232,16 @@ impl MarfedKV {
         current: &StacksBlockId,
         next: &StacksBlockId,
     ) -> PersistentWritableMarfStore<'a> {
-        let mut tx = self.marf.begin_tx().unwrap_or_else(|_| {
+        let mut tx = self.marf.begin_tx().unwrap_or_else(|e| {
             panic!(
-                "ERROR: Failed to begin new MARF block {} - {})",
-                current, next
+                "ERROR: Failed to begin new MARF block {} - {}): {:?}",
+                current, next, &e
             )
         });
-        tx.begin(current, next).unwrap_or_else(|_| {
+        tx.begin(current, next).unwrap_or_else(|e| {
             panic!(
-                "ERROR: Failed to begin new MARF block {} - {})",
-                current, next
+                "ERROR: Failed to begin new MARF block {} - {}: {:?})",
+                current, next, &e
             )
         });
 
