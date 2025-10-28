@@ -62,7 +62,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b8efac93fe58f8bdb875802253f9ccf9f94e5dd80f2b1b163a3d07a29789f56b",
+    marf_hash: "9b89306b88a2f5c4918c42fbfc3ade6cf3835755e49c755734119a0ac28c995f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(

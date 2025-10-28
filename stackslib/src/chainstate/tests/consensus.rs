@@ -930,7 +930,8 @@ impl ConsensusTest<'_> {
                     // the corresponding test blocks in their own blocks
                     let num_blocks = epoch_blocks
                         .get(epoch_id)
-                        .map(|blocks| blocks.len() as u64 + 1).unwrap_or(0);
+                        .map(|blocks| blocks.len() as u64 + 1)
+                        .unwrap_or(0);
                     start_height + num_blocks
                 }
                 StacksEpochId::Epoch25 => {
