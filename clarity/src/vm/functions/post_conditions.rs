@@ -244,13 +244,6 @@ pub fn special_restrict_assets(
         Ok(last_result)
     })();
 
-    // If there was a runtime error, pass it up immediately. We will roll back
-    // any way, so no need to check allowances.
-    if let Err(runtime_err) = eval_result {
-        env.global_context.roll_back()?;
-        return Err(runtime_err);
-    }
-
     let asset_maps = env.global_context.get_readonly_asset_map()?;
 
     // If the allowances are violated:
@@ -281,8 +274,7 @@ pub fn special_restrict_assets(
             Err(InterpreterError::Expect("Failed to get body result".into()).into())
         }
         Err(e) => {
-            // Runtime error inside body, pass it up (but this should have been
-            // caught already above)
+            // Runtime error inside body, pass it up
             Err(e)
         }
     }
@@ -346,13 +338,6 @@ pub fn special_as_contract(
             Ok(last_result)
         })();
 
-        // If there was a runtime error, pass it up immediately. We will roll back
-        // any way, so no need to check allowances.
-        if let Err(runtime_err) = eval_result {
-            nested_env.global_context.roll_back()?;
-            return Err(runtime_err);
-        }
-
         let asset_maps = nested_env.global_context.get_readonly_asset_map()?;
 
         // If the allowances are violated:
@@ -383,8 +368,7 @@ pub fn special_as_contract(
                 Err(InterpreterError::Expect("Failed to get body result".into()).into())
             }
             Err(e) => {
-                // Runtime error inside body, pass it up (but this should have been
-                // caught already above)
+                // Runtime error inside body, pass it up
                 Err(e)
             }
         }
