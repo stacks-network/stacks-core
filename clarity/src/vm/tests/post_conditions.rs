@@ -1517,6 +1517,49 @@ fn test_restrict_assets_good_transfer_with_short_return_in_body() {
     assert_eq!(short_return, res);
 }
 
+/// Test that when a short-return of an ok value occurs in the body of a
+/// restrict-assets? call, the post-condition check still checks the allowances
+/// and returns an error if violated.
+#[test]
+fn test_restrict_assets_bad_transfer_with_short_return_ok_in_body() {
+    let snippet = r#"
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-stx u100))
+    (try! (stx-transfer? u150 tx-sender recipient))
+    (asserts! false (ok false))
+    true
+  )
+)"#;
+    let sender = StandardPrincipalData::transient();
+    let expected = Value::error(Value::UInt(0)).unwrap();
+    let opt_value = execute_and_check(snippet, sender.clone(), |g| {
+        let assets = g.get_readonly_asset_map().expect("failed to get asset map");
+        let stx_moved = assets.get_stx(&sender.clone().into());
+        assert!(stx_moved.is_none(), "STX should not have moved");
+        Ok(())
+    })
+    .expect("execution failed");
+    assert_eq!(expected, opt_value.expect("no value returned"));
+}
+
+/// Test that when a short-return of an ok value occurs in the body of a
+/// restrict-assets? call, the ok value is returned.
+#[test]
+fn test_restrict_assets_good_transfer_with_short_return_ok_in_body() {
+    let snippet = r#"
+(restrict-assets? tx-sender ((with-stx u100))
+  (try! (stx-transfer? u50 tx-sender 'SP000000000000000000002Q6VF78))
+  (asserts! false (ok false))
+  true
+)"#;
+    let sender = StandardPrincipalData::transient();
+    let expected_err = Value::okay(Value::Bool(false)).unwrap();
+    let short_return =
+        ClarityError::ShortReturn(ShortReturnType::AssertionFailed(expected_err.into()));
+    let err = execute(snippet).expect_err("execution passed unexpectedly");
+    assert_eq!(short_return, err);
+}
+
 // ---------- Property Tests ----------
 
 fn execute_with_assets_for_version(
