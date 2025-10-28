@@ -138,7 +138,7 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
-pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch32;
+pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
 
 struct EvalInput {
     marf_kv: MarfedKV,
