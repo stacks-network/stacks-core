@@ -69,12 +69,6 @@ pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::Deserial
 pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
-    #[cfg(any(test, feature = "testing"))]
-    fn sign_with_noncedata(
-        &self,
-        data_hash: &[u8],
-        noncedata: &[u8; 32],
-    ) -> Result<MessageSignature, &'static str>;
 }
 
 pub trait Address: Clone + fmt::Debug + fmt::Display {
@@ -507,6 +501,23 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33 => true,
+        }
+    }
+
+    pub fn supports_specific_budget_extends(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
         }
     }
 

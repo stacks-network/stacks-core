@@ -285,6 +285,7 @@ fn check_miner_inactivity_timeout() {
         reorg_attempts_activity_timeout: Duration::from_secs(3),
         proposal_wait_for_parent_time: Duration::from_secs(0),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        supports_sip034_tenure_extensions: false,
     };
 
     let block_sk = StacksPrivateKey::from_seed(&[0, 1]);
