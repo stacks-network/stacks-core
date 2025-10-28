@@ -20,7 +20,9 @@
 use std::convert::TryFrom;
 
 use clarity_types::errors::{Error as ClarityError, InterpreterResult, ShortReturnType};
-use clarity_types::types::{AssetIdentifier, PrincipalData, QualifiedContractIdentifier};
+use clarity_types::types::{
+    AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
+};
 use clarity_types::{ClarityName, Value};
 use proptest::prelude::*;
 use proptest::test_runner::{TestCaseError, TestCaseResult};
@@ -29,10 +31,10 @@ use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::MAX_ALLOW
 use crate::vm::contexts::AssetMap;
 use crate::vm::tests::proptest_utils::{
     allowance_list_snippets, begin_block, body_with_allowances_snippets,
-    clarity_values_no_response, execute, execute_and_return_asset_map,
-    execute_and_return_asset_map_versioned, ft_mint_snippets, ft_transfer_snippets,
-    match_response_snippets, nft_mint_snippets, nft_transfer_snippets, standard_principal_strategy,
-    try_response_snippets, value_to_clarity_literal,
+    clarity_values_no_response, execute, execute_and_check, execute_and_check_versioned,
+    ft_mint_snippets, ft_transfer_snippets, match_response_snippets, nft_mint_snippets,
+    nft_transfer_snippets, standard_principal_strategy, try_response_snippets,
+    value_to_clarity_literal,
 };
 use crate::vm::ClarityVersion;
 
@@ -1471,64 +1473,134 @@ fn test_nested_inner_restrict_assets_with_stx_exceeds() {
     assert_eq!(short_return, execute(snippet).unwrap_err());
 }
 
+/// Test that when an error occurs in the body of a restrict-assets? call, the
+/// post-condition check still checks the allowances.
+#[test]
+fn test_restrict_assets_bad_transfer_with_short_return_in_body() {
+    let snippet = r#"
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-stx u100))
+    (try! (stx-transfer? u150 tx-sender recipient))
+    (try! (if false (ok true) (err u200)))
+    true
+  )
+)"#;
+    let sender = StandardPrincipalData::transient();
+    let expected = Value::error(Value::UInt(0)).unwrap();
+    let opt_value = execute_and_check(snippet, sender.clone(), |g| {
+        let assets = g.get_readonly_asset_map().expect("failed to get asset map");
+        let stx_moved = assets.get_stx(&sender.clone().into());
+        assert!(stx_moved.is_none(), "STX should not have moved");
+        Ok(())
+    })
+    .expect("execution failed");
+    assert_eq!(expected, opt_value.expect("no value returned"));
+}
+
+/// Test that when an error occurs in the body of a restrict-assets? call, the
+/// error is passed up if no allowances are violated.
+#[test]
+fn test_restrict_assets_good_transfer_with_short_return_in_body() {
+    let snippet = r#"
+(let ((recipient 'SP000000000000000000002Q6VF78))
+  (restrict-assets? tx-sender ((with-stx u100))
+    (try! (stx-transfer? u50 tx-sender recipient))
+    (try! (if false (ok true) (err u200)))
+    true
+  )
+)"#;
+    let sender = StandardPrincipalData::transient();
+    let expected_err = Value::error(Value::UInt(200)).unwrap();
+    let short_return =
+        ClarityError::ShortReturn(ShortReturnType::ExpectedValue(expected_err.into()));
+    let res = execute(snippet).expect_err("execution passed unexpectedly");
+    assert_eq!(short_return, res);
+}
+
 // ---------- Property Tests ----------
 
-/// Given the results of running a snippet with and without asset restrictions,
-/// assert that the results match and verify that the asset movements are as
-/// expected. If `error_allowed` is true, then it's acceptable for both runs to
-/// error out with the same error, but if it is false, then only successful
-/// runs are allowed.
-/// `asset_check` is a closure that takes the unrestricted and
-/// restricted asset maps and returns a `Result<Option<Value>, TestCaseError>`.
-/// If it returns `Ok(Some(value))`, the test will assert that the restricted
-/// execution returned that value. If it returns `Ok(None)`, the test will
-/// assert that the restricted execution returned the same value as the
-/// unrestricted execution. If it returns `Err`, the test will fail with the
-/// provided error.
+fn execute_with_assets_for_version(
+    program: &str,
+    version: ClarityVersion,
+    sender: StandardPrincipalData,
+) -> (InterpreterResult<Option<Value>>, Option<AssetMap>) {
+    let mut assets: Option<AssetMap> = None;
+
+    let result = execute_and_check_versioned(program, version, sender, |g| {
+        assets = Some(g.get_readonly_asset_map()?.clone());
+        Ok(())
+    });
+
+    (result, assets)
+}
+
+/// Execute two snippets—one unrestricted and one restricted—using the same
+/// sender, then compare their results and asset movements. If `error_allowed`
+/// is true, both executions may fail as long as the errors match; otherwise,
+/// both executions must succeed.
+/// `asset_check` is a closure that takes the unrestricted and restricted asset
+/// maps and returns a `Result<Option<Value>, TestCaseError>`. If it returns
+/// `Ok(Some(value))`, the restricted execution is expected to return that
+/// value. If it returns `Ok(None)`, the restricted execution is expected to
+/// mirror the unrestricted execution's `(ok ...)` result. If it returns `Err`,
+/// the property test fails with the provided error.
 fn assert_results_match<F>(
-    unrestricted_result: InterpreterResult<(Option<Value>, AssetMap)>,
-    restricted_result: InterpreterResult<(Option<Value>, AssetMap)>,
+    unrestricted: (&str, ClarityVersion),
+    restricted: (&str, ClarityVersion),
+    sender: StandardPrincipalData,
     asset_check: F,
     error_allowed: bool,
 ) -> TestCaseResult
 where
     F: Fn(&AssetMap, &AssetMap) -> Result<Option<Value>, TestCaseError>,
 {
+    let (unrestricted_result, unrestricted_assets) =
+        execute_with_assets_for_version(unrestricted.0, unrestricted.1, sender.clone());
+    let (restricted_result, restricted_assets) =
+        execute_with_assets_for_version(restricted.0, restricted.1, sender);
+
+    let unrestricted_assets = unrestricted_assets
+        .ok_or_else(|| TestCaseError::fail("Unrestricted execution returned no asset map"))?;
+    let restricted_assets = restricted_assets
+        .ok_or_else(|| TestCaseError::fail("Restricted execution returned no asset map"))?;
+
     match (unrestricted_result, restricted_result) {
-        (Err(unrestricted_err), Err(restricted_err)) if error_allowed => {
-            prop_assert_eq!(unrestricted_err, restricted_err);
-            Ok(())
-        }
         (Err(unrestricted_err), Err(restricted_err)) => {
-            Err(TestCaseError::fail(format!(
-                "Both unrestricted and restricted execution failed, but errors are not allowed. Unrestricted error: {unrestricted_err:?}, Restricted error: {restricted_err:?}"
-            )))
+            if error_allowed {
+                prop_assert_eq!(unrestricted_err, restricted_err);
+                Ok(())
+            } else {
+                Err(TestCaseError::fail(format!(
+                    "Both unrestricted and restricted execution failed, but errors are not allowed. Unrestricted error: {unrestricted_err:?}, Restricted error: {restricted_err:?}"
+                )))
+            }
         }
-        (Err(unrestricted_err), Ok((restricted_result, _))) => {
-            let detail = match restricted_result {
-                Some(result_value) => format!(
-                    "Unrestricted execution failed with {unrestricted_err:?} but restricted execution successfully returned value {result_value:?}"
-                ),
-                None => format!(
-                    "Unrestricted execution failed with {unrestricted_err:?} but restricted execution successfully returned no value"
-                ),
-            };
-            Err(TestCaseError::fail(detail))
+        (Err(_unrestricted_err), Ok(restricted_value_opt)) => {
+            if !error_allowed {
+                return Err(TestCaseError::fail(
+                    "Unrestricted execution failed but errors are not allowed",
+                ));
+            }
+            let restricted_value = restricted_value_opt
+                .ok_or_else(|| TestCaseError::fail("Restricted execution returned no value"))?;
+            let expected_value = asset_check(&unrestricted_assets, &restricted_assets)?;
+            if let Some(expected_value) = expected_value {
+                prop_assert_eq!(expected_value, restricted_value);
+                Ok(())
+            } else {
+                Err(TestCaseError::fail(
+                    "Unrestricted execution failed but asset check expected success",
+                ))
+            }
         }
         (Ok(_), Err(restricted_err)) => Err(TestCaseError::fail(format!(
             "Unrestricted execution succeeded but restricted execution failed with {restricted_err:?}"
         ))),
-        (
-            Ok((unrestricted_value, unrestricted_assets)),
-            Ok((restricted_value, restricted_assets)),
-        ) => {
-            let Some(unrestricted_value) = unrestricted_value else {
-                panic!("Unrestricted execution returned no value");
-            };
-            let Some(restricted_value) = restricted_value else {
-                panic!("Restricted execution returned no value");
-            };
-
+        (Ok(unrestricted_value_opt), Ok(restricted_value_opt)) => {
+            let unrestricted_value = unrestricted_value_opt
+                .ok_or_else(|| TestCaseError::fail("Unrestricted execution returned no value"))?;
+            let restricted_value = restricted_value_opt
+                .ok_or_else(|| TestCaseError::fail("Restricted execution returned no value"))?;
             let expected_value = asset_check(&unrestricted_assets, &restricted_assets)?;
             if let Some(expected_value) = expected_value {
                 prop_assert_eq!(expected_value, restricted_value);
@@ -1598,8 +1670,9 @@ proptest! {
         let snippet = format!("(restrict-assets? tx-sender () {body})");
         let sender_principal = sender.clone().into();
         assert_results_match(
-            execute_and_return_asset_map(&body, sender.clone()),
-            execute_and_return_asset_map(&snippet, sender),
+            (body.as_str(), ClarityVersion::Clarity4),
+            (snippet.as_str(), ClarityVersion::Clarity4),
+            sender,
             |unrestricted_assets, restricted_assets| {
                 let stx_moved = unrestricted_assets.get_stx(&sender_principal).unwrap_or(0);
                 if stx_moved > 0 {
@@ -1638,8 +1711,9 @@ proptest! {
         };
 
         assert_results_match(
-            execute_and_return_asset_map(&body_program, sender.clone()),
-            execute_and_return_asset_map(&wrapper_program, sender),
+            (body_program.as_str(), ClarityVersion::Clarity4),
+            (wrapper_program.as_str(), ClarityVersion::Clarity4),
+            sender,
             move |unrestricted_assets, restricted_assets| {
                 let moved = unrestricted_assets
                     .get_fungible_tokens(&sender_principal, &asset_identifier)
@@ -1680,8 +1754,9 @@ proptest! {
         };
 
         assert_results_match(
-            execute_and_return_asset_map(&body_program, sender.clone()),
-            execute_and_return_asset_map(&wrapper_program, sender),
+            (body_program.as_str(), ClarityVersion::Clarity4),
+            (wrapper_program.as_str(), ClarityVersion::Clarity4),
+            sender,
             move |unrestricted_assets, restricted_assets| {
                 let moved = unrestricted_assets
                     .get_nonfungible_tokens(&sender_principal, &asset_identifier)
@@ -1745,8 +1820,9 @@ proptest! {
         let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
         let contract = PrincipalData::Contract(contract_id);
         assert_results_match(
-            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3, sender.clone()),
-            execute_and_return_asset_map(&snippet, sender),
+            (c3_snippet.as_str(), ClarityVersion::Clarity3),
+            (snippet.as_str(), ClarityVersion::Clarity4),
+            sender,
             |unrestricted_assets, restricted_assets| {
                 let stx_moved = unrestricted_assets.get_stx(&contract).unwrap_or(0);
                 if stx_moved > 0 {
@@ -1770,8 +1846,9 @@ proptest! {
         let snippet = format!("(as-contract? ((with-all-assets-unsafe)) {body})");
         let c3_snippet = format!("(as-contract {body})");
         assert_results_match(
-            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3, sender.clone()),
-            execute_and_return_asset_map(&snippet, sender),
+            (c3_snippet.as_str(), ClarityVersion::Clarity3),
+            (snippet.as_str(), ClarityVersion::Clarity4),
+            sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
                 Ok(None)
@@ -1789,11 +1866,14 @@ proptest! {
         nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())),
     ) {
         let (allowances, body) = allowances_and_body;
-        let snippet = format!("{TOKEN_DEFINITIONS}(as-contract? {allowances} {ft_mint} {nft_mint} {body})");
-        let c3_snippet = format!("{TOKEN_DEFINITIONS}(as-contract (begin {ft_mint} {nft_mint} {body}))");
+        let snippet =
+            format!("{TOKEN_DEFINITIONS}(as-contract? {allowances} {ft_mint} {nft_mint} {body})");
+        let c3_snippet =
+            format!("{TOKEN_DEFINITIONS}(as-contract (begin {ft_mint} {nft_mint} {body}))");
         assert_results_match(
-            execute_and_return_asset_map_versioned(&c3_snippet, ClarityVersion::Clarity3, sender.clone()),
-            execute_and_return_asset_map(&snippet, sender),
+            (c3_snippet.as_str(), ClarityVersion::Clarity3),
+            (snippet.as_str(), ClarityVersion::Clarity4),
+            sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
                 Ok(None)
@@ -1811,11 +1891,12 @@ proptest! {
         nft_mint in match_response_snippets(nft_mint_snippets("tx-sender".into())),
     ) {
         let (allowances, body) = allowances_and_body;
-        let snippet = format!("{TOKEN_DEFINITIONS}(restrict-assets? tx-sender {allowances} {ft_mint} {nft_mint} {body})");
-        let simple_snippet = format!("{TOKEN_DEFINITIONS}(begin {ft_mint} {nft_mint} {body})");
-        assert_results_match(
-            execute_and_return_asset_map_versioned(&simple_snippet, ClarityVersion::Clarity3, sender.clone()),
-            execute_and_return_asset_map(&snippet, sender),
+       let snippet = format!("{TOKEN_DEFINITIONS}(restrict-assets? tx-sender {allowances} {ft_mint} {nft_mint} {body})");
+       let simple_snippet = format!("{TOKEN_DEFINITIONS}(begin {ft_mint} {nft_mint} {body})");
+       assert_results_match(
+            (simple_snippet.as_str(), ClarityVersion::Clarity3),
+            (snippet.as_str(), ClarityVersion::Clarity4),
+            sender,
             |unrestricted_assets, restricted_assets| {
                 prop_assert_eq!(unrestricted_assets, restricted_assets);
                 Ok(None)

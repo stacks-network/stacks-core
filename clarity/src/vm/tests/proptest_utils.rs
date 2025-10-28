@@ -37,17 +37,14 @@ use stacks_common::util::hash::to_hex;
 use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
     MAX_ALLOWANCES, MAX_NFT_IDENTIFIERS,
 };
-use crate::vm::contexts::{AssetMap, GlobalContext};
+use crate::vm::contexts::GlobalContext;
 use crate::vm::database::STXBalance;
 use crate::vm::errors::Error as VmError;
-use crate::vm::{
-    execute_call_in_global_context_and_return_asset_map,
-    execute_with_parameters_and_call_in_global_context, ClarityVersion,
-};
+use crate::vm::{execute_with_parameters_and_call_in_global_context, ClarityVersion};
 
 const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
 const DEFAULT_CLARITY_VERSION: ClarityVersion = ClarityVersion::Clarity4;
-const INITIAL_BALANCE: u128 = 1_000_000;
+const INITIAL_BALANCE: u128 = 1_000_000_000;
 const UTF8_SNIPPET_MAX_SEGMENTS: usize = 16;
 const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\0"];
 
@@ -105,36 +102,45 @@ pub fn execute_versioned(
         false,
         sender,
         move |g| initialize_balances(g, &sender_for_init),
+        |_| Ok(()),
     )
 }
 
 /// Execute a Clarity code snippet in a fresh global context with default
 /// parameters, setting up initial balances, returning the resulting value
 /// along with the final asset map.
-pub fn execute_and_return_asset_map(
+pub fn execute_and_check<F>(
     snippet: &str,
     sender: StandardPrincipalData,
-) -> InterpreterResult<(Option<Value>, AssetMap)> {
-    execute_and_return_asset_map_versioned(snippet, DEFAULT_CLARITY_VERSION, sender)
+    check: F,
+) -> InterpreterResult<Option<Value>>
+where
+    F: FnMut(&mut GlobalContext) -> InterpreterResult<()>,
+{
+    execute_and_check_versioned(snippet, DEFAULT_CLARITY_VERSION, sender, check)
 }
 
 /// Execute a Clarity code snippet with the specified Clarity version in a
 /// fresh global context with default parameters, setting up initial balances,
 /// returning the resulting value along with the final asset map.
-pub fn execute_and_return_asset_map_versioned(
+pub fn execute_and_check_versioned<F>(
     snippet: &str,
     version: ClarityVersion,
     sender: StandardPrincipalData,
-) -> InterpreterResult<(Option<Value>, AssetMap)> {
-    let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
+    mut check: F,
+) -> InterpreterResult<Option<Value>>
+where
+    F: FnMut(&mut GlobalContext) -> InterpreterResult<()>,
+{
     let sender_for_init = sender.clone();
-    execute_call_in_global_context_and_return_asset_map(
+    execute_with_parameters_and_call_in_global_context(
         snippet,
         version,
         DEFAULT_EPOCH,
         false,
         sender,
         move |g| initialize_balances(g, &sender_for_init),
+        move |g| check(g),
     )
 }
 
