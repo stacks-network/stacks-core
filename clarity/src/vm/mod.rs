@@ -1005,6 +1005,8 @@ mod test {
         (as-contract? ((with-all-assets-unsafe)) (+ 1 1) (+ 2 2))
         (restrict-assets? tx-sender () (+ u1 u2))
         (as-contract? () (+ u1 u2))
+        (secp256r1-verify 0xc3abef6a775793dfbc8e0719e7a1de1fc2f90d37a7912b1ce8e300a5a03b06a8 0xf2b8c0645caa7250e3b96d633cf40a88456e4ffbddffb69200c4e019039dfd31f153a6d5c3dc192a5574f3a261b1b70570971b92d8ebf86c17b7670d13591c4e 0x031e18532fd4754c02f3041d9c75ceb33b83ffd81ac7ce4fe882ccb1c98bc5896e)
+        (secp256k1-verify 0x89171d7815da4bc1f644665a3234bc99d1680afa0b3285eff4878f4275fbfa89 0x54cd3f378a424a3e50ff1c911b7d80cf424e1b86dddecadbcf39077e62fa1e54ee6514347c1608df2c3995e7356f2d60a1fab60878214642134d78cd923ce27a01 0x0256b328b30c8bf5839e24058747879408bdb36241dc9c2e7c619faa12b2920967)
         "#;
 
         {
