@@ -461,10 +461,6 @@ impl<'a> TestChainstate<'a> {
             .unwrap_or(u64::MAX);
 
         let mut mined_pox_4_lockup = false;
-        let current_epoch = SortitionDB::get_stacks_epoch(self.sortdb().conn(), burn_block_height)
-            .unwrap()
-            .unwrap()
-            .epoch_id;
         while burn_block_height < target_height {
             if burn_block_height < epoch_30_height - 1 {
                 let current_reward_cycle = self.get_reward_cycle();
@@ -603,17 +599,18 @@ impl<'a> TestChainstate<'a> {
         target_epoch: StacksEpochId,
     ) {
         let burn_block_height = self.get_burn_block_height();
-        let current_epoch =
-            SortitionDB::get_stacks_epoch(self.sortdb_ref().conn(), burn_block_height)
-                .unwrap()
-                .unwrap()
-                .epoch_id;
-        assert!(
-            current_epoch <= target_epoch,
-            "Already advanced past target epoch ({target_epoch}). Currently in epoch {current_epoch} at burn block height: {burn_block_height}."
-        );
-        // Don't bother advancing to the boundary if we are already in it.
-        if current_epoch < target_epoch {
+        let target_height = self
+            .config
+            .epochs
+            .as_ref()
+            .expect("Epoch configuration missing")
+            .iter()
+            .find(|e| e.epoch_id == target_epoch)
+            .expect("Target epoch not found")
+            .start_height;
+        assert!(burn_block_height <= target_height, "We cannot advance backwards. Examine your bootstrap setup. Current burn block height: {burn_block_height}. Target height: {target_height}");
+        // Don't bother advancing to the boundary if we are already at it.
+        if burn_block_height < target_height {
             self.advance_to_epoch_boundary(private_key, target_epoch);
             if target_epoch < StacksEpochId::Epoch30 {
                 self.tenure_with_txs(&[]);

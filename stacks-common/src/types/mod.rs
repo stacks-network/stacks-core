@@ -441,7 +441,14 @@ impl StacksEpochId {
         StacksEpochId::Epoch32
     }
 
-    pub const ALL_GTE_30: &'static [StacksEpochId] = &[
+    pub const ALL_GTE_20: &'static [StacksEpochId] = &[
+        StacksEpochId::Epoch20,
+        StacksEpochId::Epoch2_05,
+        StacksEpochId::Epoch21,
+        StacksEpochId::Epoch22,
+        StacksEpochId::Epoch23,
+        StacksEpochId::Epoch24,
+        StacksEpochId::Epoch25,
         StacksEpochId::Epoch30,
         StacksEpochId::Epoch31,
         StacksEpochId::Epoch32,
