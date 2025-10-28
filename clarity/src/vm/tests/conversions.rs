@@ -591,7 +591,7 @@ fn test_to_ascii(version: ClarityVersion, epoch: StacksEpochId) {
         "(to-ascii? 0x{})",
         "ff".repeat(MAX_TO_ASCII_BUFFER_LEN as usize + 1)
     );
-    let result = execute_with_parameters(response_to_ascii, version, epoch, false);
+    let result = execute_with_parameters(&oversized_buffer_to_ascii, version, epoch, false);
     // This should fail at analysis time since the value is too big
     assert!(result.is_err());
 }
