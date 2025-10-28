@@ -17,11 +17,16 @@ use std::sync::LazyLock;
 
 use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
-use clarity::consts::CHAIN_ID_TESTNET;
+use clarity::consts::{
+    CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+    PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
+    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
+    STACKS_EPOCH_MAX,
+};
 use clarity::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
 };
-use clarity::types::StacksEpochId;
+use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
@@ -45,6 +50,7 @@ use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
     make_contract_call, make_contract_publish_versioned, make_stacks_transfer_tx, to_addr,
 };
+use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::net::tests::NakamotoBootPlan;
 
 /// The epochs to test for consensus are the current and upcoming epochs.
@@ -98,14 +104,76 @@ const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVe
 struct ContractConsensusTest<'a> {
     tx_factory: TestTxFactory,
     consensus_test: ConsensusTest<'a>,
+    contract_names: Vec<String>,
 }
 
 impl ContractConsensusTest<'_> {
     /// Creates a new `ContractConsensusTest`.
-    pub fn new(test_name: &str) -> Self {
+    pub fn new(
+        test_name: &str,
+        initial_balances: Vec<(PrincipalData, u64)>,
+        deploy_epochs: &[StacksEpochId],
+        call_epochs: &[StacksEpochId],
+        contract_name: &str,
+        contract_code: &str,
+        function_name: &str,
+        function_args: &[ClarityValue],
+    ) -> Self {
+        assert!(
+            !deploy_epochs.is_empty(),
+            "At least one deploy epoch is required"
+        );
+        let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
+        assert!(
+            call_epochs.iter().all(|e| e >= min_deploy_epoch),
+            "All call epochs must be >= the minimum deploy epoch"
+        );
+
+        // Build epoch_blocks map based on deploy and call epochs
+        let mut epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>> = HashMap::new();
+        let mut contract_names = vec![];
+        let sender = &FAUCET_PRIV_KEY;
+        let contract_addr = to_addr(sender);
+
+        // Precompute contract names and block counts
+        for epoch in deploy_epochs
+            .iter()
+            .chain(call_epochs)
+            .collect::<BTreeSet<_>>()
+        {
+            let mut blocks = vec![];
+            if deploy_epochs.contains(&epoch) {
+                let clarity_versions = clarity_versions_for_epoch(*epoch);
+                let epoch_name = format!("Epoch{}", epoch.to_string().replace(".", "_"));
+                for version in clarity_versions {
+                    let name = format!(
+                        "{contract_name}-{epoch_name}-{}",
+                        version.to_string().replace(" ", "")
+                    );
+                    contract_names.push(name);
+                    // Each deployment is a separate TestBlock
+                    blocks.push(TestBlock {
+                        transactions: vec![], // Placeholder, actual txs generated in run
+                    });
+                }
+            }
+            if call_epochs.contains(&epoch) {
+                for _ in &contract_names {
+                    // Each call is a separate TestBlock
+                    blocks.push(TestBlock {
+                        transactions: vec![], // Placeholder
+                    });
+                }
+            }
+            if !blocks.is_empty() {
+                epoch_blocks.insert(*epoch, blocks);
+            }
+        }
+
         Self {
             tx_factory: TestTxFactory::new(CHAIN_ID_TESTNET),
-            consensus_test: ConsensusTest::new(test_name, vec![]),
+            consensus_test: ConsensusTest::new(test_name, initial_balances, epoch_blocks),
+            contract_names,
         }
     }
 
@@ -171,41 +239,31 @@ impl ContractConsensusTest<'_> {
         deploy_epochs: &[StacksEpochId],
         call_epochs: &[StacksEpochId],
     ) -> Vec<ExpectedResult> {
-        assert!(
-            !deploy_epochs.is_empty(),
-            "At least one deploy epoch is required"
-        );
-        let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
-        assert!(
-            call_epochs.iter().all(|e| e >= min_deploy_epoch),
-            "All call epochs must be >= the minimum deploy epoch"
-        );
-
-        let all_epochs: BTreeSet<StacksEpochId> =
-            deploy_epochs.iter().chain(call_epochs).cloned().collect();
-
-        let mut contract_names = vec![];
         let sender = &FAUCET_PRIV_KEY;
         let contract_addr = to_addr(sender);
-        // Create epoch blocks by pairing each epoch with its corresponding transactions
         let mut results = vec![];
-        all_epochs.into_iter().for_each(|epoch| {
+
+        // Process epochs in order
+        for epoch in deploy_epochs
+            .iter()
+            .chain(call_epochs)
+            .collect::<BTreeSet<_>>()
+        {
+            let is_naka_block = *epoch >= StacksEpochId::Epoch30;
             // Use the miner as the sender to prevent messing with the block transaction nonces of the deployer/callers
             let private_key = self.consensus_test.chain.miner.nakamoto_miner_key();
             self.consensus_test
                 .chain
-                .advance_into_epoch(&private_key, epoch);
+                .advance_into_epoch(&private_key, *epoch);
 
-            let is_naka_block = epoch >= StacksEpochId::Epoch30;
             if deploy_epochs.contains(&epoch) {
-                let clarity_versions = clarity_versions_for_epoch(epoch);
+                let clarity_versions = clarity_versions_for_epoch(*epoch);
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace(".", "_"));
-                clarity_versions.iter().for_each(|version| {
+                for version in clarity_versions {
                     let name = format!(
                         "{contract_name}-{epoch_name}-{}",
                         version.to_string().replace(" ", "")
                     );
-                    contract_names.push(name.clone());
                     let result = self.append_tx_block(
                         &TestTxSpec::ContractDeploy {
                             sender,
@@ -216,24 +274,26 @@ impl ContractConsensusTest<'_> {
                         is_naka_block,
                     );
                     results.push(result);
-                });
+                }
             }
+
             if call_epochs.contains(&epoch) {
-                contract_names.iter().for_each(|contract_name| {
+                for contract_name in self.contract_names.clone() {
                     let result = self.append_tx_block(
                         &TestTxSpec::ContractCall {
                             sender,
                             contract_addr: &contract_addr,
-                            contract_name,
+                            contract_name: &contract_name,
                             function_name,
                             args: function_args,
                         },
                         is_naka_block,
                     );
                     results.push(result);
-                });
+                }
             }
-        });
+        }
+
         results
     }
 }
@@ -295,8 +355,16 @@ macro_rules! contract_call_consensus_test {
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
             let call_epochs = EPOCHS_TO_TEST;
             $(let call_epochs = $call_epochs;)?
-
-            let mut contract_test = ContractConsensusTest::new(function_name!());
+            let mut contract_test = ContractConsensusTest::new(
+                function_name!(),
+                vec![],
+                deploy_epochs,
+                call_epochs,
+                contract_name,
+                $contract_code,
+                $function_name,
+                $function_args,
+            );
             let result = contract_test.run(
                 contract_name,
                 $contract_code,
@@ -305,7 +373,6 @@ macro_rules! contract_call_consensus_test {
                 deploy_epochs,
                 call_epochs,
             );
-
             insta::assert_ron_snapshot!(result);
         }
     };
@@ -689,11 +756,16 @@ pub struct TestBlock {
 /// Represents a consensus test with chainstate.
 pub struct ConsensusTest<'a> {
     pub chain: TestChainstate<'a>,
+    epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
 }
 
 impl ConsensusTest<'_> {
     /// Creates a new `ConsensusTest` with the given test name and initial balances.
-    pub fn new(test_name: &str, initial_balances: Vec<(PrincipalData, u64)>) -> Self {
+    pub fn new(
+        test_name: &str,
+        initial_balances: Vec<(PrincipalData, u64)>,
+        epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
+    ) -> Self {
         // Set up chainstate to support Naka.
         let mut boot_plan = NakamotoBootPlan::new(test_name)
             // These are the minimum values found for the fastest test execution.
@@ -710,13 +782,200 @@ impl ConsensusTest<'_> {
             .with_pox_constants(7, 1)
             .with_initial_balances(initial_balances)
             .with_private_key(FAUCET_PRIV_KEY.clone());
-        let first_burnchain_height = (boot_plan.pox_constants.pox_4_activation_height
-            + boot_plan.pox_constants.reward_cycle_length
-            + 1) as u64;
-        let epochs = TestChainstate::all_epochs(first_burnchain_height);
+        let (epochs, first_burnchain_height) =
+            Self::calculate_epochs(&boot_plan.pox_constants, &epoch_blocks);
         boot_plan = boot_plan.with_epochs(epochs);
         let chain = boot_plan.to_chainstate(None, Some(first_burnchain_height));
-        Self { chain }
+        Self {
+            chain,
+            epoch_blocks,
+        }
+    }
+
+    /// Calculate an Epoch list that is capable of supporting the specified Epoch blocks
+    fn calculate_epochs(
+        pox_constants: &PoxConstants,
+        epoch_blocks: &HashMap<StacksEpochId, Vec<TestBlock>>,
+    ) -> (EpochList<ExecutionCost>, u64) {
+        // Helper function to check if a height is at a reward cycle boundary
+        let is_reward_cycle_boundary = |height: u64, reward_cycle_length: u64| -> bool {
+            height % reward_cycle_length <= 1 // Covers both 0 (end of cycle) and 1 (start of cycle)
+        };
+
+        let first_burnchain_height =
+            (pox_constants.pox_4_activation_height + pox_constants.reward_cycle_length + 1) as u64;
+        info!("StacksEpoch calculate_epochs first_burn_height = {first_burnchain_height}");
+        let reward_cycle_length = pox_constants.reward_cycle_length as u64;
+        let prepare_length = pox_constants.prepare_length as u64;
+        // Define all epochs in order
+        let epoch_ids = [
+            StacksEpochId::Epoch10,
+            StacksEpochId::Epoch20,
+            StacksEpochId::Epoch2_05,
+            StacksEpochId::Epoch21,
+            StacksEpochId::Epoch22,
+            StacksEpochId::Epoch23,
+            StacksEpochId::Epoch24,
+            StacksEpochId::Epoch25,
+            StacksEpochId::Epoch30,
+            StacksEpochId::Epoch31,
+            StacksEpochId::Epoch32,
+            StacksEpochId::Epoch33,
+        ];
+        // Initialize heights
+        let mut epochs = vec![];
+        let mut current_height = 0;
+        for epoch_id in epoch_ids.iter() {
+            let start_height = current_height;
+            let end_height = match *epoch_id {
+                StacksEpochId::Epoch10 => first_burnchain_height,
+                StacksEpochId::Epoch20
+                | StacksEpochId::Epoch2_05
+                | StacksEpochId::Epoch21
+                | StacksEpochId::Epoch22
+                | StacksEpochId::Epoch23
+                | StacksEpochId::Epoch24 => {
+                    // Use test vector block count, default to 1 if not specified
+                    let num_blocks = epoch_blocks
+                        .get(epoch_id)
+                        .map(|blocks| blocks.len() as u64)
+                        .unwrap_or(0);
+                    let mut end_height = start_height + num_blocks;
+                    while end_height != start_height
+                        && is_reward_cycle_boundary(end_height, reward_cycle_length)
+                    {
+                        end_height += 1;
+                    }
+                    end_height
+                }
+                StacksEpochId::Epoch25 => {
+                    // Calculate Epoch 2.5 end height and Epoch 3.0 start height.
+                    // Epoch 2.5 must start before the prepare phase of the cycle prior to Epoch 3.0's activation.
+                    // Epoch 2.5 end must equal Epoch 3.0 start
+                    // Epoch 3.0 must not start at a cycle boundary
+                    // Epoch 2.5 and 3.0 cannot be in the same reward cycle.
+                    let epoch_25_start = current_height;
+                    // Calculate number of blocks
+                    let num_blocks = epoch_blocks
+                        .get(epoch_id)
+                        .map(|blocks| blocks.len() as u64)
+                        .unwrap_or(1);
+                    let epoch_25_end = epoch_25_start + num_blocks;
+                    let epoch_30_start = epoch_25_end; // Epoch 2.5 end equals Epoch 3.0 start
+                    let epoch_25_reward_cycle = epoch_25_start / reward_cycle_length;
+                    let mut epoch_30_start = epoch_30_start;
+                    let mut epoch_25_end = epoch_30_start;
+                    let mut epoch_30_reward_cycle = epoch_30_start / reward_cycle_length;
+                    // Ensure different reward cycles and Epoch 2.5 starts before prior cycle's prepare phase
+                    let mut prior_cycle = epoch_30_reward_cycle.saturating_sub(1);
+                    let mut prior_prepare_phase_start =
+                        prior_cycle * reward_cycle_length + (reward_cycle_length - prepare_length);
+                    while epoch_25_start >= prior_prepare_phase_start
+                        || epoch_25_reward_cycle >= epoch_30_reward_cycle
+                        || is_reward_cycle_boundary(epoch_30_start, reward_cycle_length)
+                    {
+                        // Advance the epoch 30 start so it is not in a reward cycle boundary and to ensure
+                        // epoch_25 starts prior to the prepare phase of epoch 30 reward cycle activation
+                        epoch_30_start += 1;
+                        epoch_25_end = epoch_30_start; // Maintain equality
+                        epoch_30_reward_cycle = epoch_30_start / reward_cycle_length;
+                        prior_cycle = epoch_30_reward_cycle.saturating_sub(1);
+                        prior_prepare_phase_start = prior_cycle * reward_cycle_length
+                            + (reward_cycle_length - prepare_length);
+                    }
+                    current_height = epoch_30_start;
+                    epoch_25_end
+                }
+                StacksEpochId::Epoch30 | StacksEpochId::Epoch31 | StacksEpochId::Epoch32 => {
+                    // Only need 1 block per Epoch
+                    start_height + 1
+                }
+                StacksEpochId::Epoch33 => {
+                    // The last epoch extends to max
+                    STACKS_EPOCH_MAX
+                }
+            };
+            // Create epoch
+            let block_limit = if *epoch_id == StacksEpochId::Epoch10 {
+                ExecutionCost::max_value()
+            } else {
+                BLOCK_LIMIT_MAINNET_21.clone()
+            };
+            let network_epoch = match *epoch_id {
+                StacksEpochId::Epoch10 => PEER_VERSION_EPOCH_1_0,
+                StacksEpochId::Epoch20 => PEER_VERSION_EPOCH_2_0,
+                StacksEpochId::Epoch2_05 => PEER_VERSION_EPOCH_2_05,
+                StacksEpochId::Epoch21 => PEER_VERSION_EPOCH_2_1,
+                StacksEpochId::Epoch22 => PEER_VERSION_EPOCH_2_2,
+                StacksEpochId::Epoch23 => PEER_VERSION_EPOCH_2_3,
+                StacksEpochId::Epoch24 => PEER_VERSION_EPOCH_2_4,
+                StacksEpochId::Epoch25 => PEER_VERSION_EPOCH_2_5,
+                StacksEpochId::Epoch30 => PEER_VERSION_EPOCH_3_0,
+                StacksEpochId::Epoch31 => PEER_VERSION_EPOCH_3_1,
+                StacksEpochId::Epoch32 | StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_2,
+            };
+            epochs.push(StacksEpoch {
+                epoch_id: *epoch_id,
+                start_height,
+                end_height,
+                block_limit,
+                network_epoch,
+            });
+            current_height = end_height;
+        }
+        // Validate Epoch 2.5 and 3.0 constraints
+        if let Some(epoch_3_0) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch30) {
+            let epoch_2_5 = epochs
+                .iter()
+                .find(|e| e.epoch_id == StacksEpochId::Epoch25)
+                .expect("Epoch 2.5 not found");
+            let epoch_2_5_start = epoch_2_5.start_height;
+            let epoch_3_0_start = epoch_3_0.start_height;
+            let epoch_2_5_end = epoch_2_5.end_height;
+
+            let epoch_2_5_reward_cycle = epoch_2_5_start / reward_cycle_length;
+            let epoch_3_0_reward_cycle = epoch_3_0_start / reward_cycle_length;
+            let prior_cycle = epoch_3_0_reward_cycle.saturating_sub(1);
+            let epoch_3_0_prepare_phase =
+                prior_cycle * reward_cycle_length + (reward_cycle_length - prepare_length);
+            assert!(
+                epoch_2_5_start < epoch_3_0_prepare_phase,
+                "Epoch 2.5 must start before the prepare phase of the cycle prior to Epoch 3.0. (Epoch 2.5 activation height: {epoch_2_5_start}. Epoch 3.0 prepare phase start: {epoch_3_0_prepare_phase})"
+            );
+            assert_eq!(
+                epoch_2_5_end, epoch_3_0.start_height,
+                "Epoch 2.5 end must equal Epoch 3.0 start (epoch_2_5_end: {epoch_2_5_end}, epoch_3_0_start: {epoch_3_0_start})"
+            );
+            assert_ne!(
+                epoch_2_5_reward_cycle, epoch_3_0_reward_cycle,
+                "Epoch 2.5 and Epoch 3.0 must not be in the same reward cycle (epoch_2_5_reward_cycle: {epoch_2_5_reward_cycle}, epoch_3_0_reward_cycle: {epoch_3_0_reward_cycle})"
+            );
+            assert!(
+                !is_reward_cycle_boundary(epoch_3_0_start, reward_cycle_length),
+                "Epoch 3.0 must not start at a reward cycle boundary (epoch_3_0_start: {epoch_3_0_start})"
+            );
+        }
+        // Validate test vector block counts
+        for (epoch_id, blocks) in epoch_blocks {
+            let epoch = epochs
+                .iter()
+                .find(|e| e.epoch_id == *epoch_id)
+                .expect("Epoch not found");
+            let epoch_length = epoch.end_height - epoch.start_height;
+            if *epoch_id > StacksEpochId::Epoch25 {
+                assert!(
+                    epoch_length > 0,
+                    "{epoch_id:?} must have at least 1 burn block."
+                );
+            } else {
+                let num_blocks = blocks.len() as u64;
+                assert!(
+                    epoch_length >= num_blocks,
+                    "{epoch_id:?} must have at least {num_blocks} burn blocks, got {epoch_length}"
+                );
+            }
+        }
+        (EpochList::new(&epochs), first_burnchain_height)
     }
 
     /// Appends a single block to the chain as a Nakamoto block and returns the result.
@@ -733,14 +992,13 @@ impl ConsensusTest<'_> {
     /// A [`ExpectedResult`] with the outcome of the block processing.
     fn append_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
         debug!("--------- Running block {block:?} ---------");
-        let (nakamoto_block, block_size) = self.construct_nakamoto_block(block);
+        let (nakamoto_block, _block_size) = self.construct_nakamoto_block(block);
         let mut sortdb = self.chain.sortdb.take().unwrap();
         let mut stacks_node = self.chain.stacks_node.take().unwrap();
         let chain_tip =
             NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
                 .unwrap()
                 .unwrap();
-        let pox_constants = PoxConstants::test_default();
         let sig_hash = nakamoto_block.header.signer_signature_hash();
         debug!(
             "--------- Processing block {sig_hash} ---------";
@@ -852,12 +1110,9 @@ impl ConsensusTest<'_> {
     ///  # Returns
     ///
     /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
-    pub fn run(
-        mut self,
-        epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
-    ) -> Vec<ExpectedResult> {
+    pub fn run(mut self) -> Vec<ExpectedResult> {
         // Validate blocks
-        for (epoch_id, blocks) in &epoch_blocks {
+        for (epoch_id, blocks) in &self.epoch_blocks {
             assert_ne!(
                 *epoch_id,
                 StacksEpochId::Epoch10,
@@ -869,7 +1124,7 @@ impl ConsensusTest<'_> {
             );
         }
 
-        let mut sorted_epochs: Vec<_> = epoch_blocks.into_iter().collect();
+        let mut sorted_epochs: Vec<_> = self.epoch_blocks.clone().into_iter().collect();
         sorted_epochs.sort_by_key(|(epoch_id, _)| *epoch_id);
 
         let mut results = vec![];
@@ -1032,7 +1287,7 @@ fn test_append_empty_blocks() {
         epoch_blocks.insert(*epoch, empty_test_blocks.clone());
     }
 
-    let result = ConsensusTest::new(function_name!(), vec![]).run(epoch_blocks);
+    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
     insta::assert_ron_snapshot!(result);
 }
 
@@ -1080,7 +1335,7 @@ fn test_append_stx_transfers_success() {
         epoch_blocks.insert(*epoch, vec![TestBlock { transactions }]);
     }
 
-    let result = ConsensusTest::new(function_name!(), initial_balances).run(epoch_blocks);
+    let result = ConsensusTest::new(function_name!(), initial_balances, epoch_blocks).run();
     insta::assert_ron_snapshot!(result);
 }
 
