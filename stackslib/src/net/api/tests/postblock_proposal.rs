@@ -28,11 +28,12 @@ use clarity::vm::types::StandardPrincipalData;
 use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::sleep_ms;
 
 use super::TestRPC;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
@@ -273,6 +274,7 @@ fn test_try_make_response() {
             8,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -285,7 +287,11 @@ fn test_try_make_response() {
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
-                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
@@ -319,6 +325,10 @@ fn test_try_make_response() {
         chain_id: 0x80000000,
         replay_txs: None,
     };
+
+    // deliberately delay by more than 1 second so that the timestamp of the endpoint differs from
+    // the timestamp of the block
+    sleep_ms(2000);
 
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
@@ -566,6 +576,7 @@ fn test_block_proposal_validation_timeout() {
             8,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -578,7 +589,11 @@ fn test_block_proposal_validation_timeout() {
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
-                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
@@ -708,6 +723,7 @@ fn replay_validation_test(
             8,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -720,7 +736,11 @@ fn replay_validation_test(
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
-                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder

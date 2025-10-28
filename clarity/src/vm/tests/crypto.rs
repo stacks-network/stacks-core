@@ -1,5 +1,6 @@
 use clarity_types::errors::CheckErrorKind;
 use clarity_types::VmExecutionError;
+use proptest::prelude::*;
 use stacks_common::types::chainstate::{StacksPrivateKey, StacksPublicKey};
 use stacks_common::types::{PrivateKey, StacksEpochId};
 use stacks_common::util::hash::{to_hex, Sha256Sum};
@@ -369,5 +370,287 @@ fn test_secp256k1_recover_invalid_signature_returns_err_code() {
             assert_eq!(data, Box::new(Value::UInt(1)));
         }
         other => panic!("expected err response, found {other:?}"),
+    }
+}
+
+proptest! {
+    #[test]
+    fn prop_secp256k1_verify_accepts_valid_signatures(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = StacksPrivateKey::from_seed(&seed);
+        let pubk = StacksPublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature: Secp256k1Signature = privk.sign(&message).expect("secp256k1 signing should succeed");
+        let signature_bytes = signature.to_rsv();
+        let program = format!(
+            "(secp256k1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(true), result);
+    }
+
+    #[test]
+    fn prop_secp256k1_recover_matches_public_key(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = StacksPrivateKey::from_seed(&seed);
+        let pubk = StacksPublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature: Secp256k1Signature = privk.sign(&message).expect("secp256k1 signing should succeed");
+        let signature_bytes = signature.to_rsv();
+        let program = format!(
+            "(is-eq (unwrap! (secp256k1-recover? {} {}) (err u1)) {})",
+            buff_literal(&message),
+            buff_literal(&signature_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(true), result);
+    }
+
+    #[test]
+    fn prop_secp256r1_verify_accepts_valid_signatures(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let message = message.to_vec();
+        let signature = privk.sign(&message).expect("secp256r1 signing should succeed");
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(true), result);
+    }
+
+    #[test]
+    fn prop_secp256k1_verify_rejects_tampered_msg(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>(),
+        bit in 0usize..32
+    ) {
+        let privk = StacksPrivateKey::from_seed(&seed);
+        let pubk = StacksPublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let mut m = message.to_vec();
+        let sig: Secp256k1Signature = privk.sign(&m).unwrap();
+        let sig_bytes = sig.to_rsv();
+
+        // flip one bit
+        m[bit] ^= 0x01;
+
+        let program = format!(
+            "(secp256k1-verify {} {} {})",
+            buff_literal(&m),
+            buff_literal(&sig_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+        let result = execute_with_parameters(
+            &program, ClarityVersion::Clarity4, StacksEpochId::Epoch33, false
+        ).unwrap().unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[test]
+    fn prop_secp256r1_verify_rejects_tampered_msg(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>(),
+        bit in 0usize..32
+    ) {
+        let privk = Secp256r1PrivateKey::from_seed(&seed);
+        let pubk = Secp256r1PublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let mut message = message.to_vec();
+        let signature = privk.sign(&message).expect("secp256r1 signing should succeed");
+
+        // flip one bit
+        message[bit] ^= 0x01;
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature.0),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[test]
+    fn prop_secp256k1_recover_fails_to_match_with_tampered_msg(
+        seed in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>(),
+        bit in 0usize..32
+    ) {
+        let privk = StacksPrivateKey::from_seed(&seed);
+        let pubk = StacksPublicKey::from_private(&privk);
+        let pubkey_bytes = pubk.to_bytes_compressed();
+        let mut message = message.to_vec();
+        let signature: Secp256k1Signature = privk.sign(&message).expect("secp256k1 signing should succeed");
+        let signature_bytes = signature.to_rsv();
+
+        // flip one bit
+        message[bit] ^= 0x01;
+
+        let program = format!(
+            "(is-eq (unwrap! (secp256k1-recover? {} {}) (err u1)) {})",
+            buff_literal(&message),
+            buff_literal(&signature_bytes),
+            buff_literal(&pubkey_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[test]
+    fn prop_secp256r1_verify_rejects_wrong_key(
+        seed_a in any::<[u8; 32]>(),
+        seed_b in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        prop_assume!(seed_a != seed_b);
+
+        let priv_a = Secp256r1PrivateKey::from_seed(&seed_a);
+        let pub_b  = Secp256r1PublicKey::from_private(&Secp256r1PrivateKey::from_seed(&seed_b));
+        let pub_b_bytes = pub_b.to_bytes_compressed();
+
+        let msg = message.to_vec();
+        let signature = priv_a.sign(&msg).unwrap();
+
+        let program = format!(
+            "(secp256r1-verify {} {} {})",
+            buff_literal(&msg),
+            buff_literal(&signature.0),
+            buff_literal(&pub_b_bytes)
+        );
+        let result = execute_with_parameters(
+            &program, ClarityVersion::Clarity4, StacksEpochId::Epoch33, false
+        ).unwrap().unwrap();
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[test]
+    fn prop_secp256k1_verify_rejects_wrong_key(
+        seed_a in any::<[u8; 32]>(),
+        seed_b in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        prop_assume!(seed_a != seed_b);
+        let priv_a = StacksPrivateKey::from_seed(&seed_a);
+        let pub_b  = StacksPublicKey::from_private(&StacksPrivateKey::from_seed(&seed_b));
+        let pub_b_bytes = pub_b.to_bytes_compressed();
+
+        let message = message.to_vec();
+        let signature: Secp256k1Signature = priv_a.sign(&message).expect("secp256k1 signing should succeed");
+        let signature_bytes = signature.to_rsv();
+        let program = format!(
+            "(secp256k1-verify {} {} {})",
+            buff_literal(&message),
+            buff_literal(&signature_bytes),
+            buff_literal(&pub_b_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(false), result);
+    }
+
+    #[test]
+    fn prop_secp256k1_recover_fails_to_match_with_wrong_key(
+        seed_a in any::<[u8; 32]>(),
+        seed_b in any::<[u8; 32]>(),
+        message in any::<[u8; 32]>()
+    ) {
+        let priv_a = StacksPrivateKey::from_seed(&seed_a);
+        let pub_b  = StacksPublicKey::from_private(&StacksPrivateKey::from_seed(&seed_b));
+        let pub_b_bytes = pub_b.to_bytes_compressed();
+
+        let message = message.to_vec();
+        let signature: Secp256k1Signature = priv_a.sign(&message).expect("secp256k1 signing should succeed");
+        let signature_bytes = signature.to_rsv();
+        let program = format!(
+            "(is-eq (unwrap! (secp256k1-recover? {} {}) (err u1)) {})",
+            buff_literal(&message),
+            buff_literal(&signature_bytes),
+            buff_literal(&pub_b_bytes)
+        );
+
+        let result = execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+            false,
+        )
+        .expect("execution should succeed")
+        .expect("should return a value");
+
+        prop_assert_eq!(Value::Bool(false), result);
     }
 }
