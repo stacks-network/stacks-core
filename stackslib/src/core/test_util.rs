@@ -104,7 +104,7 @@ pub fn sign_standard_single_sig_tx_anchor_mode_version(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn sign_tx_anchor_mode_version(
+pub fn make_unsigned_tx(
     payload: TransactionPayload,
     sender: &StacksPrivateKey,
     payer: Option<&StacksPrivateKey>,
@@ -139,6 +139,32 @@ pub fn sign_tx_anchor_mode_version(
     unsigned_tx.anchor_mode = anchor_mode;
     unsigned_tx.post_condition_mode = TransactionPostConditionMode::Allow;
     unsigned_tx.chain_id = chain_id;
+    unsigned_tx
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn sign_tx_anchor_mode_version(
+    payload: TransactionPayload,
+    sender: &StacksPrivateKey,
+    payer: Option<&StacksPrivateKey>,
+    sender_nonce: u64,
+    payer_nonce: Option<u64>,
+    tx_fee: u64,
+    chain_id: u32,
+    anchor_mode: TransactionAnchorMode,
+    version: TransactionVersion,
+) -> StacksTransaction {
+    let unsigned_tx = make_unsigned_tx(
+        payload,
+        sender,
+        payer,
+        sender_nonce,
+        payer_nonce,
+        tx_fee,
+        chain_id,
+        anchor_mode,
+        version,
+    );
 
     let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
     tx_signer.sign_origin(sender).unwrap();
@@ -178,6 +204,24 @@ pub fn serialize_sign_tx_anchor_mode_version(
     buf
 }
 
+pub fn make_contract_publish_tx(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    chain_id: u32,
+    contract_name: &str,
+    contract_content: &str,
+    version: Option<ClarityVersion>,
+) -> StacksTransaction {
+    let name = ContractName::from(contract_name);
+    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
+
+    let payload =
+        TransactionPayload::SmartContract(TransactionSmartContract { name, code_body }, version);
+
+    sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id)
+}
+
 pub fn make_contract_publish_versioned(
     sender: &StacksPrivateKey,
     nonce: u64,
@@ -187,16 +231,16 @@ pub fn make_contract_publish_versioned(
     contract_content: &str,
     version: Option<ClarityVersion>,
 ) -> Vec<u8> {
-    let name = ContractName::from(contract_name);
-    let code_body = StacksString::from_string(&contract_content.to_string()).unwrap();
-
-    let payload =
-        TransactionPayload::SmartContract(TransactionSmartContract { name, code_body }, version);
-
-    let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
-    let mut tx_bytes = vec![];
-    tx.consensus_serialize(&mut tx_bytes).unwrap();
-    tx_bytes
+    make_contract_publish_tx(
+        sender,
+        nonce,
+        tx_fee,
+        chain_id,
+        contract_name,
+        contract_content,
+        version,
+    )
+    .serialize_to_vec()
 }
 
 pub fn make_contract_publish(
@@ -373,7 +417,7 @@ pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64, chain_i
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn make_contract_call(
+pub fn make_contract_call_tx(
     sender: &StacksPrivateKey,
     nonce: u64,
     tx_fee: u64,
@@ -382,7 +426,7 @@ pub fn make_contract_call(
     contract_name: &str,
     function_name: &str,
     function_args: &[Value],
-) -> Vec<u8> {
+) -> StacksTransaction {
     let contract_name = ContractName::from(contract_name);
     let function_name = ClarityName::from(function_name);
 
@@ -393,10 +437,31 @@ pub fn make_contract_call(
         function_args: function_args.to_vec(),
     };
 
-    let tx = sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id);
-    let mut tx_bytes = vec![];
-    tx.consensus_serialize(&mut tx_bytes).unwrap();
-    tx_bytes
+    sign_standard_single_sig_tx(payload.into(), sender, nonce, tx_fee, chain_id)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn make_contract_call(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    chain_id: u32,
+    contract_addr: &StacksAddress,
+    contract_name: &str,
+    function_name: &str,
+    function_args: &[Value],
+) -> Vec<u8> {
+    make_contract_call_tx(
+        sender,
+        nonce,
+        tx_fee,
+        chain_id,
+        contract_addr,
+        contract_name,
+        function_name,
+        function_args,
+    )
+    .serialize_to_vec()
 }
 
 #[allow(clippy::too_many_arguments)]
