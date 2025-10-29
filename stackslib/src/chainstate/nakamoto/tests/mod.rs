@@ -310,7 +310,10 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_vrf_proof(), None);
     assert!(!block.validate_transactions_static(false, 0x80000000, StacksEpochId::Epoch30)); // empty blocks not allowed
@@ -320,8 +323,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -333,8 +342,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![coinbase_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -347,8 +362,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone(), invalid_coinbase_tx],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -364,8 +385,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             coinbase_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -377,8 +404,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![coinbase_tx.clone(), tenure_change_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -394,8 +427,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             tenure_change_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -411,8 +450,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
             coinbase_tx.clone(),
         ],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -425,8 +470,11 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_change_tx.clone(), coinbase_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(true));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(block.is_wellformed_tenure_start_block(), Ok(true)));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), Some(&coinbase_tx));
     assert_eq!(
         block.get_tenure_change_tx_payload(),
@@ -442,8 +490,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(true));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Ok(false)
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(true)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(
@@ -459,8 +513,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone(), stx_transfer.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Ok(false));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(true));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Ok(false)
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(true)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(
@@ -475,8 +535,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![tenure_extend_tx.clone(), tenure_extend_tx.clone()],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -488,8 +554,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header: header.clone(),
         txs: vec![stx_transfer, tenure_extend_tx],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Err(()));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -501,8 +573,14 @@ pub fn test_nakamoto_first_tenure_block_syntactic_validation() {
         header,
         txs: vec![tenure_change_tx.clone(), tenure_change_tx, coinbase_tx],
     };
-    assert_eq!(block.is_wellformed_tenure_start_block(), Err(()));
-    assert_eq!(block.is_wellformed_tenure_extend_block(), Ok(false));
+    assert!(matches!(
+        block.is_wellformed_tenure_start_block(),
+        Err(ChainstateError::InvalidStacksBlock(_))
+    ));
+    assert!(matches!(
+        block.is_wellformed_tenure_extend_block(),
+        Ok(false)
+    ));
     assert_eq!(block.get_coinbase_tx(), None);
     assert_eq!(block.get_tenure_change_tx_payload(), None);
     assert_eq!(block.get_tenure_extend_tx_payload(), None);
@@ -977,14 +1055,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
             300,
         )
         .unwrap();
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block,
-            false,
-            1,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block,
+                false,
+                1,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
 
         // tenure has one block
         assert_eq!(
@@ -1007,14 +1085,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         )
         .unwrap();
 
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_2,
-            false,
-            1,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_2,
+                false,
+                1,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
 
         // tenure has two blocks
         assert_eq!(
@@ -1032,14 +1110,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // store, but do not process, a block
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3,
-            false,
-            1,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3,
+                false,
+                1,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1062,14 +1140,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // store, but do not process, the same block with a heavier weight
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3_weight_2,
-            false,
-            2,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3_weight_2,
+                false,
+                2,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1244,14 +1322,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // store a sibling with more weight, even though this block has been processed.
         // This is allowed because we don't commit to signatures.
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3,
-            false,
-            3,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3,
+                false,
+                3,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1307,14 +1385,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // store block 4, which descends from block 3 weight 2
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_4,
-            false,
-            1,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_4,
+                false,
+                1,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1341,14 +1419,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
             (true, false)
         );
 
-        NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3,
-            false,
-            3,
-            NakamotoBlockObtainMethod::Downloaded,
-        )
-        .unwrap();
+        staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3,
+                false,
+                3,
+                NakamotoBlockObtainMethod::Downloaded,
+            )
+            .unwrap();
         assert_eq!(
             staging_tx
                 .conn()
@@ -1389,14 +1467,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
         );
 
         // can't re-store it, even if its signing power is better
-        assert!(!NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3_weight_2,
-            false,
-            3,
-            NakamotoBlockObtainMethod::Downloaded
-        )
-        .unwrap());
+        assert!(!staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3_weight_2,
+                false,
+                3,
+                NakamotoBlockObtainMethod::Downloaded
+            )
+            .unwrap());
         assert_eq!(
             NakamotoChainState::get_nakamoto_block_status(
                 staging_tx.conn(),
@@ -1411,14 +1489,14 @@ pub fn test_load_store_update_nakamoto_blocks() {
 
         // can't store a sibling with the same sighash either, since if a block with the given sighash is orphaned, then
         // it doesn't matter how many signers it has
-        assert!(!NakamotoChainState::store_block_if_better(
-            &staging_tx,
-            &nakamoto_block_3,
-            false,
-            3,
-            NakamotoBlockObtainMethod::Downloaded
-        )
-        .unwrap());
+        assert!(!staging_tx
+            .store_block_if_better(
+                &nakamoto_block_3,
+                false,
+                3,
+                NakamotoBlockObtainMethod::Downloaded
+            )
+            .unwrap());
         assert_eq!(
             staging_tx
                 .conn()
@@ -1991,7 +2069,7 @@ fn test_make_miners_stackerdb_config() {
         None,
     );
 
-    let naka_miner_hash160 = peer.miner.nakamoto_miner_hash160();
+    let naka_miner_hash160 = peer.chain.miner.nakamoto_miner_hash160();
     let miner_keys: Vec<_> = (0..10).map(|_| StacksPrivateKey::random()).collect();
     let miner_hash160s: Vec<_> = miner_keys
         .iter()
@@ -2009,8 +2087,8 @@ fn test_make_miners_stackerdb_config() {
     debug!("miners = {:#?}", &miner_hash160s);
 
     // extract chainstate, sortdb, and stackerdbs -- we don't need the peer anymore
-    let chainstate = &mut peer.stacks_node.as_mut().unwrap().chainstate;
-    let sort_db = peer.sortdb.as_mut().unwrap();
+    let chainstate = &mut peer.chain.stacks_node.as_mut().unwrap().chainstate;
+    let sort_db = peer.chain.sortdb.as_mut().unwrap();
     let mut last_snapshot = SortitionDB::get_canonical_burn_chain_tip(sort_db.conn()).unwrap();
     let stackerdbs = peer.network.stackerdbs;
     let miners_contract_id = boot_code_id(MINERS_NAME, false);
@@ -2270,7 +2348,10 @@ fn parse_vote_for_aggregate_public_key_valid() {
     let signer_index = thread_rng().next_u64();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key.clone()).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2316,7 +2397,10 @@ fn parse_vote_for_aggregate_public_key_invalid() {
 
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2498,7 +2582,10 @@ fn valid_vote_transaction() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2548,7 +2635,10 @@ fn valid_vote_transaction_malformed_transactions() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2782,7 +2872,10 @@ fn filter_one_transaction_per_signer_multiple_addresses() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -2910,7 +3003,10 @@ fn filter_one_transaction_per_signer_duplicate_nonces() {
     let signer_index = thread_rng().next_u32();
     let signer_index_arg = Value::UInt(signer_index as u128);
 
-    let aggregate_key: Vec<u8> = rand::thread_rng().sample_iter(Standard).take(33).collect();
+    let aggregate_key: Vec<u8> = rand::thread_rng()
+        .sample_iter::<u8, _>(Standard)
+        .take(33)
+        .collect();
     let aggregate_key_arg = Value::buff_from(aggregate_key).expect("Failed to create buff");
     let round = thread_rng().next_u64();
     let round_arg = Value::UInt(round as u128);
@@ -3261,9 +3357,7 @@ pub mod nakamoto_block_signatures {
 
         match header.verify_signer_signatures(&reward_set) {
             Ok(_) => panic!("Expected duplicate signature to fail"),
-            Err(ChainstateError::InvalidStacksBlock(msg)) => {
-                assert!(msg.contains("Signatures are out of order"));
-            }
+            Err(ChainstateError::InvalidStacksBlock(_)) => {}
             _ => panic!("Expected InvalidStacksBlock error"),
         }
     }

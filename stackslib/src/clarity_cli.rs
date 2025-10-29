@@ -37,9 +37,9 @@ use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
 use crate::burnchains::{PoxConstants, Txid};
 use crate::chainstate::stacks::boot::{
     BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET,
-    BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
-    POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
+    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_MAINNET,
+    BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET,
+    BOOT_CODE_POX_TESTNET, POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
@@ -65,7 +65,7 @@ use crate::util_lib::boot::{boot_code_addr, boot_code_id};
 use crate::util_lib::db::{sqlite_open, FromColumn};
 
 lazy_static! {
-    pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 9] = [
+    pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 10] = [
         ("pox", &BOOT_CODE_POX_MAINNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
@@ -75,8 +75,9 @@ lazy_static! {
         ("costs-2", BOOT_CODE_COSTS_2),
         ("pox-2", &POX_2_MAINNET_CODE),
         ("costs-3", BOOT_CODE_COSTS_3),
+        ("costs-4", BOOT_CODE_COSTS_4),
     ];
-    pub static ref STACKS_BOOT_CODE_TESTNET_2_1: [(&'static str, &'static str); 9] = [
+    pub static ref STACKS_BOOT_CODE_TESTNET_2_1: [(&'static str, &'static str); 10] = [
         ("pox", &BOOT_CODE_POX_TESTNET),
         ("lockup", BOOT_CODE_LOCKUP),
         ("costs", BOOT_CODE_COSTS),
@@ -86,6 +87,7 @@ lazy_static! {
         ("costs-2", BOOT_CODE_COSTS_2_TESTNET),
         ("pox-2", &POX_2_TESTNET_CODE),
         ("costs-3", BOOT_CODE_COSTS_3),
+        ("costs-4", BOOT_CODE_COSTS_4),
     ];
 }
 
@@ -138,7 +140,7 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     })
 }
 
-pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch32;
+pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
 
 struct EvalInput {
     marf_kv: MarfedKV,
@@ -232,9 +234,9 @@ fn run_analysis<C: ClarityStorage>(
         mainnet,
         default_chain_id(mainnet),
         if mainnet {
-            BLOCK_LIMIT_MAINNET_205.clone()
+            BLOCK_LIMIT_MAINNET_205
         } else {
-            HELIUM_BLOCK_LIMIT_20.clone()
+            HELIUM_BLOCK_LIMIT_20
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
         DEFAULT_CLI_EPOCH,
@@ -420,9 +422,9 @@ where
         mainnet,
         default_chain_id(mainnet),
         if mainnet {
-            BLOCK_LIMIT_MAINNET_205.clone()
+            BLOCK_LIMIT_MAINNET_205
         } else {
-            HELIUM_BLOCK_LIMIT_20.clone()
+            HELIUM_BLOCK_LIMIT_20
         },
         &mut db,
         DEFAULT_CLI_EPOCH,

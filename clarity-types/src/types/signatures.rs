@@ -855,6 +855,8 @@ impl TypeSignature {
     pub const STRING_ASCII_MAX: TypeSignature = Self::type_ascii_const(MAX_VALUE_SIZE);
     /// String ASCII type with length 40.
     pub const STRING_ASCII_40: TypeSignature = Self::type_ascii_const(40);
+    /// String ASCII type with length 128.
+    pub const STRING_ASCII_128: TypeSignature = Self::type_ascii_const(128);
 
     /// String UTF8 type with minimum length (`1`).
     pub const STRING_UTF8_MIN: TypeSignature = Self::type_string_utf8(1);
@@ -868,6 +870,18 @@ impl TypeSignature {
     /// Longest ([`MAX_TO_ASCII_RESULT_LEN`]) string allowed for `to-ascii?` call.
     pub const TO_ASCII_STRING_ASCII_MAX: TypeSignature =
         Self::type_ascii_const(MAX_TO_ASCII_RESULT_LEN);
+    /// Longest string result possible for `(to-ascii? <int>)` result
+    /// e.g. "-170141183460469231731687303715884105728"
+    pub const TO_ASCII_INT_RESULT_MAX: TypeSignature = Self::type_ascii_const(40);
+    /// Longest string result possible for `(to-ascii? <uint>)` result
+    /// e.g. "u340282366920938463463374607431768211455"
+    pub const TO_ASCII_UINT_RESULT_MAX: TypeSignature = Self::type_ascii_const(40);
+    /// Longest string result possible for `(to-ascii? <bool>)` result
+    /// e.g. "false"
+    pub const TO_ASCII_BOOL_RESULT_MAX: TypeSignature = Self::type_ascii_const(5);
+    /// Longest string result possible for `(to-ascii? <principal>)` result
+    /// e.g. "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.contract-name-can-be-up-to-128-characters-long-so-41-characters-for-the-address-plus-1-for-the-dot-plus-128-for-the-name-is-170-"
+    pub const TO_ASCII_PRINCIPAL_RESULT_MAX: TypeSignature = Self::type_ascii_const(170);
 
     /// Longest ([`CONTRACT_MAX_NAME_LENGTH`]) string allowed for `contract-name`.
     pub const CONTRACT_NAME_STRING_ASCII_MAX: TypeSignature =
@@ -908,9 +922,17 @@ impl TypeSignature {
 
     /// Creates a string ASCII type with the specified length.
     /// It may panic if the provided length is invalid.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub const fn new_ascii_type_checked(len: u32) -> Self {
         Self::type_ascii_const(len)
+    }
+
+    /// Creates a string ASCII type with the specified length.
+    /// Returns an error if the provided length is invalid.
+    pub fn new_ascii_type(len: i128) -> Result<Self, CheckErrors> {
+        Ok(SequenceType(SequenceSubtype::StringType(
+            StringSubtype::ASCII(BufferLength::try_from_i128(len)?),
+        )))
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)

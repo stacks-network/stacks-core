@@ -57,6 +57,13 @@ use crate::vm::ClarityVersion;
 #[cfg(test)]
 pub mod tests;
 
+/// The maximum number of parameters a function definition can have.
+/// This limit is enforced starting in Epoch 3.3.
+pub const MAX_FUNCTION_PARAMETERS: usize = 256;
+/// The maximum number of methods a trait definition can have.
+/// This limit is enforced starting in Epoch 3.3.
+pub const MAX_TRAIT_METHODS: usize = 256;
+
 /*
 
 Type-checking in our language is achieved through a single-direction inference.
@@ -1023,7 +1030,7 @@ fn type_reserved_variable(
             Mainnet => TypeSignature::BoolType,
             ChainId => TypeSignature::UIntType,
             CurrentContract => TypeSignature::PrincipalType,
-            BlockTime => TypeSignature::UIntType,
+            StacksBlockTime => TypeSignature::UIntType,
         };
         Ok(Some(var_type))
     } else {
@@ -1135,7 +1142,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         Ok(())
     }
 
-    // Type check an expression, with an expected_type that should _admit_ the expression.
+    /// Type check an expression, with an expected_type that should _admit_ the expression.
     pub fn type_check_expects(
         &mut self,
         expr: &SymbolicExpression,
@@ -1157,7 +1164,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         }
     }
 
-    // Type checks an expression, recursively type checking its subexpressions
+    /// Type checks an expression, recursively type checking its subexpressions
     pub fn type_check(
         &mut self,
         expr: &SymbolicExpression,
@@ -1176,6 +1183,8 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         result
     }
 
+    /// Type checks a list of statements, ensuring that each statement is valid
+    /// and any responses before the last statement are handled.
     fn type_check_consecutive_statements(
         &mut self,
         args: &[SymbolicExpression],
@@ -1291,6 +1300,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let (function_name, args) = signature
             .split_first()
             .ok_or(CheckErrors::RequiresAtLeastArguments(1, 0))?;
+
+        if self.epoch.limits_parameter_and_method_count() && args.len() > MAX_FUNCTION_PARAMETERS {
+            return Err(CheckErrors::TooManyFunctionParameters(
+                args.len(),
+                MAX_FUNCTION_PARAMETERS,
+            )
+            .into());
+        }
+
         let function_name = function_name
             .match_atom()
             .ok_or(CheckErrors::BadFunctionName)?;
@@ -1675,7 +1693,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let trait_signature = TypeSignature::parse_trait_type_repr(
             function_types,
             &mut (),
-            StacksEpochId::Epoch21,
+            self.epoch,
             self.clarity_version,
         )?;
 

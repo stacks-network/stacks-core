@@ -27,7 +27,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::Address;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
@@ -329,10 +329,13 @@ fn replay_block(
         .txs
         .iter()
         .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-    let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-        TransactionPayload::TenureChange(tc) => Some(tc.cause),
-        _ => None,
-    });
+    let tenure_cause = tenure_change
+        .and_then(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
+            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        })
+        .unwrap_or(MinerTenureInfoCause::NoTenureChange);
+
     let mut builder = NakamotoBlockBuilder::new(
         &parent_stacks_header,
         &original_block.header.consensus_hash,
@@ -342,6 +345,7 @@ fn replay_block(
         original_block.header.pox_treatment.len(),
         None,
         Some(100),
+        Some(original_block.header.timestamp),
     )
     .unwrap();
 
@@ -430,8 +434,8 @@ fn test_ephemeral_nakamoto_block_replay_simple() {
     );
 
     // read out all Nakamoto blocks
-    let sortdb = peer.sortdb.take().unwrap();
-    let mut stacks_node = peer.stacks_node.take().unwrap();
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
     let naka_tip =
         NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
             .unwrap()
@@ -733,8 +737,8 @@ fn test_ephemeral_nakamoto_block_replay_smart_contract() {
     let (mut peer, _other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(&observer));
 
     // read out all Nakamoto blocks
-    let sortdb = peer.sortdb.take().unwrap();
-    let mut stacks_node = peer.stacks_node.take().unwrap();
+    let sortdb = peer.chain.sortdb.take().unwrap();
+    let mut stacks_node = peer.chain.stacks_node.take().unwrap();
     let naka_tip =
         NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
             .unwrap()

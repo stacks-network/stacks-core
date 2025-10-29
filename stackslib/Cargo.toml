@@ -59,10 +59,6 @@ winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
 
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
-
 [dependencies.ed25519-dalek]
 workspace = true
 
@@ -79,6 +75,7 @@ rlimit = "0.10.2"
 chrono = "0.4.19"
 tempfile = "3.3"
 proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+insta = { version = "1.37.0", features = ["ron"] }
 
 [features]
 default = []

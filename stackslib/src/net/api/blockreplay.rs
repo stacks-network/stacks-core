@@ -25,7 +25,7 @@ use stacks_common::util::serde_serializers::prefix_hex_codec;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
@@ -106,10 +106,12 @@ impl RPCNakamotoBlockReplayRequestHandler {
             .txs
             .iter()
             .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-        let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-            TransactionPayload::TenureChange(tc) => Some(tc.cause),
-            _ => None,
-        });
+        let tenure_cause = tenure_change
+            .and_then(|tx| match &tx.payload {
+                TransactionPayload::TenureChange(tc) => Some(tc.into()),
+                _ => None,
+            })
+            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
         let parent_stacks_header_opt =
             match NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id) {
@@ -132,6 +134,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
             block.header.pox_treatment.len(),
             None,
             None,
+            Some(block.header.timestamp),
         ) {
             Ok(builder) => builder,
             Err(e) => return Err(e),
@@ -224,6 +227,8 @@ pub struct RPCReplayedBlockTransaction {
     pub events: Vec<serde_json::Value>,
     /// Whether the tx was aborted by a post-condition
     pub post_condition_aborted: bool,
+    /// optional vm error
+    pub vm_error: Option<String>,
 }
 
 impl RPCReplayedBlockTransaction {
@@ -261,6 +266,7 @@ impl RPCReplayedBlockTransaction {
             execution_cost: receipt.execution_cost.clone(),
             events,
             post_condition_aborted: receipt.post_condition_aborted,
+            vm_error: receipt.vm_error.clone(),
         }
     }
 }

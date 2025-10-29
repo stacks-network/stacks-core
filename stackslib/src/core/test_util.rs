@@ -14,8 +14,8 @@ use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::miner::{BlockBuilderSettings, StacksMicroblockBuilder};
 use crate::chainstate::stacks::{
     CoinbasePayload, StacksBlock, StacksMicroblock, StacksMicroblockHeader, StacksTransaction,
-    StacksTransactionSigner, TokenTransferMemo, TransactionAnchorMode, TransactionAuth,
-    TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
+    StacksTransactionSigner, TenureChangePayload, TokenTransferMemo, TransactionAnchorMode,
+    TransactionAuth, TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
 };
 use crate::util_lib::strings::StacksString;
@@ -408,12 +408,20 @@ pub fn make_poison(
     tx_bytes
 }
 
-pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64, chain_id: u32) -> Vec<u8> {
+pub fn make_coinbase_tx(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    chain_id: u32,
+) -> StacksTransaction {
     let payload = TransactionPayload::Coinbase(CoinbasePayload([0; 32]), None, None);
     let tx = sign_standard_single_sig_tx(payload, sender, nonce, tx_fee, chain_id);
-    let mut tx_bytes = vec![];
-    tx.consensus_serialize(&mut tx_bytes).unwrap();
-    tx_bytes
+    tx
+}
+
+pub fn make_coinbase(sender: &StacksPrivateKey, nonce: u64, tx_fee: u64, chain_id: u32) -> Vec<u8> {
+    let tx = make_coinbase_tx(sender, nonce, tx_fee, chain_id);
+    tx.serialize_to_vec()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -609,5 +617,22 @@ pub fn make_big_read_count_contract(limit: ExecutionCost, proportion: u64) -> St
 (ok true)))
         ",
         read_lines
+    )
+}
+
+/// Make a tenure change transaction
+pub fn make_tenure_change_tx(
+    sender: &StacksPrivateKey,
+    nonce: u64,
+    tx_fee: u64,
+    chain_id: u32,
+    tc_payload: TenureChangePayload,
+) -> StacksTransaction {
+    sign_standard_single_sig_tx(
+        TransactionPayload::TenureChange(tc_payload),
+        sender,
+        nonce,
+        tx_fee,
+        chain_id,
     )
 }

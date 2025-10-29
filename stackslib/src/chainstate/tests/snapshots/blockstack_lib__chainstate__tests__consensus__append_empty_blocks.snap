@@ -1,0 +1,8 @@
+---
+source: stackslib/src/chainstate/tests/consensus.rs
+expression: result
+---
+[
+  Failure("Invalid Nakamoto block: failed static transaction checks"),
+  Failure("Invalid Nakamoto block: failed static transaction checks"),
+]

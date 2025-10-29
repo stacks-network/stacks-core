@@ -76,6 +76,7 @@ mod crypto;
 mod database;
 pub mod define;
 mod options;
+mod post_conditions;
 pub mod principals;
 mod sequences;
 pub mod tuples;
@@ -143,7 +144,7 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     Secp256k1Verify("secp256k1-verify", ClarityVersion::Clarity1, None),
     Print("print", ClarityVersion::Clarity1, None),
     ContractCall("contract-call?", ClarityVersion::Clarity1, None),
-    AsContract("as-contract", ClarityVersion::Clarity1, None),
+    AsContract("as-contract", ClarityVersion::Clarity1, Some(ClarityVersion::Clarity3)),
     ContractOf("contract-of", ClarityVersion::Clarity1, None),
     PrincipalOf("principal-of?", ClarityVersion::Clarity1, None),
     AtBlock("at-block", ClarityVersion::Clarity1, None),
@@ -193,6 +194,14 @@ define_versioned_named_enum_with_max!(NativeFunctions(ClarityVersion) {
     GetTenureInfo("get-tenure-info?", ClarityVersion::Clarity3, None),
     ContractHash("contract-hash?", ClarityVersion::Clarity4, None),
     ToAscii("to-ascii?", ClarityVersion::Clarity4, None),
+    RestrictAssets("restrict-assets?", ClarityVersion::Clarity4, None),
+    AsContractSafe("as-contract?", ClarityVersion::Clarity4, None),
+    AllowanceWithStx("with-stx", ClarityVersion::Clarity4, None),
+    AllowanceWithFt("with-ft", ClarityVersion::Clarity4, None),
+    AllowanceWithNft("with-nft", ClarityVersion::Clarity4, None),
+    AllowanceWithStacking("with-stacking", ClarityVersion::Clarity4, None),
+    AllowanceAll("with-all-assets-unsafe", ClarityVersion::Clarity4, None),
+    Secp256r1Verify("secp256r1-verify", ClarityVersion::Clarity4, None),
 });
 
 ///
@@ -565,6 +574,23 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
                 SpecialFunction("special_contract_hash", &database::special_contract_hash)
             }
             ToAscii => SpecialFunction("special_to_ascii", &conversions::special_to_ascii),
+            RestrictAssets => SpecialFunction(
+                "special_restrict_assets",
+                &post_conditions::special_restrict_assets,
+            ),
+            AsContractSafe => {
+                SpecialFunction("special_as_contract", &post_conditions::special_as_contract)
+            }
+            AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => {
+                SpecialFunction("special_allowance", &post_conditions::special_allowance)
+            }
+            Secp256r1Verify => {
+                SpecialFunction("native_secp256r1-verify", &crypto::special_secp256r1_verify)
+            }
         };
         Some(callable)
     } else {
