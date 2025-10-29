@@ -761,4 +761,8 @@ impl CostValues for Costs1 {
     fn cost_as_contract_safe(n: u64) -> InterpreterResult<ExecutionCost> {
         Err(RuntimeError::NotImplemented.into())
     }
+
+    fn cost_secp256r1verify(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeError::NotImplemented.into())
+    }
 }

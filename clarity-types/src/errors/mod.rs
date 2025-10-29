@@ -44,7 +44,7 @@ pub struct IncomparableError<T> {
 
 /// Errors that can occur during the runtime execution of Clarity contracts in the virtual machine.
 /// These encompass type-checking failures, interpreter issues, runtime errors, and premature returns.
-/// Unlike static analysis errors in `ClarityError::StaticCheck(CheckError)` or `ClarityError::Parse(ParseError)`,
+/// Unlike static analysis errors in `ClarityError::StaticCheck(StaticCheckError)` or `ClarityError::Parse(ParseError)`,
 /// which are caught before execution during type-checking or parsing, these errors occur during dynamic
 /// evaluation and may involve conditions not detectable statically, such as dynamically constructed expressions
 /// (e.g., based on VRF seeds or runtime data).

@@ -450,7 +450,7 @@ impl CostValues for Costs4 {
 
     fn cost_contract_hash(_n: u64) -> InterpreterResult<ExecutionCost> {
         Ok(ExecutionCost {
-            runtime: 100, // TODO: needs criterion benchmark
+            runtime: 188,
             write_length: 0,
             write_count: 0,
             read_count: 1,
@@ -459,17 +459,18 @@ impl CostValues for Costs4 {
     }
 
     fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
-        // TODO: needs criterion benchmark
-        Ok(ExecutionCost::runtime(linear(n, 1, 100)))
+        Ok(ExecutionCost::runtime(linear(n, 16, 150)))
     }
 
     fn cost_restrict_assets(n: u64) -> InterpreterResult<ExecutionCost> {
-        // TODO: needs criterion benchmark
-        Ok(ExecutionCost::runtime(linear(n, 1, 100)))
+        Ok(ExecutionCost::runtime(linear(n, 125, 750)))
     }
 
     fn cost_as_contract_safe(n: u64) -> InterpreterResult<ExecutionCost> {
-        // TODO: needs criterion benchmark
-        Ok(ExecutionCost::runtime(linear(n, 1, 100)))
+        Ok(ExecutionCost::runtime(linear(n, 125, 888)))
+    }
+
+    fn cost_secp256r1verify(n: u64) -> InterpreterResult<ExecutionCost> {
+        Ok(ExecutionCost::runtime(51750))
     }
 }

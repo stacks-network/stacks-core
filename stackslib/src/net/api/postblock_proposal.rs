@@ -19,9 +19,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 #[cfg(any(test, feature = "testing"))]
 use std::sync::LazyLock;
 use std::thread::{self, JoinHandle};
-#[cfg(any(test, feature = "testing"))]
-use std::time::Duration;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use clarity::vm::costs::ExecutionCost;
 use regex::{Captures, Regex};
@@ -35,16 +33,14 @@ use stacks_common::util::hash::{hex_bytes, to_hex, Sha512Trunc256Sum};
 use stacks_common::util::tests::TestFlag;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, NAKAMOTO_BLOCK_VERSION};
 use crate::chainstate::stacks::db::{StacksBlockHeaderTypes, StacksChainState, StacksHeaderInfo};
 use crate::chainstate::stacks::miner::{
     BlockBuilder, BlockLimitFunction, TransactionError, TransactionProblematic, TransactionResult,
     TransactionSkipped,
 };
-use crate::chainstate::stacks::{
-    Error as ChainError, StacksTransaction, TenureChangeCause, TransactionPayload,
-};
+use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::clarity_vm::clarity::ClarityError;
 use crate::core::mempool::ProposalCallbackReceiver;
 use crate::net::http::{
@@ -239,17 +235,18 @@ impl NakamotoBlockProposal {
         sortdb: SortitionDB,
         mut chainstate: StacksChainState,
         receiver: Box<dyn ProposalCallbackReceiver>,
+        timeout_secs: u64,
     ) -> Result<JoinHandle<()>, std::io::Error> {
         thread::Builder::new()
             .name("block-proposal".into())
             .spawn(move || {
-                let result =
-                    self.validate(&sortdb, &mut chainstate)
-                        .map_err(|reason| BlockValidateReject {
-                            signer_signature_hash: self.block.header.signer_signature_hash(),
-                            reason_code: reason.reason_code,
-                            reason: reason.reason,
-                        });
+                let result = self
+                    .validate(&sortdb, &mut chainstate, timeout_secs)
+                    .map_err(|reason| BlockValidateReject {
+                        signer_signature_hash: self.block.header.signer_signature_hash(),
+                        reason_code: reason.reason_code,
+                        reason: reason.reason,
+                    });
                 receiver.notify_proposal_result(result);
             })
     }
@@ -408,6 +405,7 @@ impl NakamotoBlockProposal {
         &self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState, // not directly used; used as a handle to open other chainstates
+        timeout_secs: u64,
     ) -> Result<BlockValidateOk, BlockValidateRejectReason> {
         #[cfg(any(test, feature = "testing"))]
         {
@@ -554,10 +552,12 @@ impl NakamotoBlockProposal {
             .txs
             .iter()
             .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-        let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-            TransactionPayload::TenureChange(tc) => Some(tc.cause),
-            _ => None,
-        });
+        let tenure_cause = tenure_change
+            .and_then(|tx| match &tx.payload {
+                TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc)),
+                _ => None,
+            })
+            .unwrap_or_else(|| MinerTenureInfoCause::NoTenureChange);
 
         let replay_tx_exhausted = self.validate_replay(
             &parent_stacks_header,
@@ -579,6 +579,7 @@ impl NakamotoBlockProposal {
             self.block.header.pox_treatment.len(),
             None,
             None,
+            Some(self.block.header.timestamp),
         )?;
 
         let mut miner_tenure_info =
@@ -586,7 +587,18 @@ impl NakamotoBlockProposal {
         let burn_chain_height = miner_tenure_info.burn_tip_height;
         let mut tenure_tx = builder.tenure_begin(&burn_dbconn, &mut miner_tenure_info)?;
 
+        let block_deadline = Instant::now() + Duration::from_secs(timeout_secs);
+
         for (i, tx) in self.block.txs.iter().enumerate() {
+            let now = Instant::now();
+            if now >= block_deadline {
+                return Err(BlockValidateRejectReason {
+                    reason: format!("Problematic tx {i}: execution time expired"),
+                    reason_code: ValidateRejectCode::BadTransaction,
+                });
+            }
+            let remaining = block_deadline.saturating_duration_since(now);
+
             let tx_len = tx.tx_len();
 
             let tx_result = builder.try_mine_tx_with_len(
@@ -594,7 +606,7 @@ impl NakamotoBlockProposal {
                 tx,
                 tx_len,
                 &BlockLimitFunction::NO_LIMIT_HIT,
-                None,
+                Some(remaining),
             );
             let err = match tx_result {
                 TransactionResult::Success(_) => Ok(()),
@@ -635,9 +647,6 @@ impl NakamotoBlockProposal {
             .signer_signature
             .clone_from(&self.block.header.signer_signature);
 
-        // Clone the timestamp from the block proposal, which has already been validated
-        block.header.timestamp = self.block.header.timestamp;
-
         // Assuming `tx_merkle_root` has been checked we don't need to hash the whole block
         let expected_block_header_hash = self.block.header.block_hash();
         let computed_block_header_hash = block.header.block_hash();
@@ -648,8 +657,8 @@ impl NakamotoBlockProposal {
                 "reason" => "Block hash is not as expected",
                 "expected_block_header_hash" => %expected_block_header_hash,
                 "computed_block_header_hash" => %computed_block_header_hash,
-                //"expected_block" => %serde_json::to_string(&serde_json::to_value(&self.block).unwrap()).unwrap(),
-                //"computed_block" => %serde_json::to_string(&serde_json::to_value(&block).unwrap()).unwrap(),
+                "expected_block" => ?self.block,
+                "computed_block" => ?block,
             );
             return Err(BlockValidateRejectReason {
                 reason: "Block hash is not as expected".into(),
@@ -703,7 +712,7 @@ impl NakamotoBlockProposal {
         parent_stacks_header: &StacksHeaderInfo,
         tenure_change: Option<&StacksTransaction>,
         coinbase: Option<&StacksTransaction>,
-        tenure_cause: Option<TenureChangeCause>,
+        tenure_cause: MinerTenureInfoCause,
         mainnet: bool,
         chain_id: u32,
         chainstate_path: &str,
@@ -725,6 +734,7 @@ impl NakamotoBlockProposal {
             self.block.header.pox_treatment.len(),
             None,
             None,
+            Some(self.block.header.timestamp),
         )?;
         let (mut replay_chainstate, _) =
             StacksChainState::open(mainnet, chain_id, chainstate_path, None)?;
@@ -1037,7 +1047,14 @@ impl RPCRequestHandler for RPCBlockProposalRequestHandler {
                     )
                 })?;
             let thread_info = block_proposal
-                .spawn_validation_thread(sortdb, chainstate, receiver)
+                .spawn_validation_thread(
+                    sortdb,
+                    chainstate,
+                    receiver,
+                    network
+                        .get_connection_opts()
+                        .block_proposal_validation_timeout_secs,
+                )
                 .map_err(|_e| {
                     (
                         TOO_MANY_REQUESTS_STATUS,

@@ -311,6 +311,7 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
             | Sha512Trunc256
             | Secp256k1Recover
             | Secp256k1Verify
+            | Secp256r1Verify
             | ConsSome
             | ConsOkay
             | ConsError
