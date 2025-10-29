@@ -438,7 +438,7 @@ impl StacksEpochId {
 
     #[cfg(not(any(test, feature = "testing")))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch32
+        StacksEpochId::Epoch33
     }
 
     pub const ALL_GTE_30: &'static [StacksEpochId] = &[
