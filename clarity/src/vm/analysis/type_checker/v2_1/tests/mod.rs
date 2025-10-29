@@ -426,7 +426,7 @@ fn test_define_functions(#[case] version: ClarityVersion, #[case] epoch: StacksE
                     .err
             );
         } else {
-            mem_type_check(bad_test).unwrap();
+            mem_run_analysis(bad_test, version, epoch).unwrap();
         }
     }
 }
@@ -471,7 +471,12 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
     let bad_expected = [
         ParseErrors::DefineTraitBadSignature,
         ParseErrors::DefineTraitBadSignature,
-        ParseErrors::UnexpectedToken(Token::Rparen),
+        if epoch == StacksEpochId::Epoch20 || epoch == StacksEpochId::Epoch2_05 {
+            // the pre-2.1 parser returns less instructive errors
+            ParseErrors::ClosingParenthesisUnexpected
+        } else {
+            ParseErrors::UnexpectedToken(Token::Rparen)
+        },
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
@@ -514,7 +519,7 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
                     .err
             );
         } else {
-            mem_type_check(bad_test).unwrap();
+            mem_run_analysis(bad_test, version, epoch).unwrap();
         }
     }
 }
