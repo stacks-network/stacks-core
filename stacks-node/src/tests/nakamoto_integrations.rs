@@ -206,27 +206,27 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: 231,
-            end_height: 232,
+            end_height: 241,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
-            start_height: 232,
-            end_height: 233,
+            start_height: 241,
+            end_height: 251,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
-            start_height: 233,
-            end_height: 234,
+            start_height: 251,
+            end_height: 252,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
-            start_height: 234,
+            start_height: 252,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
