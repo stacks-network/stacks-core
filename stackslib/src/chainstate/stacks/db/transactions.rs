@@ -29,6 +29,7 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 
+use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
@@ -1498,20 +1499,27 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
-                // what kind of tenure-change?
-                match payload.cause {
-                    TenureChangeCause::BlockFound => {
-                        // a sortition triggered this tenure change.
-                        // this is already processed, so it's a no-op here.
-                    }
-                    TenureChangeCause::Extended => {
-                        // the stackers granted a tenure extension.
-                        // reset the runtime cost
-                        debug!(
-                            "TenureChange extends block tenure (confirms {} blocks)",
-                            &payload.previous_tenure_blocks
-                        );
-                    }
+                if !payload.cause.is_new_tenure() {
+                    debug!(
+                        "TenureChange {:?} extends existing block tenure (confirms {} blocks)",
+                        &payload.cause, &payload.previous_tenure_blocks
+                    );
+                }
+
+                // defensive check -- this tenure change variant must be supported in this epoch
+                // (or we have a problem).  This should get caught earlier in append_block(), but
+                // this is kept here as an added layer of redundancy
+                let epoch_id = clarity_tx.get_epoch();
+                if MinerTenureInfoCause::from(payload.cause).is_sip034_tenure_extension()
+                    && !epoch_id.supports_specific_budget_extends()
+                {
+                    let msg = format!(
+                        "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
+                        &payload.cause,
+                        &epoch_id
+                    );
+                    info!("{msg}");
+                    return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
                 let receipt = StacksTransactionReceipt::from_tenure_change(tx.clone());
@@ -1676,6 +1684,9 @@ pub mod test {
     pub const TestBurnStateDB_32: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch32,
     };
+    pub const TestBurnStateDB_33: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch33,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
@@ -1683,6 +1694,17 @@ pub mod test {
         &TestBurnStateDB_21 as &dyn BurnStateDB,
         &TestBurnStateDB_30 as &dyn BurnStateDB,
         &TestBurnStateDB_31 as &dyn BurnStateDB,
+        &TestBurnStateDB_32 as &dyn BurnStateDB,
+        &TestBurnStateDB_33 as &dyn BurnStateDB,
+    ];
+
+    pub const PRE_33_DBS: &[&dyn BurnStateDB] = &[
+        &TestBurnStateDB_20 as &dyn BurnStateDB,
+        &TestBurnStateDB_2_05 as &dyn BurnStateDB,
+        &TestBurnStateDB_21 as &dyn BurnStateDB,
+        &TestBurnStateDB_30 as &dyn BurnStateDB,
+        &TestBurnStateDB_31 as &dyn BurnStateDB,
+        &TestBurnStateDB_32 as &dyn BurnStateDB,
     ];
 
     pub const PRE_21_DBS: &[&dyn BurnStateDB] = &[
@@ -1693,6 +1715,8 @@ pub mod test {
     pub const NAKAMOTO_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_30 as &dyn BurnStateDB,
         &TestBurnStateDB_31 as &dyn BurnStateDB,
+        &TestBurnStateDB_32 as &dyn BurnStateDB,
+        &TestBurnStateDB_33 as &dyn BurnStateDB,
     ];
 
     #[test]
@@ -11422,5 +11446,83 @@ pub mod test {
 
         let _: TransactionPayload =
             TransactionPayload::consensus_deserialize(&mut &good_payload_bytes[..]).unwrap();
+    }
+
+    /// Verify that a SIP-034 tenure-extend will be rejected prior to epoch 3.3
+    #[test]
+    fn process_tenure_change_sip034_rejected_pre_3_3() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+
+        let balances = vec![(addr.clone(), 1000000000)];
+
+        let mut chainstate =
+            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+
+        let sip034_causes = [
+            TenureChangeCause::ExtendedRuntime,
+            TenureChangeCause::ExtendedReadCount,
+            TenureChangeCause::ExtendedReadLength,
+            TenureChangeCause::ExtendedWriteCount,
+            TenureChangeCause::ExtendedWriteLength,
+        ];
+
+        for (dbi, burn_db) in PRE_33_DBS.iter().enumerate() {
+            let mut conn = chainstate.block_begin(
+                *burn_db,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+                &ConsensusHash([(dbi + 1) as u8; 20]),
+                &BlockHeaderHash([(dbi + 1) as u8; 32]),
+            );
+
+            for cause in sip034_causes.iter() {
+                let mut tx_extend_sip034 = StacksTransaction::new(
+                    TransactionVersion::Testnet,
+                    auth.clone(),
+                    TransactionPayload::TenureChange(TenureChangePayload {
+                        tenure_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        prev_tenure_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        burn_view_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        previous_tenure_end: StacksBlockId([0xff; 32]),
+                        cause: *cause,
+                        previous_tenure_blocks: 0,
+                        pubkey_hash: Hash160([0x00; 20]),
+                    }),
+                );
+                tx_extend_sip034.chain_id = 0x80000000;
+
+                let mut signer = StacksTransactionSigner::new(&tx_extend_sip034);
+                signer.sign_origin(&privk).unwrap();
+                let tx_extend_sip034_signed = signer.get_tx().unwrap();
+
+                // try to process
+                let err = StacksChainState::process_transaction(
+                    &mut conn,
+                    &tx_extend_sip034_signed,
+                    false,
+                    None,
+                )
+                .unwrap_err();
+
+                let expected_msg = format!(
+                    "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
+                    cause,
+                    conn.get_epoch()
+                );
+
+                if let Error::InvalidStacksTransaction(msg, ..) = err {
+                    assert_eq!(expected_msg, msg);
+                } else {
+                    panic!("Got unexpected error {:?}", &err);
+                }
+            }
+
+            conn.commit_block();
+        }
     }
 }

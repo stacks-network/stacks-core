@@ -36,6 +36,8 @@ mod defines;
 mod post_conditions;
 mod principals;
 #[cfg(test)]
+pub mod proptest_utils;
+#[cfg(test)]
 mod representations;
 mod sequences;
 #[cfg(test)]

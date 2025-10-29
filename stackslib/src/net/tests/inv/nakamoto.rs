@@ -809,7 +809,7 @@ fn test_nakamoto_tenure_inv() {
         partial_tenure_bools.push(i % 2 == 0);
     }
 
-    // has_ith_tenure() works (non-triial case)
+    // has_ith_tenure() works (non-trivial case)
     let partial_tenure = NakamotoInvData::try_from(&partial_tenure_bools).unwrap();
     let learned = nakamoto_inv.merge_tenure_inv(partial_tenure.tenures, 2);
     assert!(learned);
