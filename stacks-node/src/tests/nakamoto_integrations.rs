@@ -1443,6 +1443,8 @@ pub fn setup_epoch_3_reward_set(
           "epoch_3_start_height" => {epoch_3_start_height},
     );
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(stacker_sk));
+        let nonce = get_account(&http_origin, &address).nonce;
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
             tests::to_addr(stacker_sk).bytes().clone(),
@@ -1465,7 +1467,7 @@ pub fn setup_epoch_3_reward_set(
         let signer_pk = StacksPublicKey::from_private(signer_sk);
         let stacking_tx = make_contract_call(
             stacker_sk,
-            0,
+            nonce,
             1000,
             naka_conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
@@ -1508,12 +1510,15 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
         num_stacking_cycles,
     );
 
-    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpochId::Epoch30];
+    let epoch_3_start_height = naka_conf
+        .burnchain
+        .epochs
+        .as_ref()
+        .map(|epochs| epochs[StacksEpochId::Epoch30].start_height)
+        .unwrap();
     let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
     let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
 
-    let epoch_3_start_height = epoch_3.start_height;
     assert!(
         epoch_3_start_height > 0,
         "Epoch 3.0 start height must be greater than 0"
