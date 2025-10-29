@@ -299,6 +299,8 @@ fn replay_block_with_pc_failure() {
 
     let resp_tx = &resp.transactions.get(0).unwrap();
 
+    assert!(resp_tx.vm_error.is_some());
+
     for event in resp_tx.events.iter() {
         let committed = event.get("committed").unwrap().as_bool().unwrap();
         assert!(!committed);
