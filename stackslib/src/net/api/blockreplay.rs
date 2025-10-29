@@ -21,6 +21,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlo
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::serde_serializers::prefix_hex_codec;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -212,12 +213,17 @@ pub struct RPCReplayedBlockTransaction {
     pub hex: String,
     /// result of transaction execution (clarity value)
     pub result: Value,
+    /// result of the transaction execution (hex string)
+    #[serde(with = "prefix_hex_codec")]
+    pub result_hex: Value,
     /// amount of burned stx
     pub stx_burned: u128,
     /// execution cost infos
     pub execution_cost: ExecutionCost,
     /// generated events
     pub events: Vec<serde_json::Value>,
+    /// Whether the tx was aborted by a post-condition
+    pub post_condition_aborted: bool,
 }
 
 impl RPCReplayedBlockTransaction {
@@ -228,7 +234,11 @@ impl RPCReplayedBlockTransaction {
             .enumerate()
             .map(|(event_index, event)| {
                 event
-                    .json_serialize(event_index, &receipt.transaction.txid(), true)
+                    .json_serialize(
+                        event_index,
+                        &receipt.transaction.txid(),
+                        !receipt.post_condition_aborted,
+                    )
                     .unwrap()
             })
             .collect();
@@ -246,9 +256,11 @@ impl RPCReplayedBlockTransaction {
             data: transaction_data,
             hex: receipt.transaction.serialize_to_dbstring(),
             result: receipt.result.clone(),
+            result_hex: receipt.result.clone(),
             stx_burned: receipt.stx_burned,
             execution_cost: receipt.execution_cost.clone(),
             events,
+            post_condition_aborted: receipt.post_condition_aborted,
         }
     }
 }
