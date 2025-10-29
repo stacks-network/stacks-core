@@ -221,6 +221,8 @@ pub struct RPCReplayedBlockTransaction {
     pub execution_cost: ExecutionCost,
     /// generated events
     pub events: Vec<serde_json::Value>,
+    /// optional vm error
+    pub vm_error: Option<String>,
 }
 
 impl RPCReplayedBlockTransaction {
@@ -252,6 +254,7 @@ impl RPCReplayedBlockTransaction {
             stx_burned: receipt.stx_burned,
             execution_cost: receipt.execution_cost.clone(),
             events,
+            vm_error: receipt.vm_error.clone(),
         }
     }
 }
