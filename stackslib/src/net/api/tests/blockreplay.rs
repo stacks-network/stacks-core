@@ -16,22 +16,20 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::consts::CHAIN_ID_TESTNET;
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 
 use crate::chainstate::stacks::{
-    Error as ChainError, Error as ChainError, StacksTransaction, StacksTransactionSigner,
-    TransactionAnchorMode, TransactionContractCall, TransactionPayload,
-    TransactionPostConditionMode, TransactionVersion,
+    Error as ChainError, StacksTransaction, StacksTransactionSigner, TransactionAnchorMode,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
 };
 use crate::core::test_util::{
     make_contract_publish, make_contract_publish_tx, make_unsigned_tx, to_addr,
 };
 use crate::net::api::blockreplay;
-use crate::net::api::blockreplay::{self, RPCReplayedBlock};
+use crate::net::api::blockreplay::RPCReplayedBlock;
 use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
@@ -249,7 +247,7 @@ fn replay_block_with_pc_failure() {
 
             boot_plan
                 .with_boot_tenures(boot_tenures)
-                .with_allow_receipt_failure(true)
+                .with_ignore_transaction_errors(true)
                 .with_initial_balances(vec![(addr.into(), 1_000_000)])
         });
 
