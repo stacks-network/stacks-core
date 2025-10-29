@@ -100,6 +100,8 @@ pub struct NakamotoBootPlan {
     pub malleablized_blocks: bool,
     pub network_id: u32,
     pub txindex: bool,
+    pub extra_tenures: Vec<NakamotoBootTenure>,
+    pub allow_receipt_failure: bool,
 }
 
 impl NakamotoBootPlan {
@@ -118,6 +120,8 @@ impl NakamotoBootPlan {
             malleablized_blocks: true,
             network_id: TestPeerConfig::default().network_id,
             txindex: false,
+            extra_tenures: vec![],
+            allow_receipt_failure: false,
         }
     }
 
@@ -180,6 +184,16 @@ impl NakamotoBootPlan {
 
     pub fn with_txindex(mut self, txindex: bool) -> Self {
         self.txindex = txindex;
+        self
+    }
+
+    pub fn with_boot_tenures(mut self, boot_tenures: Vec<NakamotoBootTenure>) -> Self {
+        self.extra_tenures = boot_tenures;
+        self
+    }
+
+    pub fn with_allow_receipt_failure(mut self, allow_receipt_failure: bool) -> Self {
+        self.allow_receipt_failure = allow_receipt_failure;
         self
     }
 
@@ -660,12 +674,16 @@ impl NakamotoBootPlan {
 
     pub fn boot_into_nakamoto_peers(
         self,
-        boot_plan: Vec<NakamotoBootTenure>,
+        mut boot_plan: Vec<NakamotoBootTenure>,
         observer: Option<&TestEventObserver>,
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
         let test_signers = self.test_signers.clone();
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
+
+        boot_plan.extend(self.extra_tenures.clone());
+
+        let allow_receipt_failure = self.allow_receipt_failure;
 
         let (mut peer, mut other_peers) = self.boot_nakamoto_peers(observer);
         if boot_plan.is_empty() {
@@ -965,14 +983,16 @@ impl NakamotoBootPlan {
                     for (receipt, tx) in stacks_receipts.iter().zip(block.txs.iter()) {
                         // transactions processed in the same order
                         assert_eq!(receipt.transaction.txid(), tx.txid());
-                        // no CheckErrors
-                        assert!(
-                            receipt.vm_error.is_none(),
-                            "Receipt had a CheckErrors: {:?}",
-                            &receipt
-                        );
-                        // transaction was not aborted post-hoc
-                        assert!(!receipt.post_condition_aborted);
+                        if !allow_receipt_failure {
+                            // no CheckErrors
+                            assert!(
+                                receipt.vm_error.is_none(),
+                                "Receipt had a CheckErrors: {:?}",
+                                &receipt
+                            );
+                            // transaction was not aborted post-hoc
+                            assert!(!receipt.post_condition_aborted);
+                        }
                     }
                 }
             }
