@@ -756,8 +756,7 @@ impl Config {
             StacksEpochId::Epoch30,
             StacksEpochId::Epoch31,
             StacksEpochId::Epoch32,
-            // todo: when epoch 3.3 becomes mandatory
-            // StacksEpochId::Epoch33,
+            StacksEpochId::Epoch33,
         ];
         for (expected_epoch, configured_epoch) in expected_list
             .iter()
