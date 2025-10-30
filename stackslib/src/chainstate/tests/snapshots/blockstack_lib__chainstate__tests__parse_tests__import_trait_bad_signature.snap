@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "34b362f8dadde6564274df15d3dfbeece020b820eaaf9eb7c7e6a1208f049522",
+    marf_hash: "c9790438f19f0eba4e0a6a7bed5bd5fda59cabddee79d6345a44eb0fe2c21e08",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -21,7 +21,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 1125,
+          runtime: 450,
         ),
       ),
     ],
@@ -30,11 +30,11 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 1125,
+      runtime: 450,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0685a58d5206c99b7895622782fdaad59170d4db63a786ae712b6b4b91ffd94d",
+    marf_hash: "961a4cbcc51614dcb90bd507bbbb464edaad657082d8b90a8ed0e4fc999f7eb2",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -51,7 +51,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 1125,
+          runtime: 450,
         ),
       ),
     ],
@@ -60,11 +60,11 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 1125,
+      runtime: 450,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "736b55764c89feda96d186bad5badf80f4adca930f647a7a1758a7f99bb5bda9",
+    marf_hash: "063d2161e46f226dc7735b2ca49bcfa1432048f3cf2115554c4c459d9cefb00e",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -81,7 +81,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 1125,
+          runtime: 450,
         ),
       ),
     ],
@@ -90,11 +90,11 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 1125,
+      runtime: 450,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b0d3e8db3ed6229186cc084a0895f05c30977a1230a6dd54755cc8dd2bec5c41",
+    marf_hash: "56a143fdd32d80d2ae59f37f61b5339d4c840a62f03396b03ca259b09c87021c",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -111,7 +111,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 1125,
+          runtime: 450,
         ),
       ),
     ],
@@ -120,11 +120,11 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 1125,
+      runtime: 450,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "935cbae06c92e6c12cd4987dc28a43bf90468af4971ddb8169cfecf4447880d4",
+    marf_hash: "7ef9b162d64df5bb630fda7aac0d0700e2d13dc2ec3a9d60ad92b1a147b081d5",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -141,7 +141,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 1125,
+          runtime: 450,
         ),
       ),
     ],
@@ -150,11 +150,11 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 1125,
+      runtime: 450,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "76b58407ed1562aa0387e1d0dcf0c3d31bccbe568336298eddabab37ccd9eb81",
+    marf_hash: "c84142a078fa0c943b36bc5b0750b6662d265c1c5f849355d8d2953291be1782",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -171,7 +171,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 1125,
+          runtime: 450,
         ),
       ),
     ],
@@ -180,11 +180,11 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 1125,
+      runtime: 450,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "059dfa532c602455db2128c2127c90daaf75ac0ea8ce75546df6a4ad4f222b36",
+    marf_hash: "16644ab73dbaf40763fde3583bce27ee8c17d68ca3b2c62dfce3b2dab45414c2",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -201,7 +201,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 1125,
+          runtime: 450,
         ),
       ),
     ],
@@ -210,7 +210,7 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 1125,
+      runtime: 450,
     ),
   )),
 ]

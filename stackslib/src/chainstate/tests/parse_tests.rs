@@ -45,9 +45,7 @@ fn test_stack_depth_too_deep() {
 fn test_failed_parsing_int_value() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            (define-data-var my-int int 340282366920938463463374607431768211455)   
-        "},
+        contract_code: "(define-data-var my-int int 340282366920938463463374607431768211455)",
     );
 }
 
@@ -58,9 +56,7 @@ fn test_failed_parsing_int_value() {
 fn test_failed_parsing_uint_value() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            (define-data-var my-uint uint u999340282366920938463463374607431768211455)
-        "},
+        contract_code: "(define-data-var my-uint uint u999340282366920938463463374607431768211455)",
     );
 }
 
@@ -71,10 +67,10 @@ fn test_failed_parsing_uint_value() {
 fn test_circular_reference() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
+        contract_code: "
             (define-constant my-a my-b)
             (define-constant my-b my-a)
-        "},
+        ",
     );
 }
 
@@ -85,12 +81,12 @@ fn test_circular_reference() {
 fn test_named_already_used() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
+        contract_code: "
             (define-trait trait-1 (
                 (get-1 (uint) (response uint uint))))
             (define-trait trait-1 (
                 (get-1 (int) (response uint uint)))) 
-        "},
+        ",
     );
 }
 
@@ -101,11 +97,11 @@ fn test_named_already_used() {
 fn test_trait_ref_not_allowed() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
+        contract_code: "
             (define-trait trait-1 (
                 (get-1 (uint) (response uint uint))))
             (define-map kv-store { key: uint } { value: <trait-1> }) 
-        "},
+        ",
     );
 }
 
@@ -116,9 +112,7 @@ fn test_trait_ref_not_allowed() {
 fn test_import_trait_bad_signature() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            (use-trait)   
-        "},
+        contract_code: "(use-trait)",
     );
 }
 
@@ -129,9 +123,7 @@ fn test_import_trait_bad_signature() {
 fn test_define_trait_bad_signature() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            (define-trait)
-        "},
+        contract_code: "(define-trait)",
     );
 }
 
@@ -142,9 +134,7 @@ fn test_define_trait_bad_signature() {
 fn test_impl_trait_bad_signature() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            (impl-trait)
-        "},
+        contract_code: "(impl-trait)",
     );
 }
 
@@ -155,9 +145,7 @@ fn test_impl_trait_bad_signature() {
 fn test_trait_reference_unknown() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            (+ 1 <my-trait>) 
-        "},
+        contract_code: "(+ 1 <my-trait>)",
     );
 }
 
@@ -168,9 +156,7 @@ fn test_trait_reference_unknown() {
 fn test_lexer_unknown_symbol() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            (define-data-var my-uint uint _)
-        "},
+        contract_code: "(define-data-var my-uint uint _)",
     );
 }
 
@@ -184,9 +170,7 @@ fn test_lexer_unknown_symbol() {
 fn test_contract_name_too_long() {
     contract_deploy_consensus_test!(
         contract_name: &{"n".repeat(MAX_CONTRACT_NAME_LEN + 1)},
-        contract_code: &{"
-            ()
-        "},
+        contract_code: "()",
     );
 }
 
@@ -197,9 +181,7 @@ fn test_contract_name_too_long() {
 fn test_expected_closing() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            (
-        "},
+        contract_code: "(",
     );
 }
 
@@ -210,8 +192,6 @@ fn test_expected_closing() {
 fn test_note_to_match_this() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: &{"
-            ())
-        "},
+        contract_code: "())",
     );
 }
