@@ -146,7 +146,7 @@ use stacks::clarity_vm::clarity::SIP_031_INITIAL_MINT;
 use crate::clarity::vm::clarity::ClarityConnection;
 
 lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 11] = [
+    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 12] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
@@ -220,92 +220,13 @@ lazy_static! {
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 251,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_2
-        },
-    ];
-    pub static ref NAKAMOTO_INTEGRATION_3_3_EPOCHS: [StacksEpoch; 12] = [
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch10,
-            start_height: 0,
-            end_height: 0,
-            block_limit: BLOCK_LIMIT_MAINNET_10,
-            network_epoch: PEER_VERSION_EPOCH_1_0
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_0
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 1,
-            end_height: 2,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_05
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch21,
-            start_height: 2,
-            end_height: 3,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_1
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch22,
-            start_height: 3,
-            end_height: 4,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_2
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch23,
-            start_height: 4,
-            end_height: 5,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_3
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch24,
-            start_height: 5,
-            end_height: 201,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_4
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch25,
-            start_height: 201,
-            end_height: 231,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_2_5
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch30,
-            start_height: 231,
-            end_height: 232,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_0
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch31,
-            start_height: 232,
-            end_height: 233,
-            block_limit: HELIUM_BLOCK_LIMIT_20,
-            network_epoch: PEER_VERSION_EPOCH_3_1
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch32,
-            start_height: 233,
-            end_height: 234,
+            end_height: 252,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
-            start_height: 234,
+            start_height: 252,
             end_height: STACKS_EPOCH_MAX,
             block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
@@ -14246,10 +14167,6 @@ fn test_epoch_3_3_activation() {
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
-
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
@@ -15089,10 +15006,6 @@ fn check_block_time_keyword() {
         100000,
     );
 
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
-
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -15371,10 +15284,6 @@ fn check_with_stacking_allowances_delegate_stx() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -15771,10 +15680,6 @@ fn check_with_stacking_allowances_stack_stx() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
 
     // Default stacker used for bootstrapping
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -16365,10 +16270,6 @@ fn check_restrict_assets_rollback() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -17086,10 +16987,6 @@ fn check_as_contract_rollback() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
