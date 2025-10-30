@@ -45,6 +45,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::util::hash::Hash160;
 use stacks_common::util::vrf::VRFProof;
 
+use super::miner::MinerTenureInfoCause;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::nakamoto::miner::{MinerTenureInfo, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{
@@ -372,9 +373,8 @@ impl NakamotoChainState {
         parent_header_hash: &BlockHeaderHash,
         parent_burn_height: u32,
         tenure_block_snapshot: &BlockSnapshot,
-        new_tenure: bool,
         coinbase_height: u64,
-        tenure_extend: bool,
+        tenure_cause: MinerTenureInfoCause,
     ) -> Result<SetupBlockResult<'a, 'b>, ChainstateError> {
         let burn_header_hash = &tenure_block_snapshot.burn_header_hash;
         let burn_header_height =
@@ -412,9 +412,8 @@ impl NakamotoChainState {
             parent_burn_height,
             burn_header_hash,
             burn_header_height,
-            new_tenure,
             coinbase_height,
-            tenure_extend,
+            tenure_cause,
             None,
             false,
         )
@@ -432,7 +431,7 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
+        cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
         self.inner_load_tenure_info(chainstate, burn_dbconn, cause, true, false)
     }
@@ -468,9 +467,8 @@ impl NakamotoBlockBuilder {
             &info.parent_header_hash,
             info.parent_burn_block_height,
             &tenure_snapshot,
-            info.cause == Some(TenureChangeCause::BlockFound),
             info.coinbase_height,
-            info.cause == Some(TenureChangeCause::Extended),
+            info.cause,
         )?;
         self.matured_miner_rewards_opt = matured_miner_rewards_opt;
         Ok(clarity_tx)
@@ -514,12 +512,12 @@ impl NakamotoBlockBuilder {
         );
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
-        let mut tenure_cause = None;
+        let mut tenure_cause = MinerTenureInfoCause::NoTenureChange;
         for tx in txs.iter() {
             let TransactionPayload::TenureChange(payload) = &tx.payload else {
                 continue;
             };
-            tenure_cause = Some(payload.cause);
+            tenure_cause = MinerTenureInfoCause::from(payload);
             break;
         }
 
@@ -726,6 +724,7 @@ impl NakamotoBlockBuilder {
             Some(&tenure_change_tx),
             Some(&coinbase_tx),
             1,
+            None,
             None,
             None,
             u64::from(DEFAULT_MAX_TENURE_BYTES),

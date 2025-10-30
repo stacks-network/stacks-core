@@ -27,7 +27,7 @@ use stacks_common::types::chainstate::{
 use stacks_common::types::Address;
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::tests::node::TestStacker;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
@@ -330,10 +330,13 @@ fn replay_block(
         .txs
         .iter()
         .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-    let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-        TransactionPayload::TenureChange(tc) => Some(tc.cause),
-        _ => None,
-    });
+    let tenure_cause = tenure_change
+        .and_then(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
+            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        })
+        .unwrap_or(MinerTenureInfoCause::NoTenureChange);
+
     let mut builder = NakamotoBlockBuilder::new(
         &parent_stacks_header,
         &original_block.header.consensus_hash,
@@ -343,6 +346,7 @@ fn replay_block(
         original_block.header.pox_treatment.len(),
         None,
         Some(100),
+        Some(original_block.header.timestamp),
         u64::from(DEFAULT_MAX_TENURE_BYTES),
     )
     .unwrap();
