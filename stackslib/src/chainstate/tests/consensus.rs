@@ -27,10 +27,9 @@ use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKe
 use clarity::types::{StacksEpoch, StacksEpochId};
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityVersion, Value as ClarityValue, MAX_CALL_STACK_DEPTH};
+use clarity::vm::{ClarityVersion, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 
@@ -231,7 +230,7 @@ impl ContractConsensusTest<'_> {
     }
 }
 
-/// Generates a consensus test for executing a contract function across multiple Stacks epochs.
+/// Generates a consensus test body for executing a contract function across multiple Stacks epochs.
 ///
 /// This macro automates both contract deployment and function invocation across different
 /// epochs and Clarity versions.
@@ -248,7 +247,6 @@ impl ContractConsensusTest<'_> {
 ///
 /// # Arguments
 ///
-/// * `$name` — Name of the generated test function.
 /// * `contract_name` — The name of the contract.
 /// * `contract_code` — The Clarity source code for the contract.
 /// * `function_name` — The public function to call.
@@ -259,17 +257,18 @@ impl ContractConsensusTest<'_> {
 /// # Example
 ///
 /// ```rust,ignore
-/// contract_call_consensus_test!(
-///     my_test,
-///     contract_name: "my-contract",
-///     contract_code: "(define-public (get-message) (ok \"hello\"))",
-///     function_name: "get-message",
-///     function_args: &[],
-/// );
+/// #[test]
+/// fn test_my_contract_call_consensus() {
+///     contract_call_consensus_test!(
+///         contract_name: "my-contract",
+///         contract_code: "(define-public (get-message) (ok \"hello\"))",
+///         function_name: "get-message",
+///         function_args: &[],
+///     );
+/// }
 /// ```
 macro_rules! contract_call_consensus_test {
     (
-        $name:ident,
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         function_name: $function_name:expr,
@@ -277,8 +276,7 @@ macro_rules! contract_call_consensus_test {
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
     ) => {
-        #[test]
-        fn $name() {
+        {
             let contract_name = $contract_name;
 
             // Handle deploy_epochs parameter (default to all epochs >= 3.0 if not provided)
@@ -305,7 +303,7 @@ macro_rules! contract_call_consensus_test {
 }
 pub(crate) use contract_call_consensus_test;
 
-/// Generates a consensus test for contract deployment across multiple Stacks epochs.
+/// Generates a consensus test body for contract deployment across multiple Stacks epochs.
 ///
 /// This macro automates deploying a contract across different Stacks epochs and
 /// Clarity versions. It is primarily used for consensus-critical testing of contract
@@ -320,7 +318,6 @@ pub(crate) use contract_call_consensus_test;
 ///
 /// # Arguments
 ///
-/// * `$name` — Name of the generated test function.
 /// * `contract_name` — Name of the contract being tested.
 /// * `contract_code` — The Clarity source code of the contract.
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
@@ -328,34 +325,33 @@ pub(crate) use contract_call_consensus_test;
 /// # Example
 ///
 /// ```rust,ignore
-/// contract_deploy_consensus_test!(
-///     deploy_test,
-///     contract_name: "my-contract",
-///     contract_code: "(define-public (init) (ok true))",
-/// );
+/// #[test]
+/// fn test_my_contract_deploy_consensus() {
+///     contract_deploy_consensus_test!(
+///         deploy_test,
+///         contract_name: "my-contract",
+///         contract_code: "(define-public (init) (ok true))",
+///     );
+/// }
 /// ```
 macro_rules! contract_deploy_consensus_test {
     // Handle the case where deploy_epochs is not provided
     (
-        $name:ident,
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
     ) => {
         contract_deploy_consensus_test!(
-            $name,
             contract_name: $contract_name,
             contract_code: $contract_code,
             deploy_epochs: $crate::chainstate::tests::consensus::EPOCHS_TO_TEST,
         );
     };
     (
-        $name:ident,
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         deploy_epochs: $deploy_epochs:expr,
     ) => {
         $crate::chainstate::tests::consensus::contract_call_consensus_test!(
-            $name,
             contract_name: $contract_name,
             contract_code: $contract_code,
             function_name: "",   // No function calls, just deploys
@@ -505,7 +501,7 @@ impl TestTxFactory {
         let tx_bytes = make_contract_publish_versioned(
             sender,
             *nonce,
-            (1) as u64,
+            (code.len() * 100) as u64,
             self.default_chain_id,
             name,
             code,
@@ -1138,27 +1134,25 @@ fn test_append_stx_transfers_success() {
     insta::assert_ron_snapshot!(result);
 }
 
-// Example of using the `contract_call_consensus_test!` macro
-// Deploys a contract to each epoch, for each Clarity version,
-// then calls a function in that contract and snapshots the results.
-contract_call_consensus_test!(
-    successfully_deploy_and_call,
-    contract_name: "foo_contract",
-    contract_code: FOO_CONTRACT,
-    function_name: "bar",
-    function_args: &[ClarityValue::UInt(1)],
-);
+/// Example of using the `contract_call_consensus_test!` macro
+/// Deploys a contract to each epoch, for each Clarity version,
+/// then calls a function in that contract and snapshots the results.
+#[test]
+fn test_successfully_deploy_and_call() {
+    contract_call_consensus_test!(
+        contract_name: "foo_contract",
+        contract_code: FOO_CONTRACT,
+        function_name: "bar",
+        function_args: &[ClarityValue::UInt(1)],
+    );
+}
 
-// Example of using the `contract_deploy_consensus_test!` macro
-// Deploys a contract that exceeds the maximum allowed stack depth
-// and verifies that deployment fails with the expected error.
-contract_deploy_consensus_test!(
-    chainstate_error_expression_stack_depth_too_deep,
-    contract_name: "test-exceeds",
-    contract_code: &{
-        let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
-        let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
-        let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-        format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}")
-    },
-);
+/// Example of using the `contract_deploy_consensus_test!` macro
+/// Deploys a contract to all epoch, for each Clarity version
+#[test]
+fn test_succesfully_deploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "foo_contract",
+        contract_code: FOO_CONTRACT,
+    );
+}
