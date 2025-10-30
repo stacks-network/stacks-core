@@ -994,8 +994,8 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
     result["output_serialized"] = serde_json::to_value(result_raw.as_str()).unwrap();
 }
 
-/// Parse --clarity_version flag. Defaults to version for DEFAULT_CLI_EPOCH.
-fn parse_clarity_version_flag(argv: &mut Vec<String>) -> ClarityVersion {
+/// Parse --clarity_version flag. Defaults to version for epoch.
+fn parse_clarity_version_flag(argv: &mut Vec<String>, epoch: StacksEpochId) -> ClarityVersion {
     if let Ok(optarg) = consume_arg(argv, &["--clarity_version"], true) {
         if let Some(s) = optarg {
             friendly_expect(
@@ -1003,10 +1003,23 @@ fn parse_clarity_version_flag(argv: &mut Vec<String>) -> ClarityVersion {
                 &format!("Invalid clarity version: {}", s),
             )
         } else {
-            ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH)
+            ClarityVersion::default_for_epoch(epoch)
         }
     } else {
-        ClarityVersion::default_for_epoch(DEFAULT_CLI_EPOCH)
+        ClarityVersion::default_for_epoch(epoch)
+    }
+}
+
+/// Parse --epoch flag. Defaults to DEFAULT_CLI_EPOCH.
+fn parse_epoch_flag(argv: &mut Vec<String>) -> StacksEpochId {
+    if let Ok(optarg) = consume_arg(argv, &["--epoch"], true) {
+        if let Some(s) = optarg {
+            friendly_expect(s.parse::<StacksEpochId>(), &format!("Invalid epoch: {}", s))
+        } else {
+            DEFAULT_CLI_EPOCH
+        }
+    } else {
+        DEFAULT_CLI_EPOCH
     }
 }
 
@@ -1134,14 +1147,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         "check" => {
             if args.len() < 2 {
                 eprintln!(
-                    "Usage: {} {} [program-file.clar] [--contract_id CONTRACT_ID] [--output_analysis] [--costs] [--testnet] [--clarity_version N] (vm-state.db)",
+                    "Usage: {} {} [program-file.clar] [--contract_id CONTRACT_ID] [--output_analysis] [--costs] [--testnet] [--clarity_version N] [--epoch E] (vm-state.db)",
                     invoked_by, args[0]
                 );
                 panic_test!();
             }
 
             let mut argv = args.to_vec();
-            let clarity_version = parse_clarity_version_flag(&mut argv);
+            let epoch = parse_epoch_flag(&mut argv);
+            let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
             let contract_id = if let Ok(optarg) = consume_arg(&mut argv, &["--contract_id"], true) {
                 optarg
                     .map(|optarg_str| {
@@ -1271,7 +1285,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "repl" => {
             let mut argv = args.to_vec();
-            let clarity_version = parse_clarity_version_flag(&mut argv);
+            let epoch = parse_epoch_flag(&mut argv);
+            let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
             let mainnet = !matches!(consume_arg(&mut argv, &["--testnet"], false), Ok(Some(_)));
             let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new_free(
@@ -1343,7 +1358,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "eval_raw" => {
             let mut argv = args.to_vec();
-            let clarity_version = parse_clarity_version_flag(&mut argv);
+            let epoch = parse_epoch_flag(&mut argv);
+            let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
             let content: String = {
                 let mut buffer = String::new();
                 friendly_expect(
@@ -1413,7 +1429,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "eval" => {
             let mut argv = args.to_vec();
-            let clarity_version = parse_clarity_version_flag(&mut argv);
+            let epoch = parse_epoch_flag(&mut argv);
+            let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
 
@@ -1467,7 +1484,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "eval_at_chaintip" => {
             let mut argv = args.to_vec();
-            let clarity_version = parse_clarity_version_flag(&mut argv);
+            let epoch = parse_epoch_flag(&mut argv);
+            let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
             let coverage_folder = consume_arg(&mut argv, &["--c"], true).unwrap_or(None);
@@ -1540,7 +1558,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "eval_at_block" => {
             let mut argv = args.to_vec();
-            let clarity_version = parse_clarity_version_flag(&mut argv);
+            let epoch = parse_epoch_flag(&mut argv);
+            let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
 
@@ -1613,7 +1632,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "launch" => {
             let mut argv = args.to_vec();
-            let clarity_version = parse_clarity_version_flag(&mut argv);
+            let epoch = parse_epoch_flag(&mut argv);
+            let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
             let coverage_folder = consume_arg(&mut argv, &["--c"], true).unwrap_or(None);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
@@ -1758,7 +1778,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "execute" => {
             let mut argv = args.to_vec();
-            let clarity_version = parse_clarity_version_flag(&mut argv);
+            let epoch = parse_epoch_flag(&mut argv);
+            let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
             let coverage_folder = consume_arg(&mut argv, &["--c"], true).unwrap_or(None);
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
@@ -2471,6 +2492,51 @@ mod test {
                 clar_path,
                 "--clarity_version".to_string(),
                 "clarity2".to_string(),
+            ],
+        );
+
+        // Assert
+        let exit_code = invoked.0;
+        let result_json = invoked.1.unwrap();
+        assert_eq!(
+            exit_code, 1,
+            "expected check to fail under Clarity 2, got: {}",
+            result_json
+        );
+        assert_eq!(result_json["message"], "Checks failed.");
+        assert!(result_json["error"]["analysis"] != json!(null));
+    }
+
+    #[test]
+    fn test_check_clarity3_contract_fails_with_epoch21_flag() {
+        // Arrange
+        let clar_path = format!(
+            "/tmp/version-flag-c2-reject-{}.clar",
+            rand::thread_rng().gen::<i32>()
+        );
+        fs::write(
+            &clar_path,
+            // Valid only in Clarity 3, should fail in epoch 2.1 which defaults to Clarity 2.
+            r#"
+(define-read-only (get-tenure-info (h uint))
+  (ok
+    {
+      tenure-time: (get-tenure-info? time h),
+      tenure-miner-address: (get-tenure-info? miner-address h),
+    })
+)
+"#,
+        )
+        .unwrap();
+
+        // Act
+        let invoked = invoke_command(
+            "test",
+            &[
+                "check".to_string(),
+                clar_path,
+                "--epoch".to_string(),
+                "2.1".to_string(),
             ],
         );
 
