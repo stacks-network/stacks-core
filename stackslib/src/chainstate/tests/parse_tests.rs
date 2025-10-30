@@ -13,7 +13,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::codec::StacksMessageCodec;
 /// This module contains consensus tests related to Clarity Parse errors.
 use clarity::vm::ast::parser::v2::MAX_CONTRACT_NAME_LEN;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
