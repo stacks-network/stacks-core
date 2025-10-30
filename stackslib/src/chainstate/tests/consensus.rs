@@ -1152,7 +1152,19 @@ impl ConsensusTest<'_> {
             "--------- Processed Pre-Nakamoto block ---------";
             "block" => ?stacks_block
         );
-        let remapped_result = res.map(|receipt| receipt.unwrap());
+        let remapped_result = res.map(|receipt| {
+            let mut receipt = receipt.unwrap();
+            let mut sanitized_receipts = vec![];
+            for tx_receipt in &receipt.tx_receipts {
+                // Remove any coinbase transactions from the output
+                if tx_receipt.is_coinbase_tx() {
+                    continue;
+                }
+                sanitized_receipts.push(tx_receipt.clone());
+            }
+            receipt.tx_receipts = sanitized_receipts;
+            receipt
+        });
         // Restore chainstate for the next block
         self.chain.sortdb = Some(sortdb);
         self.chain.stacks_node = Some(stacks_node);

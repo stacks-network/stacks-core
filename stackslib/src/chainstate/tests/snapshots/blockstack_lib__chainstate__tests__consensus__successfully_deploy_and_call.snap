@@ -8,21 +8,6 @@ expression: result
     evaluated_epoch: Epoch20,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "Coinbase(1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_0-Clarity1, code_body: [..], clarity_version: None)",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
@@ -50,21 +35,6 @@ expression: result
     marf_hash: "c197b006221151c65e298beaf88adcc9532f8b494b7f7564b8ef60fb217a4eb5",
     evaluated_epoch: Epoch2_05,
     transactions: [
-      ExpectedTransactionOutput(
-        tx: "Coinbase(2020202020202020202020202020202020202020202020202020202020202020, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_05-Clarity1, code_body: [..], clarity_version: None)",
         vm_error: "None [NON-CONSENSUS BREAKING]",
@@ -94,21 +64,6 @@ expression: result
     evaluated_epoch: Epoch21,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "Coinbase(2222222222222222222222222222222222222222222222222222222222222222, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_1-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
@@ -136,21 +91,6 @@ expression: result
     marf_hash: "0d25118932d001ca3b324614c28b2de4353557df43ec0c8868904a87b1ee9f9a",
     evaluated_epoch: Epoch21,
     transactions: [
-      ExpectedTransactionOutput(
-        tx: "Coinbase(2323232323232323232323232323232323232323232323232323232323232323, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_1-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
@@ -180,21 +120,6 @@ expression: result
     evaluated_epoch: Epoch22,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "Coinbase(2525252525252525252525252525252525252525252525252525252525252525, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
@@ -222,21 +147,6 @@ expression: result
     marf_hash: "4dccf47885edf1f17736a78f772717bea62ea5136e99a981114eacf4ee1c292b",
     evaluated_epoch: Epoch22,
     transactions: [
-      ExpectedTransactionOutput(
-        tx: "Coinbase(2626262626262626262626262626262626262626262626262626262626262626, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
@@ -266,21 +176,6 @@ expression: result
     evaluated_epoch: Epoch23,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "Coinbase(2828282828282828282828282828282828282828282828282828282828282828, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
@@ -308,21 +203,6 @@ expression: result
     marf_hash: "af69aa70ce09a12e0bac066b84f24f103bb3cd4cd49b45b2711fa25e90b70c25",
     evaluated_epoch: Epoch23,
     transactions: [
-      ExpectedTransactionOutput(
-        tx: "Coinbase(2929292929292929292929292929292929292929292929292929292929292929, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
@@ -352,21 +232,6 @@ expression: result
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "Coinbase(2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
@@ -394,21 +259,6 @@ expression: result
     marf_hash: "7a009ae7dfd79b021f74d17d1b1ae9015b9f1d8984734099b9d7c1388d254316",
     evaluated_epoch: Epoch24,
     transactions: [
-      ExpectedTransactionOutput(
-        tx: "Coinbase(2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
@@ -438,21 +288,6 @@ expression: result
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
-        tx: "Coinbase(2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
@@ -480,21 +315,6 @@ expression: result
     marf_hash: "ca156312aaf28bd8d37bf879d936a7590fe8b09723f6f5bf65da38c9d8982929",
     evaluated_epoch: Epoch25,
     transactions: [
-      ExpectedTransactionOutput(
-        tx: "Coinbase(2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f2f, None, None)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
       ExpectedTransactionOutput(
         tx: "SmartContract(name: foo_contract-Epoch2_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
         vm_error: "None [NON-CONSENSUS BREAKING]",
