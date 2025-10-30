@@ -29,7 +29,7 @@ use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{OptionalData, PrincipalData, ResponseData};
 use clarity::vm::{ClarityVersion, Value as ClarityValue, MAX_CALL_STACK_DEPTH};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
@@ -1154,9 +1154,256 @@ contract_deploy_consensus_test!(
     chainstate_error_expression_stack_depth_too_deep,
     contract_name: "test-exceeds",
     contract_code: &{
-        let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
-        let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
-        let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
+    let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
+    let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
+    let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
         format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}")
     },
 );
+
+// Tests that MemoryBalanceExceeded error during contract analysis invalidates the block.
+// The entire block will be rejected.
+//
+// This test creates a contract that fails during analysis phase.
+// The contract defines large nested tuple constants that exhaust
+// the 100MB memory limit during analysis.
+contract_deploy_consensus_test!(
+    chainstate_error_memory_balance_exceeded_during_contract_analysis,
+    contract_name: "analysis-memory-test",
+    contract_code: &{
+        let mut contract = String::new();
+        // size: t0: 36 bytes
+        contract.push_str("(define-constant t0 (tuple (f0 0x00) (f1 0x00) (f2 0x00) (f3 0x00)))");
+        // size: t1: 160 bytes
+        contract.push_str("(define-constant t1 (tuple (f0 t0) (f1 t0) (f2 t0) (f3 t0)))");
+        // size: t2: 656 bytes
+        contract.push_str("(define-constant t2 (tuple (f0 t1) (f1 t1) (f2 t1) (f3 t1)))");
+        // size: t3: 2640 bytes
+        contract.push_str("(define-constant t3 (tuple (f0 t2) (f1 t2) (f2 t2) (f3 t2)))");
+        // size: t4: 10576 bytes
+        contract.push_str("(define-constant t4 (tuple (f0 t3) (f1 t3) (f2 t3) (f3 t3)))");
+        // size: t5: 42320 bytes
+        contract.push_str("(define-constant t5 (tuple (f0 t4) (f1 t4) (f2 t4) (f3 t4)))");
+        // size: t6: 126972 bytes
+        contract.push_str("(define-constant t6 (tuple (f0 t5) (f1 t5) (f2 t5)))");
+        // 126972 bytes * 800 ~= 101577600. Triggers MemoryBalanceExceeded during analysis.
+        for i in 0..800 {
+            contract.push_str(&format!("(define-constant l{} t6)", i + 1));
+        }
+        contract
+    },
+);
+
+// Tests that `MemoryBalanceExceeded` error occurs during contract initialization.
+// The transaction will fail but will still be committed to the block.
+//
+// This test creates a contract that successfully passes analysis but fails during initialization
+// The contract defines large buffer constants (buff-20 = 1MB) and then creates many references
+// to it in a top-level `is-eq` expression, which exhausts the 100MB memory limit during initialization.
+contract_deploy_consensus_test!(
+    chainstate_error_memory_balance_exceeded_during_contract_initialization,
+    contract_name: "test-exceeds",
+    contract_code: &{
+        let define_data_var = "(define-constant buff-0 0x00)";
+
+        let mut contract = define_data_var.to_string();
+        for i in 0..20 {
+            contract.push('\n');
+            contract.push_str(&format!(
+                "(define-constant buff-{} (concat buff-{i} buff-{i}))",
+                i + 1,
+            ));
+        }
+
+        contract.push('\n');
+        contract.push_str("(is-eq ");
+
+        for _i in 0..100 {
+            let exploder = "buff-20 ";
+            contract.push_str(exploder);
+        }
+
+        contract.push(')');
+        contract
+    },
+);
+
+// Tests that `MemoryBalanceExceeded` error occurs during a contract call.
+// The transaction will fail but will still be committed to the block.
+
+// This test creates a contract that successfully passes analysis and initialization
+// but fails during the call phase when the `create-many-references` function is called.
+// It creates many references to a large buffer (buff-20 = 1MB) in an `is-eq`
+// expression, which exhausts the 100MB memory limit during function execution.
+contract_call_consensus_test!(
+    chainstate_error_memory_balance_exceeded_during_contract_call,
+    contract_name: "memory-test-contract",
+    contract_code: &{
+        // Procedurally generate a contract with large buffer constants and a function
+        // that creates many references to them, similar to argument_memory_test
+        let mut contract = String::new();
+
+        // Create buff-0 through buff-20 via repeated doubling: buff-20 = 1MB
+        contract.push_str("(define-constant buff-0 0x00)\n");
+        for i in 0..20 {
+            contract.push_str(&format!(
+                "(define-constant buff-{} (concat buff-{i} buff-{i}))\n",
+                i + 1
+            ));
+        }
+
+        // Create a public function that makes many references to buff-20
+        contract.push_str("\n(define-public (create-many-references)\n");
+        contract.push_str("    (ok (is-eq ");
+
+        // Create 100 references to buff-20 (1MB each = ~100MB total)
+        for _ in 0..100 {
+            contract.push_str("buff-20 ");
+        }
+
+        contract.push_str(")))\n");
+        contract
+    },
+    function_name: "create-many-references",
+    function_args: &[],
+);
+
+/// Tests that when `MemoryBalanceExceeded` error occurs in a block, the transactions fail, but are
+/// still committed to the block, and the "valid" transactions are still executed without errors.
+///
+/// 1. Deploy the memory-test-contract once in epoch 3.2
+/// 2. Create a second block with 21 transactions:
+///    - 20 transactions that call the contract (should fail with MemoryBalanceExceeded)
+///    - 1 transaction that is expected to succeed
+#[test]
+fn test_memory_balance_exceeded_multiple_calls() {
+    // Generate the same contract code as chainstate_error_memory_balance_exceeded_during_contract_call
+    let contract_code = {
+        // Procedurally generate a contract with large buffer constants and a function
+        // that creates many references to them, similar to argument_memory_test
+        let mut contract = String::new();
+
+        // Create buff-0 through buff-20 via repeated doubling: buff-20 = 1MB
+        contract.push_str("(define-constant buff-0 0x00)\n");
+        for i in 0..20 {
+            contract.push_str(&format!(
+                "(define-constant buff-{} (concat buff-{i} buff-{i}))\n",
+                i + 1
+            ));
+        }
+
+        // Create a public function that makes many references to buff-20
+        contract.push_str("\n(define-public (create-many-references)\n");
+        contract.push_str("    (ok (is-eq ");
+
+        // Create 100 references to buff-20 (1MB each = ~100MB total)
+        for _ in 0..100 {
+            contract.push_str("buff-20 ");
+        }
+
+        contract.push_str(")))\n");
+        contract.push_str("(define-public (foo) (ok 1))");
+        contract
+    };
+
+    let mut nonce = 0;
+
+    // Add balance for the contract deployer (using FAUCET)
+    let deploy_fee = (contract_code.len() * 100) as u64;
+
+    // Block 1: Deploy the contract in epoch 3.2
+    let deploy_tx = make_contract_publish_versioned(
+        &FAUCET_PRIV_KEY,
+        nonce,
+        deploy_fee,
+        CHAIN_ID_TESTNET,
+        "memory-test-contract",
+        &contract_code,
+        Some(ClarityVersion::Clarity4),
+    );
+
+    let block1 = TestBlock {
+        transactions: vec![
+            StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap(),
+        ],
+    };
+
+    // Block 2: 50 transactions calling the contract
+    let contract_addr =
+        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&FAUCET_PRIV_KEY));
+    let mut call_transactions = Vec::new();
+
+    for _ in 0..20 {
+        nonce += 1;
+        let call_tx = make_contract_call(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            200,
+            CHAIN_ID_TESTNET,
+            &contract_addr,
+            "memory-test-contract",
+            "create-many-references",
+            &[],
+        );
+        call_transactions
+            .push(StacksTransaction::consensus_deserialize(&mut call_tx.as_slice()).unwrap());
+    }
+    nonce += 1;
+    let foo_tx = make_contract_call(
+        &FAUCET_PRIV_KEY,
+        nonce,
+        200,
+        CHAIN_ID_TESTNET,
+        &contract_addr,
+        "memory-test-contract",
+        "foo",
+        &[],
+    );
+    call_transactions
+        .push(StacksTransaction::consensus_deserialize(&mut foo_tx.as_slice()).unwrap());
+
+    let block2 = TestBlock {
+        transactions: call_transactions,
+    };
+
+    // Create epoch blocks map - both blocks in Epoch 3.3
+    let mut epoch_blocks = HashMap::new();
+    epoch_blocks.insert(StacksEpochId::Epoch33, vec![block1, block2]);
+
+    // Run the test
+    let result = ConsensusTest::new(function_name!(), vec![]).run(epoch_blocks);
+    if let ExpectedResult::Success(expected_block_output) = &result[0] {
+        assert_eq!(expected_block_output.transactions.len(), 1);
+        assert_eq!(
+            expected_block_output.transactions[0].return_type,
+            ClarityValue::Response(ResponseData {
+                committed: true,
+                data: Box::new(ClarityValue::Bool(true)),
+            })
+        );
+    } else {
+        panic!("First block should be successful");
+    }
+    if let ExpectedResult::Success(expected_block_output) = &result[1] {
+        assert_eq!(expected_block_output.transactions.len(), 21);
+        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)".to_string());
+        let expected_failure_return_type = ClarityValue::Response(ResponseData {
+            committed: false,
+            data: Box::new(ClarityValue::Optional(OptionalData { data: None })),
+        });
+
+        for transaction in &expected_block_output.transactions[..20] {
+            assert_eq!(transaction.return_type, expected_failure_return_type);
+            assert_eq!(transaction.vm_error, expected_vm_error);
+        }
+        assert_eq!(
+            expected_block_output.transactions[20].return_type,
+            ClarityValue::Response(ResponseData {
+                committed: true,
+                data: Box::new(ClarityValue::Int(1)),
+            })
+        );
+    } else {
+        panic!("Second block should be successful");
+    }
+}
