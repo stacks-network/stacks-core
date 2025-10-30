@@ -74,7 +74,8 @@ const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
 /// Returns the list of Clarity versions that can be used to deploy contracts in the given epoch.
 const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVersion] {
     match epoch {
-        StacksEpochId::Epoch10 | StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => &[],
+        StacksEpochId::Epoch10 => &[],
+        StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => &[ClarityVersion::Clarity1],
         StacksEpochId::Epoch21
         | StacksEpochId::Epoch22
         | StacksEpochId::Epoch23
@@ -149,21 +150,13 @@ impl ContractConsensusTest<'_> {
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
                 // Each deployment is a seperate TestBlock
-                if clarity_versions.is_empty() {
-                    let name = format!("{contract_name}-{epoch_name}-None");
+                for &version in clarity_versions {
+                    let version_tag = version.to_string().replace(' ', "");
+                    let name = format!("{contract_name}-{epoch_name}-{version_tag}");
                     contract_names.push(name.clone());
                     blocks.push(TestBlock {
                         transactions: vec![],
                     });
-                } else {
-                    for &version in clarity_versions {
-                        let version_tag = version.to_string().replace(' ', "");
-                        let name = format!("{contract_name}-{epoch_name}-{version_tag}");
-                        contract_names.push(name.clone());
-                        blocks.push(TestBlock {
-                            transactions: vec![],
-                        });
-                    }
                 }
             }
 
@@ -217,33 +210,26 @@ impl ContractConsensusTest<'_> {
         let clarity_versions = clarity_versions_for_epoch(epoch);
         let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
-        if clarity_versions.is_empty() {
-            let name = format!("{contract_name}-{epoch_name}-None");
+        for &version in clarity_versions {
+            let version_tag = version.to_string().replace(' ', "");
+            let name = format!("{contract_name}-{epoch_name}-{version_tag}");
+            let clarity_version = if epoch < StacksEpochId::Epoch21 {
+                // Old epochs have no concept of clarity version. It defaults to
+                // clarity version 1 behaviour.
+                None
+            } else {
+                Some(version)
+            };
             results.push(self.append_tx_block(
                 &TestTxSpec::ContractDeploy {
                     sender: &FAUCET_PRIV_KEY,
                     name: &name,
                     code: contract_code,
-                    clarity_version: None,
+                    clarity_version,
                 },
                 is_naka_block,
             ));
             self.contract_names.push(name);
-        } else {
-            for &version in clarity_versions {
-                let version_tag = version.to_string().replace(' ', "");
-                let name = format!("{contract_name}-{epoch_name}-{version_tag}");
-                results.push(self.append_tx_block(
-                    &TestTxSpec::ContractDeploy {
-                        sender: &FAUCET_PRIV_KEY,
-                        name: &name,
-                        code: contract_code,
-                        clarity_version: Some(version),
-                    },
-                    is_naka_block,
-                ));
-                self.contract_names.push(name);
-            }
         }
 
         results
