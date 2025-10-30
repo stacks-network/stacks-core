@@ -10,6 +10,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
+- Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
 
 ### Added
 
