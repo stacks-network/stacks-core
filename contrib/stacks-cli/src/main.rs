@@ -22,7 +22,6 @@ use std::io::Read;
 use std::io::prelude::*;
 use std::{env, fs, io};
 
-use clarity::types::StacksEpochId;
 use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
@@ -616,7 +615,7 @@ fn handle_contract_call(
                 Value::try_deserialize_hex_untyped(input)?
             },
             "-e" => {
-                vm_execute(input, clarity_version, StacksEpochId::latest())?
+                vm_execute(input, clarity_version)?
                     .ok_or("Supplied argument did not evaluate to a Value")?
             },
             "--hex-file" => {

@@ -451,7 +451,7 @@ where
 
 /// Execute program in a transient environment. To be used only by CLI tools
 ///  for program evaluation, not by consensus critical code.
-pub fn vm_execute(
+pub fn vm_execute_in_epoch(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
@@ -470,6 +470,34 @@ pub fn vm_execute(
     global_context.execute(|g| {
         let parsed =
             ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
+        eval_all(&parsed, &mut contract_context, g, None)
+    })
+}
+
+/// Execute program in a transient environment in the latest epoch.
+/// To be used only by CLI tools for program evaluation, not by consensus
+/// critical code.
+pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Option<Value>, Error> {
+    let contract_id = QualifiedContractIdentifier::transient();
+    let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
+    let mut marf = MemoryBackingStore::new();
+    let conn = marf.as_clarity_db();
+    let mut global_context = GlobalContext::new(
+        false,
+        default_chain_id(false),
+        conn,
+        LimitedCostTracker::new_free(),
+        StacksEpochId::latest(),
+    );
+    global_context.execute(|g| {
+        let parsed = ast::build_ast(
+            &contract_id,
+            program,
+            &mut (),
+            clarity_version,
+            StacksEpochId::latest(),
+        )?
+        .expressions;
         eval_all(&parsed, &mut contract_context, g, None)
     })
 }
@@ -1835,7 +1863,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 .iter()
                 .map(|argument| {
                     let argument_parsed = friendly_expect(
-                        vm_execute(argument, clarity_version, epoch),
+                        vm_execute_in_epoch(argument, clarity_version, epoch),
                         &format!("Error parsing argument \"{}\"", argument),
                     );
                     let argument_value = friendly_expect_opt(
