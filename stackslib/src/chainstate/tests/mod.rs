@@ -19,9 +19,9 @@ use std::fs;
 use clarity::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId,
 };
-use clarity::vm::ast::parser::v1::CONTRACT_MAX_NAME_LENGTH;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::database::STXBalance;
+use clarity::vm::representations::CONTRACT_MAX_NAME_LENGTH;
 use clarity::vm::types::*;
 use clarity::vm::ContractName;
 use rand;

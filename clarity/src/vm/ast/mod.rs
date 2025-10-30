@@ -28,7 +28,6 @@ use stacks_common::types::StacksEpochId;
 use self::definition_sorter::DefinitionSorter;
 use self::errors::ParseResult;
 use self::expression_identifier::ExpressionIdentifier;
-use self::parser::v1::parse as parse_v1;
 use self::parser::v2::parse as parse_v2;
 use self::stack_depth_checker::{StackDepthChecker, VaryStackDepthChecker};
 use self::sugar_expander::SugarExpander;
@@ -57,13 +56,9 @@ pub fn parse(
 /// Parse a program based on which epoch is active
 fn parse_in_epoch(
     source_code: &str,
-    epoch_id: StacksEpochId,
+    _epoch_id: StacksEpochId,
 ) -> ParseResult<Vec<PreSymbolicExpression>> {
-    if epoch_id >= StacksEpochId::Epoch21 {
-        parse_v2(source_code)
-    } else {
-        parse_v1(source_code)
-    }
+    parse_v2(source_code)
 }
 
 /// This is the part of the AST parser that runs without respect to cost analysis, specifically
@@ -110,7 +105,7 @@ fn inner_build_ast<T: CostTracker>(
     source_code: &str,
     cost_track: &mut T,
     clarity_version: ClarityVersion,
-    epoch: StacksEpochId,
+    _epoch: StacksEpochId,
     error_early: bool,
 ) -> ParseResult<(ContractAST, Vec<Diagnostic>, bool)> {
     let cost_err = match runtime_cost(
@@ -123,20 +118,11 @@ fn inner_build_ast<T: CostTracker>(
         _ => None,
     };
 
-    let (pre_expressions, mut diagnostics, mut success) = if epoch >= StacksEpochId::Epoch21 {
-        if error_early {
-            let exprs = parser::v2::parse(source_code)?;
-            (exprs, Vec::new(), true)
-        } else {
-            parser::v2::parse_collect_diagnostics(source_code)
-        }
+    let (pre_expressions, mut diagnostics, mut success) = if error_early {
+        let exprs = parser::v2::parse(source_code)?;
+        (exprs, Vec::new(), true)
     } else {
-        let parse_result = parse_v1(source_code);
-        match parse_result {
-            Ok(pre_expressions) => (pre_expressions, vec![], true),
-            Err(error) if error_early => return Err(error),
-            Err(error) => (vec![], vec![error.diagnostic], false),
-        }
+        parser::v2::parse_collect_diagnostics(source_code)
     };
 
     if let Some(e) = cost_err {
