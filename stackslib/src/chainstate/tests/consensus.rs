@@ -779,10 +779,19 @@ impl ConsensusTest<'_> {
     /// Creates a new `ConsensusTest` with the given test name and initial balances.
     pub fn new(test_name: &str, initial_balances: Vec<(PrincipalData, u64)>) -> Self {
         // Set up chainstate to start at Epoch 3.0
-        // We don't really ever want the reward cycle to force a new signer set...
-        // so for now just set the cycle length to a high value (100)
         let mut boot_plan = NakamotoBootPlan::new(test_name)
-            .with_pox_constants(100, 3)
+            // These are the minimum values found for the fastest test execution.
+            //
+            // If changing these values, ensure the following conditions are met:
+            // 1. Min 6 reward blocks (test framework limitation).
+            // 2. Epoch 3.0 starts in the reward phase.
+            // 3. Tests bypass mainnet's prepare_length >= 3 (allowing 1).
+            // - Current boot sequence:
+            //   - Cycle 3: Signers at height 27 register for 12 reward cycles
+            //   - Cycle 4: Epoch 3.0 starts at height 30
+            // Tests generate 1 bitcoin block per epoch transition after 3.0
+            // staying within the registration window
+            .with_pox_constants(7, 1)
             .with_initial_balances(initial_balances)
             .with_private_key(FAUCET_PRIV_KEY.clone());
         let epochs = epoch_3_0_onwards(
