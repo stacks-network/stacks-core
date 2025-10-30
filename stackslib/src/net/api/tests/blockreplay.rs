@@ -29,7 +29,6 @@ use crate::core::test_util::{
     make_contract_publish, make_contract_publish_tx, make_unsigned_tx, to_addr,
 };
 use crate::net::api::blockreplay;
-use crate::net::api::blockreplay::RPCReplayedBlock;
 use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
@@ -161,7 +160,7 @@ fn test_try_make_response() {
         assert_eq!(resp_tx.events.len(), tip_tx.events.len());
         assert_eq!(resp_tx.result, tip_tx.result);
         assert_eq!(resp_tx.result_hex, tip_tx.result);
-        assert!(resp_tx.post_condition_aborted);
+        assert!(!resp_tx.post_condition_aborted);
     }
 
     // got a failure (404)
@@ -269,7 +268,7 @@ fn replay_block_with_pc_failure() {
         std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
     );
 
-    let contents = response.get_http_payload_ok().unwrap();
+    let contents = response.clone().get_http_payload_ok().unwrap();
     let response_json: serde_json::Value = contents.try_into().unwrap();
 
     let result_hex = response_json
@@ -288,8 +287,7 @@ fn replay_block_with_pc_failure() {
     let result = ClarityValue::try_deserialize_hex_untyped(&result_hex).unwrap();
     result.expect_result_ok().expect("FATAL: result is not ok");
 
-    let resp: RPCReplayedBlock =
-        serde_json::from_value(response_json).expect("FATAL: failed to decode JSON");
+    let resp = response.decode_replayed_block().unwrap();
 
     let tip_block = test_observer.get_blocks().last().unwrap().clone();
 
