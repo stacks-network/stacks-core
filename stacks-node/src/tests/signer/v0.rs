@@ -56,7 +56,9 @@ use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
+use stacks::config::{
+    Config as NeonConfig, EventKeyType, EventObserverConfig, DEFAULT_MAX_TENURE_BYTES,
+};
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::core::test_util::{
     insert_tx_in_mempool, make_big_read_count_contract, make_contract_call, make_contract_publish,
@@ -2048,6 +2050,7 @@ fn sip034_tenure_extend_proposal(allow: bool) {
                 None,
                 None,
                 None,
+                u64::from(DEFAULT_MAX_TENURE_BYTES),
             )
             .expect("Failed to build Nakamoto block");
 
