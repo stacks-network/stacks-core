@@ -891,7 +891,11 @@ fn consume_arg(
 }
 
 /// This function uses Clarity1 to parse the boot code.
-fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) {
+fn install_boot_code<C: ClarityStorage>(
+    header_db: &CLIHeadersDB,
+    marf: &mut C,
+    epoch: StacksEpochId,
+) {
     let mainnet = header_db.is_mainnet();
     let boot_code = if mainnet {
         *STACKS_BOOT_CODE_MAINNET_2_1
@@ -901,18 +905,15 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
 
     {
         let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-        let mut vm_env =
-            OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, DEFAULT_CLI_EPOCH);
+        let mut vm_env = OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, epoch);
         vm_env
             .execute_in_env(
                 QualifiedContractIdentifier::transient().issuer.into(),
                 None,
                 None,
                 |env| {
-                    let res: InterpreterResult<_> = Ok(env
-                        .global_context
-                        .database
-                        .set_clarity_epoch_version(DEFAULT_CLI_EPOCH));
+                    let res: InterpreterResult<_> =
+                        Ok(env.global_context.database.set_clarity_epoch_version(epoch));
                     res
                 },
             )
@@ -939,7 +940,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
                 &contract_identifier,
                 contract_content,
                 ClarityVersion::Clarity1,
-                DEFAULT_CLI_EPOCH,
+                epoch,
             ),
             "Failed to parse program.",
         );
@@ -950,17 +951,13 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
             marf,
             true,
             ClarityVersion::Clarity2,
-            DEFAULT_CLI_EPOCH,
+            epoch,
         );
         match analysis_result {
             Ok(_) => {
                 let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-                let mut vm_env = OwnedEnvironment::new_free(
-                    mainnet,
-                    default_chain_id(mainnet),
-                    db,
-                    DEFAULT_CLI_EPOCH,
-                );
+                let mut vm_env =
+                    OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, epoch);
                 vm_env
                     .initialize_versioned_contract(
                         contract_identifier,
@@ -993,8 +990,7 @@ fn install_boot_code<C: ClarityStorage>(header_db: &CLIHeadersDB, marf: &mut C) 
     ];
 
     let db = marf.get_clarity_db(header_db, &NULL_BURN_STATE_DB);
-    let mut vm_env =
-        OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, DEFAULT_CLI_EPOCH);
+    let mut vm_env = OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), db, epoch);
     vm_env
         .execute_transaction(
             sender,
@@ -1066,6 +1062,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         "initialize" => {
             let mut argv = args.to_vec();
 
+            let epoch = parse_epoch_flag(&mut argv);
             let mainnet = !matches!(consume_arg(&mut argv, &["--testnet"], false), Ok(Some(_)));
 
             let (db_name, allocations) = if argv.len() == 3 {
@@ -1122,7 +1119,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             // install bootcode
             let state = in_block(header_db, marf_kv, |header_db, mut marf| {
-                install_boot_code(&header_db, &mut marf);
+                install_boot_code(&header_db, &mut marf, epoch);
                 (header_db, marf, ())
             });
 
@@ -1272,7 +1269,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let header_db = CLIHeadersDB::new_memory(mainnet);
                     let mut analysis_marf = MemoryBackingStore::new();
 
-                    install_boot_code(&header_db, &mut analysis_marf);
+                    install_boot_code(&header_db, &mut analysis_marf, epoch);
                     run_analysis(
                         &contract_id,
                         &mut ast,
@@ -1327,7 +1324,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 mainnet,
                 default_chain_id(mainnet),
                 marf.as_clarity_db(),
-                DEFAULT_CLI_EPOCH,
+                epoch,
             );
             let placeholder_context =
                 ContractContext::new(QualifiedContractIdentifier::transient(), clarity_version);
