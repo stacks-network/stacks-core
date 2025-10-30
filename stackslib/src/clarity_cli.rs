@@ -1101,7 +1101,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 (&argv[1], Vec::new())
             } else {
                 eprintln!(
-                    "Usage: {} {} [--testnet] (initial-allocations.json) [vm-state.db]",
+                    "Usage: {} {} [--testnet] [--epoch E] (initial-allocations.json) [vm-state.db]",
                     invoked_by, argv[0]
                 );
                 eprintln!("   initial-allocations.json is a JSON array of {{ principal: \"ST...\", amount: 100 }} like objects.");
@@ -1679,7 +1679,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if argv.len() < 4 {
                 eprintln!(
-                    "Usage: {} {} [--costs] [--assets] [--output_analysis] [contract-identifier] [contract-definition.clar] [--clarity_version N] [vm-state.db]",
+                    "Usage: {} {} [--costs] [--assets] [--output_analysis] [contract-identifier] [contract-definition.clar] [--clarity_version N] [--epoch E] [vm-state.db]",
                     invoked_by, argv[0]
                 );
                 panic_test!();
@@ -1827,7 +1827,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let assets = matches!(consume_arg(&mut argv, &["--assets"], false), Ok(Some(_)));
 
             if argv.len() < 5 {
-                eprintln!("Usage: {} {} [--costs] [--assets] [--clarity_version N] [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, argv[0]);
+                eprintln!("Usage: {} {} [--costs] [--assets] [--clarity_version N] [--epoch E] [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, argv[0]);
                 panic_test!();
             }
 
