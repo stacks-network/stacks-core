@@ -102,10 +102,11 @@ pub struct NakamotoBootPlan {
     pub malleablized_blocks: bool,
     pub network_id: u32,
     pub txindex: bool,
-    pub extra_tenures: Vec<NakamotoBootTenure>,
     pub epochs: Option<EpochList<ExecutionCost>>,
     /// Additional transactions to include in the tip block
     pub tip_transactions: Vec<StacksTransaction>,
+    /// Additional tenures to include at the end of the boot plan
+    pub extra_tenures: Vec<NakamotoBootTenure>,
     /// Do not fail if a transaction returns error (by default the BootPlan will stop on tx failure)
     pub ignore_transaction_errors: bool,
 }
