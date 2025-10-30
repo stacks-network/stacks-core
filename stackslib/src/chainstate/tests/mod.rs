@@ -479,7 +479,7 @@ impl<'a> TestChainstate<'a> {
                     mined_pox_4_lockup = true;
                 } else {
                     debug!("Mining pre-nakamoto tenure");
-                    let stacks_block = self.tenure_with_txs(&[]);
+                    let stacks_block = self.mine_pre_nakamoto_tenure_with_txs(&[]);
                     let (stacks_tip_ch, stacks_tip_bh) =
                         SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn())
                             .expect("Failed to get canonical chain tip");
@@ -495,7 +495,7 @@ impl<'a> TestChainstate<'a> {
     }
 
     /// This must be called after pox 4 activation and at or past the Epoch 2.5 boundary
-    pub fn mine_pox_4_lockup(&mut self, private_key: &StacksPrivateKey) {
+    fn mine_pox_4_lockup(&mut self, private_key: &StacksPrivateKey) {
         let sortition_height = self.get_burn_block_height();
         let epoch_25_height = self
             .config
@@ -562,14 +562,17 @@ impl<'a> TestChainstate<'a> {
             })
             .collect();
 
-        let stacks_block = self.tenure_with_txs(&stack_txs);
+        let stacks_block = self.mine_pre_nakamoto_tenure_with_txs(&stack_txs);
         let (stacks_tip_ch, stacks_tip_bh) =
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.sortdb().conn()).unwrap();
         let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bh);
         assert_eq!(stacks_block, stacks_tip);
     }
 
-    pub fn mine_nakamoto_tenure(&mut self) {
+    /// Mines a new bitcoin block with a new tenure block-commit, using it to mine the start of a new Stacks Nakmoto tenure,
+    /// It will mine subsequently mine the coinbase and tenure change Stacks txs.
+    /// NOTE: mines a total of one Bitcoin block and one Stacks block.
+    fn mine_nakamoto_tenure(&mut self) {
         let burn_block_height = self.get_burn_block_height();
         let (burn_ops, mut tenure_change, miner_key) =
             self.begin_nakamoto_tenure(TenureChangeCause::BlockFound);
@@ -613,7 +616,7 @@ impl<'a> TestChainstate<'a> {
         if burn_block_height < target_height {
             self.advance_to_epoch_boundary(private_key, target_epoch);
             if target_epoch < StacksEpochId::Epoch30 {
-                self.tenure_with_txs(&[]);
+                self.mine_pre_nakamoto_tenure_with_txs(&[]);
             } else {
                 self.mine_nakamoto_tenure();
             }
@@ -1163,10 +1166,10 @@ impl<'a> TestChainstate<'a> {
         self.stacks_node.as_ref().unwrap()
     }
 
-    /// Make a tenure with the given transactions. Creates a coinbase tx with the given nonce. Processes
-    /// the tenure and then increments the provided nonce reference.
-    pub fn tenure_with_txs(&mut self, txs: &[StacksTransaction]) -> StacksBlockId {
-        let (burn_ops, stacks_block, microblocks) = self.make_tenure_with_txs(txs);
+    /// Mines a pre-naka tenure with the given transactions. Creates a coinbase tx. Processes the tenure
+    /// NOTE: mines one burnchain block and one Stacks block.
+    fn mine_pre_nakamoto_tenure_with_txs(&mut self, txs: &[StacksTransaction]) -> StacksBlockId {
+        let (burn_ops, stacks_block, microblocks) = self.make_pre_nakamoto_tenure_with_txs(txs);
 
         let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
         self.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
@@ -1175,7 +1178,7 @@ impl<'a> TestChainstate<'a> {
     }
 
     /// Make a pre-naka tenure with the given transactions
-    pub fn make_tenure_with_txs(
+    pub fn make_pre_nakamoto_tenure_with_txs(
         &mut self,
         txs: &[StacksTransaction],
     ) -> (

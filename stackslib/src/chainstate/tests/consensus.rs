@@ -114,6 +114,7 @@ impl ContractConsensusTest<'_> {
     /// - If `deploy_epochs` is empty.
     /// - If any `call_epoch` is less than the minimum `deploy_epoch`.
     // Creates a new ContractConsensusTest
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         test_name: &str,
         initial_balances: Vec<(PrincipalData, u64)>,
@@ -1125,8 +1126,9 @@ impl ConsensusTest<'_> {
             SortitionDB::get_canonical_stacks_chain_tip_hash(self.chain.sortdb_ref().conn())
                 .unwrap();
         let tip_id = StacksBlockId::new(&ch, &bh);
-        let (burn_ops, stacks_block, microblocks) =
-            self.chain.make_tenure_with_txs(&block.transactions);
+        let (burn_ops, stacks_block, microblocks) = self
+            .chain
+            .make_pre_nakamoto_tenure_with_txs(&block.transactions);
         let (_, _, consensus_hash) = self.chain.next_burnchain_block(burn_ops);
 
         debug!(
