@@ -17,9 +17,9 @@
 use clarity::vm::ast::parser::v2::MAX_CONTRACT_NAME_LEN;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
-
 #[allow(unused_imports)] // Just used for documentation purpose
 use clarity::vm::{ast::errors::ParseErrors, representations::ContractName};
+
 use crate::chainstate::tests::consensus::contract_deploy_consensus_test;
 
 /// ParserError: [`ParseErrors::ExpressionStackDepthTooDeep`]

@@ -90,7 +90,7 @@ impl DefinitionSorter {
         let sorted_indexes = walker.get_sorted_dependencies(&self.graph);
 
         if let Some(deps) = walker.get_cycling_dependencies(&self.graph, &sorted_indexes) {
-            let functions_names = deps
+            let mut function_names = deps
                 .into_iter()
                 .filter_map(|i| {
                     let exp = &contract_ast.pre_expressions[i];
@@ -99,7 +99,10 @@ impl DefinitionSorter {
                 .map(|i| i.0.to_string())
                 .collect::<Vec<_>>();
 
-            let error = ParseError::new(ParseErrors::CircularReference(functions_names));
+            // Sorting function names to make the error contents deterministic
+            function_names.sort();
+
+            let error = ParseError::new(ParseErrors::CircularReference(function_names));
             return Err(error);
         }
 
