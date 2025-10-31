@@ -50,6 +50,29 @@ fn zeroed_buff_literal(len: usize) -> String {
 }
 
 #[test]
+fn test_secp256k1_recover_accepts_high_s_signature() {
+    let message = "0x7147f89f7ba4980c8628b52c2f0351f018ed31ba593e5ed676ad428c67c23ffb";
+    let signature = "0xe120eaed297a125259ee235a702c3f8dc18f8e65cdb28625061dd9e80197b0e6d29c9b9a200ecffee51033a93c896e9e00907789888eef42f3ede3a81dd7730201";
+    let expected_pubkey = "0x034170a2083dccbc2be253885a8d0e9f7ce859eb370d0c5cae3b6994af4cb9d666";
+    let fallback = zeroed_buff_literal(33);
+    let program = format!(
+        "(is-eq (unwrap! (secp256k1-recover? {message} {signature}) {fallback}) {expected_pubkey})"
+    );
+
+    assert_eq!(
+        Value::Bool(true),
+        execute_with_parameters(
+            program.as_str(),
+            ClarityVersion::Clarity1,
+            StacksEpochId::Epoch20,
+            false
+        )
+        .expect("execution should succeed")
+        .expect("should return a value")
+    );
+}
+
+#[test]
 fn test_secp256r1_verify_valid_signature_returns_true() {
     let (message, signature, pubkey) = secp256r1_vectors();
     let program = format!(

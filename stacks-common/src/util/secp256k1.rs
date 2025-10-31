@@ -475,14 +475,25 @@ pub fn secp256k1_recover(
         return Err(Secp256k1Error::InvalidSignature);
     }
 
-    let recovery_id = K256RecoveryId::from_byte(serialized_signature_arr[64])
+    let mut recovery_id = K256RecoveryId::from_byte(serialized_signature_arr[64])
         .ok_or(Secp256k1Error::InvalidRecoveryId)?;
 
     let signature = K256Signature::from_slice(&serialized_signature_arr[..64])
         .map_err(|_| Secp256k1Error::InvalidSignature)?;
 
+    let normalized_signature = signature.normalize_s();
+
+    let signature_ref: &K256Signature = if let Some(normalized) = normalized_signature.as_ref() {
+        let flipped_recovery_id =
+            K256RecoveryId::new(!recovery_id.is_y_odd(), recovery_id.is_x_reduced());
+        recovery_id = flipped_recovery_id;
+        normalized
+    } else {
+        &signature
+    };
+
     let recovered_pub =
-        K256VerifyingKey::recover_from_prehash(message_arr, &signature, recovery_id)
+        K256VerifyingKey::recover_from_prehash(message_arr, signature_ref, recovery_id)
             .map_err(|_| Secp256k1Error::RecoveryFailed)?;
 
     let public_key = K256PublicKey::from(&recovered_pub);
