@@ -3348,6 +3348,7 @@ dependencies = [
  "slog",
  "slog-json",
  "slog-term",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
  "thiserror",
  "toml",
  "winapi 0.3.9",

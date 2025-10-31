@@ -250,12 +250,22 @@ impl Secp256k1PublicKey {
             .to_secp256k1_recoverable()
             .ok_or("Invalid signature: failed to decode recoverable signature")?;
 
-        let recovered_key = K256VerifyingKey::recover_from_prehash(
-            msg,
-            &recoverable_sig.signature,
-            recoverable_sig.recovery_id,
-        )
-        .map_err(|_| "Invalid signature: failed to recover public key")?;
+        let RecoverableSignature {
+            signature,
+            recovery_id,
+        } = recoverable_sig;
+
+        let normalized_signature = signature.normalize_s();
+        let (signature_ref, recovery_id) = if let Some(normalized) = normalized_signature.as_ref() {
+            let flipped_recovery =
+                K256RecoveryId::new(!recovery_id.is_y_odd(), recovery_id.is_x_reduced());
+            (normalized, flipped_recovery)
+        } else {
+            (&signature, recovery_id)
+        };
+
+        let recovered_key = K256VerifyingKey::recover_from_prehash(msg, signature_ref, recovery_id)
+            .map_err(|_| "Invalid signature: failed to recover public key")?;
 
         Ok(Secp256k1PublicKey {
             key: recovered_key,
@@ -536,7 +546,12 @@ pub fn secp256k1_verify(
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
     use rand::RngCore;
+    use stacks_common_v3_1_00_13::types::{
+        PrivateKey as LegacyPrivateKey, PublicKey as LegacyPublicKey,
+    };
+    use stacks_common_v3_1_00_13::util::secp256k1 as legacy;
 
     use super::*;
     use crate::util::get_epoch_time_ms;
@@ -1021,6 +1036,139 @@ mod tests {
             );
         } else {
             panic!("High-s signature should normalize to low-s");
+        }
+    }
+
+    fn is_high_s_signature(sig_bytes: &[u8]) -> bool {
+        assert_eq!(sig_bytes.len(), 64);
+        let signature =
+            K256Signature::from_slice(sig_bytes).expect("signature bytes should form valid r,s");
+        signature.normalize_s().is_some()
+    }
+
+    fn to_high_s_rsv(signature_rsv: &[u8]) -> Vec<u8> {
+        assert_eq!(signature_rsv.len(), 65);
+        if is_high_s_signature(&signature_rsv[..64]) {
+            return signature_rsv.to_vec();
+        }
+
+        let low_sig =
+            K256Signature::from_slice(&signature_rsv[..64]).expect("valid signature bytes");
+        let (r, s) = (low_sig.r(), low_sig.s());
+        let high_sig =
+            K256Signature::from_scalars(*r, -*s).expect("valid signature when flipping s");
+        let mut signature = signature_rsv.to_vec();
+        let high_bytes = high_sig.to_bytes();
+        signature[..64].copy_from_slice(high_bytes.as_slice());
+        signature[64] ^= 0x01;
+
+        assert!(is_high_s_signature(&signature[..64]));
+        signature
+    }
+
+    proptest! {
+        #[test]
+        fn prop_from_seed_matches_legacy(seed in proptest::collection::vec(any::<u8>(), 1..128)) {
+            let new_sk = Secp256k1PrivateKey::from_seed(&seed);
+            let legacy_sk = legacy::Secp256k1PrivateKey::from_seed(&seed);
+
+            prop_assert_eq!(new_sk.to_hex(), legacy_sk.to_hex());
+
+            let new_pk = Secp256k1PublicKey::from_private(&new_sk);
+            let legacy_pk = legacy::Secp256k1PublicKey::from_private(&legacy_sk);
+
+            prop_assert_eq!(new_pk.to_hex(), legacy_pk.to_hex());
+        }
+
+        #[test]
+        fn prop_low_s_paths_match_legacy(
+            seed in proptest::collection::vec(any::<u8>(), 1..128),
+            msg in any::<[u8; 32]>()
+        ) {
+            let new_sk = Secp256k1PrivateKey::from_seed(&seed);
+            let legacy_sk = legacy::Secp256k1PrivateKey::from_seed(&seed);
+
+            let new_pk = Secp256k1PublicKey::from_private(&new_sk);
+            let legacy_pk = legacy::Secp256k1PublicKey::from_private(&legacy_sk);
+
+            let sig_new = new_sk.sign(&msg).expect("new signature");
+            let sig_legacy = legacy_sk.sign(&msg).expect("legacy signature");
+
+            prop_assert_eq!(sig_new.to_rsv(), sig_legacy.to_rsv());
+
+            prop_assert!(new_pk.verify(&msg, &sig_new).expect("new verify low-S"));
+            prop_assert!(legacy_pk.verify(&msg, &sig_legacy).expect("legacy verify low-S"));
+
+            let recovered_new = Secp256k1PublicKey::recover_to_pubkey(&msg, &sig_new)
+                .expect("new recover");
+            let recovered_legacy = legacy::Secp256k1PublicKey::recover_to_pubkey(&msg, &sig_legacy)
+                .expect("legacy recover");
+            prop_assert_eq!(recovered_new.to_hex(), recovered_legacy.to_hex());
+
+            let sig_rsv = sig_new.to_rsv();
+            let pk_bytes_new = new_pk.to_bytes_compressed();
+            let pk_bytes_legacy = legacy_pk.to_bytes();
+
+            let recover_new = secp256k1_recover(&msg, &sig_rsv);
+            let recover_legacy = legacy::secp256k1_recover(&msg, &sig_rsv);
+            prop_assert!(recover_new.is_ok());
+            prop_assert!(recover_legacy.is_ok());
+            prop_assert_eq!(recover_new.unwrap(), recover_legacy.unwrap());
+
+            let verify_new = secp256k1_verify(&msg, &sig_rsv, &pk_bytes_new);
+            let verify_legacy = legacy::secp256k1_verify(&msg, &sig_rsv, &pk_bytes_legacy);
+            prop_assert!(verify_new.is_ok());
+            prop_assert!(verify_legacy.is_ok());
+        }
+
+        #[test]
+        fn prop_high_s_paths_match_legacy(
+            seed in proptest::collection::vec(any::<u8>(), 1..128),
+            msg in any::<[u8; 32]>()
+        ) {
+            let new_sk = Secp256k1PrivateKey::from_seed(&seed);
+            let legacy_sk = legacy::Secp256k1PrivateKey::from_seed(&seed);
+
+            let new_pk = Secp256k1PublicKey::from_private(&new_sk);
+            let legacy_pk = legacy::Secp256k1PublicKey::from_private(&legacy_sk);
+
+            let sig_new = new_sk.sign(&msg).expect("new signature");
+
+            let high_s_rsv = to_high_s_rsv(&sig_new.to_rsv());
+            prop_assert!(is_high_s_signature(&high_s_rsv[..64]));
+
+            let mut high_s_vrs = high_s_rsv.clone();
+            high_s_vrs.rotate_right(1);
+
+            let high_s_new = MessageSignature::from_raw(&high_s_vrs);
+            let high_s_legacy = legacy::MessageSignature::from_raw(&high_s_vrs);
+
+            let verify_new = new_pk.verify(&msg, &high_s_new);
+            let verify_legacy = legacy_pk.verify(&msg, &high_s_legacy);
+            prop_assert_eq!(
+                verify_new.map_err(|_| ()),
+                verify_legacy.map_err(|_| ())
+            );
+            if let Ok(valid) = verify_new {
+                prop_assert!(!valid);
+            }
+
+            let recovered_new = Secp256k1PublicKey::recover_to_pubkey(&msg, &high_s_new)
+                .map(|pk| pk.to_hex())
+                .map_err(|_| ());
+            let recovered_legacy =
+                legacy::Secp256k1PublicKey::recover_to_pubkey(&msg, &high_s_legacy)
+                    .map(|pk| pk.to_hex())
+                    .map_err(|_| ());
+            prop_assert_eq!(recovered_new, recovered_legacy);
+
+            let recover_new = secp256k1_recover(&msg, &high_s_rsv).map_err(|_| ());
+            let recover_legacy = legacy::secp256k1_recover(&msg, &high_s_rsv).map_err(|_| ());
+            prop_assert_eq!(recover_new, recover_legacy);
+
+            let verify_new = secp256k1_verify(&msg, &high_s_rsv, &new_pk.to_bytes_compressed());
+            let verify_legacy = legacy::secp256k1_verify(&msg, &high_s_rsv, &legacy_pk.to_bytes());
+            prop_assert_eq!(verify_new.is_ok(), verify_legacy.is_ok());
         }
     }
 }

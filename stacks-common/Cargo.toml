@@ -75,6 +75,7 @@ sha2 = { version = "0.10" }
 
 [dev-dependencies]
 proptest = "1.6.0"
+stacks_common_v3_1_00_13 = { package = "stacks-common", git = "https://github.com/stacks-network/stacks-core.git", rev="8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2", features = ["testing", "default"]}
 
 [target.'cfg(windows)'.dev-dependencies]
 winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
