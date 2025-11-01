@@ -1483,3 +1483,60 @@ contract_deploy_consensus_test!(
         format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}")
     },
 );
+
+// Test RuntimeError::
+contract_call_consensus_test!(
+    runtime_error_arithmetic_overflow_pow,
+    contract_name: "overflow-pow",
+    contract_code: &{
+    r#"
+(define-public (overflow-pow-128)
+  (ok (pow 2 128))
+)
+    "#
+    },
+    function_name: "overflow-pow-128",
+    function_args: &[],
+);
+
+contract_call_consensus_test!(
+    runtime_error_arithmetic_overflow_mul,
+    contract_name: "overflow-mul",
+    contract_code: &{
+    r#"
+(define-public (overflow-mul-large)
+  (ok (* 10 (pow 2 126)))
+)
+    "#
+    },
+    function_name: "overflow-mul-large",
+    function_args: &[],
+);
+
+contract_call_consensus_test!(
+    runtime_error_arithmetic_overflow_add,
+    contract_name: "overflow-add",
+    contract_code: &{
+    r#"
+(define-public (overflow-add-large)
+  (ok (+ (pow 2 126) (pow 2 126)))
+)
+    "#
+    },
+    function_name: "overflow-add-large",
+    function_args: &[],
+);
+
+contract_call_consensus_test!(
+    runtime_error_arithmetic_overflow_to_int,
+    contract_name: "overflow-to-int",
+    contract_code: &{
+    r#"
+(define-public (overflow-to-int-large)
+  (ok (to-int (pow u2 u127)))
+)
+    "#
+    },
+    function_name: "overflow-to-int-large",
+    function_args: &[],
+);
