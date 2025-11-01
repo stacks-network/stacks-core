@@ -97,23 +97,70 @@ const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVe
 
 /// A high-level test harness for running consensus-critical smart contract tests.
 ///
-/// This struct combines a [`ConsensusTest`] instance for chainstate management and a
-/// [`TestTxFactory`] for transaction generation. It provides convenience methods to
-/// automate test scenarios involving contract deployments and calls across multiple
-/// epochs and Clarity versions.
+/// This struct enables end-to-end testing of Clarity smart contracts under varying epoch conditions,
+/// including different Clarity language versions and block rule sets. It automates:
+///
+/// - Contract deployment in specified epochs (with epoch-appropriate Clarity versions)
+/// - Function execution in subsequent or same epochs
+/// - Block-by-block execution with precise control over transaction ordering and nonces
+/// - Snapshot testing of execution outcomes via [`ExpectedResult`]
+///
+/// It integrates:
+/// - [`ConsensusTest`] for chain simulation and block production
+/// - [`TestTxFactory`] for deterministic transaction generation
+///
+/// NOTE: The **majority of logic and state computation occurs during construction to enable a deterministic TestChainstate** (`new()`):
+/// - All contract names are generated and versioned
+/// - Block counts per epoch are precomputed
+/// - Epoch order is finalized
+/// - Transaction sequencing is fully planned
 struct ContractConsensusTest<'a> {
+    /// Factory for generating signed, nonce-managed transactions.
     tx_factory: TestTxFactory,
+    /// Underlying chainstate used for block execution and consensus checks.
     consensus_test: ConsensusTest<'a>,
-    contract_names: Vec<String>,
+    /// Address of the contract deployer (the test faucet).
+    contract_addr: StacksAddress,
+    /// Mapping of epoch → list of `(contract_name, ClarityVersion)` deployed in that epoch.
+    /// Multiple versions may exist per epoch (e.g., Clarity 1, 2, 3 in Epoch 3.0).
+    contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>>,
+    /// Mapping of epoch → list of `contract_names` that should be called in that epoch.
+    contract_calls_per_epoch: HashMap<StacksEpochId, Vec<String>>,
+    /// Source code of the Clarity contract being deployed and called.
+    contract_code: String,
+    /// Name of the public function to invoke during the call phase.
+    function_name: String,
+    /// Arguments to pass to `function_name` on every call.
+    function_args: Vec<ClarityValue>,
+    /// Sorted, deduplicated set of all epochs involved.
+    /// Used to iterate through test phases in chronological order.
+    all_epochs: BTreeSet<StacksEpochId>,
 }
 
 impl ContractConsensusTest<'_> {
-    /// Creates a new `ContractConsensusTest`.
+    /// Creates a new [`ContractConsensusTest`] instance.
+    ///
+    /// Initializes the test environment to:
+    /// - Deploy `contract_code` under `contract_name` in each `deploy_epochs`
+    /// - Call `function_name` with `function_args` in each `call_epochs`
+    /// - Track all contract instances per epoch and Clarity version
+    /// - Precompute block counts per epoch for stable chain simulation
+    ///
+    /// # Arguments
+    ///
+    /// * `test_name` - Unique identifier for the test run (used in logging and snapshots)
+    /// * `initial_balances` - Initial STX balances for principals (e.g., faucet, users)
+    /// * `deploy_epochs` - List of epochs where contract deployment should occur
+    /// * `call_epochs` - List of epochs where function calls should be executed
+    /// * `contract_name` - Base name for deployed contracts (versioned suffixes added automatically)
+    /// * `contract_code` - Clarity source code of the contract
+    /// * `function_name` - Contract function to test
+    /// * `function_args` - Arguments passed to `function_name` on every call
     ///
     /// # Panics
+    ///
     /// - If `deploy_epochs` is empty.
     /// - If any `call_epoch` is less than the minimum `deploy_epoch`.
-    // Creates a new ContractConsensusTest
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         test_name: &str,
@@ -136,15 +183,19 @@ impl ContractConsensusTest<'_> {
         );
 
         // Build epoch_blocks map based on deploy and call epochs
-        let mut epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>> = HashMap::new();
+        let mut num_blocks_per_epoch: HashMap<StacksEpochId, u64> = HashMap::new();
+        let mut contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>> =
+            HashMap::new();
+        let mut contract_calls_per_epoch: HashMap<StacksEpochId, Vec<String>> = HashMap::new();
         let mut contract_names = vec![];
 
         // Combine and sort unique epochs
-        let all_epochs: BTreeSet<_> = deploy_epochs.iter().chain(call_epochs).collect();
+        let all_epochs: BTreeSet<StacksEpochId> =
+            deploy_epochs.iter().chain(call_epochs).cloned().collect();
 
         // Precompute contract names and block counts
-        for epoch in all_epochs {
-            let mut blocks = vec![];
+        for epoch in &all_epochs {
+            let mut num_blocks = 0;
 
             if deploy_epochs.contains(epoch) {
                 let clarity_versions = clarity_versions_for_epoch(*epoch);
@@ -154,36 +205,57 @@ impl ContractConsensusTest<'_> {
                 for &version in clarity_versions {
                     let version_tag = version.to_string().replace(' ', "");
                     let name = format!("{contract_name}-{epoch_name}-{version_tag}");
+                    contract_deploys_per_epoch
+                        .entry(*epoch)
+                        .or_default()
+                        .push((name.clone(), version));
                     contract_names.push(name.clone());
-                    blocks.push(TestBlock {
-                        transactions: vec![],
-                    });
+                    num_blocks += 1;
                 }
             }
 
             if call_epochs.contains(epoch) {
                 // Each call is a separate TestBlock
-                for _ in &contract_names {
+                for name in &contract_names {
                     // Each call is a separate TestBlock
-                    blocks.push(TestBlock {
-                        transactions: vec![], // Placeholder
-                    });
+                    contract_calls_per_epoch
+                        .entry(*epoch)
+                        .or_default()
+                        .push(name.clone());
+                    num_blocks += 1;
                 }
             }
-            if !blocks.is_empty() {
-                epoch_blocks.insert(*epoch, blocks);
+            if num_blocks > 0 {
+                num_blocks_per_epoch.insert(*epoch, num_blocks);
             }
         }
 
         Self {
             tx_factory: TestTxFactory::new(CHAIN_ID_TESTNET),
-            consensus_test: ConsensusTest::new(test_name, initial_balances, epoch_blocks),
-            contract_names,
+            consensus_test: ConsensusTest::new(test_name, initial_balances, num_blocks_per_epoch),
+            contract_addr: to_addr(&FAUCET_PRIV_KEY),
+            contract_deploys_per_epoch,
+            contract_calls_per_epoch,
+            contract_code: contract_code.to_string(),
+            function_name: function_name.to_string(),
+            function_args: function_args.to_vec(),
+            all_epochs,
         }
     }
 
-    /// Generates and executes the given transaction in a new block.
-    /// Increases the nonce if the transaction succeeds.
+    /// Generates a transaction, appends it to a new test block, and executes the block.
+    ///
+    /// If the transaction succeeds, this function automatically increments the sender's
+    /// nonce for subsequent transactions.
+    ///
+    /// # Arguments
+    ///
+    /// - `tx_spec`: The transaction specification to generate and execute.
+    /// - `is_naka_block`: Whether this block is mined under Nakamoto consensus rules.
+    ///
+    /// # Returns
+    ///
+    /// The [`ExpectedResult`] of block execution (success/failure with VM output)
     fn append_tx_block(&mut self, tx_spec: &TestTxSpec, is_naka_block: bool) -> ExpectedResult {
         let tx = self.tx_factory.generate_tx(tx_spec);
         let block = TestBlock {
@@ -199,63 +271,39 @@ impl ContractConsensusTest<'_> {
         result
     }
 
-    /// Helper to deploy contracts a contract in a given epoch.
-    fn deploy_contracts(
-        &mut self,
-        epoch: StacksEpochId,
-        contract_name: &str,
-        contract_code: &str,
-        is_naka_block: bool,
-    ) -> Vec<ExpectedResult> {
-        let mut results = Vec::new();
-        let clarity_versions = clarity_versions_for_epoch(epoch);
-        let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
+    /// Deploys all contract versions scheduled for the given epoch.
+    ///
+    /// For each Clarity version supported in the epoch:
+    /// - Generates a unique contract name (e.g., `my-contract-Epoch30-Clarity3`)
+    /// - Deploys in a **separate block**
+    /// - Uses `None` for Clarity version in pre-2.1 epochs (behaviour defaults to Clarity 1)
+    ///
+    /// # Returns
+    /// A vector of [`ExpectedResult`] values, one per deployment block.
+    fn deploy_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
+        let Some(contract_names) = self.contract_deploys_per_epoch.get(&epoch) else {
+            warn!("No contract deployments found for {epoch}.");
+            return vec![];
+        };
 
-        for &version in clarity_versions {
-            let version_tag = version.to_string().replace(' ', "");
-            let name = format!("{contract_name}-{epoch_name}-{version_tag}");
-            let clarity_version = if epoch < StacksEpochId::Epoch21 {
-                // Old epochs have no concept of clarity version. It defaults to
-                // clarity version 1 behaviour.
-                None
-            } else {
-                Some(version)
-            };
-            results.push(self.append_tx_block(
-                &TestTxSpec::ContractDeploy {
-                    sender: &FAUCET_PRIV_KEY,
-                    name: &name,
-                    code: contract_code,
-                    clarity_version,
-                },
-                is_naka_block,
-            ));
-            self.contract_names.push(name);
-        }
-
-        results
-    }
-
-    /// Helper to call all deployed contracts in a given epoch.
-    fn call_contracts(
-        &mut self,
-        epoch: StacksEpochId,
-        contract_addr: &StacksAddress,
-        function_name: &str,
-        function_args: &[ClarityValue],
-        is_naka_block: bool,
-    ) -> Vec<ExpectedResult> {
-        self.contract_names
+        let is_naka_block = epoch.uses_nakamoto_blocks();
+        contract_names
             .clone()
             .iter()
-            .map(|contract_name| {
+            .map(|(name, version)| {
+                let clarity_version = if epoch < StacksEpochId::Epoch21 {
+                    // Old epochs have no concept of clarity version. It defaults to
+                    // clarity version 1 behaviour.
+                    None
+                } else {
+                    Some(*version)
+                };
                 self.append_tx_block(
-                    &TestTxSpec::ContractCall {
+                    &TestTxSpec::ContractDeploy {
                         sender: &FAUCET_PRIV_KEY,
-                        contract_addr,
-                        contract_name,
-                        function_name,
-                        args: function_args,
+                        name,
+                        code: &self.contract_code.clone(),
+                        clarity_version,
                     },
                     is_naka_block,
                 )
@@ -263,92 +311,83 @@ impl ContractConsensusTest<'_> {
             .collect()
     }
 
-    /// Executes a consensus test for a contract function across multiple Stacks epochs.
+    /// Executes the test function on **all** contracts deployed in the given epoch.
     ///
-    /// This helper automates deploying a contract and invoking one of its public functions
-    /// across different epochs and Clarity versions, ensuring consistent consensus behavior.
-    ///
-    /// # Behavior
-    ///
-    /// The function performs two main phases:
-    /// 1. **Deployment:** Deploys `contract_code` in each epoch listed in `deploy_epochs` for all
-    ///    applicable Clarity versions.
-    /// 2. **Execution:** Calls `function_name` in each epoch listed in `call_epochs` on every
-    ///    previously deployed contract.
-    ///
-    /// ## Example
-    /// If `deploy_epochs` = `[2.0, 3.0]` and `call_epochs` = `[3.1]`, the following sequence occurs:
-    /// - Deploy contract in epoch 2.0 with Clarity 1.
-    /// - Deploy contract in epoch 3.0 with Clarity 1, 2, and 3.
-    /// - Call the function in epoch 3.1 on all four deployed contracts.
+    /// Each call occurs in a **separate block** to isolate side effects and enable
+    /// fine-grained snapshot assertions. All prior deployments (even from earlier epochs)
+    /// are callable if they exist in the chain state.
     ///
     /// # Arguments
     ///
-    /// * `contract_name` - Base name for the contract.
-    /// * `contract_code` - Clarity source code of the contract.
-    /// * `function_name` - Public function to invoke.
-    /// * `function_args` - Arguments to pass to the function call.
-    /// * `deploy_epochs` - Epochs during which the contract should be deployed.
-    /// * `call_epochs` - Epochs during which the function should be executed.
+    /// - `epoch`: The epoch in which to perform contract calls.
+    ///
+    /// # Returns
+    ///
+    /// A [`Vec<ExpectedResult>`] with one entry per function call
+    fn call_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
+        let Some(contract_names) = self.contract_calls_per_epoch.get(&epoch) else {
+            warn!("No contract calls found for {epoch}.");
+            return vec![];
+        };
+
+        let is_naka_block = epoch.uses_nakamoto_blocks();
+        contract_names
+            .clone()
+            .iter()
+            .map(|contract_name| {
+                self.append_tx_block(
+                    &TestTxSpec::ContractCall {
+                        sender: &FAUCET_PRIV_KEY,
+                        contract_addr: &self.contract_addr.clone(),
+                        contract_name,
+                        function_name: &self.function_name.clone(),
+                        args: &self.function_args.clone(),
+                    },
+                    is_naka_block,
+                )
+            })
+            .collect()
+    }
+
+    /// Executes the full consensus test: deploy in [`Self::contract_deploys_per_epoch`], call in [`Self::contract_calls_per_epoch`].
+    ///
+    /// Processes epochs in **sorted order** using [`Self::all_epochs`]. For each epoch:
+    /// - Advances the chain into the target epoch
+    /// - Deploys contracts (if scheduled)
+    /// - Executes function calls (if scheduled)
+    ///
+    /// # Execution Order Example
+    ///
+    /// Given at test instantiation:
+    /// ```rust
+    /// deploy_epochs = [Epoch20, Epoch30]
+    /// call_epochs   = [Epoch30, Epoch31]
+    /// ```
+    ///
+    /// The sequence is:
+    /// 1. Enter Epoch 2.0 → Deploy `contract-v1`
+    /// 2. Enter Epoch 3.0 → Deploy `contract-v1`, `contract-v2`, `contract-v3`
+    /// 3. Enter Epoch 3.0 → Call function on all 4 deployed contracts
+    /// 4. Enter Epoch 3.1 → Call function on all 4 deployed contracts
     ///
     /// # Returns
     ///
     /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
-    ///
-    /// # Panics
-    ///
-    /// * If `deploy_epochs` is empty.
-    /// * If any `call_epoch` precedes the earliest `deploy_epoch`.
-    pub fn run(
-        &mut self,
-        contract_name: &str,
-        contract_code: &str,
-        function_name: &str,
-        function_args: &[ClarityValue],
-        deploy_epochs: &[StacksEpochId],
-        call_epochs: &[StacksEpochId],
-    ) -> Vec<ExpectedResult> {
-        let contract_addr = to_addr(&FAUCET_PRIV_KEY);
+    pub fn run(mut self) -> Vec<ExpectedResult> {
         let mut results = Vec::new();
 
-        // Combine all epochs
-        let all_epochs = deploy_epochs
-            .iter()
-            .chain(call_epochs)
-            .collect::<BTreeSet<_>>();
-
         // Process epochs in order
-        for epoch in all_epochs {
-            let is_naka_block = *epoch >= StacksEpochId::Epoch30;
-            let is_deploy_epoch = deploy_epochs.contains(epoch);
-            let is_call_epoch = call_epochs.contains(epoch);
-
+        for epoch in self.all_epochs.clone() {
             // Use the miner as the sender to prevent messing with the block transaction nonces of the deployer/callers
             let private_key = self.consensus_test.chain.miner.nakamoto_miner_key();
 
             // Advance the chain into the target epoch
             self.consensus_test
                 .chain
-                .advance_into_epoch(&private_key, *epoch);
+                .advance_into_epoch(&private_key, epoch);
 
-            if is_deploy_epoch {
-                results.extend(self.deploy_contracts(
-                    *epoch,
-                    contract_name,
-                    contract_code,
-                    is_naka_block,
-                ));
-            }
-
-            if is_call_epoch {
-                results.extend(self.call_contracts(
-                    *epoch,
-                    &contract_addr,
-                    function_name,
-                    function_args,
-                    is_naka_block,
-                ));
-            }
+            results.extend(self.deploy_contracts(epoch));
+            results.extend(self.call_contracts(epoch));
         }
 
         results
@@ -410,7 +449,7 @@ macro_rules! contract_call_consensus_test {
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
             let call_epochs = EPOCHS_TO_TEST;
             $(let call_epochs = $call_epochs;)?
-            let mut contract_test = ContractConsensusTest::new(
+            let contract_test = ContractConsensusTest::new(
                 function_name!(),
                 vec![],
                 deploy_epochs,
@@ -420,14 +459,7 @@ macro_rules! contract_call_consensus_test {
                 $function_name,
                 $function_args,
             );
-            let result = contract_test.run(
-                $contract_name,
-                $contract_code,
-                $function_name,
-                $function_args,
-                deploy_epochs,
-                call_epochs,
-            );
+            let result = contract_test.run();
             insta::assert_ron_snapshot!(result);
         }
     };
@@ -811,7 +843,6 @@ pub struct TestBlock {
 /// Represents a consensus test with chainstate.
 pub struct ConsensusTest<'a> {
     pub chain: TestChainstate<'a>,
-    epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
 }
 
 impl ConsensusTest<'_> {
@@ -819,18 +850,18 @@ impl ConsensusTest<'_> {
     pub fn new(
         test_name: &str,
         initial_balances: Vec<(PrincipalData, u64)>,
-        epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
+        num_blocks_per_epoch: HashMap<StacksEpochId, u64>,
     ) -> Self {
         // Validate blocks
-        for (epoch_id, blocks) in &epoch_blocks {
+        for (epoch_id, num_blocks) in &num_blocks_per_epoch {
             assert_ne!(
                 *epoch_id,
                 StacksEpochId::Epoch10,
                 "Epoch10 is not supported"
             );
             assert!(
-                !blocks.is_empty(),
-                "Each epoch must have at least one block"
+                *num_blocks > 0,
+                "Each epoch must have at least one block. {epoch_id} is empty"
             );
         }
         // Set up chainstate to support Naka.
@@ -839,13 +870,10 @@ impl ConsensusTest<'_> {
             .with_initial_balances(initial_balances)
             .with_private_key(FAUCET_PRIV_KEY.clone());
         let (epochs, first_burnchain_height) =
-            Self::calculate_epochs(&boot_plan.pox_constants, &epoch_blocks);
+            Self::calculate_epochs(&boot_plan.pox_constants, num_blocks_per_epoch);
         boot_plan = boot_plan.with_epochs(epochs);
         let chain = boot_plan.to_chainstate(None, Some(first_burnchain_height));
-        Self {
-            chain,
-            epoch_blocks,
-        }
+        Self { chain }
     }
 
     /// Calculates a valid [`EpochList`] and starting burnchain height for the test harness.
@@ -864,7 +892,7 @@ impl ConsensusTest<'_> {
     /// # Arguments
     ///
     /// * `pox_constants` - PoX configuration (reward cycle length, prepare phase, etc.).
-    /// * `epoch_blocks` - Map of epoch IDs to the test blocks to run in each.
+    /// * `num_blocks_per_epoch` - Map of epoch IDs to the number of test blocks to run in each.
     ///
     /// # Returns
     ///
@@ -872,7 +900,7 @@ impl ConsensusTest<'_> {
     /// height at which the first Stacks block is mined.
     fn calculate_epochs(
         pox_constants: &PoxConstants,
-        epoch_blocks: &HashMap<StacksEpochId, Vec<TestBlock>>,
+        num_blocks_per_epoch: HashMap<StacksEpochId, u64>,
     ) -> (EpochList<ExecutionCost>, u64) {
         // Helper function to check if a height is at a reward cycle boundary
         let is_reward_cycle_boundary = |height: u64, reward_cycle_length: u64| -> bool {
@@ -915,9 +943,9 @@ impl ConsensusTest<'_> {
                     // Use test vector block count
                     // Always add 1 so we can ensure we are fully in the epoch before we then execute
                     // the corresponding test blocks in their own blocks
-                    let num_blocks = epoch_blocks
+                    let num_blocks = num_blocks_per_epoch
                         .get(epoch_id)
-                        .map(|blocks| blocks.len() as u64 + 1)
+                        .map(|num_blocks| *num_blocks + 1)
                         .unwrap_or(0);
                     start_height + num_blocks
                 }
@@ -927,9 +955,9 @@ impl ConsensusTest<'_> {
                     // Epoch 2.5 end must equal Epoch 3.0 start
                     // Epoch 3.0 must not start at a cycle boundary
                     // Epoch 2.5 and 3.0 cannot be in the same reward cycle.
-                    let num_blocks = epoch_blocks
+                    let num_blocks = num_blocks_per_epoch
                         .get(epoch_id)
-                        .map(|blocks| blocks.len() as u64)
+                        .copied()
                         .unwrap_or(0)
                         .saturating_add(1); // Add one block for pox lockups.
 
@@ -960,7 +988,7 @@ impl ConsensusTest<'_> {
                 }
                 StacksEpochId::Epoch30 | StacksEpochId::Epoch31 | StacksEpochId::Epoch32 => {
                     // Only need 1 block per Epoch
-                    if epoch_blocks.contains_key(epoch_id) {
+                    if num_blocks_per_epoch.contains_key(epoch_id) {
                         start_height + 1
                     } else {
                         // If we don't care to have any blocks in this epoch
@@ -1034,19 +1062,18 @@ impl ConsensusTest<'_> {
             );
         }
         // Validate test vector block counts
-        for (epoch_id, blocks) in epoch_blocks {
+        for (epoch_id, num_blocks) in num_blocks_per_epoch {
             let epoch = epochs
                 .iter()
-                .find(|e| e.epoch_id == *epoch_id)
+                .find(|e| e.epoch_id == epoch_id)
                 .expect("Epoch not found");
             let epoch_length = epoch.end_height - epoch.start_height;
-            if *epoch_id > StacksEpochId::Epoch25 {
+            if epoch_id > StacksEpochId::Epoch25 {
                 assert!(
                     epoch_length > 0,
                     "{epoch_id:?} must have at least 1 burn block."
                 );
             } else {
-                let num_blocks = blocks.len() as u64;
                 assert!(
                     epoch_length >= num_blocks,
                     "{epoch_id:?} must have at least {num_blocks} burn blocks, got {epoch_length}"
@@ -1199,11 +1226,19 @@ impl ConsensusTest<'_> {
     /// chainstate to the start of each epoch. It then processes all [`TestBlock`]'s
     /// associated with that epoch and collects their results.
     ///
+    /// # Arguments
+    ///
+    /// * `epoch_blocks` - A map where keys are [`StacksEpochId`]s and values are the
+    ///   sequence of blocks to be executed during that epoch.
+    ///
     ///  # Returns
     ///
     /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
-    pub fn run(mut self) -> Vec<ExpectedResult> {
-        let mut sorted_epochs: Vec<_> = self.epoch_blocks.clone().into_iter().collect();
+    pub fn run(
+        mut self,
+        epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
+    ) -> Vec<ExpectedResult> {
+        let mut sorted_epochs: Vec<_> = epoch_blocks.clone().into_iter().collect();
         sorted_epochs.sort_by_key(|(epoch_id, _)| *epoch_id);
 
         let mut results = vec![];
@@ -1218,7 +1253,7 @@ impl ConsensusTest<'_> {
             self.chain.advance_into_epoch(&miner_key, epoch);
 
             for block in blocks {
-                results.push(self.append_block(block, epoch >= StacksEpochId::Epoch30));
+                results.push(self.append_block(block, epoch.uses_nakamoto_blocks()));
             }
         }
         results
@@ -1362,11 +1397,14 @@ fn test_append_empty_blocks() {
         transactions: vec![],
     }];
     let mut epoch_blocks = HashMap::new();
+    let mut num_blocks_per_epoch = HashMap::new();
     for epoch in EPOCHS_TO_TEST {
         epoch_blocks.insert(*epoch, empty_test_blocks.clone());
+        num_blocks_per_epoch.insert(*epoch, 1);
     }
 
-    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
+    let result =
+        ConsensusTest::new(function_name!(), vec![], num_blocks_per_epoch).run(epoch_blocks);
     insta::assert_ron_snapshot!(result);
 }
 
@@ -1391,6 +1429,7 @@ fn test_append_stx_transfers_success() {
 
     // build transactions per epoch, incrementing nonce per sender
     let mut epoch_blocks = HashMap::new();
+    let mut num_blocks_per_epoch = HashMap::new();
     let mut nonces = vec![0u64; sender_privks.len()]; // track nonce per sender
 
     for epoch in EPOCHS_TO_TEST {
@@ -1411,10 +1450,12 @@ fn test_append_stx_transfers_success() {
             })
             .collect();
 
+        num_blocks_per_epoch.insert(*epoch, 1);
         epoch_blocks.insert(*epoch, vec![TestBlock { transactions }]);
     }
 
-    let result = ConsensusTest::new(function_name!(), initial_balances, epoch_blocks).run();
+    let result = ConsensusTest::new(function_name!(), initial_balances, num_blocks_per_epoch)
+        .run(epoch_blocks);
     insta::assert_ron_snapshot!(result);
 }
 
