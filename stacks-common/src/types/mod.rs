@@ -663,31 +663,6 @@ impl StacksEpochId {
         self >= &StacksEpochId::Epoch30
     }
 
-    /// Does this epoch use the nakamoto reward set, or the epoch2 reward set?
-    /// We use the epoch2 reward set in all pre-3.0 epochs.
-    /// We also use the epoch2 reward set in the first 3.0 reward cycle.
-    /// After that, we use the nakamoto reward set.
-    pub fn uses_nakamoto_reward_set(
-        &self,
-        cur_reward_cycle: u64,
-        first_epoch30_reward_cycle: u64,
-    ) -> bool {
-        match self {
-            StacksEpochId::Epoch10
-            | StacksEpochId::Epoch20
-            | StacksEpochId::Epoch2_05
-            | StacksEpochId::Epoch21
-            | StacksEpochId::Epoch22
-            | StacksEpochId::Epoch23
-            | StacksEpochId::Epoch24
-            | StacksEpochId::Epoch25 => false,
-            StacksEpochId::Epoch30
-            | StacksEpochId::Epoch31
-            | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => cur_reward_cycle > first_epoch30_reward_cycle,
-        }
-    }
-
     /// What is the coinbase (in uSTX) to award for the given burnchain height?
     /// Applies prior to SIP-029
     fn coinbase_reward_pre_sip029(

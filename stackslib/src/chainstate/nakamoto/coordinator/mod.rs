@@ -362,28 +362,14 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     sort_db: &SortitionDB,
     provider: &U,
 ) -> Result<Option<(RewardCycleInfo, StacksHeaderInfo)>, Error> {
+    // If the prepare phase started in pre-Nakamoto, it should be using Epoch 2.5 reward
+    // set calculation rules.
     let cycle_start_height = burnchain.nakamoto_first_block_of_cycle(reward_cycle);
-    let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), cycle_start_height)?
-        .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {cycle_start_height}"));
-    let is_pre_naka_epoch = if epoch_at_height.epoch_id < StacksEpochId::Epoch30 {
-        true
-    } else {
-        let epoch_30 =
-            SortitionDB::get_stacks_epoch_by_epoch_id(sort_db.conn(), &StacksEpochId::Epoch30)?
-                .unwrap_or_else(|| panic!("FATAL: no Nakamoto epoch defined"));
-        // Find the first Stacks block in this reward cycle's preceding prepare phase.
-        // This block will have invoked `.signers.stackerdb-set-signer-slots()` with the reward set.
-        // Note that we may not have processed it yet. But, if we do find it, then it's
-        // unique (and since Nakamoto Stacks blocks are processed in order, the anchor block
-        // cannot change later).
-        let first_epoch30_reward_cycle = burnchain
-            .block_height_to_reward_cycle(epoch_30.start_height)
-            .expect("FATAL: no reward cycle for epoch 3.0 start height");
-        !epoch_at_height
-            .epoch_id
-            .uses_nakamoto_reward_set(reward_cycle, first_epoch30_reward_cycle)
-    };
-    if is_pre_naka_epoch {
+    // This is safe to case because a u32 always fits in a u64
+    let prepare_phase_start = cycle_start_height - u64::from(burnchain.pox_constants.prepare_length);
+    let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), prepare_phase_start)?
+        .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {prepare_phase_start}"));
+    if epoch_at_height.epoch_id < StacksEpochId::Epoch30 {
         // in epoch 2.5, and in the first reward cycle of epoch 3.0, the reward set can *only* be found in the sortition DB.
         // The nakamoto chain-processing rules aren't active yet, so we can't look for the reward
         // cycle info in the nakamoto chain state.
@@ -391,7 +377,7 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
             get_ancestor_sort_id(&sort_db.index_conn(), cycle_start_height, sortition_tip)?
         else {
             // reward cycle is too far in the future
-            warn!("Requested reward cycle start ancestor sortition ID for cycle {} prepare-end height {}, but tip is {}", reward_cycle, cycle_start_height, sortition_tip);
+            warn!("Requested reward cycle start ancestor sortition ID for cycle {reward_cycle} prepare-end height {cycle_start_height}, but tip is {sortition_tip}");
             return Ok(None);
         };
 
