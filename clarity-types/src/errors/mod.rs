@@ -275,14 +275,6 @@ impl From<ParseError> for VmExecutionError {
     }
 }
 
-// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
-// So there shouldn't be any need to convert it to a VmExecutionError.
-impl From<CommonCheckErrorKind> for VmExecutionError {
-    fn from(err: CommonCheckErrorKind) -> Self {
-        VmExecutionError::Unchecked(err.into())
-    }
-}
-
 impl From<CostErrors> for VmExecutionError {
     fn from(err: CostErrors) -> Self {
         match err {
@@ -300,6 +292,14 @@ impl From<CostErrors> for VmExecutionError {
 impl From<RuntimeError> for VmExecutionError {
     fn from(err: RuntimeError) -> Self {
         VmExecutionError::Runtime(err, None)
+    }
+}
+
+// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
+// So there shouldn't be any need to convert it to a VmExecutionError.
+impl From<CommonCheckErrorKind> for VmExecutionError {
+    fn from(err: CommonCheckErrorKind) -> Self {
+        VmExecutionError::Unchecked(err.into())
     }
 }
 

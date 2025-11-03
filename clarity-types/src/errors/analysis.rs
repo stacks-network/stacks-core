@@ -871,17 +871,15 @@ impl StaticCheckError {
     }
 }
 
-impl From<(SyntaxBindingError, &SymbolicExpression)> for StaticCheckError {
-    fn from(e: (SyntaxBindingError, &SymbolicExpression)) -> Self {
-        Self::with_expression(StaticCheckErrorKind::BadSyntaxBinding(e.0), e.1)
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for StaticCheckError {
+    fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
+        Self::with_expression(e.0.into(), e.1)
     }
 }
 
-impl From<(CommonCheckErrorKind, &SymbolicExpression)> for StaticCheckError {
-    fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
-        let mut ce = Self::new(e.0.into());
-        ce.set_expression(e.1);
-        ce
+impl From<(SyntaxBindingError, &SymbolicExpression)> for StaticCheckError {
+    fn from(e: (SyntaxBindingError, &SymbolicExpression)) -> Self {
+        Self::with_expression(StaticCheckErrorKind::BadSyntaxBinding(e.0), e.1)
     }
 }
 

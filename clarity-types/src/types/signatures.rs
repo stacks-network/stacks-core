@@ -920,7 +920,7 @@ impl TypeSignature {
     }
 
     /// If one of the types is a NoType, return Ok(the other type), otherwise return least_supertype(a, b)
-    pub fn factor_out_no_type(
+    pub(crate) fn factor_out_no_type(
         epoch: &StacksEpochId,
         a: &TypeSignature,
         b: &TypeSignature,
@@ -993,7 +993,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn least_supertype_v2_0(
+    fn least_supertype_v2_0(
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, CommonCheckErrorKind> {
@@ -1102,7 +1102,7 @@ impl TypeSignature {
         }
     }
 
-    pub fn least_supertype_v2_1(
+    pub(crate) fn least_supertype_v2_1(
         a: &TypeSignature,
         b: &TypeSignature,
     ) -> Result<TypeSignature, CommonCheckErrorKind> {
@@ -1289,19 +1289,18 @@ impl TypeSignature {
         Ok(out)
     }
 
-    pub fn literal_type_of(x: &Value) -> Result<TypeSignature, CommonCheckErrorKind> {
+    pub fn literal_type_of(x: &Value) -> Result<TypeSignature, StaticCheckErrorKind> {
         match x {
             Value::Principal(PrincipalData::Contract(contract_id)) => Ok(CallableType(
                 CallableSubtype::Principal(contract_id.clone()),
             )),
-            _ => Self::type_of(x),
+            _ => Self::type_of(x).map_err(StaticCheckErrorKind::from),
         }
     }
 
     // Checks if resulting type signature is of valid size.
     pub fn construct_parent_list_type(args: &[Value]) -> Result<ListTypeData, CheckErrorKind> {
-        let children_types: Result<Vec<_>, CommonCheckErrorKind> =
-            args.iter().map(TypeSignature::type_of).collect();
+        let children_types: Result<Vec<_>, _> = args.iter().map(TypeSignature::type_of).collect();
         Ok(TypeSignature::parent_list_type(&children_types?)?)
     }
 

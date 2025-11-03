@@ -23,7 +23,7 @@ use stacks_common::util::hash::{hex_bytes, to_hex};
 use stacks_common::util::retry::BoundReader;
 
 use super::{ListTypeData, TupleTypeSignature};
-use crate::errors::analysis::{CommonCheckErrorKind, StaticCheckErrorKind};
+use crate::errors::analysis::StaticCheckErrorKind;
 use crate::errors::{CheckErrorKind, IncomparableError, VmInternalError};
 use crate::representations::{ClarityName, ContractName, MAX_STRING_LEN};
 use crate::types::{
@@ -126,14 +126,6 @@ impl From<&str> for SerializationError {
 impl From<CheckErrorKind> for SerializationError {
     fn from(e: CheckErrorKind) -> Self {
         SerializationError::BadTypeError(e)
-    }
-}
-
-// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
-// So there shouldn't be any need to convert it to a SerializationError.
-impl From<CommonCheckErrorKind> for SerializationError {
-    fn from(e: CommonCheckErrorKind) -> Self {
-        SerializationError::BadTypeError(CheckErrorKind::from(e))
     }
 }
 
@@ -621,8 +613,8 @@ impl Value {
                 TypePrefix::Buffer => {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
-                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
-
+                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))
+                        .map_err(CheckErrorKind::from)?;
                     if let Some(x) = &expected_type {
                         let passed_test = match x {
                             TypeSignature::SequenceType(SequenceSubtype::BufferType(
@@ -853,7 +845,8 @@ impl Value {
                 TypePrefix::StringASCII => {
                     let mut buffer_len = [0; 4];
                     r.read_exact(&mut buffer_len)?;
-                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))?;
+                    let buffer_len = BufferLength::try_from(u32::from_be_bytes(buffer_len))
+                        .map_err(CheckErrorKind::from)?;
 
                     if let Some(x) = &expected_type {
                         let passed_test = match x {
@@ -878,7 +871,8 @@ impl Value {
                 TypePrefix::StringUTF8 => {
                     let mut total_len = [0; 4];
                     r.read_exact(&mut total_len)?;
-                    let total_len = BufferLength::try_from(u32::from_be_bytes(total_len))?;
+                    let total_len = BufferLength::try_from(u32::from_be_bytes(total_len))
+                        .map_err(CheckErrorKind::from)?;
 
                     let mut data: Vec<u8> = vec![0; u32::from(total_len) as usize];
 
