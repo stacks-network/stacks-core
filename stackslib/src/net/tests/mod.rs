@@ -74,13 +74,14 @@ use crate::net::{
 use crate::util_lib::boot::boot_code_id;
 
 /// One step of a simulated Nakamoto node's bootup procedure.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum NakamotoBootStep {
     Block(Vec<StacksTransaction>),
     TenureExtend(Vec<StacksTransaction>),
+    TenureCause(Vec<StacksTransaction>, TenureChangeCause),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum NakamotoBootTenure {
     Sortition(Vec<NakamotoBootStep>),
     NoSortition(Vec<NakamotoBootStep>),
@@ -102,6 +103,10 @@ pub struct NakamotoBootPlan {
     pub network_id: u32,
     pub txindex: bool,
     pub epochs: Option<EpochList<ExecutionCost>>,
+    /// Additional transactions to include in the tip block
+    pub tip_transactions: Vec<StacksTransaction>,
+    /// Do not fail if a transaction returns error (by default the BootPlan will stop on tx failure)
+    pub ignore_transaction_errors: bool,
 }
 
 impl NakamotoBootPlan {
@@ -122,6 +127,8 @@ impl NakamotoBootPlan {
             network_id: default_config.network_id,
             txindex: false,
             epochs: None,
+            tip_transactions: vec![],
+            ignore_transaction_errors: false,
         }
     }
 
@@ -221,6 +228,16 @@ impl NakamotoBootPlan {
         self
     }
 
+    pub fn with_tip_transactions(mut self, tip_transactions: Vec<StacksTransaction>) -> Self {
+        self.tip_transactions = tip_transactions;
+        self
+    }
+
+    pub fn with_ignore_transaction_errors(mut self, ignore_transaction_errors: bool) -> Self {
+        self.ignore_transaction_errors = ignore_transaction_errors;
+        self
+    }
+
     pub fn with_test_stackers(mut self, test_stackers: Vec<TestStacker>) -> Self {
         self.test_stackers = test_stackers;
         self
@@ -270,6 +287,7 @@ impl NakamotoBootPlan {
             let boot_step_txs = match boot_step {
                 NakamotoBootStep::TenureExtend(txs) => txs.clone(),
                 NakamotoBootStep::Block(txs) => txs.clone(),
+                NakamotoBootStep::TenureCause(txs, ..) => txs.clone(),
             };
             let planned_txs: Vec<_> = block
                 .txs
@@ -474,6 +492,7 @@ impl NakamotoBootPlan {
         let test_signers = self.test_signers.clone();
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
+        let ignore_transaction_errors = self.ignore_transaction_errors;
 
         let (mut peer, mut other_peers) = self.boot_nakamoto_peers(observer);
         if boot_plan.is_empty() {
@@ -551,6 +570,24 @@ impl NakamotoBootPlan {
                                         num_expected_transactions += 1 + transactions.len();
                                     }
                                     debug!("\n\nExtend current tenure in empty tenure {} (blocks so far: {}, blocks_since_last_tenure = {}, steps so far: {})\n\n", &next_consensus_hash, blocks_so_far.len(), blocks_since_last_tenure, i);
+                                }
+                                NakamotoBootStep::TenureCause(transactions, tenure_cause) => {
+                                    assert!(!transactions.is_empty());
+                                    if let Some(last_block) = last_block_opt {
+                                        let tenure_extension = tenure_change.extend_with_cause(
+                                            next_consensus_hash.clone(),
+                                            last_block.clone(),
+                                            blocks_since_last_tenure,
+                                            *tenure_cause,
+                                        );
+                                        let tenure_extension_tx =
+                                            miner.make_nakamoto_tenure_change(tenure_extension);
+
+                                        txs.push(tenure_extension_tx);
+                                        txs.extend_from_slice(&transactions[..]);
+                                        num_expected_transactions += 1 + transactions.len();
+                                    }
+                                    debug!("\n\nExtend-with-cause {:?} current tenure in empty tenure {} (blocks so far: {}, blocks_since_last_tenure = {}, steps so far: {})\n\n", tenure_cause, &next_consensus_hash, blocks_so_far.len(), blocks_since_last_tenure, i);
                                 }
                                 NakamotoBootStep::Block(transactions) => {
                                     assert!(!transactions.is_empty());
@@ -652,6 +689,24 @@ impl NakamotoBootPlan {
                                         num_expected_transactions += 1 + transactions.len();
                                     }
                                     debug!("\n\nExtend current tenure {} (blocks so far: {}, steps so far: {})\n\n", &consensus_hash, blocks_so_far.len(), i);
+                                }
+                                NakamotoBootStep::TenureCause(transactions, tenure_cause) => {
+                                    assert!(!transactions.is_empty());
+                                    if let Some(last_block) = last_block_opt {
+                                        let tenure_extension = tenure_change.extend_with_cause(
+                                            consensus_hash.clone(),
+                                            last_block.clone(),
+                                            blocks_since_last_tenure,
+                                            *tenure_cause,
+                                        );
+                                        let tenure_extension_tx =
+                                            miner.make_nakamoto_tenure_change(tenure_extension);
+
+                                        txs.push(tenure_extension_tx);
+                                        txs.extend_from_slice(&transactions[..]);
+                                        num_expected_transactions += 1 + transactions.len();
+                                    }
+                                    debug!("\n\nExtend-with-cause {:?} current tenure {} (blocks so far: {}, steps so far: {})\n\n", tenure_cause, &consensus_hash, blocks_so_far.len(), i);
                                 }
                                 NakamotoBootStep::Block(transactions) => {
                                     assert!(!transactions.is_empty());
@@ -786,11 +841,13 @@ impl NakamotoBootPlan {
                         // transactions processed in the same order
                         assert_eq!(receipt.transaction.txid(), tx.txid());
                         // no CheckErrors
-                        assert!(
-                            receipt.vm_error.is_none(),
-                            "Receipt had a CheckErrors: {:?}",
-                            &receipt
-                        );
+                        if !ignore_transaction_errors {
+                            assert!(
+                                receipt.vm_error.is_none(),
+                                "Receipt had a CheckErrors: {:?}",
+                                &receipt
+                            );
+                        }
                         // transaction was not aborted post-hoc
                         assert!(!receipt.post_condition_aborted);
                     }

@@ -280,6 +280,7 @@ pub enum CheckErrors {
     DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
     IllegalOrUnknownFunctionApplication(String),
     UnknownFunction(String),
+    TooManyFunctionParameters(usize, usize),
 
     // traits
     NoSuchTrait(String, String),
@@ -294,6 +295,7 @@ pub enum CheckErrors {
     TraitBasedContractCallInReadOnly,
     ContractOfExpectsTrait,
     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>),
+    TraitTooManyMethods(usize, usize),
 
     // strings
     InvalidCharactersDetected,
@@ -587,6 +589,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{type_1}' and '{type_2}')"),
             CheckErrors::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{function_name}"),
             CheckErrors::UnknownFunction(function_name) => format!("use of unresolved function '{function_name}'"),
+            CheckErrors::TooManyFunctionParameters(found, allowed) => format!("too many function parameters specified: found {found}, the maximum is {allowed}"),
             CheckErrors::TraitBasedContractCallInReadOnly => "use of trait based contract calls are not allowed in read-only context".into(),
             CheckErrors::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
             CheckErrors::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
@@ -605,6 +608,7 @@ impl DiagnosableError for CheckErrors {
             CheckErrors::TraitReferenceNotAllowed => "trait references can not be stored".into(),
             CheckErrors::ContractOfExpectsTrait => "trait reference expected".into(),
             CheckErrors::IncompatibleTrait(expected_trait, actual_trait) => format!("trait '{actual_trait}' is not a compatible with expected trait, '{expected_trait}'"),
+            CheckErrors::TraitTooManyMethods(found, allowed) => format!("too many trait methods specified: found {found}, the maximum is {allowed}"),
             CheckErrors::InvalidCharactersDetected => "invalid characters detected".into(),
             CheckErrors::InvalidUTF8Encoding => "invalid UTF8 encoding".into(),
             CheckErrors::InvalidSecp65k1Signature => "invalid seckp256k1 signature".into(),

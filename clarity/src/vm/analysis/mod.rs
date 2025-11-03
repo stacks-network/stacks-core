@@ -55,7 +55,7 @@ pub fn mem_type_check(
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
     let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-        .map_err(|_| CheckErrors::Expects("Failed to build AST".into()))?
+        .map_err(|e| CheckErrors::Expects(format!("Failed to build AST: {e}")))?
         .expressions;
 
     let mut marf = MemoryBackingStore::new();
