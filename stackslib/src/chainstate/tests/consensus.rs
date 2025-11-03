@@ -17,10 +17,7 @@ use std::sync::LazyLock;
 
 use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
-use clarity::consts::{
-    CHAIN_ID_TESTNET,
-    STACKS_EPOCH_MAX,
-};
+use clarity::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
 use clarity::types::chainstate::{
     StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
 };
