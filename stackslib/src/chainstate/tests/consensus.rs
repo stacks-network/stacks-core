@@ -443,7 +443,7 @@ macro_rules! contract_call_consensus_test {
         #[test]
         fn $name() {
             // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-            let deploy_epochs = StacksEpochId::ALL_GTE_20;
+            let deploy_epochs = &StacksEpochId::ALL[1..];
             $(let deploy_epochs = $deploy_epochs;)?
 
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
@@ -912,25 +912,10 @@ impl ConsensusTest<'_> {
         info!("StacksEpoch calculate_epochs first_burn_height = {first_burnchain_height}");
         let reward_cycle_length = pox_constants.reward_cycle_length as u64;
         let prepare_length = pox_constants.prepare_length as u64;
-        // Define all epochs in order
-        let epoch_ids = [
-            StacksEpochId::Epoch10,
-            StacksEpochId::Epoch20,
-            StacksEpochId::Epoch2_05,
-            StacksEpochId::Epoch21,
-            StacksEpochId::Epoch22,
-            StacksEpochId::Epoch23,
-            StacksEpochId::Epoch24,
-            StacksEpochId::Epoch25,
-            StacksEpochId::Epoch30,
-            StacksEpochId::Epoch31,
-            StacksEpochId::Epoch32,
-            StacksEpochId::Epoch33,
-        ];
         // Initialize heights
         let mut epochs = vec![];
         let mut current_height = 0;
-        for epoch_id in epoch_ids.iter() {
+        for epoch_id in StacksEpochId::ALL.iter() {
             let start_height = current_height;
             let end_height = match *epoch_id {
                 StacksEpochId::Epoch10 => first_burnchain_height,

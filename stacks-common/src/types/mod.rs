@@ -95,9 +95,23 @@ pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 // Only relevant for Nakamoto (epoch 3.x)
 pub const MINING_COMMITMENT_FREQUENCY_NAKAMOTO: u8 = 3;
 
-#[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
-pub enum StacksEpochId {
+macro_rules! define_stacks_epochs {
+    ($($variant:ident = $value:expr),* $(,)?) => {
+        #[repr(u32)]
+        #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        pub enum StacksEpochId {
+            $($variant = $value),*
+        }
+
+        impl StacksEpochId {
+            pub const ALL: &'static [StacksEpochId] = &[
+                $(StacksEpochId::$variant),*
+            ];
+        }
+    };
+}
+
+define_stacks_epochs! {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
@@ -446,20 +460,6 @@ impl StacksEpochId {
     pub const fn latest() -> StacksEpochId {
         StacksEpochId::Epoch33
     }
-
-    pub const ALL_GTE_20: &'static [StacksEpochId] = &[
-        StacksEpochId::Epoch20,
-        StacksEpochId::Epoch2_05,
-        StacksEpochId::Epoch21,
-        StacksEpochId::Epoch22,
-        StacksEpochId::Epoch23,
-        StacksEpochId::Epoch24,
-        StacksEpochId::Epoch25,
-        StacksEpochId::Epoch30,
-        StacksEpochId::Epoch31,
-        StacksEpochId::Epoch32,
-        StacksEpochId::Epoch33,
-    ];
 
     /// In this epoch, how should the mempool perform garbage collection?
     pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
