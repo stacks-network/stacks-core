@@ -1995,6 +1995,7 @@ pub mod tests {
         TransactionVersion,
     };
     use clarity::types::chainstate::{StacksBlockId, StacksPrivateKey, StacksPublicKey};
+    use clarity::types::PrivateKey;
     use clarity::util::hash::Hash160;
     use clarity::util::secp256k1::MessageSignature;
     use libsigner::v0::messages::{StateMachineUpdateContent, StateMachineUpdateMinerState};
@@ -2467,10 +2468,25 @@ pub mod tests {
         let address1 = StacksAddress::p2pkh(false, &public_key1);
         let address2 = StacksAddress::p2pkh(false, &public_key2);
 
-        let signature1 = MessageSignature::from_raw(&[0x11]);
-        let signature2 = MessageSignature::from_raw(&[0x22]);
-        let signature3 = MessageSignature::from_raw(&[0x33]);
-        let signature4 = MessageSignature::from_raw(&[0x44]);
+        let nonce1 = [0x11u8; 32];
+        let signature1 = private_key1
+            .sign_with_noncedata(&block_id.0, &nonce1)
+            .unwrap();
+
+        let nonce2 = [0x22u8; 32];
+        let signature2 = private_key1
+            .sign_with_noncedata(&block_id.0, &nonce2)
+            .unwrap();
+
+        let nonce3 = [0x33u8; 32];
+        let signature3 = private_key1
+            .sign_with_noncedata(&block_id.0, &nonce3)
+            .unwrap();
+
+        let nonce4 = [0x44u8; 32];
+        let signature4 = private_key2
+            .sign_with_noncedata(&block_id.0, &nonce4)
+            .unwrap();
 
         assert_eq!(db.get_block_signatures(&block_id).unwrap(), vec![]);
 
