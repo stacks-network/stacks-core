@@ -225,13 +225,29 @@ pub struct TestBlock {
     pub transactions: Vec<StacksTransaction>,
 }
 
-/// Represents a consensus test with chainstate.
-pub struct ConsensusTest<'a> {
-    pub chain: TestChainstate<'a>,
+/// Manages a `TestChainstate` tailored for consensus-rule verification.
+///
+/// Initialises the chain with enough burn-chain blocks per epoch to run the requested Stacks blocks.
+///
+/// Provides high-level helpers for:
+/// - Appending Nakamoto or pre-Nakamoto blocks
+pub struct ConsensusChain<'a> {
+    pub test_chainstate: TestChainstate<'a>,
 }
 
-impl ConsensusTest<'_> {
-    /// Creates a new `ConsensusTest` with the given test name, initial balances, and epoch blocks.
+impl ConsensusChain<'_> {
+    /// Creates a new `ConsensusChain`.
+    ///
+    /// # Arguments
+    ///
+    /// * `test_name` – identifier used for logging / snapshot names / database names
+    /// * `initial_balances` – `(principal, amount)` pairs that receive an initial STX balance
+    /// * `num_blocks_per_epoch` – how many **Stacks** blocks must fit into each epoch
+    ///
+    /// # Panics
+    ///
+    /// * If `Epoch10` is requested (unsupported)
+    /// * If any requested epoch is given `0` blocks
     pub fn new(
         test_name: &str,
         initial_balances: Vec<(PrincipalData, u64)>,
@@ -257,8 +273,8 @@ impl ConsensusTest<'_> {
         let (epochs, first_burnchain_height) =
             Self::calculate_epochs(&boot_plan.pox_constants, num_blocks_per_epoch);
         boot_plan = boot_plan.with_epochs(epochs);
-        let chain = boot_plan.to_chainstate(None, Some(first_burnchain_height));
-        Self { chain }
+        let test_chainstate = boot_plan.to_chainstate(None, Some(first_burnchain_height));
+        Self { test_chainstate }
     }
 
     /// Calculates a valid [`EpochList`] and starting burnchain height for the test harness.
@@ -473,8 +489,8 @@ impl ConsensusTest<'_> {
     fn append_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
         debug!("--------- Running block {block:?} ---------");
         let (nakamoto_block, _block_size) = self.construct_nakamoto_block(block);
-        let mut sortdb = self.chain.sortdb.take().unwrap();
-        let mut stacks_node = self.chain.stacks_node.take().unwrap();
+        let mut sortdb = self.test_chainstate.sortdb.take().unwrap();
+        let mut stacks_node = self.test_chainstate.stacks_node.take().unwrap();
         let chain_tip =
             NakamotoChainState::get_canonical_block_header(stacks_node.chainstate.db(), &sortdb)
                 .unwrap()
@@ -488,9 +504,9 @@ impl ConsensusTest<'_> {
         let res = TestStacksNode::process_pushed_next_ready_block(
             &mut stacks_node,
             &mut sortdb,
-            &mut self.chain.miner,
+            &mut self.test_chainstate.miner,
             &chain_tip.consensus_hash,
-            &mut self.chain.coord,
+            &mut self.test_chainstate.coord,
             nakamoto_block.clone(),
         );
         debug!(
@@ -499,8 +515,8 @@ impl ConsensusTest<'_> {
         );
         let remapped_result = res.map(|receipt| receipt.unwrap());
         // Restore chainstate for the next block
-        self.chain.sortdb = Some(sortdb);
-        self.chain.stacks_node = Some(stacks_node);
+        self.test_chainstate.sortdb = Some(sortdb);
+        self.test_chainstate.stacks_node = Some(stacks_node);
         ExpectedResult::create_from(remapped_result, expected_marf)
     }
 
@@ -519,29 +535,30 @@ impl ConsensusTest<'_> {
     /// A [`ExpectedResult`] with the outcome of the block processing.
     fn append_pre_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
         debug!("--------- Running Pre-Nakamoto block {block:?} ---------");
-        let (ch, bh) =
-            SortitionDB::get_canonical_stacks_chain_tip_hash(self.chain.sortdb_ref().conn())
-                .unwrap();
+        let (ch, bh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
+            self.test_chainstate.sortdb_ref().conn(),
+        )
+        .unwrap();
         let tip_id = StacksBlockId::new(&ch, &bh);
         let (burn_ops, stacks_block, microblocks) = self
-            .chain
+            .test_chainstate
             .make_pre_nakamoto_tenure_with_txs(&block.transactions);
-        let (_, _, consensus_hash) = self.chain.next_burnchain_block(burn_ops);
+        let (_, _, consensus_hash) = self.test_chainstate.next_burnchain_block(burn_ops);
 
         debug!(
             "--------- Processing Pre-Nakamoto block ---------";
             "block" => ?stacks_block
         );
 
-        let mut stacks_node = self.chain.stacks_node.take().unwrap();
-        let mut sortdb = self.chain.sortdb.take().unwrap();
+        let mut stacks_node = self.test_chainstate.stacks_node.take().unwrap();
+        let mut sortdb = self.test_chainstate.sortdb.take().unwrap();
         let expected_marf = stacks_block.header.state_index_root;
         let res = TestStacksNode::process_pre_nakamoto_next_ready_block(
             &mut stacks_node,
             &mut sortdb,
-            &mut self.chain.miner,
+            &mut self.test_chainstate.miner,
             &ch,
-            &mut self.chain.coord,
+            &mut self.test_chainstate.coord,
             &stacks_block,
             &microblocks,
         );
@@ -563,8 +580,8 @@ impl ConsensusTest<'_> {
             receipt
         });
         // Restore chainstate for the next block
-        self.chain.sortdb = Some(sortdb);
-        self.chain.stacks_node = Some(stacks_node);
+        self.test_chainstate.sortdb = Some(sortdb);
+        self.test_chainstate.stacks_node = Some(stacks_node);
         ExpectedResult::create_from(remapped_result, expected_marf)
     }
 
@@ -589,57 +606,22 @@ impl ConsensusTest<'_> {
         }
     }
 
-    /// Executes a full test plan by processing blocks across multiple epochs.
-    ///
-    /// This function serves as the primary test runner. It iterates through the
-    /// provided epochs in chronological order, automatically advancing the
-    /// chainstate to the start of each epoch. It then processes all [`TestBlock`]'s
-    /// associated with that epoch and collects their results.
-    ///
-    /// # Arguments
-    ///
-    /// * `epoch_blocks` - A map where keys are [`StacksEpochId`]s and values are the
-    ///   sequence of blocks to be executed during that epoch.
-    ///
-    ///  # Returns
-    ///
-    /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
-    pub fn run(
-        mut self,
-        epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
-    ) -> Vec<ExpectedResult> {
-        let mut sorted_epochs: Vec<_> = epoch_blocks.clone().into_iter().collect();
-        sorted_epochs.sort_by_key(|(epoch_id, _)| *epoch_id);
-
-        let mut results = vec![];
-
-        for (epoch, blocks) in sorted_epochs {
-            debug!(
-                "--------- Processing epoch {epoch:?} with {} blocks ---------",
-                blocks.len()
-            );
-            // Use the miner key to prevent messing with FAUCET nonces.
-            let miner_key = self.chain.miner.nakamoto_miner_key();
-            self.chain.advance_into_epoch(&miner_key, epoch);
-
-            for block in blocks {
-                results.push(self.append_block(block, epoch.uses_nakamoto_blocks()));
-            }
-        }
-        results
-    }
-
     /// Constructs a Nakamoto block with the given [`TestBlock`] configuration.
     fn construct_nakamoto_block(&mut self, test_block: TestBlock) -> (NakamotoBlock, usize) {
         let chain_tip = NakamotoChainState::get_canonical_block_header(
-            self.chain.stacks_node.as_ref().unwrap().chainstate.db(),
-            self.chain.sortdb.as_ref().unwrap(),
+            self.test_chainstate
+                .stacks_node
+                .as_ref()
+                .unwrap()
+                .chainstate
+                .db(),
+            self.test_chainstate.sortdb.as_ref().unwrap(),
         )
         .unwrap()
         .unwrap();
-        let cycle = self.chain.get_reward_cycle();
+        let cycle = self.test_chainstate.get_reward_cycle();
         let burn_spent = SortitionDB::get_block_snapshot_consensus(
-            self.chain.sortdb_ref().conn(),
+            self.test_chainstate.sortdb_ref().conn(),
             &chain_tip.consensus_hash,
         )
         .unwrap()
@@ -680,8 +662,13 @@ impl ConsensusTest<'_> {
             Err(_) => TrieHash::from_bytes(&[0; 32]).unwrap(),
         };
 
-        self.chain.miner.sign_nakamoto_block(&mut block);
-        let mut signers = self.chain.config.test_signers.clone().unwrap_or_default();
+        self.test_chainstate.miner.sign_nakamoto_block(&mut block);
+        let mut signers = self
+            .test_chainstate
+            .config
+            .test_signers
+            .clone()
+            .unwrap_or_default();
         signers.sign_nakamoto_block(&mut block, cycle);
         let block_len = block.serialize_to_vec().len();
         (block, block_len)
@@ -700,8 +687,8 @@ impl ConsensusTest<'_> {
         block_time: u64,
         block_txs: &[StacksTransaction],
     ) -> Result<TrieHash, String> {
-        let node = self.chain.stacks_node.as_mut().unwrap();
-        let sortdb = self.chain.sortdb.as_ref().unwrap();
+        let node = self.test_chainstate.stacks_node.as_mut().unwrap();
+        let sortdb = self.test_chainstate.sortdb.as_ref().unwrap();
         let burndb_conn = sortdb.index_handle_at_tip();
         let chainstate = &mut node.chainstate;
 
@@ -761,6 +748,69 @@ impl ConsensusTest<'_> {
     }
 }
 
+/// A complete consensus test that drives a `ConsensusChain` through a series of epochs.
+///
+/// It stores the blocks to execute per epoch and runs them in chronological order,
+/// producing a vector of `ExpectedResult` suitable for snapshot testing.
+pub struct ConsensusTest<'a> {
+    pub chain: ConsensusChain<'a>,
+    epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
+}
+
+impl ConsensusTest<'_> {
+    /// Constructs a `ConsensusTest` from a map of **epoch → blocks**.
+    ///
+    /// The map is converted into `num_blocks_per_epoch` for chain initialisation.
+    pub fn new(
+        test_name: &str,
+        initial_balances: Vec<(PrincipalData, u64)>,
+        epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
+    ) -> Self {
+        let mut num_blocks_per_epoch = HashMap::new();
+        for (epoch, blocks) in &epoch_blocks {
+            num_blocks_per_epoch.insert(*epoch, blocks.len() as u64);
+        }
+        Self {
+            chain: ConsensusChain::new(test_name, initial_balances, num_blocks_per_epoch),
+            epoch_blocks,
+        }
+    }
+
+    /// Executes a full test plan by processing blocks across multiple epochs.
+    ///
+    /// This function serves as the primary test runner. It iterates through the
+    /// provided epochs in chronological order, automatically advancing the
+    /// chainstate to the start of each epoch. It then processes all [`TestBlock`]'s
+    /// associated with that epoch and collects their results.
+    ///
+    ///  # Returns
+    ///
+    /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
+    pub fn run(mut self) -> Vec<ExpectedResult> {
+        let mut sorted_epochs: Vec<_> = self.epoch_blocks.clone().into_iter().collect();
+        sorted_epochs.sort_by_key(|(epoch_id, _)| *epoch_id);
+
+        let mut results = vec![];
+
+        for (epoch, blocks) in sorted_epochs {
+            debug!(
+                "--------- Processing epoch {epoch:?} with {} blocks ---------",
+                blocks.len()
+            );
+            // Use the miner key to prevent messing with FAUCET nonces.
+            let miner_key = self.chain.test_chainstate.miner.nakamoto_miner_key();
+            self.chain
+                .test_chainstate
+                .advance_into_epoch(&miner_key, epoch);
+
+            for block in blocks {
+                results.push(self.chain.append_block(block, epoch.uses_nakamoto_blocks()));
+            }
+        }
+        results
+    }
+}
+
 /// A high-level test harness for running consensus-critical smart contract tests.
 ///
 /// This struct enables end-to-end testing of Clarity smart contracts under varying epoch conditions,
@@ -772,7 +822,7 @@ impl ConsensusTest<'_> {
 /// - Snapshot testing of execution outcomes via [`ExpectedResult`]
 ///
 /// It integrates:
-/// - [`ConsensusTest`] for chain simulation and block production
+/// - [`ConsensusChain`] for chain simulation and block production
 /// - [`TestTxFactory`] for deterministic transaction generation
 ///
 /// NOTE: The **majority of logic and state computation occurs during construction to enable a deterministic TestChainstate** (`new()`):
@@ -784,7 +834,7 @@ struct ContractConsensusTest<'a> {
     /// Factory for generating signed, nonce-managed transactions.
     tx_factory: TestTxFactory,
     /// Underlying chainstate used for block execution and consensus checks.
-    consensus_test: ConsensusTest<'a>,
+    chain: ConsensusChain<'a>,
     /// Address of the contract deployer (the test faucet).
     contract_addr: StacksAddress,
     /// Mapping of epoch → list of `(contract_name, ClarityVersion)` deployed in that epoch.
@@ -898,7 +948,7 @@ impl ContractConsensusTest<'_> {
 
         Self {
             tx_factory: TestTxFactory::new(CHAIN_ID_TESTNET),
-            consensus_test: ConsensusTest::new(test_name, initial_balances, num_blocks_per_epoch),
+            chain: ConsensusChain::new(test_name, initial_balances, num_blocks_per_epoch),
             contract_addr: to_addr(&FAUCET_PRIV_KEY),
             contract_deploys_per_epoch,
             contract_calls_per_epoch,
@@ -928,7 +978,7 @@ impl ContractConsensusTest<'_> {
             transactions: vec![tx],
         };
 
-        let result = self.consensus_test.append_block(block, is_naka_block);
+        let result = self.chain.append_block(block, is_naka_block);
 
         if let ExpectedResult::Success(_) = result {
             self.tx_factory.increase_nonce_for_tx(tx_spec);
@@ -1045,11 +1095,11 @@ impl ContractConsensusTest<'_> {
         // Process epochs in order
         for epoch in self.all_epochs.clone() {
             // Use the miner as the sender to prevent messing with the block transaction nonces of the deployer/callers
-            let private_key = self.consensus_test.chain.miner.nakamoto_miner_key();
+            let private_key = self.chain.test_chainstate.miner.nakamoto_miner_key();
 
             // Advance the chain into the target epoch
-            self.consensus_test
-                .chain
+            self.chain
+                .test_chainstate
                 .advance_into_epoch(&private_key, epoch);
 
             results.extend(self.deploy_contracts(epoch));
@@ -1382,14 +1432,11 @@ fn test_append_empty_blocks() {
         transactions: vec![],
     }];
     let mut epoch_blocks = HashMap::new();
-    let mut num_blocks_per_epoch = HashMap::new();
     for epoch in EPOCHS_TO_TEST {
         epoch_blocks.insert(*epoch, empty_test_blocks.clone());
-        num_blocks_per_epoch.insert(*epoch, 1);
     }
 
-    let result =
-        ConsensusTest::new(function_name!(), vec![], num_blocks_per_epoch).run(epoch_blocks);
+    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
     insta::assert_ron_snapshot!(result);
 }
 
@@ -1414,7 +1461,6 @@ fn test_append_stx_transfers_success() {
 
     // build transactions per epoch, incrementing nonce per sender
     let mut epoch_blocks = HashMap::new();
-    let mut num_blocks_per_epoch = HashMap::new();
     let mut nonces = vec![0u64; sender_privks.len()]; // track nonce per sender
 
     for epoch in EPOCHS_TO_TEST {
@@ -1434,13 +1480,10 @@ fn test_append_stx_transfers_success() {
                 tx
             })
             .collect();
-
-        num_blocks_per_epoch.insert(*epoch, 1);
         epoch_blocks.insert(*epoch, vec![TestBlock { transactions }]);
     }
 
-    let result = ConsensusTest::new(function_name!(), initial_balances, num_blocks_per_epoch)
-        .run(epoch_blocks);
+    let result = ConsensusTest::new(function_name!(), initial_balances, epoch_blocks).run();
     insta::assert_ron_snapshot!(result);
 }
 
