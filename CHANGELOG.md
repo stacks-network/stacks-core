@@ -10,9 +10,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
-
-### Added
-
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
 - New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
 
 ### Changed
