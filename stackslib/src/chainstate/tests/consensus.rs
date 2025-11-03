@@ -95,621 +95,6 @@ const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVe
     }
 }
 
-/// A high-level test harness for running consensus-critical smart contract tests.
-///
-/// This struct enables end-to-end testing of Clarity smart contracts under varying epoch conditions,
-/// including different Clarity language versions and block rule sets. It automates:
-///
-/// - Contract deployment in specified epochs (with epoch-appropriate Clarity versions)
-/// - Function execution in subsequent or same epochs
-/// - Block-by-block execution with precise control over transaction ordering and nonces
-/// - Snapshot testing of execution outcomes via [`ExpectedResult`]
-///
-/// It integrates:
-/// - [`ConsensusTest`] for chain simulation and block production
-/// - [`TestTxFactory`] for deterministic transaction generation
-///
-/// NOTE: The **majority of logic and state computation occurs during construction to enable a deterministic TestChainstate** (`new()`):
-/// - All contract names are generated and versioned
-/// - Block counts per epoch are precomputed
-/// - Epoch order is finalized
-/// - Transaction sequencing is fully planned
-struct ContractConsensusTest<'a> {
-    /// Factory for generating signed, nonce-managed transactions.
-    tx_factory: TestTxFactory,
-    /// Underlying chainstate used for block execution and consensus checks.
-    consensus_test: ConsensusTest<'a>,
-    /// Address of the contract deployer (the test faucet).
-    contract_addr: StacksAddress,
-    /// Mapping of epoch → list of `(contract_name, ClarityVersion)` deployed in that epoch.
-    /// Multiple versions may exist per epoch (e.g., Clarity 1, 2, 3 in Epoch 3.0).
-    contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>>,
-    /// Mapping of epoch → list of `contract_names` that should be called in that epoch.
-    contract_calls_per_epoch: HashMap<StacksEpochId, Vec<String>>,
-    /// Source code of the Clarity contract being deployed and called.
-    contract_code: String,
-    /// Name of the public function to invoke during the call phase.
-    function_name: String,
-    /// Arguments to pass to `function_name` on every call.
-    function_args: Vec<ClarityValue>,
-    /// Sorted, deduplicated set of all epochs involved.
-    /// Used to iterate through test phases in chronological order.
-    all_epochs: BTreeSet<StacksEpochId>,
-}
-
-impl ContractConsensusTest<'_> {
-    /// Creates a new [`ContractConsensusTest`] instance.
-    ///
-    /// Initializes the test environment to:
-    /// - Deploy `contract_code` under `contract_name` in each `deploy_epochs`
-    /// - Call `function_name` with `function_args` in each `call_epochs`
-    /// - Track all contract instances per epoch and Clarity version
-    /// - Precompute block counts per epoch for stable chain simulation
-    ///
-    /// # Arguments
-    ///
-    /// * `test_name` - Unique identifier for the test run (used in logging and snapshots)
-    /// * `initial_balances` - Initial STX balances for principals (e.g., faucet, users)
-    /// * `deploy_epochs` - List of epochs where contract deployment should occur
-    /// * `call_epochs` - List of epochs where function calls should be executed
-    /// * `contract_name` - Base name for deployed contracts (versioned suffixes added automatically)
-    /// * `contract_code` - Clarity source code of the contract
-    /// * `function_name` - Contract function to test
-    /// * `function_args` - Arguments passed to `function_name` on every call
-    ///
-    /// # Panics
-    ///
-    /// - If `deploy_epochs` is empty.
-    /// - If any `call_epoch` is less than the minimum `deploy_epoch`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        test_name: &str,
-        initial_balances: Vec<(PrincipalData, u64)>,
-        deploy_epochs: &[StacksEpochId],
-        call_epochs: &[StacksEpochId],
-        contract_name: &str,
-        contract_code: &str,
-        function_name: &str,
-        function_args: &[ClarityValue],
-    ) -> Self {
-        assert!(
-            !deploy_epochs.is_empty(),
-            "At least one deploy epoch is required"
-        );
-        let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
-        assert!(
-            call_epochs.iter().all(|e| e >= min_deploy_epoch),
-            "All call epochs must be >= the minimum deploy epoch"
-        );
-
-        // Build epoch_blocks map based on deploy and call epochs
-        let mut num_blocks_per_epoch: HashMap<StacksEpochId, u64> = HashMap::new();
-        let mut contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>> =
-            HashMap::new();
-        let mut contract_calls_per_epoch: HashMap<StacksEpochId, Vec<String>> = HashMap::new();
-        let mut contract_names = vec![];
-
-        // Combine and sort unique epochs
-        let all_epochs: BTreeSet<StacksEpochId> =
-            deploy_epochs.iter().chain(call_epochs).cloned().collect();
-
-        // Precompute contract names and block counts
-        for epoch in &all_epochs {
-            let mut num_blocks = 0;
-
-            if deploy_epochs.contains(epoch) {
-                let clarity_versions = clarity_versions_for_epoch(*epoch);
-                let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
-
-                // Each deployment is a seperate TestBlock
-                for &version in clarity_versions {
-                    let version_tag = version.to_string().replace(' ', "");
-                    let name = format!("{contract_name}-{epoch_name}-{version_tag}");
-                    contract_deploys_per_epoch
-                        .entry(*epoch)
-                        .or_default()
-                        .push((name.clone(), version));
-                    contract_names.push(name.clone());
-                    num_blocks += 1;
-                }
-            }
-
-            if call_epochs.contains(epoch) {
-                // Each call is a separate TestBlock
-                for name in &contract_names {
-                    // Each call is a separate TestBlock
-                    contract_calls_per_epoch
-                        .entry(*epoch)
-                        .or_default()
-                        .push(name.clone());
-                    num_blocks += 1;
-                }
-            }
-            if num_blocks > 0 {
-                num_blocks_per_epoch.insert(*epoch, num_blocks);
-            }
-        }
-
-        Self {
-            tx_factory: TestTxFactory::new(CHAIN_ID_TESTNET),
-            consensus_test: ConsensusTest::new(test_name, initial_balances, num_blocks_per_epoch),
-            contract_addr: to_addr(&FAUCET_PRIV_KEY),
-            contract_deploys_per_epoch,
-            contract_calls_per_epoch,
-            contract_code: contract_code.to_string(),
-            function_name: function_name.to_string(),
-            function_args: function_args.to_vec(),
-            all_epochs,
-        }
-    }
-
-    /// Generates a transaction, appends it to a new test block, and executes the block.
-    ///
-    /// If the transaction succeeds, this function automatically increments the sender's
-    /// nonce for subsequent transactions.
-    ///
-    /// # Arguments
-    ///
-    /// - `tx_spec`: The transaction specification to generate and execute.
-    /// - `is_naka_block`: Whether this block is mined under Nakamoto consensus rules.
-    ///
-    /// # Returns
-    ///
-    /// The [`ExpectedResult`] of block execution (success/failure with VM output)
-    fn append_tx_block(&mut self, tx_spec: &TestTxSpec, is_naka_block: bool) -> ExpectedResult {
-        let tx = self.tx_factory.generate_tx(tx_spec);
-        let block = TestBlock {
-            transactions: vec![tx],
-        };
-
-        let result = self.consensus_test.append_block(block, is_naka_block);
-
-        if let ExpectedResult::Success(_) = result {
-            self.tx_factory.increase_nonce_for_tx(tx_spec);
-        }
-
-        result
-    }
-
-    /// Deploys all contract versions scheduled for the given epoch.
-    ///
-    /// For each Clarity version supported in the epoch:
-    /// - Generates a unique contract name (e.g., `my-contract-Epoch30-Clarity3`)
-    /// - Deploys in a **separate block**
-    /// - Uses `None` for Clarity version in pre-2.1 epochs (behaviour defaults to Clarity 1)
-    ///
-    /// # Returns
-    /// A vector of [`ExpectedResult`] values, one per deployment block.
-    fn deploy_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
-        let Some(contract_names) = self.contract_deploys_per_epoch.get(&epoch) else {
-            warn!("No contract deployments found for {epoch}.");
-            return vec![];
-        };
-
-        let is_naka_block = epoch.uses_nakamoto_blocks();
-        contract_names
-            .clone()
-            .iter()
-            .map(|(name, version)| {
-                let clarity_version = if epoch < StacksEpochId::Epoch21 {
-                    // Old epochs have no concept of clarity version. It defaults to
-                    // clarity version 1 behaviour.
-                    None
-                } else {
-                    Some(*version)
-                };
-                self.append_tx_block(
-                    &TestTxSpec::ContractDeploy {
-                        sender: &FAUCET_PRIV_KEY,
-                        name,
-                        code: &self.contract_code.clone(),
-                        clarity_version,
-                    },
-                    is_naka_block,
-                )
-            })
-            .collect()
-    }
-
-    /// Executes the test function on **all** contracts deployed in the given epoch.
-    ///
-    /// Each call occurs in a **separate block** to isolate side effects and enable
-    /// fine-grained snapshot assertions. All prior deployments (even from earlier epochs)
-    /// are callable if they exist in the chain state.
-    ///
-    /// # Arguments
-    ///
-    /// - `epoch`: The epoch in which to perform contract calls.
-    ///
-    /// # Returns
-    ///
-    /// A [`Vec<ExpectedResult>`] with one entry per function call
-    fn call_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
-        let Some(contract_names) = self.contract_calls_per_epoch.get(&epoch) else {
-            warn!("No contract calls found for {epoch}.");
-            return vec![];
-        };
-
-        let is_naka_block = epoch.uses_nakamoto_blocks();
-        contract_names
-            .clone()
-            .iter()
-            .map(|contract_name| {
-                self.append_tx_block(
-                    &TestTxSpec::ContractCall {
-                        sender: &FAUCET_PRIV_KEY,
-                        contract_addr: &self.contract_addr.clone(),
-                        contract_name,
-                        function_name: &self.function_name.clone(),
-                        args: &self.function_args.clone(),
-                    },
-                    is_naka_block,
-                )
-            })
-            .collect()
-    }
-
-    /// Executes the full consensus test: deploy in [`Self::contract_deploys_per_epoch`], call in [`Self::contract_calls_per_epoch`].
-    ///
-    /// Processes epochs in **sorted order** using [`Self::all_epochs`]. For each epoch:
-    /// - Advances the chain into the target epoch
-    /// - Deploys contracts (if scheduled)
-    /// - Executes function calls (if scheduled)
-    ///
-    /// # Execution Order Example
-    ///
-    /// Given at test instantiation:
-    /// ```rust
-    /// deploy_epochs = [Epoch20, Epoch30]
-    /// call_epochs   = [Epoch30, Epoch31]
-    /// ```
-    ///
-    /// The sequence is:
-    /// 1. Enter Epoch 2.0 → Deploy `contract-v1`
-    /// 2. Enter Epoch 3.0 → Deploy `contract-v1`, `contract-v2`, `contract-v3`
-    /// 3. Enter Epoch 3.0 → Call function on all 4 deployed contracts
-    /// 4. Enter Epoch 3.1 → Call function on all 4 deployed contracts
-    ///
-    /// # Returns
-    ///
-    /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
-    pub fn run(mut self) -> Vec<ExpectedResult> {
-        let mut results = Vec::new();
-
-        // Process epochs in order
-        for epoch in self.all_epochs.clone() {
-            // Use the miner as the sender to prevent messing with the block transaction nonces of the deployer/callers
-            let private_key = self.consensus_test.chain.miner.nakamoto_miner_key();
-
-            // Advance the chain into the target epoch
-            self.consensus_test
-                .chain
-                .advance_into_epoch(&private_key, epoch);
-
-            results.extend(self.deploy_contracts(epoch));
-            results.extend(self.call_contracts(epoch));
-        }
-
-        results
-    }
-}
-
-/// Generates a consensus test for executing a contract function across multiple Stacks epochs.
-///
-/// This macro automates both contract deployment and function invocation across different
-/// epochs and Clarity versions.
-/// It simplifies the setup of consensus-critical tests involving versioned smart contracts.
-///
-/// # Behavior
-///
-/// - **Deployment:** Deploys `contract_code` in each epoch specified in `deploy_epochs`
-///   for every applicable [`ClarityVersion`].
-/// - **Execution:** Calls `function_name` in each epoch from `call_epochs` on all previously
-///   deployed contract instances.
-/// - **Structure:** Each deployment and function call is executed in its own block, ensuring
-///   clear separation between transactions.
-///
-/// # Arguments
-///
-/// * `$name` — Name of the generated test function.
-/// * `contract_name` — The name of the contract.
-/// * `contract_code` — The Clarity source code for the contract.
-/// * `function_name` — The public function to call.
-/// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
-/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
-/// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
-///
-/// # Example
-///
-/// ```rust,ignore
-/// contract_call_consensus_test!(
-///     my_test,
-///     contract_name: "my-contract",
-///     contract_code: "(define-public (get-message) (ok \"hello\"))",
-///     function_name: "get-message",
-///     function_args: &[],
-/// );
-/// ```
-macro_rules! contract_call_consensus_test {
-    (
-        $name:ident,
-        contract_name: $contract_name:expr,
-        contract_code: $contract_code:expr,
-        function_name: $function_name:expr,
-        function_args: $function_args:expr,
-        $(deploy_epochs: $deploy_epochs:expr,)?
-        $(call_epochs: $call_epochs:expr,)?
-    ) => {
-        #[test]
-        fn $name() {
-            // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-            let deploy_epochs = &StacksEpochId::ALL[1..];
-            $(let deploy_epochs = $deploy_epochs;)?
-
-            // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-            let call_epochs = EPOCHS_TO_TEST;
-            $(let call_epochs = $call_epochs;)?
-            let contract_test = ContractConsensusTest::new(
-                function_name!(),
-                vec![],
-                deploy_epochs,
-                call_epochs,
-                $contract_name,
-                $contract_code,
-                $function_name,
-                $function_args,
-            );
-            let result = contract_test.run();
-            insta::assert_ron_snapshot!(result);
-        }
-    };
-}
-
-/// Generates a consensus test for contract deployment across multiple Stacks epochs.
-///
-/// This macro automates deploying a contract across different Stacks epochs and
-/// Clarity versions. It is primarily used for consensus-critical testing of contract
-/// deployment behavior.
-///
-/// # Behavior
-///
-/// - **Deployment:** Deploys `contract_code` in each epoch specified by `deploy_epochs`
-///   for all applicable [`ClarityVersion`]s.
-/// - **Structure:** Each deployment is executed in its own block, ensuring clear
-///   separation between transactions.
-///
-/// # Arguments
-///
-/// * `$name` — Name of the generated test function.
-/// * `contract_name` — Name of the contract being tested.
-/// * `contract_code` — The Clarity source code of the contract.
-/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
-///
-/// # Example
-///
-/// ```rust,ignore
-/// contract_deploy_consensus_test!(
-///     deploy_test,
-///     contract_name: "my-contract",
-///     contract_code: "(define-public (init) (ok true))",
-/// );
-/// ```
-macro_rules! contract_deploy_consensus_test {
-    // Handle the case where deploy_epochs is not provided
-    (
-        $name:ident,
-        contract_name: $contract_name:expr,
-        contract_code: $contract_code:expr,
-    ) => {
-        contract_deploy_consensus_test!(
-            $name,
-            contract_name: $contract_name,
-            contract_code: $contract_code,
-            deploy_epochs: EPOCHS_TO_TEST,
-        );
-    };
-    (
-        $name:ident,
-        contract_name: $contract_name:expr,
-        contract_code: $contract_code:expr,
-        deploy_epochs: $deploy_epochs:expr,
-    ) => {
-        contract_call_consensus_test!(
-            $name,
-            contract_name: $contract_name,
-            contract_code: $contract_code,
-            function_name: "",   // No function calls, just deploys
-            function_args: &[],  // No function calls, just deploys
-            deploy_epochs: $deploy_epochs,
-            call_epochs: &[],    // No function calls, just deploys
-        );
-    };
-}
-
-/// The type of transaction to create.
-pub enum TestTxSpec<'a> {
-    Transfer {
-        from: &'a StacksPrivateKey,
-        to: &'a PrincipalData,
-        amount: u64,
-    },
-    ContractDeploy {
-        sender: &'a StacksPrivateKey,
-        name: &'a str,
-        code: &'a str,
-        clarity_version: Option<ClarityVersion>,
-    },
-    ContractCall {
-        sender: &'a StacksPrivateKey,
-        contract_addr: &'a StacksAddress,
-        contract_name: &'a str,
-        function_name: &'a str,
-        args: &'a [ClarityValue],
-    },
-}
-
-/// A helper to create transactions with incrementing nonces for each account.
-pub struct TestTxFactory {
-    /// Map of address to next nonce
-    nonce_counter: HashMap<StacksAddress, u64>,
-    /// The default chain ID to use for transactions
-    default_chain_id: u32,
-}
-
-impl TestTxFactory {
-    /// Creates a new [`TransactionFactory`] with the specified default chain ID.
-    pub fn new(default_chain_id: u32) -> Self {
-        Self {
-            nonce_counter: HashMap::new(),
-            default_chain_id,
-        }
-    }
-
-    /// Manually increments the nonce for the sender of the specified transaction.
-    ///
-    /// This method should be called *after* a transaction has been successfully
-    /// processed to ensure the factory uses the correct next nonce for subsequent
-    /// transactions from the same sender.
-    ///
-    /// # Arguments
-    ///
-    /// * `tx_spec` - The original specification of the transaction whose sender's
-    ///   nonce should be incremented.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the sender's address is not found in the nonce counter map.
-    pub fn increase_nonce_for_tx(&mut self, tx_spec: &TestTxSpec) {
-        let sender_privk = match tx_spec {
-            TestTxSpec::Transfer { from, .. } => from,
-            TestTxSpec::ContractDeploy { sender, .. } => sender,
-            TestTxSpec::ContractCall { sender, .. } => sender,
-        };
-        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk));
-        let nonce = self
-            .nonce_counter
-            .get_mut(&address)
-            .unwrap_or_else(|| panic!("Nonce not found for address {address}"));
-        *nonce += 1;
-    }
-
-    /// Generates a new transaction of the specified type.
-    ///
-    /// Arguments:
-    /// - `tx_type`: The type of transaction to create.
-    ///
-    /// Returns:
-    /// A [`StacksTransaction`] representing the created transaction.
-    pub fn generate_tx(&mut self, tx_spec: &TestTxSpec) -> StacksTransaction {
-        match tx_spec {
-            TestTxSpec::Transfer { from, to, amount } => self.transfer(from, to, *amount),
-            TestTxSpec::ContractDeploy {
-                sender,
-                name,
-                code,
-                clarity_version,
-            } => self.contract_deploy(sender, name, code, *clarity_version),
-            TestTxSpec::ContractCall {
-                sender,
-                contract_addr,
-                contract_name,
-                function_name,
-                args,
-            } => self.contract_call(sender, contract_addr, contract_name, function_name, args),
-        }
-    }
-
-    /// Create a STX transfer transaction.
-    ///
-    /// Arguments:
-    /// - `from`: The sender's private key.
-    /// - `to`: The recipient's principal data.
-    /// - `amount`: The amount of STX to transfer.
-    ///
-    /// Returns:
-    /// A [`StacksTransaction`] representing the transfer.
-    ///
-    /// Note: The transaction fee is set to 180 micro-STX.
-    pub fn transfer(
-        &mut self,
-        from: &StacksPrivateKey,
-        to: &PrincipalData,
-        amount: u64,
-    ) -> StacksTransaction {
-        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(from));
-        let nonce = self.nonce_counter.entry(address).or_insert(0);
-        make_stacks_transfer_tx(from, *nonce, 180, self.default_chain_id, to, amount)
-    }
-
-    /// Create a contract deployment transaction.
-    ///
-    /// Arguments:
-    /// `sender`: The sender's private key.
-    /// `name`: The name of the contract.
-    /// `code`: The contract code as a string.
-    ///
-    /// Returns:
-    /// A [`StacksTransaction`] representing the contract deployment.
-    ///
-    /// Note: The transaction fee is set based on the contract code length.
-    pub fn contract_deploy(
-        &mut self,
-        sender: &StacksPrivateKey,
-        name: &str,
-        code: &str,
-        clarity_version: Option<ClarityVersion>,
-    ) -> StacksTransaction {
-        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
-        let nonce = self.nonce_counter.entry(address).or_insert(0);
-        let tx_bytes = make_contract_publish_versioned(
-            sender,
-            *nonce,
-            (code.len() * 100) as u64,
-            self.default_chain_id,
-            name,
-            code,
-            clarity_version,
-        );
-        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
-    }
-
-    /// Create a contract call transaction.
-    ///
-    /// Arguments:
-    /// `sender`: The sender's private key.
-    /// `contract_addr`: The address of the contract.
-    /// `contract_name`: The name of the contract.
-    /// `function_name`: The name of the function to call.
-    /// `args`: The arguments to pass to the function.
-    ///
-    /// Returns:
-    /// A [`StacksTransaction`] representing the contract call.
-    ///
-    /// Note: The transaction fee is set to 200 micro-STX.
-    pub fn contract_call(
-        &mut self,
-        sender: &StacksPrivateKey,
-        contract_addr: &StacksAddress,
-        contract_name: &str,
-        function_name: &str,
-        args: &[ClarityValue],
-    ) -> StacksTransaction {
-        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
-        let nonce = self.nonce_counter.entry(address).or_insert(0);
-        let tx_bytes = make_contract_call(
-            sender,
-            *nonce,
-            200,
-            self.default_chain_id,
-            contract_addr,
-            contract_name,
-            function_name,
-            args,
-        );
-        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
-    }
-}
-
 /// Custom serializer for `Option<TransactionPayload>` to improve snapshot readability.
 /// This avoids large diffs in snapshots due to code body changes and focuses on key fields.
 fn serialize_opt_tx_payload<S>(
@@ -1374,6 +759,621 @@ impl ConsensusTest<'_> {
 
         Ok(clarity_tx.seal())
     }
+}
+
+/// A high-level test harness for running consensus-critical smart contract tests.
+///
+/// This struct enables end-to-end testing of Clarity smart contracts under varying epoch conditions,
+/// including different Clarity language versions and block rule sets. It automates:
+///
+/// - Contract deployment in specified epochs (with epoch-appropriate Clarity versions)
+/// - Function execution in subsequent or same epochs
+/// - Block-by-block execution with precise control over transaction ordering and nonces
+/// - Snapshot testing of execution outcomes via [`ExpectedResult`]
+///
+/// It integrates:
+/// - [`ConsensusTest`] for chain simulation and block production
+/// - [`TestTxFactory`] for deterministic transaction generation
+///
+/// NOTE: The **majority of logic and state computation occurs during construction to enable a deterministic TestChainstate** (`new()`):
+/// - All contract names are generated and versioned
+/// - Block counts per epoch are precomputed
+/// - Epoch order is finalized
+/// - Transaction sequencing is fully planned
+struct ContractConsensusTest<'a> {
+    /// Factory for generating signed, nonce-managed transactions.
+    tx_factory: TestTxFactory,
+    /// Underlying chainstate used for block execution and consensus checks.
+    consensus_test: ConsensusTest<'a>,
+    /// Address of the contract deployer (the test faucet).
+    contract_addr: StacksAddress,
+    /// Mapping of epoch → list of `(contract_name, ClarityVersion)` deployed in that epoch.
+    /// Multiple versions may exist per epoch (e.g., Clarity 1, 2, 3 in Epoch 3.0).
+    contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>>,
+    /// Mapping of epoch → list of `contract_names` that should be called in that epoch.
+    contract_calls_per_epoch: HashMap<StacksEpochId, Vec<String>>,
+    /// Source code of the Clarity contract being deployed and called.
+    contract_code: String,
+    /// Name of the public function to invoke during the call phase.
+    function_name: String,
+    /// Arguments to pass to `function_name` on every call.
+    function_args: Vec<ClarityValue>,
+    /// Sorted, deduplicated set of all epochs involved.
+    /// Used to iterate through test phases in chronological order.
+    all_epochs: BTreeSet<StacksEpochId>,
+}
+
+impl ContractConsensusTest<'_> {
+    /// Creates a new [`ContractConsensusTest`] instance.
+    ///
+    /// Initializes the test environment to:
+    /// - Deploy `contract_code` under `contract_name` in each `deploy_epochs`
+    /// - Call `function_name` with `function_args` in each `call_epochs`
+    /// - Track all contract instances per epoch and Clarity version
+    /// - Precompute block counts per epoch for stable chain simulation
+    ///
+    /// # Arguments
+    ///
+    /// * `test_name` - Unique identifier for the test run (used in logging and snapshots)
+    /// * `initial_balances` - Initial STX balances for principals (e.g., faucet, users)
+    /// * `deploy_epochs` - List of epochs where contract deployment should occur
+    /// * `call_epochs` - List of epochs where function calls should be executed
+    /// * `contract_name` - Base name for deployed contracts (versioned suffixes added automatically)
+    /// * `contract_code` - Clarity source code of the contract
+    /// * `function_name` - Contract function to test
+    /// * `function_args` - Arguments passed to `function_name` on every call
+    ///
+    /// # Panics
+    ///
+    /// - If `deploy_epochs` is empty.
+    /// - If any `call_epoch` is less than the minimum `deploy_epoch`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        test_name: &str,
+        initial_balances: Vec<(PrincipalData, u64)>,
+        deploy_epochs: &[StacksEpochId],
+        call_epochs: &[StacksEpochId],
+        contract_name: &str,
+        contract_code: &str,
+        function_name: &str,
+        function_args: &[ClarityValue],
+    ) -> Self {
+        assert!(
+            !deploy_epochs.is_empty(),
+            "At least one deploy epoch is required"
+        );
+        let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
+        assert!(
+            call_epochs.iter().all(|e| e >= min_deploy_epoch),
+            "All call epochs must be >= the minimum deploy epoch"
+        );
+
+        // Build epoch_blocks map based on deploy and call epochs
+        let mut num_blocks_per_epoch: HashMap<StacksEpochId, u64> = HashMap::new();
+        let mut contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>> =
+            HashMap::new();
+        let mut contract_calls_per_epoch: HashMap<StacksEpochId, Vec<String>> = HashMap::new();
+        let mut contract_names = vec![];
+
+        // Combine and sort unique epochs
+        let all_epochs: BTreeSet<StacksEpochId> =
+            deploy_epochs.iter().chain(call_epochs).cloned().collect();
+
+        // Precompute contract names and block counts
+        for epoch in &all_epochs {
+            let mut num_blocks = 0;
+
+            if deploy_epochs.contains(epoch) {
+                let clarity_versions = clarity_versions_for_epoch(*epoch);
+                let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
+
+                // Each deployment is a seperate TestBlock
+                for &version in clarity_versions {
+                    let version_tag = version.to_string().replace(' ', "");
+                    let name = format!("{contract_name}-{epoch_name}-{version_tag}");
+                    contract_deploys_per_epoch
+                        .entry(*epoch)
+                        .or_default()
+                        .push((name.clone(), version));
+                    contract_names.push(name.clone());
+                    num_blocks += 1;
+                }
+            }
+
+            if call_epochs.contains(epoch) {
+                // Each call is a separate TestBlock
+                for name in &contract_names {
+                    // Each call is a separate TestBlock
+                    contract_calls_per_epoch
+                        .entry(*epoch)
+                        .or_default()
+                        .push(name.clone());
+                    num_blocks += 1;
+                }
+            }
+            if num_blocks > 0 {
+                num_blocks_per_epoch.insert(*epoch, num_blocks);
+            }
+        }
+
+        Self {
+            tx_factory: TestTxFactory::new(CHAIN_ID_TESTNET),
+            consensus_test: ConsensusTest::new(test_name, initial_balances, num_blocks_per_epoch),
+            contract_addr: to_addr(&FAUCET_PRIV_KEY),
+            contract_deploys_per_epoch,
+            contract_calls_per_epoch,
+            contract_code: contract_code.to_string(),
+            function_name: function_name.to_string(),
+            function_args: function_args.to_vec(),
+            all_epochs,
+        }
+    }
+
+    /// Generates a transaction, appends it to a new test block, and executes the block.
+    ///
+    /// If the transaction succeeds, this function automatically increments the sender's
+    /// nonce for subsequent transactions.
+    ///
+    /// # Arguments
+    ///
+    /// - `tx_spec`: The transaction specification to generate and execute.
+    /// - `is_naka_block`: Whether this block is mined under Nakamoto consensus rules.
+    ///
+    /// # Returns
+    ///
+    /// The [`ExpectedResult`] of block execution (success/failure with VM output)
+    fn append_tx_block(&mut self, tx_spec: &TestTxSpec, is_naka_block: bool) -> ExpectedResult {
+        let tx = self.tx_factory.generate_tx(tx_spec);
+        let block = TestBlock {
+            transactions: vec![tx],
+        };
+
+        let result = self.consensus_test.append_block(block, is_naka_block);
+
+        if let ExpectedResult::Success(_) = result {
+            self.tx_factory.increase_nonce_for_tx(tx_spec);
+        }
+
+        result
+    }
+
+    /// Deploys all contract versions scheduled for the given epoch.
+    ///
+    /// For each Clarity version supported in the epoch:
+    /// - Generates a unique contract name (e.g., `my-contract-Epoch30-Clarity3`)
+    /// - Deploys in a **separate block**
+    /// - Uses `None` for Clarity version in pre-2.1 epochs (behaviour defaults to Clarity 1)
+    ///
+    /// # Returns
+    /// A vector of [`ExpectedResult`] values, one per deployment block.
+    fn deploy_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
+        let Some(contract_names) = self.contract_deploys_per_epoch.get(&epoch) else {
+            warn!("No contract deployments found for {epoch}.");
+            return vec![];
+        };
+
+        let is_naka_block = epoch.uses_nakamoto_blocks();
+        contract_names
+            .clone()
+            .iter()
+            .map(|(name, version)| {
+                let clarity_version = if epoch < StacksEpochId::Epoch21 {
+                    // Old epochs have no concept of clarity version. It defaults to
+                    // clarity version 1 behaviour.
+                    None
+                } else {
+                    Some(*version)
+                };
+                self.append_tx_block(
+                    &TestTxSpec::ContractDeploy {
+                        sender: &FAUCET_PRIV_KEY,
+                        name,
+                        code: &self.contract_code.clone(),
+                        clarity_version,
+                    },
+                    is_naka_block,
+                )
+            })
+            .collect()
+    }
+
+    /// Executes the test function on **all** contracts deployed in the given epoch.
+    ///
+    /// Each call occurs in a **separate block** to isolate side effects and enable
+    /// fine-grained snapshot assertions. All prior deployments (even from earlier epochs)
+    /// are callable if they exist in the chain state.
+    ///
+    /// # Arguments
+    ///
+    /// - `epoch`: The epoch in which to perform contract calls.
+    ///
+    /// # Returns
+    ///
+    /// A [`Vec<ExpectedResult>`] with one entry per function call
+    fn call_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
+        let Some(contract_names) = self.contract_calls_per_epoch.get(&epoch) else {
+            warn!("No contract calls found for {epoch}.");
+            return vec![];
+        };
+
+        let is_naka_block = epoch.uses_nakamoto_blocks();
+        contract_names
+            .clone()
+            .iter()
+            .map(|contract_name| {
+                self.append_tx_block(
+                    &TestTxSpec::ContractCall {
+                        sender: &FAUCET_PRIV_KEY,
+                        contract_addr: &self.contract_addr.clone(),
+                        contract_name,
+                        function_name: &self.function_name.clone(),
+                        args: &self.function_args.clone(),
+                    },
+                    is_naka_block,
+                )
+            })
+            .collect()
+    }
+
+    /// Executes the full consensus test: deploy in [`Self::contract_deploys_per_epoch`], call in [`Self::contract_calls_per_epoch`].
+    ///
+    /// Processes epochs in **sorted order** using [`Self::all_epochs`]. For each epoch:
+    /// - Advances the chain into the target epoch
+    /// - Deploys contracts (if scheduled)
+    /// - Executes function calls (if scheduled)
+    ///
+    /// # Execution Order Example
+    ///
+    /// Given at test instantiation:
+    /// ```rust
+    /// deploy_epochs = [Epoch20, Epoch30]
+    /// call_epochs   = [Epoch30, Epoch31]
+    /// ```
+    ///
+    /// The sequence is:
+    /// 1. Enter Epoch 2.0 → Deploy `contract-v1`
+    /// 2. Enter Epoch 3.0 → Deploy `contract-v1`, `contract-v2`, `contract-v3`
+    /// 3. Enter Epoch 3.0 → Call function on all 4 deployed contracts
+    /// 4. Enter Epoch 3.1 → Call function on all 4 deployed contracts
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
+    pub fn run(mut self) -> Vec<ExpectedResult> {
+        let mut results = Vec::new();
+
+        // Process epochs in order
+        for epoch in self.all_epochs.clone() {
+            // Use the miner as the sender to prevent messing with the block transaction nonces of the deployer/callers
+            let private_key = self.consensus_test.chain.miner.nakamoto_miner_key();
+
+            // Advance the chain into the target epoch
+            self.consensus_test
+                .chain
+                .advance_into_epoch(&private_key, epoch);
+
+            results.extend(self.deploy_contracts(epoch));
+            results.extend(self.call_contracts(epoch));
+        }
+
+        results
+    }
+}
+
+/// The type of transaction to create.
+pub enum TestTxSpec<'a> {
+    Transfer {
+        from: &'a StacksPrivateKey,
+        to: &'a PrincipalData,
+        amount: u64,
+    },
+    ContractDeploy {
+        sender: &'a StacksPrivateKey,
+        name: &'a str,
+        code: &'a str,
+        clarity_version: Option<ClarityVersion>,
+    },
+    ContractCall {
+        sender: &'a StacksPrivateKey,
+        contract_addr: &'a StacksAddress,
+        contract_name: &'a str,
+        function_name: &'a str,
+        args: &'a [ClarityValue],
+    },
+}
+
+/// A helper to create transactions with incrementing nonces for each account.
+pub struct TestTxFactory {
+    /// Map of address to next nonce
+    nonce_counter: HashMap<StacksAddress, u64>,
+    /// The default chain ID to use for transactions
+    default_chain_id: u32,
+}
+
+impl TestTxFactory {
+    /// Creates a new [`TransactionFactory`] with the specified default chain ID.
+    pub fn new(default_chain_id: u32) -> Self {
+        Self {
+            nonce_counter: HashMap::new(),
+            default_chain_id,
+        }
+    }
+
+    /// Manually increments the nonce for the sender of the specified transaction.
+    ///
+    /// This method should be called *after* a transaction has been successfully
+    /// processed to ensure the factory uses the correct next nonce for subsequent
+    /// transactions from the same sender.
+    ///
+    /// # Arguments
+    ///
+    /// * `tx_spec` - The original specification of the transaction whose sender's
+    ///   nonce should be incremented.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the sender's address is not found in the nonce counter map.
+    pub fn increase_nonce_for_tx(&mut self, tx_spec: &TestTxSpec) {
+        let sender_privk = match tx_spec {
+            TestTxSpec::Transfer { from, .. } => from,
+            TestTxSpec::ContractDeploy { sender, .. } => sender,
+            TestTxSpec::ContractCall { sender, .. } => sender,
+        };
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk));
+        let nonce = self
+            .nonce_counter
+            .get_mut(&address)
+            .unwrap_or_else(|| panic!("Nonce not found for address {address}"));
+        *nonce += 1;
+    }
+
+    /// Generates a new transaction of the specified type.
+    ///
+    /// Arguments:
+    /// - `tx_type`: The type of transaction to create.
+    ///
+    /// Returns:
+    /// A [`StacksTransaction`] representing the created transaction.
+    pub fn generate_tx(&mut self, tx_spec: &TestTxSpec) -> StacksTransaction {
+        match tx_spec {
+            TestTxSpec::Transfer { from, to, amount } => self.transfer(from, to, *amount),
+            TestTxSpec::ContractDeploy {
+                sender,
+                name,
+                code,
+                clarity_version,
+            } => self.contract_deploy(sender, name, code, *clarity_version),
+            TestTxSpec::ContractCall {
+                sender,
+                contract_addr,
+                contract_name,
+                function_name,
+                args,
+            } => self.contract_call(sender, contract_addr, contract_name, function_name, args),
+        }
+    }
+
+    /// Create a STX transfer transaction.
+    ///
+    /// Arguments:
+    /// - `from`: The sender's private key.
+    /// - `to`: The recipient's principal data.
+    /// - `amount`: The amount of STX to transfer.
+    ///
+    /// Returns:
+    /// A [`StacksTransaction`] representing the transfer.
+    ///
+    /// Note: The transaction fee is set to 180 micro-STX.
+    pub fn transfer(
+        &mut self,
+        from: &StacksPrivateKey,
+        to: &PrincipalData,
+        amount: u64,
+    ) -> StacksTransaction {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(from));
+        let nonce = self.nonce_counter.entry(address).or_insert(0);
+        make_stacks_transfer_tx(from, *nonce, 180, self.default_chain_id, to, amount)
+    }
+
+    /// Create a contract deployment transaction.
+    ///
+    /// Arguments:
+    /// `sender`: The sender's private key.
+    /// `name`: The name of the contract.
+    /// `code`: The contract code as a string.
+    ///
+    /// Returns:
+    /// A [`StacksTransaction`] representing the contract deployment.
+    ///
+    /// Note: The transaction fee is set based on the contract code length.
+    pub fn contract_deploy(
+        &mut self,
+        sender: &StacksPrivateKey,
+        name: &str,
+        code: &str,
+        clarity_version: Option<ClarityVersion>,
+    ) -> StacksTransaction {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
+        let nonce = self.nonce_counter.entry(address).or_insert(0);
+        let tx_bytes = make_contract_publish_versioned(
+            sender,
+            *nonce,
+            (code.len() * 100) as u64,
+            self.default_chain_id,
+            name,
+            code,
+            clarity_version,
+        );
+        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
+    }
+
+    /// Create a contract call transaction.
+    ///
+    /// Arguments:
+    /// `sender`: The sender's private key.
+    /// `contract_addr`: The address of the contract.
+    /// `contract_name`: The name of the contract.
+    /// `function_name`: The name of the function to call.
+    /// `args`: The arguments to pass to the function.
+    ///
+    /// Returns:
+    /// A [`StacksTransaction`] representing the contract call.
+    ///
+    /// Note: The transaction fee is set to 200 micro-STX.
+    pub fn contract_call(
+        &mut self,
+        sender: &StacksPrivateKey,
+        contract_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        args: &[ClarityValue],
+    ) -> StacksTransaction {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender));
+        let nonce = self.nonce_counter.entry(address).or_insert(0);
+        let tx_bytes = make_contract_call(
+            sender,
+            *nonce,
+            200,
+            self.default_chain_id,
+            contract_addr,
+            contract_name,
+            function_name,
+            args,
+        );
+        StacksTransaction::consensus_deserialize(&mut tx_bytes.as_slice()).unwrap()
+    }
+}
+
+/// Generates a consensus test for executing a contract function across multiple Stacks epochs.
+///
+/// This macro automates both contract deployment and function invocation across different
+/// epochs and Clarity versions.
+/// It simplifies the setup of consensus-critical tests involving versioned smart contracts.
+///
+/// # Behavior
+///
+/// - **Deployment:** Deploys `contract_code` in each epoch specified in `deploy_epochs`
+///   for every applicable [`ClarityVersion`].
+/// - **Execution:** Calls `function_name` in each epoch from `call_epochs` on all previously
+///   deployed contract instances.
+/// - **Structure:** Each deployment and function call is executed in its own block, ensuring
+///   clear separation between transactions.
+///
+/// # Arguments
+///
+/// * `$name` — Name of the generated test function.
+/// * `contract_name` — The name of the contract.
+/// * `contract_code` — The Clarity source code for the contract.
+/// * `function_name` — The public function to call.
+/// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
+/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
+/// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
+///
+/// # Example
+///
+/// ```rust,ignore
+/// contract_call_consensus_test!(
+///     my_test,
+///     contract_name: "my-contract",
+///     contract_code: "(define-public (get-message) (ok \"hello\"))",
+///     function_name: "get-message",
+///     function_args: &[],
+/// );
+/// ```
+macro_rules! contract_call_consensus_test {
+    (
+        $name:ident,
+        contract_name: $contract_name:expr,
+        contract_code: $contract_code:expr,
+        function_name: $function_name:expr,
+        function_args: $function_args:expr,
+        $(deploy_epochs: $deploy_epochs:expr,)?
+        $(call_epochs: $call_epochs:expr,)?
+    ) => {
+        #[test]
+        fn $name() {
+            // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
+            let deploy_epochs = &StacksEpochId::ALL[1..];
+            $(let deploy_epochs = $deploy_epochs;)?
+
+            // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
+            let call_epochs = EPOCHS_TO_TEST;
+            $(let call_epochs = $call_epochs;)?
+            let contract_test = ContractConsensusTest::new(
+                function_name!(),
+                vec![],
+                deploy_epochs,
+                call_epochs,
+                $contract_name,
+                $contract_code,
+                $function_name,
+                $function_args,
+            );
+            let result = contract_test.run();
+            insta::assert_ron_snapshot!(result);
+        }
+    };
+}
+
+/// Generates a consensus test for contract deployment across multiple Stacks epochs.
+///
+/// This macro automates deploying a contract across different Stacks epochs and
+/// Clarity versions. It is primarily used for consensus-critical testing of contract
+/// deployment behavior.
+///
+/// # Behavior
+///
+/// - **Deployment:** Deploys `contract_code` in each epoch specified by `deploy_epochs`
+///   for all applicable [`ClarityVersion`]s.
+/// - **Structure:** Each deployment is executed in its own block, ensuring clear
+///   separation between transactions.
+///
+/// # Arguments
+///
+/// * `$name` — Name of the generated test function.
+/// * `contract_name` — Name of the contract being tested.
+/// * `contract_code` — The Clarity source code of the contract.
+/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
+///
+/// # Example
+///
+/// ```rust,ignore
+/// contract_deploy_consensus_test!(
+///     deploy_test,
+///     contract_name: "my-contract",
+///     contract_code: "(define-public (init) (ok true))",
+/// );
+/// ```
+macro_rules! contract_deploy_consensus_test {
+    // Handle the case where deploy_epochs is not provided
+    (
+        $name:ident,
+        contract_name: $contract_name:expr,
+        contract_code: $contract_code:expr,
+    ) => {
+        contract_deploy_consensus_test!(
+            $name,
+            contract_name: $contract_name,
+            contract_code: $contract_code,
+            deploy_epochs: EPOCHS_TO_TEST,
+        );
+    };
+    (
+        $name:ident,
+        contract_name: $contract_name:expr,
+        contract_code: $contract_code:expr,
+        deploy_epochs: $deploy_epochs:expr,
+    ) => {
+        contract_call_consensus_test!(
+            $name,
+            contract_name: $contract_name,
+            contract_code: $contract_code,
+            function_name: "",   // No function calls, just deploys
+            function_args: &[],  // No function calls, just deploys
+            deploy_epochs: $deploy_epochs,
+            call_epochs: &[],    // No function calls, just deploys
+        );
+    };
 }
 
 #[test]
