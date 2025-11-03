@@ -399,38 +399,6 @@ impl ConsensusChain<'_> {
             });
             current_height = end_height;
         }
-        // Validate Epoch 2.5 and 3.0 constraints
-        if let Some(epoch_3_0) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch30) {
-            let epoch_2_5 = epochs
-                .iter()
-                .find(|e| e.epoch_id == StacksEpochId::Epoch25)
-                .expect("Epoch 2.5 not found");
-            let epoch_2_5_start = epoch_2_5.start_height;
-            let epoch_3_0_start = epoch_3_0.start_height;
-            let epoch_2_5_end = epoch_2_5.end_height;
-
-            let epoch_2_5_reward_cycle = epoch_2_5_start / reward_cycle_length;
-            let epoch_3_0_reward_cycle = epoch_3_0_start / reward_cycle_length;
-            let prior_cycle = epoch_3_0_reward_cycle.saturating_sub(1);
-            let epoch_3_0_prepare_phase =
-                prior_cycle * reward_cycle_length + (reward_cycle_length - prepare_length);
-            assert!(
-                epoch_2_5_start < epoch_3_0_prepare_phase,
-                "Epoch 2.5 must start before the prepare phase of the cycle prior to Epoch 3.0. (Epoch 2.5 activation height: {epoch_2_5_start}. Epoch 3.0 prepare phase start: {epoch_3_0_prepare_phase})"
-            );
-            assert_eq!(
-                epoch_2_5_end, epoch_3_0.start_height,
-                "Epoch 2.5 end must equal Epoch 3.0 start (epoch_2_5_end: {epoch_2_5_end}, epoch_3_0_start: {epoch_3_0_start})"
-            );
-            assert_ne!(
-                epoch_2_5_reward_cycle, epoch_3_0_reward_cycle,
-                "Epoch 2.5 and Epoch 3.0 must not be in the same reward cycle (epoch_2_5_reward_cycle: {epoch_2_5_reward_cycle}, epoch_3_0_reward_cycle: {epoch_3_0_reward_cycle})"
-            );
-            assert!(
-                !is_reward_cycle_boundary(epoch_3_0_start, reward_cycle_length),
-                "Epoch 3.0 must not start at a reward cycle boundary (epoch_3_0_start: {epoch_3_0_start})"
-            );
-        }
         // Validate test vector block counts
         for (epoch_id, num_blocks) in num_blocks_per_epoch {
             let epoch = epochs

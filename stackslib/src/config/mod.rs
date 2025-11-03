@@ -684,6 +684,16 @@ impl Config {
                 "FATAL: v1 unlock height is at a reward cycle boundary\nburnchain: {burnchain:?}"
             );
         }
+        if epochs
+            .iter()
+            .any(|epoch| epoch.epoch_id == StacksEpochId::Epoch30)
+        {
+            StacksEpoch::assert_valid_epoch_3_0_activation(
+                epochs,
+                burnchain.pox_constants.reward_cycle_length as u64,
+                burnchain.pox_constants.prepare_length as u64,
+            );
+        }
     }
 
     // TODO: add tests from mutation testing results #4866
