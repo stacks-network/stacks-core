@@ -5,15 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## [Unreleased]
+## [3.3.0.0.0]
 
 ### Added
 
 - Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
-
-### Added
-
 - New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
+- Activation height selected and set for epoch 3.3 at Bitcoin block 923,222
 
 ### Changed
 
