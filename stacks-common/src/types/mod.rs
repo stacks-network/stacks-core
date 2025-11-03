@@ -28,7 +28,7 @@ use crate::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use crate::consts::MICROSTACKS_PER_STACKS;
+use crate::consts::{MICROSTACKS_PER_STACKS, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3};
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
@@ -124,6 +124,26 @@ define_stacks_epochs! {
     Epoch31 = 0x03001,
     Epoch32 = 0x03002,
     Epoch33 = 0x03003,
+}
+
+impl StacksEpochId {
+    /// Return the network epoch associated with the StacksEpochId
+    pub fn network_epoch(epoch: StacksEpochId) -> u8 {
+        match epoch {
+            StacksEpochId::Epoch10 => PEER_VERSION_EPOCH_1_0,
+            StacksEpochId::Epoch20 => PEER_VERSION_EPOCH_2_0,
+            StacksEpochId::Epoch2_05 => PEER_VERSION_EPOCH_2_05,
+            StacksEpochId::Epoch21 => PEER_VERSION_EPOCH_2_1,
+            StacksEpochId::Epoch22 => PEER_VERSION_EPOCH_2_2,
+            StacksEpochId::Epoch23 => PEER_VERSION_EPOCH_2_3,
+            StacksEpochId::Epoch24 => PEER_VERSION_EPOCH_2_4,
+            StacksEpochId::Epoch25 => PEER_VERSION_EPOCH_2_5,
+            StacksEpochId::Epoch30 => PEER_VERSION_EPOCH_3_0,
+            StacksEpochId::Epoch31 => PEER_VERSION_EPOCH_3_1,
+            StacksEpochId::Epoch32 => PEER_VERSION_EPOCH_3_2,
+            StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -18,9 +18,7 @@ use std::sync::LazyLock;
 use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::{
-    CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
-    PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2, PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4,
-    PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0, PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2,
+    CHAIN_ID_TESTNET,
     STACKS_EPOCH_MAX,
 };
 use clarity::types::chainstate::{
@@ -227,7 +225,8 @@ pub struct TestBlock {
 
 /// Manages a `TestChainstate` tailored for consensus-rule verification.
 ///
-/// Initialises the chain with enough burn-chain blocks per epoch to run the requested Stacks blocks.
+/// Initialises the chain with enough burn-chain blocks per epoch to run
+/// the requested number of Stacks blocks per epoch.
 ///
 /// Provides high-level helpers for:
 /// - Appending Nakamoto or pre-Nakamoto blocks
@@ -393,19 +392,7 @@ impl ConsensusChain<'_> {
             } else {
                 BLOCK_LIMIT_MAINNET_21.clone()
             };
-            let network_epoch = match *epoch_id {
-                StacksEpochId::Epoch10 => PEER_VERSION_EPOCH_1_0,
-                StacksEpochId::Epoch20 => PEER_VERSION_EPOCH_2_0,
-                StacksEpochId::Epoch2_05 => PEER_VERSION_EPOCH_2_05,
-                StacksEpochId::Epoch21 => PEER_VERSION_EPOCH_2_1,
-                StacksEpochId::Epoch22 => PEER_VERSION_EPOCH_2_2,
-                StacksEpochId::Epoch23 => PEER_VERSION_EPOCH_2_3,
-                StacksEpochId::Epoch24 => PEER_VERSION_EPOCH_2_4,
-                StacksEpochId::Epoch25 => PEER_VERSION_EPOCH_2_5,
-                StacksEpochId::Epoch30 => PEER_VERSION_EPOCH_3_0,
-                StacksEpochId::Epoch31 => PEER_VERSION_EPOCH_3_1,
-                StacksEpochId::Epoch32 | StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_2,
-            };
+            let network_epoch = StacksEpochId::network_epoch(*epoch_id);
             epochs.push(StacksEpoch {
                 epoch_id: *epoch_id,
                 start_height,
