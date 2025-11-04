@@ -582,33 +582,19 @@ impl Config {
 
     fn check_nakamoto_config(&self, burnchain: &Burnchain) {
         let epochs = self.burnchain.get_epoch_list();
-        let Some(epoch_30) = epochs.get(StacksEpochId::Epoch30) else {
-            // no Epoch 3.0, so just return
+        if epochs
+            .iter()
+            .all(|epoch| epoch.epoch_id < StacksEpochId::Epoch30)
+        {
             return;
-        };
+        }
         if burnchain.pox_constants.prepare_length < 3 {
             panic!(
                 "FATAL: Nakamoto rules require a prepare length >= 3. Prepare length set to {}",
                 burnchain.pox_constants.prepare_length
             );
         }
-        if burnchain.is_in_prepare_phase(epoch_30.start_height) {
-            panic!(
-                "FATAL: Epoch 3.0 must start *during* a reward phase, not a prepare phase. Epoch 3.0 start set to: {}. PoX Parameters: {:?}",
-                epoch_30.start_height,
-                &burnchain.pox_constants
-            );
-        }
-        let activation_reward_cycle = burnchain
-            .block_height_to_reward_cycle(epoch_30.start_height)
-            .expect("FATAL: Epoch 3.0 starts before the first burnchain block");
-        if activation_reward_cycle < 2 {
-            panic!(
-                "FATAL: Epoch 3.0 must start at or after the second reward cycle. Epoch 3.0 start set to: {}. PoX Parameters: {:?}",
-                epoch_30.start_height,
-                &burnchain.pox_constants
-            );
-        }
+        StacksEpoch::validate_nakamoto_transition_schedule(&epochs, burnchain);
     }
 
     /// Connect to the MempoolDB using the configured cost estimation
@@ -684,16 +670,7 @@ impl Config {
                 "FATAL: v1 unlock height is at a reward cycle boundary\nburnchain: {burnchain:?}"
             );
         }
-        if epochs
-            .iter()
-            .any(|epoch| epoch.epoch_id == StacksEpochId::Epoch30)
-        {
-            StacksEpoch::assert_valid_epoch_3_0_activation(
-                epochs,
-                burnchain.pox_constants.reward_cycle_length as u64,
-                burnchain.pox_constants.prepare_length as u64,
-            );
-        }
+        StacksEpoch::validate_nakamoto_transition_schedule(epochs, burnchain);
     }
 
     // TODO: add tests from mutation testing results #4866

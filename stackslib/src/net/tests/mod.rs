@@ -187,10 +187,9 @@ impl NakamotoBootPlan {
         chainstate_config.burnchain.pox_constants = self.pox_constants.clone();
 
         if let Some(epochs) = chainstate_config.epochs.as_ref() {
-            StacksEpoch::assert_valid_epoch_3_0_activation(
+            StacksEpoch::validate_nakamoto_transition_schedule(
                 epochs,
-                self.pox_constants.reward_cycle_length as u64,
-                self.pox_constants.prepare_length as u64,
+                &chainstate_config.burnchain,
             );
         }
 
