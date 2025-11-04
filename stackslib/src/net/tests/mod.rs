@@ -186,6 +186,14 @@ impl NakamotoBootPlan {
         chainstate_config.test_stackers = Some(self.test_stackers.clone());
         chainstate_config.burnchain.pox_constants = self.pox_constants.clone();
 
+        if let Some(epochs) = chainstate_config.epochs.as_ref() {
+            StacksEpoch::assert_valid_epoch_3_0_activation(
+                epochs,
+                self.pox_constants.reward_cycle_length as u64,
+                self.pox_constants.prepare_length as u64,
+            );
+        }
+
         chainstate_config
     }
 
@@ -437,13 +445,6 @@ impl NakamotoBootPlan {
         if let Some(current_block) = current_block {
             chainstate_config.current_block = current_block;
         }
-        if let Some(epochs) = self.epochs.as_ref() {
-            StacksEpoch::assert_valid_epoch_3_0_activation(
-                epochs,
-                self.pox_constants.reward_cycle_length as u64,
-                self.pox_constants.prepare_length as u64,
-            );
-        }
         let mut chain = TestChainstate::new_with_observer(chainstate_config, observer);
         chain.mine_malleablized_blocks = self.malleablized_blocks;
         chain
@@ -456,13 +457,6 @@ impl NakamotoBootPlan {
         self,
         observer: Option<&TestEventObserver>,
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
-        if let Some(epochs) = self.epochs.as_ref() {
-            StacksEpoch::assert_valid_epoch_3_0_activation(
-                epochs,
-                self.pox_constants.reward_cycle_length as u64,
-                self.pox_constants.prepare_length as u64,
-            );
-        }
         let mut peer_config = TestPeerConfig::new(&self.test_name, 0, 0);
         peer_config.chain_config = self.build_nakamoto_chainstate_config();
         peer_config.private_key = self.private_key.clone();

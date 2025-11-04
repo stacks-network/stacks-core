@@ -232,7 +232,7 @@ pub struct ConsensusChain<'a> {
 }
 
 impl ConsensusChain<'_> {
-    /// Creates a new `ConsensusChain`.
+    /// Creates a new [`ConsensusChain`].
     ///
     /// # Arguments
     ///
@@ -700,17 +700,17 @@ impl ConsensusChain<'_> {
     }
 }
 
-/// A complete consensus test that drives a `ConsensusChain` through a series of epochs.
+/// A complete consensus test that drives a [`ConsensusChain`] through a series of epochs.
 ///
 /// It stores the blocks to execute per epoch and runs them in chronological order,
-/// producing a vector of `ExpectedResult` suitable for snapshot testing.
+/// producing a vector of [`ExpectedResult`] suitable for snapshot testing.
 pub struct ConsensusTest<'a> {
     pub chain: ConsensusChain<'a>,
     epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
 }
 
 impl ConsensusTest<'_> {
-    /// Constructs a `ConsensusTest` from a map of **epoch → blocks**.
+    /// Constructs a [`ConsensusTest`] from a map of **epoch → blocks**.
     ///
     /// The map is converted into `num_blocks_per_epoch` for chain initialisation.
     pub fn new(
@@ -737,7 +737,7 @@ impl ConsensusTest<'_> {
     ///
     ///  # Returns
     ///
-    /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
+    /// A Vec<['ExpectedResult`]> with the outcome of each block for snapshot testing.
     pub fn run(mut self) -> Vec<ExpectedResult> {
         let mut sorted_epochs: Vec<_> = self.epoch_blocks.clone().into_iter().collect();
         sorted_epochs.sort_by_key(|(epoch_id, _)| *epoch_id);
@@ -991,7 +991,7 @@ impl ContractConsensusTest<'_> {
     ///
     /// # Returns
     ///
-    /// A [`Vec<ExpectedResult>`] with one entry per function call
+    /// A Vec<['ExpectedResult`]> with one entry per function call
     fn call_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
         let Some(contract_names) = self.contract_calls_per_epoch.get(&epoch) else {
             warn!("No contract calls found for {epoch}.");
@@ -1027,7 +1027,7 @@ impl ContractConsensusTest<'_> {
     /// # Execution Order Example
     ///
     /// Given at test instantiation:
-    /// ```rust
+    /// ```rust,ignore
     /// deploy_epochs = [Epoch20, Epoch30]
     /// call_epochs   = [Epoch30, Epoch31]
     /// ```
@@ -1040,7 +1040,7 @@ impl ContractConsensusTest<'_> {
     ///
     /// # Returns
     ///
-    /// A `Vec<ExpectedResult>` with the outcome of each block for snapshot testing.
+    /// A Vec<['ExpectedResult`]> with the outcome of each block for snapshot testing.
     pub fn run(mut self) -> Vec<ExpectedResult> {
         let mut results = Vec::new();
 
