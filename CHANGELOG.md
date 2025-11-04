@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [3.3.0.0.0]
+
+### Added
+
+- Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
+- New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
+- Activation height selected and set for epoch 3.3 at Bitcoin block 923,222
+
+### Changed
+
+- Renamed Clarity 4's new `block-time` to `stacks-block-time`
+- Improve cost-tracking for type-checking function arguments in epoch 3.3 (see [#6425](https://github.com/stacks-network/stacks-core/issues/6425))
+- Replaced `libsecp256k1` with `k256` and `p256` from RustCrypto and removed separate Wasm implementations.
+- Added limits in the type-checker for the number of parameters in functions (maximum 256), and the number of methods in traits (maximum 256). These limits are enforced starting in Epoch 3.3.
+
 ## [3.2.0.0.2]
 
 ### Added
@@ -20,7 +35,16 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
   - `current-contract`
   - `block-time`
   - `to-ascii?`
+  - `restrict-assets?`
+  - `as-contract?`
+  - Special allowance expressions:
+    - `with-stx`
+    - `with-ft`
+    - `with-nft`
+    - `with-stacking`
+    - `with-all-assets-unsafe`
 - Added `contract_cost_limit_percentage` to the miner config file — sets the percentage of a block’s execution cost at which, if a large non-boot contract call would cause a BlockTooBigError, the miner will stop adding further non-boot contract calls and only include STX transfers and boot contract calls for the remainder of the block.
+- Fixed a bug caused by a miner winning a sortition with a block commit that pointed to a previous tip, which would cause the miner to try and reorg itself. [#6481](https://github.com/stacks-network/stacks-core/issues/6481)
 
 ### Changed
 

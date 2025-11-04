@@ -15,6 +15,7 @@
 
 use std::time::{Duration, UNIX_EPOCH};
 
+use blockstack_lib::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
 use blockstack_lib::chainstate::stacks::TenureChangePayload;
 use blockstack_lib::net::api::getsortition::SortitionInfo;
@@ -286,6 +287,7 @@ impl SortitionsView {
                         "Current miner behaved improperly, this signer views the miner as invalid.";
                         "proposed_block_consensus_hash" => %block.header.consensus_hash,
                         "signer_signature_hash" => %block.header.signer_signature_hash(),
+                        "current_sortition_miner_status" => ?sortition.miner_status,
                     );
                     return Err(RejectReason::InvalidMiner);
                 }
@@ -355,6 +357,25 @@ impl SortitionsView {
                     "is_in_replay" => is_in_replay,
                     "changed_burn_view" => changed_burn_view,
                     "enough_time_passed" => enough_time_passed,
+                );
+                return Err(RejectReason::InvalidTenureExtend);
+            }
+            // For the time being, the signer will not allow SIP-034 tenure extend until the
+            // requisite idle-time logic for each dimension has been added.  However, this can be
+            // overridden in integration tests.
+            if MinerTenureInfoCause::from(tenure_extend.cause).is_sip034_tenure_extension()
+                && !self.config.supports_sip034_tenure_extensions
+            {
+                warn!(
+                    "Miner block proposal contains a SIP-034 tenure extension, which is not yet supported";
+                    "proposed_block_consensus_hash" => %block.header.consensus_hash,
+                    "signer_signature_hash" => %block.header.signer_signature_hash(),
+                    "extend_timestamp" => extend_timestamp,
+                    "epoch_time" => epoch_time,
+                    "is_in_replay" => is_in_replay,
+                    "changed_burn_view" => changed_burn_view,
+                    "enough_time_passed" => enough_time_passed,
+                    "tenure_extend.cause" => ?tenure_extend.cause,
                 );
                 return Err(RejectReason::InvalidTenureExtend);
             }

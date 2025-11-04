@@ -513,23 +513,27 @@ pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Val
     epoch_205_result
 }
 
-/// Runs `program` in a test environment with the provided parameters.
+/// Runs `program` in a test environment with the provided parameters and calls
+/// the provided functions before and after execution.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_with_parameters_and_call_in_global_context<F>(
+pub fn execute_with_parameters_and_call_in_global_context<F, G>(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     use_mainnet: bool,
-    mut global_context_function: F,
+    sender: clarity_types::types::StandardPrincipalData,
+    mut before_function: F,
+    mut after_function: G,
 ) -> Result<Option<Value>>
 where
     F: FnMut(&mut GlobalContext) -> Result<()>,
+    G: FnMut(&mut GlobalContext) -> Result<()>,
 {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::tests::test_only_mainnet_to_chain_id;
     use crate::vm::types::QualifiedContractIdentifier;
 
-    let contract_id = QualifiedContractIdentifier::transient();
+    let contract_id = QualifiedContractIdentifier::new(sender, "contract".into());
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
     let conn = marf.as_clarity_db();
@@ -542,10 +546,12 @@ where
         epoch,
     );
     global_context.execute(|g| {
-        global_context_function(g)?;
+        before_function(g)?;
         let parsed =
             ast::build_ast(&contract_id, program, &mut (), clarity_version, epoch)?.expressions;
-        eval_all(&parsed, &mut contract_context, g, None)
+        let res = eval_all(&parsed, &mut contract_context, g, None);
+        after_function(g)?;
+        res
     })
 }
 
@@ -561,6 +567,8 @@ pub fn execute_with_parameters(
         clarity_version,
         epoch,
         use_mainnet,
+        clarity_types::types::StandardPrincipalData::transient(),
+        |_| Ok(()),
         |_| Ok(()),
     )
 }
@@ -593,10 +601,12 @@ pub fn execute_with_limited_execution_time(
         ClarityVersion::Clarity1,
         StacksEpochId::Epoch20,
         false,
+        clarity_types::types::StandardPrincipalData::transient(),
         |g| {
             g.set_max_execution_time(max_execution_time);
             Ok(())
         },
+        |_| Ok(()),
     )
 }
 

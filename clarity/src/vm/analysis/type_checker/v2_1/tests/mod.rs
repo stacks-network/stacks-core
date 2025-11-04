@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::token::Token;
 use clarity_types::types::SequenceSubtype;
 #[cfg(test)]
 use rstest::rstest;
@@ -23,6 +24,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::errors::{CheckError, CheckErrors, SyntaxBindingError};
 use crate::vm::analysis::mem_type_check as mem_run_analysis;
+use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::analysis::types::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::ast::errors::ParseErrors;
@@ -40,6 +42,19 @@ use crate::vm::{execute_v2, ClarityName, ClarityVersion};
 
 mod assets;
 pub mod contracts;
+pub mod conversions;
+mod post_conditions;
+
+const SECP256_MESSAGE_HASH: &str =
+    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+const SECP256K1_SIGNATURE: &str =
+    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40";
+const SECP256K1_SIGNATURE_TOO_LONG: &str =
+    "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f4041";
+const SECP256K1_PUBLIC_KEY: &str =
+    "0xfffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0df";
+const SECP256R1_SIGNATURE: &str =
+    "0x000306090c0f1215181b1e2124272a2d303336393c3f4245484b4e5154575a5d606366696c6f7275787b7e8184878a8d909396999c9fa2a5a8abaeb1b4b7babd";
 
 /// Backwards-compatibility shim for type_checker tests. Runs at latest Clarity version.
 pub fn mem_type_check(exp: &str) -> Result<(Option<TypeSignature>, ContractAnalysis), CheckError> {
@@ -58,13 +73,13 @@ fn type_check_helper(exp: &str) -> Result<TypeSignature, CheckError> {
 fn type_check_helper_version(
     exp: &str,
     version: ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<TypeSignature, CheckError> {
-    mem_run_analysis(exp, version, StacksEpochId::latest())
-        .map(|(type_sig_opt, _)| type_sig_opt.unwrap())
+    mem_run_analysis(exp, version, epoch).map(|(type_sig_opt, _)| type_sig_opt.unwrap())
 }
 
 fn type_check_helper_v1(exp: &str) -> Result<TypeSignature, CheckError> {
-    type_check_helper_version(exp, ClarityVersion::Clarity1)
+    type_check_helper_version(exp, ClarityVersion::Clarity1, StacksEpochId::latest())
 }
 
 fn buff_type(size: u32) -> TypeSignature {
@@ -273,7 +288,12 @@ fn test_get_block_info() {
             expected,
             &format!(
                 "{}",
-                type_check_helper_version(good_test, ClarityVersion::Clarity2).unwrap()
+                type_check_helper_version(
+                    good_test,
+                    ClarityVersion::Clarity2,
+                    StacksEpochId::latest()
+                )
+                .unwrap()
             )
         );
     }
@@ -282,7 +302,12 @@ fn test_get_block_info() {
             expected_v210,
             &format!(
                 "{}",
-                type_check_helper_version(good_test_v210, ClarityVersion::Clarity2).unwrap()
+                type_check_helper_version(
+                    good_test_v210,
+                    ClarityVersion::Clarity2,
+                    StacksEpochId::latest()
+                )
+                .unwrap()
             )
         );
     }
@@ -290,7 +315,7 @@ fn test_get_block_info() {
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(
             *expected,
-            *type_check_helper_version(bad_test, ClarityVersion::Clarity2)
+            *type_check_helper_version(bad_test, ClarityVersion::Clarity2, StacksEpochId::latest())
                 .unwrap_err()
                 .err
         );
@@ -342,6 +367,71 @@ fn test_get_burn_block_info() {
 }
 
 #[apply(test_clarity_versions)]
+fn test_define_functions(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
+    let good = [
+        "(define-private (foo (a uint) (b int)) true)",
+        "(define-public (bar (x (buff 32))) (ok x))",
+        "(define-read-only (baz (p principal)) p)",
+    ];
+
+    for good_test in good.iter() {
+        mem_type_check(good_test).unwrap();
+    }
+
+    // Tests that fail only after epoch 3.3
+    let bad = [
+        format!(
+            "(define-private (foo {}) true)",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| format!("(param-{} uint)", i))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+        format!(
+            "(define-public (foo {}) (ok true))",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| format!("(param-{} uint)", i))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+        format!(
+            "(define-read-only (foo {}) true)",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| format!("(param-{} uint)", i))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+    ];
+    let bad_expected = [
+        CheckErrors::TooManyFunctionParameters(
+            MAX_FUNCTION_PARAMETERS + 1,
+            MAX_FUNCTION_PARAMETERS,
+        ),
+        CheckErrors::TooManyFunctionParameters(
+            MAX_FUNCTION_PARAMETERS + 1,
+            MAX_FUNCTION_PARAMETERS,
+        ),
+        CheckErrors::TooManyFunctionParameters(
+            MAX_FUNCTION_PARAMETERS + 1,
+            MAX_FUNCTION_PARAMETERS,
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        if epoch.limits_parameter_and_method_count() {
+            assert_eq!(
+                *expected,
+                *type_check_helper_version(bad_test, version, epoch)
+                    .unwrap_err()
+                    .err
+            );
+        } else {
+            mem_run_analysis(bad_test, version, epoch).unwrap();
+        }
+    }
+}
+
+#[apply(test_clarity_versions)]
 fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         "(define-trait trait-1 ((get-1 (uint) (response uint uint))))",
@@ -358,30 +448,79 @@ fn test_define_trait(#[case] version: ClarityVersion, #[case] epoch: StacksEpoch
         "(define-trait trait-1 ((get-1 uint uint)))",
         "(define-trait trait-1 ((get-1 (uint) (uint))))",
         "(define-trait trait-1 ((get-1 (response uint uint))))",
-        "(define-trait trait-1)",
-        "(define-trait)",
+        "(define-trait trait-1 ((get-1 (uint) (response uint uint)) u1))",
     ];
     let bad_expected = [
         CheckErrors::InvalidTypeDescription,
         CheckErrors::DefineTraitBadSignature,
         CheckErrors::DefineTraitBadSignature,
         CheckErrors::InvalidTypeDescription,
+        CheckErrors::DefineTraitBadSignature,
     ];
 
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         assert_eq!(*expected, *type_check_helper(bad_test).unwrap_err().err);
     }
 
-    let bad = ["(define-trait trait-1)", "(define-trait)"];
+    // Tests that fail before type-checker
+    let bad = [
+        "(define-trait trait-1)",
+        "(define-trait)",
+        "(define-trait trait-1 ((get-1 (uint) (response uint uint)))) u1)",
+    ];
     let bad_expected = [
         ParseErrors::DefineTraitBadSignature,
         ParseErrors::DefineTraitBadSignature,
+        if epoch == StacksEpochId::Epoch20 || epoch == StacksEpochId::Epoch2_05 {
+            // the pre-2.1 parser returns less instructive errors
+            ParseErrors::ClosingParenthesisUnexpected
+        } else {
+            ParseErrors::UnexpectedToken(Token::Rparen)
+        },
     ];
 
     let contract_identifier = QualifiedContractIdentifier::transient();
     for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
         let res = build_ast(&contract_identifier, bad_test, &mut (), version, epoch).unwrap_err();
         assert_eq!(*expected, *res.err);
+    }
+
+    // Tests that fail only after epoch 3.3
+    let bad = [
+        format!(
+            "(define-trait trait-1 ({}))",
+            (0..(MAX_TRAIT_METHODS + 1))
+                .map(|i| format!("(method-{} (uint) (response uint uint))", i))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+        format!(
+            "(define-trait trait-1 ((method ({}) (response uint uint))))",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| "uint".to_string())
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+    ];
+    let bad_expected = [
+        CheckErrors::TraitTooManyMethods(MAX_TRAIT_METHODS + 1, MAX_TRAIT_METHODS),
+        CheckErrors::TooManyFunctionParameters(
+            MAX_FUNCTION_PARAMETERS + 1,
+            MAX_FUNCTION_PARAMETERS,
+        ),
+    ];
+
+    for (bad_test, expected) in bad.iter().zip(bad_expected.iter()) {
+        if epoch.limits_parameter_and_method_count() {
+            assert_eq!(
+                *expected,
+                *type_check_helper_version(bad_test, version, epoch)
+                    .unwrap_err()
+                    .err
+            );
+        } else {
+            mem_run_analysis(bad_test, version, epoch).unwrap();
+        }
     }
 }
 
@@ -3853,5 +3992,194 @@ fn test_nested_bad_type_signature_syntax_bindings() {
     for (bad_code, expected_err) in bad.iter().zip(expected.iter()) {
         debug!("test nested bad syntax binding: '{}'", bad_code);
         assert_eq!(*expected_err, *type_check_helper(bad_code).unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_secp256k1_recover_type_check() {
+    let good_expr = format!(
+        "(secp256k1-recover? {} {})",
+        SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE
+    );
+    let type_result = type_check_helper(&good_expr).unwrap();
+    assert_eq!("(response (buff 33) uint)", type_result.to_string());
+
+    let buffer_66_type = TypeSignature::SequenceType(BufferType(
+        BufferLength::try_from(66u32).expect("BufferLength::try_from failed"),
+    ));
+
+    let bad_cases = [
+        (
+            "(secp256k1-recover?)".to_string(),
+            CheckErrors::IncorrectArgumentCount(2, 0),
+        ),
+        (
+            format!(
+                "(secp256k1-recover? {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::IncorrectArgumentCount(2, 3),
+        ),
+        (
+            format!(
+                "(secp256k1-recover? {} {})",
+                SECP256K1_SIGNATURE, SECP256K1_SIGNATURE
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+        (
+            format!(
+                "(secp256k1-recover? {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE_TOO_LONG
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_65),
+                Box::new(buffer_66_type.clone()),
+            ),
+        ),
+    ];
+
+    for (bad_expr, expected_err) in bad_cases.iter() {
+        println!("checking bad expr: {}", bad_expr);
+        let result = type_check_helper(bad_expr);
+        assert!(
+            result.is_err(),
+            "expression `{}` unexpectedly type-checked",
+            bad_expr
+        );
+        assert_eq!(*expected_err, *result.unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_secp256k1_verify_type_check() {
+    let good_expr = format!(
+        "(secp256k1-verify {} {} {})",
+        SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
+    );
+    assert_eq!("bool", type_check_helper(&good_expr).unwrap().to_string());
+
+    let buffer_66_type = TypeSignature::SequenceType(BufferType(
+        BufferLength::try_from(66u32).expect("BufferLength::try_from failed"),
+    ));
+
+    let bad_cases = [
+        (
+            "(secp256k1-verify)".to_string(),
+            CheckErrors::IncorrectArgumentCount(3, 0),
+        ),
+        (
+            format!(
+                "(secp256k1-verify {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE
+            ),
+            CheckErrors::IncorrectArgumentCount(3, 2),
+        ),
+        (
+            format!(
+                "(secp256k1-verify {} {} {})",
+                SECP256K1_SIGNATURE, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+        (
+            format!(
+                "(secp256k1-verify {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE_TOO_LONG, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_65),
+                Box::new(buffer_66_type.clone()),
+            ),
+        ),
+        (
+            format!(
+                "(secp256k1-verify {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_SIGNATURE
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_33),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+    ];
+
+    for (bad_expr, expected_err) in bad_cases.iter() {
+        let result = type_check_helper(bad_expr);
+        assert!(
+            result.is_err(),
+            "expression `{}` unexpectedly type-checked",
+            bad_expr
+        );
+        assert_eq!(*expected_err, *result.unwrap_err().err);
+    }
+}
+
+#[test]
+fn test_secp256r1_verify_type_check() {
+    let good_expr = format!(
+        "(secp256r1-verify {} {} {})",
+        SECP256_MESSAGE_HASH, SECP256R1_SIGNATURE, SECP256K1_PUBLIC_KEY
+    );
+    assert_eq!("bool", type_check_helper(&good_expr).unwrap().to_string());
+
+    let bad_cases = [
+        (
+            "(secp256r1-verify)".to_string(),
+            CheckErrors::IncorrectArgumentCount(3, 0),
+        ),
+        (
+            format!(
+                "(secp256r1-verify {} {})",
+                SECP256_MESSAGE_HASH, SECP256R1_SIGNATURE
+            ),
+            CheckErrors::IncorrectArgumentCount(3, 2),
+        ),
+        (
+            format!(
+                "(secp256r1-verify {} {} {})",
+                SECP256K1_SIGNATURE, SECP256R1_SIGNATURE, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+        (
+            format!(
+                "(secp256r1-verify {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256K1_SIGNATURE, SECP256K1_PUBLIC_KEY
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_64),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+        (
+            format!(
+                "(secp256r1-verify {} {} {})",
+                SECP256_MESSAGE_HASH, SECP256R1_SIGNATURE, SECP256K1_SIGNATURE
+            ),
+            CheckErrors::TypeError(
+                Box::new(TypeSignature::BUFFER_33),
+                Box::new(TypeSignature::BUFFER_65),
+            ),
+        ),
+    ];
+
+    for (bad_expr, expected_err) in bad_cases.iter() {
+        let result = type_check_helper(bad_expr);
+        assert!(
+            result.is_err(),
+            "expression `{}` unexpectedly type-checked",
+            bad_expr
+        );
+        assert_eq!(*expected_err, *result.unwrap_err().err);
     }
 }

@@ -444,8 +444,15 @@ impl StacksEpochId {
 
     #[cfg(not(any(test, feature = "testing")))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch32
+        StacksEpochId::Epoch33
     }
+
+    pub const ALL_GTE_30: &'static [StacksEpochId] = &[
+        StacksEpochId::Epoch30,
+        StacksEpochId::Epoch31,
+        StacksEpochId::Epoch32,
+        StacksEpochId::Epoch33,
+    ];
 
     /// In this epoch, how should the mempool perform garbage collection?
     pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
@@ -500,6 +507,23 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33 => true,
+        }
+    }
+
+    pub fn supports_specific_budget_extends(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
         }
     }
 
@@ -767,6 +791,46 @@ impl StacksEpochId {
     }
 
     pub fn uses_marfed_block_time(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
+        }
+    }
+
+    /// Before Epoch 3.3, the cost for arguments to functions was based on the
+    /// parameter type, not the actual size of the argument passed in. This
+    /// resulted in over-charging for arguments smaller than the maximum size
+    /// permitted for the parameter.
+    pub fn uses_arg_size_for_cost(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
+        }
+    }
+
+    /// In Epoch 3.3, limits are introduced on the number of parameters
+    /// in function definitions and the number of methods in trait definitions.
+    pub fn limits_parameter_and_method_count(&self) -> bool {
         match self {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20
