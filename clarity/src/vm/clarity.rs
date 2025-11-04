@@ -81,6 +81,28 @@ impl From<CheckError> for Error {
     }
 }
 
+/// Converts [`InterpreterError`] to [`Error`] for transaction execution contexts.
+///
+/// This conversion is used in:
+/// - [`TransactionConnection::initialize_smart_contract`]
+/// - [`TransactionConnection::run_contract_call`]
+/// - [`TransactionConnection::run_stx_transfer`]
+///
+/// # Notes
+///
+/// - [`CheckErrors::MemoryBalanceExceeded`] and [`CheckErrors::CostComputationFailed`]
+///   are intentionally not converted to [`Error::CostError`].
+///   Instead, they remain wrapped in `Error::Interpreter(Unchecked(CheckErrors::MemoryBalanceExceeded))`,
+///   which causes the transaction to fail, but still be included in the block.
+///
+/// - This behavior differs from direct conversions of [`CheckError`] and [`ParseError`] to [`Error`],
+///   where [`CheckErrors::MemoryBalanceExceeded`] is converted to [`Error::CostError`],
+///   during contract analysis.
+///
+///   As a result:
+///   - A `MemoryBalanceExceeded` during contract analysis causes the block to be rejected.
+///   - A `MemoryBalanceExceeded` during execution (initialization or contract call)
+///     causes the transaction to fail, but the block remains valid.
 impl From<InterpreterError> for Error {
     fn from(e: InterpreterError) -> Self {
         match &e {
