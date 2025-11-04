@@ -21,8 +21,6 @@ use crate::vm::{ClarityVersion, Value};
 // type-checking
 // lookups
 // unwrap evaluates both branches (https://github.com/clarity-lang/reference/issues/59)
-// possibly use ContractContext? Enviornment? we need to use this somehow to
-//   provide full view of a contract, rather than passing in source
 
 const STRING_COST_BASE: u64 = 36;
 const STRING_COST_MULTIPLIER: u64 = 3;
@@ -227,33 +225,37 @@ pub fn static_cost_from_ast(
     contract_ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
 ) -> Result<HashMap<String, StaticCost>, String> {
-    let exprs = &contract_ast.expressions;
+    let cost_trees = static_cost_tree_from_ast(contract_ast, clarity_version)?;
 
-    if exprs.is_empty() {
-        return Err("No expressions found in contract AST".to_string());
-    }
+    Ok(cost_trees
+        .into_iter()
+        .map(|(name, cost_analysis_node)| {
+            let summing_cost = calculate_total_cost_with_branching(&cost_analysis_node);
+            (name, summing_cost.into())
+        })
+        .collect())
+}
 
+fn static_cost_tree_from_ast(
+    ast: &crate::vm::ast::ContractAST,
+    clarity_version: &ClarityVersion,
+) -> Result<HashMap<String, CostAnalysisNode>, String> {
+    let exprs = &ast.expressions;
     let user_args = UserArgumentsContext::new();
-    let mut costs: HashMap<String, Option<StaticCost>> = HashMap::new();
-
-    // First pass registers all function definitions
+    let costs_map: HashMap<String, Option<StaticCost>> = HashMap::new();
+    let mut costs: HashMap<String, Option<CostAnalysisNode>> = HashMap::new();
     for expr in exprs {
         if let Some(function_name) = extract_function_name(expr) {
             costs.insert(function_name, None);
         }
     }
-
-    // Second pass computes costs
     for expr in exprs {
         if let Some(function_name) = extract_function_name(expr) {
             let (_, cost_analysis_tree) =
-                build_cost_analysis_tree(expr, &user_args, &costs, clarity_version)?;
-
-            let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
-            costs.insert(function_name, Some(summing_cost.into()));
+                build_cost_analysis_tree(expr, &user_args, &costs_map, clarity_version)?;
+            costs.insert(function_name, Some(cost_analysis_tree));
         }
     }
-
     Ok(costs
         .into_iter()
         .filter_map(|(name, cost)| cost.map(|c| (name, c)))
@@ -261,19 +263,20 @@ pub fn static_cost_from_ast(
 }
 
 /// Calculate static execution cost for functions using Environment context
-/// This replaces the old source-string based approach with Environment integration
+/// returns the top level cost for specific functions
+/// function_name -> cost
 pub fn static_cost(
     env: &mut Environment,
     contract_identifier: &QualifiedContractIdentifier,
 ) -> Result<HashMap<String, StaticCost>, String> {
-    // Get the contract source from the environment's database
+    // Get contract source from the environment's database
     let contract_source = env
         .global_context
         .database
         .get_contract_src(contract_identifier)
         .ok_or_else(|| "Contract source not found in database".to_string())?;
 
-    // Get the contract's clarity version from the environment
+    // Get clarity version from the environment
     let contract = env
         .global_context
         .database
@@ -288,11 +291,32 @@ pub fn static_cost(
     static_cost_from_ast(&ast, clarity_version)
 }
 
-// pub fn static_cost_tree(
-//     source: &str,
-//     clarity_version: &ClarityVersion,
-// ) -> Result<HashMap<String, CostAnalysisNode>, String> {
-// }
+/// same idea as `static_cost` but returns the root of the cost analysis tree for each function
+pub fn static_cost_tree(
+    env: &mut Environment,
+    contract_identifier: &QualifiedContractIdentifier,
+) -> Result<HashMap<String, CostAnalysisNode>, String> {
+    // Get contract source from the environment's database
+    let contract_source = env
+        .global_context
+        .database
+        .get_contract_src(contract_identifier)
+        .ok_or_else(|| "Contract source not found in database".to_string())?;
+
+    // Get clarity version from the environment
+    let contract = env
+        .global_context
+        .database
+        .get_contract(contract_identifier)
+        .map_err(|e| format!("Failed to get contract: {:?}", e))?;
+
+    let clarity_version = contract.contract_context.get_clarity_version();
+
+    let epoch = env.global_context.epoch_id;
+    let ast = make_ast(&contract_source, epoch, clarity_version)?;
+
+    static_cost_tree_from_ast(&ast, clarity_version)
+}
 
 /// Extract function name from a symbolic expression
 fn extract_function_name(expr: &SymbolicExpression) -> Option<String> {
@@ -686,15 +710,13 @@ fn get_cost_function_for_native(
         ContractOf => Some(Costs3::cost_contract_of),
         PrincipalOf => Some(Costs3::cost_principal_of),
         AtBlock => Some(Costs3::cost_at_block),
-        // CreateMap => Some(Costs3::cost_create_map),
-        // CreateVar => Some(Costs3::cost_create_var),
-        // CreateNonFungibleToken => Some(Costs3::cost_create_nft),
-        // CreateFungibleToken => Some(Costs3::cost_create_ft),
+        // => Some(Costs3::cost_create_map),
+        // => Some(Costs3::cost_create_var),
+        // ContractStorage => Some(Costs3::cost_contract_storage),
         FetchEntry => Some(Costs3::cost_fetch_entry),
         SetEntry => Some(Costs3::cost_set_entry),
         FetchVar => Some(Costs3::cost_fetch_var),
         SetVar => Some(Costs3::cost_set_var),
-        // ContractStorage => Some(Costs3::cost_contract_storage),
         GetBlockInfo => Some(Costs3::cost_block_info),
         GetBurnBlockInfo => Some(Costs3::cost_burn_block_info),
         GetStxBalance => Some(Costs3::cost_stx_balance),
@@ -702,11 +724,11 @@ fn get_cost_function_for_native(
         StxTransferMemo => Some(Costs3::cost_stx_transfer_memo),
         StxGetAccount => Some(Costs3::cost_stx_account),
         MintToken => Some(Costs3::cost_ft_mint),
+        MintAsset => Some(Costs3::cost_nft_mint),
         TransferToken => Some(Costs3::cost_ft_transfer),
         GetTokenBalance => Some(Costs3::cost_ft_balance),
         GetTokenSupply => Some(Costs3::cost_ft_get_supply),
         BurnToken => Some(Costs3::cost_ft_burn),
-        MintAsset => Some(Costs3::cost_nft_mint),
         TransferAsset => Some(Costs3::cost_nft_transfer),
         GetAssetOwner => Some(Costs3::cost_nft_owner),
         BurnAsset => Some(Costs3::cost_nft_burn),
@@ -1052,7 +1074,6 @@ mod tests {
             build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
                 .unwrap();
 
-        // Should have 3 children: UserArgument for (x uint), UserArgument for (y uint), and the body (+ x y)
         assert_eq!(cost_tree.children.len(), 3);
 
         // First child should be UserArgument for (x uint)
@@ -1100,11 +1121,9 @@ mod tests {
         let source = "(define-public (add (a uint) (b uint)) (+ a b))";
         let ast_cost = static_cost_test(source, &ClarityVersion::Clarity3).unwrap();
 
-        // Should have one function
         assert_eq!(ast_cost.len(), 1);
         assert!(ast_cost.contains_key("add"));
 
-        // Check that the cost is reasonable (non-zero for addition)
         let add_cost = ast_cost.get("add").unwrap();
         assert!(add_cost.min.runtime > 0);
         assert!(add_cost.max.runtime > 0);
@@ -1118,14 +1137,11 @@ mod tests {
         "#;
         let ast_cost = static_cost_test(source, &ClarityVersion::Clarity3).unwrap();
 
-        // Should have 2 functions
         assert_eq!(ast_cost.len(), 2);
 
-        // Check that both functions are present
         assert!(ast_cost.contains_key("func1"));
         assert!(ast_cost.contains_key("func2"));
 
-        // Check that costs are reasonable
         let func1_cost = ast_cost.get("func1").unwrap();
         let func2_cost = ast_cost.get("func2").unwrap();
         assert!(func1_cost.min.runtime > 0);
