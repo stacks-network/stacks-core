@@ -1022,7 +1022,7 @@ impl<T: MarfTrieId> TrieRAM<T> {
             Ok(node)
         })();
 
-        if !old_node_res.is_ok() {
+        if old_node_res.is_err() {
             // restore
             storage_tx.open_block(&cur_block)?;
         }

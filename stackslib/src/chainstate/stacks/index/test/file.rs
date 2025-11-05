@@ -19,8 +19,8 @@ use std::fs;
 use rusqlite::{Connection, OpenFlags};
 
 use super::*;
-use crate::chainstate::stacks::index::cache::test::make_test_insert_data;
 use crate::chainstate::stacks::index::file::*;
+use crate::chainstate::stacks::index::test::cache::make_test_insert_data;
 use crate::chainstate::stacks::index::*;
 use crate::util_lib::db::*;
 

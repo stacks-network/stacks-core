@@ -164,7 +164,10 @@ fn write_ptrs_to_bytes_compressed<W: Write>(
                 let bi = i / 8;
                 let bt = i % 8;
                 let mask = 1u8 << bt;
-                bitmap[bi] |= mask;
+                let byte_mut = bitmap
+                    .get_mut(bi)
+                    .ok_or_else(|| Error::CorruptionError("bitmap not long enough".into()))?;
+                *byte_mut |= mask;
             }
         }
         trace!(
@@ -231,7 +234,7 @@ impl TrieCowPtr {
     }
 
     pub fn block_id<T: MarfTrieId>(&self) -> T {
-        T::from_bytes(self.0.clone())
+        T::from_bytes(self.0)
     }
 
     pub fn ptr(&self) -> &TriePtr {
@@ -1197,7 +1200,10 @@ impl TrieNodePatch {
         for old_ptr in old_ptrs.iter() {
             // SAFETY: chr() is a u8, so it's in range [0, 256)
             if !old_ptr.is_empty() {
-                mapped[old_ptr.chr() as usize] = Some(old_ptr);
+                let mapped_ptr = mapped
+                    .get_mut(old_ptr.chr() as usize)
+                    .expect("infallible: mapped has 256 elements and .chr() is a u8");
+                *mapped_ptr = Some(old_ptr);
             }
         }
 
@@ -1206,7 +1212,10 @@ impl TrieNodePatch {
                 continue;
             }
             // SAFETY: chr() is a u8, so it's in range [0, 256)
-            if let Some(old_ptr) = mapped[new_ptr.chr() as usize] {
+            if let Some(old_ptr) = *mapped
+                .get(new_ptr.chr() as usize)
+                .expect("infallible: mapped has 256 elements and .chr() is a u8")
+            {
                 if !is_backptr(old_ptr.id())
                     && is_backptr(new_ptr.id())
                     && new_ptr.back_block == old_node_ptr.back_block
@@ -1221,16 +1230,16 @@ impl TrieNodePatch {
                             &normalized_new_ptr,
                             old_ptr
                         );
-                        ret.push(new_ptr.clone());
+                        ret.push(*new_ptr);
                     }
                 } else {
                     if old_ptr != new_ptr {
                         trace!("new overritten ptr: {:?} != {:?}", &new_ptr, old_ptr);
-                        ret.push(new_ptr.clone());
+                        ret.push(*new_ptr);
                     }
                 }
             } else {
-                ret.push(new_ptr.clone());
+                ret.push(*new_ptr);
             }
         }
         ret

@@ -205,7 +205,7 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 ///
 /// Returns Err(IOError(..)) on read failure.
 ///
-/// Returns Err(OverflowError) on integer overflow, should that happen.
+/// Returns Err(OverflowError) on integer or potential buffer overflow, which should never happen.
 pub fn ptrs_from_bytes<R: Read + Seek>(
     node_id: u8,
     r: &mut R,
@@ -236,7 +236,11 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
     let mut bytes = vec![0u8; 1 + num_ptrs * TRIEPTR_SIZE];
     let mut offset = 0;
     loop {
-        let nr = match r.read(&mut bytes[offset..]) {
+        let nr = match r.read(
+            bytes
+                .get_mut(offset..)
+                .ok_or_else(|| Error::OverflowError)?,
+        ) {
             Ok(nr) => nr,
             Err(e) => match e.kind() {
                 ErrorKind::UnexpectedEof => {
@@ -344,18 +348,31 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                 let bi = i / 8;
                 let bt = i % 8;
                 let mask = 1u8 << bt;
-                if bitmap[bi] & mask == 0 {
+                let next_ptrs_buf = ptrs_buf.get_mut(nextptr).ok_or_else(|| {
+                    Error::CorruptionError("infallible: nextptr < ptrs_buf.len()".into())
+                })?;
+                let byte = *bitmap.get(bi).ok_or_else(|| {
+                    Error::CorruptionError("infallbile: i / 8 < bitmap.len()".into())
+                })?;
+                if byte & mask == 0 {
                     // empty
-                    ptrs_buf[nextptr] = TriePtr::default();
+                    *next_ptrs_buf = TriePtr::default();
                 } else {
                     trace!(
                         "read sparse ptr {} at {}",
-                        &to_hex(&ptr_bytes[cursor..(cursor + TRIEPTR_SIZE).min(ptr_bytes.len())]),
+                        &to_hex(
+                            &ptr_bytes
+                                .get(cursor..(cursor + TRIEPTR_SIZE).min(ptr_bytes.len()))
+                                .unwrap_or(&[])
+                        ),
                         cursor
                     );
-                    ptrs_buf[nextptr] = TriePtr::from_bytes_compressed(&ptr_bytes[cursor..]);
+                    *next_ptrs_buf =
+                        TriePtr::from_bytes_compressed(ptr_bytes.get(cursor..).ok_or_else(
+                            || Error::CorruptionError("ptr_bytes runs short".into()),
+                        )?);
                     cursor = cursor
-                        .checked_add(ptrs_buf[nextptr].compressed_size())
+                        .checked_add(next_ptrs_buf.compressed_size())
                         .ok_or_else(|| Error::OverflowError)?;
                 }
                 nextptr += 1;
@@ -383,8 +400,14 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
             // ptrs list is compresesd, meaning each ptr might be a different size
             let mut cursor = 0;
             for nextptr in 0..num_ptrs {
-                let next_ptrs_buf = &mut ptrs_buf[nextptr];
-                *next_ptrs_buf = TriePtr::from_bytes_compressed(&ptr_bytes[cursor..]);
+                let next_ptrs_buf = ptrs_buf
+                    .get_mut(nextptr)
+                    .ok_or_else(|| Error::CorruptionError("ptrs_buf runs short".into()))?;
+                *next_ptrs_buf = TriePtr::from_bytes_compressed(
+                    ptr_bytes
+                        .get(cursor..)
+                        .ok_or_else(|| Error::CorruptionError("ptr_bytes runs short".into()))?,
+                );
                 cursor = cursor
                     .checked_add(next_ptrs_buf.compressed_size())
                     .ok_or_else(|| Error::OverflowError)?;
