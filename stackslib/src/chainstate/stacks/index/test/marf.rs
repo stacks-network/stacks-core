@@ -1609,8 +1609,8 @@ fn marf_read_random_1048576_4096_file_storage() {
     }
 }
 
-// insert a range of 4096 consecutive keys (forcing node promotions) by varying the low-order bits.
-// every 128 keys, make a new trie.
+// insert a range of 128 consecutive keys (forcing node promotions) by varying the low-order bits.
+// every 32 keys, make a new trie.
 #[test]
 fn marf_insert_128_32() {
     marf_insert(
