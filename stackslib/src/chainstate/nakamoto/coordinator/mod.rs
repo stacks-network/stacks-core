@@ -362,14 +362,13 @@ pub fn load_nakamoto_reward_set<U: RewardSetProvider>(
     sort_db: &SortitionDB,
     provider: &U,
 ) -> Result<Option<(RewardCycleInfo, StacksHeaderInfo)>, Error> {
-    // If the prepare phase started in pre-Nakamoto, it should be using Epoch 2.5 reward
-    // set calculation rules.
     let cycle_start_height = burnchain.nakamoto_first_block_of_cycle(reward_cycle);
-    // This is safe to cast because a u32 always fits in a u64
-    let prepare_phase_start =
+    let prepare_phase_start_height =
         cycle_start_height.saturating_sub(u64::from(burnchain.pox_constants.prepare_length));
-    let epoch_at_height = SortitionDB::get_stacks_epoch(sort_db.conn(), prepare_phase_start)?
-        .unwrap_or_else(|| panic!("FATAL: no epoch defined for burn height {prepare_phase_start}"));
+    let epoch_at_height =
+        SortitionDB::get_stacks_epoch(sort_db.conn(), prepare_phase_start_height)?.unwrap_or_else(
+            || panic!("FATAL: no epoch defined for burn height {prepare_phase_start_height}"),
+        );
     if epoch_at_height.epoch_id < StacksEpochId::Epoch30 {
         // in epoch 2.5, and in the first reward cycle of epoch 3.0, the reward set can *only* be found in the sortition DB.
         // The nakamoto chain-processing rules aren't active yet, so we can't look for the reward

@@ -186,6 +186,13 @@ impl NakamotoBootPlan {
         chainstate_config.test_stackers = Some(self.test_stackers.clone());
         chainstate_config.burnchain.pox_constants = self.pox_constants.clone();
 
+        if let Some(epochs) = chainstate_config.epochs.as_ref() {
+            StacksEpoch::validate_nakamoto_transition_schedule(
+                epochs,
+                &chainstate_config.burnchain,
+            );
+        }
+
         chainstate_config
     }
 
