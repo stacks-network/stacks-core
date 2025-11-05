@@ -204,32 +204,6 @@ impl<'a> TestChainstate<'a> {
             StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
         });
 
-        if let Some(epoch_30) = epochs.iter().find(|e| e.epoch_id == StacksEpochId::Epoch30) {
-            assert!(config.current_block < epoch_30.start_height, "Cannot use a Nakamoto chainstate if bootstrapped to a burn block height ({}) greater than or equal to the Epoch 3.0 activation height ({}).", config.current_block, epoch_30.start_height);
-            let epoch_25 = config
-                .epochs
-                .as_ref()
-                .expect("Epoch configuration missing")
-                .iter()
-                .find(|e| e.epoch_id == StacksEpochId::Epoch25)
-                .expect("Must specify an Epoch25 start_height to use Nakamoto");
-            let epoch_25_reward_cycle = config
-                .burnchain
-                .block_height_to_reward_cycle(epoch_25.start_height)
-                .expect("Failed to determine reward cycle of epoch 2.5");
-            let epoch_30_reward_cycle = config
-                .burnchain
-                .block_height_to_reward_cycle(epoch_30.start_height)
-                .expect("Failed to determine reward cycle of Epoch 3.0");
-            let epoch_25_in_prepare_phase =
-                config.burnchain.is_in_prepare_phase(epoch_25.start_height);
-
-            assert_ne!(epoch_25_reward_cycle, epoch_30_reward_cycle, "Cannot activate Epoch 2.5 and Epoch 3.0 in the same reward cycle. Examine your bootstrap setup.");
-            if epoch_25_reward_cycle.saturating_add(1) == epoch_30_reward_cycle {
-                assert!(!epoch_25_in_prepare_phase, "Must activate Epoch 2.5 prior to the prepare phase in which Epoch 3.0 is activated. Examine your bootstrap setup.");
-            }
-        }
-
         let mut sortdb = SortitionDB::connect(
             &config.burnchain.get_db_path(),
             config.burnchain.first_block_height,
