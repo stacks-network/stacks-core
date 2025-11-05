@@ -246,3 +246,15 @@ fn test_note_to_match_this() {
         contract_code: "())",
     );
 }
+
+/// ParserError: [`ParseErrors::ExpectedWhitespace`]
+/// Caused by: missing space before expression
+/// Outcome: block accepted
+#[test]
+fn test_expected_white_space() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        //miss space between (get-one) and (ok u1)
+        contract_code: "(define-public (get-one)(ok u1))",
+    );
+}
