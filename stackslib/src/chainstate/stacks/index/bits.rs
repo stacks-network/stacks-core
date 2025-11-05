@@ -160,10 +160,10 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 /// An uncompressed list of `TriePtr`s is simply a sequence of uncompressed `TriePtr`s.  They are
 /// read verbatim into the `ptrs_buf` slice.
 ///
-/// A compressed list of `TriePtr`s has either a sparse form or a dense form, and is comprised of 
+/// A compressed list of `TriePtr`s has either a sparse form or a dense form, and is comprised of
 /// compressed `TriePtr`s (which have variable length).  In the sparse form, the byte encoding is
 /// as follows:
-/// 
+///
 /// 0   1         1+B                                     1+B+N
 /// |---|-----------|---------------------------------------|
 ///  0xff   bitmap    list of compressed `TriePtr`s
@@ -194,7 +194,7 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 ///
 /// Returns Ok(node-id) on success, where the compressed bit in `node-id` iw NOT set.  However, the
 /// backptr bit MAY be set (it is preserved).
-/// 
+///
 /// Returns Err(Patch(..)) if the code encountered a TrieNodePatch instead of the expected trie
 /// node.  In this case, the patch will be decoded and returned, so that it can be applied by the
 /// caller on top of a base node.
@@ -202,16 +202,16 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
 /// Returns Err(CorruptionError(..)) if the node ID is invalid, the read node ID is missing, the
 /// read node ID does not match the given node ID, or the byte encoding is invalid given the
 /// expected pointers encoding.
-/// 
+///
 /// Returns Err(IOError(..)) on read failure.
-/// 
+///
 /// Returns Err(OverflowError) on integer overflow, should that happen.
 pub fn ptrs_from_bytes<R: Read + Seek>(
     node_id: u8,
     r: &mut R,
     ptrs_buf: &mut [TriePtr],
 ) -> Result<u8, Error> {
-    let Some(trie_node_id) = TrieNodeID::from_u8(clear_ctrl_bits(node_id)) else {
+    if TrieNodeID::from_u8(clear_ctrl_bits(node_id)).is_none() {
         error!("Bad node ID {:x}", node_id);
         return Err(Error::CorruptionError(format!(
             "Bad node ID: {:x}",
@@ -225,7 +225,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
     // concatenated ptr bytes.  As such, treat EOF as a non-error
     let ptrs_start_disk_ptr = r
         .seek(SeekFrom::Current(0))
-        .inspect_err(|e| error!("Failed to ftell the read handle"))?;
+        .inspect_err(|e| error!("Failed to ftell the read handle: {e:?}"))?;
 
     trace!(
         "Read ptrs for node {} at offset {}",
@@ -374,7 +374,9 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                     .checked_add(u64::try_from(cursor + 2 + bitmap_size).expect("infallible"))
                     .expect("FATAL: read far too many bytes"),
             ))
-            .inspect_err(|e| error!("Failed to seek to the end of the sparse compressed ptrs"))?;
+            .inspect_err(|e| {
+                error!("Failed to seek to the end of the sparse compressed ptrs: {e:?}")
+            })?;
         } else {
             trace!("Node {} has dense compressed ptrs", clear_ctrl_bits(*nid));
             // this is a nearly-full ptrs list
@@ -400,7 +402,9 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
                     .checked_add(u64::try_from(cursor + 1).expect("infallible"))
                     .expect("FATAL: read far too many bytes"),
             ))
-            .inspect_err(|e| error!("Failed to seek to the end of the dense compressed ptrs"))?;
+            .inspect_err(|e| {
+                error!("Failed to seek to the end of the dense compressed ptrs: {e:?}")
+            })?;
         }
     } else {
         // ptrs list is not compressed
@@ -497,7 +501,7 @@ pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE]
 
 /// Lowl-level method for reading a block ID from a Read+Seek object.  The block ID is
 /// little-endian.
-/// 
+///
 /// Returns Ok(block-id) on success
 /// Returns Err(CorruptionError(..)) if we run out of bytes to read (EOF)
 /// Returns Err(IOError(..)) if we encounter a disk I/O error
@@ -619,7 +623,7 @@ pub fn read_nodetype_at_head_nohash<F: Read + Seek>(
 /// 0               32 33               33+X
 /// |---------------|--|------------------|
 ///   base node hash id  compressed ptrs
-/// 
+///
 /// Returns Ok(node, Some(hash)) if the node is found, and `read_hash` is true
 /// Returns Ok(node, None) if the node is found, and `read_hash` is false
 /// Returns Err(Patch(..)) if a `TrieNodePatch` is found instead of the targeted node
@@ -786,7 +790,9 @@ pub fn write_nodetype_bytes_compressed<F: Write + Seek>(
 /// Returns Err(IOError(..)) on disk I/O error
 pub fn write_path_to_bytes<W: Write>(path: &[u8], w: &mut W) -> Result<(), Error> {
     if path.len() > 32 {
-        return Err(Error::CorruptionError("Invali path -- greater than 32 bytes".into()));
+        return Err(Error::CorruptionError(
+            "Invali path -- greater than 32 bytes".into(),
+        ));
     }
     w.write_all(&[path.len() as u8])?;
     w.write_all(path)?;
