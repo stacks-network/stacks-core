@@ -286,20 +286,102 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
         use crate::vm::functions::NativeFunctions::*;
 
         match function {
-            Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
-            | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Hash160 | Sha256
-            | Keccak256 | Equals | If | Sha512 | Sha512Trunc256 | Secp256k1Recover
-            | Secp256k1Verify | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet
-            | UnwrapErrRet | IsOkay | IsNone | Asserts | Unwrap | UnwrapErr | Match | IsErr
-            | IsSome | TryRet | ToUInt | ToInt | BuffToIntLe | BuffToUIntLe | BuffToIntBe
-            | BuffToUIntBe | IntToAscii | IntToUtf8 | StringToInt | StringToUInt | IsStandard
-            | ToConsensusBuff | PrincipalDestruct | PrincipalConstruct | Append | Concat
-            | AsMaxLen | ContractOf | PrincipalOf | ListCons | GetBlockInfo | GetBurnBlockInfo
-            | GetStacksBlockInfo | GetTenureInfo | TupleGet | TupleMerge | Len | Print
-            | AsContract | Begin | FetchVar | GetStxBalance | StxGetAccount | GetTokenBalance
-            | GetAssetOwner | GetTokenSupply | ElementAt | IndexOf | Slice | ReplaceAt
-            | BitwiseAnd | BitwiseOr | BitwiseNot | BitwiseLShift | BitwiseRShift | BitwiseXor2
-            | ElementAtAlias | IndexOfAlias | ContractHash | ToAscii => {
+            Add
+            | Subtract
+            | Divide
+            | Multiply
+            | CmpGeq
+            | CmpLeq
+            | CmpLess
+            | CmpGreater
+            | Modulo
+            | Power
+            | Sqrti
+            | Log2
+            | BitwiseXor
+            | And
+            | Or
+            | Not
+            | Hash160
+            | Sha256
+            | Keccak256
+            | Equals
+            | If
+            | Sha512
+            | Sha512Trunc256
+            | Secp256k1Recover
+            | Secp256k1Verify
+            | Secp256r1Verify
+            | ConsSome
+            | ConsOkay
+            | ConsError
+            | DefaultTo
+            | UnwrapRet
+            | UnwrapErrRet
+            | IsOkay
+            | IsNone
+            | Asserts
+            | Unwrap
+            | UnwrapErr
+            | Match
+            | IsErr
+            | IsSome
+            | TryRet
+            | ToUInt
+            | ToInt
+            | BuffToIntLe
+            | BuffToUIntLe
+            | BuffToIntBe
+            | BuffToUIntBe
+            | IntToAscii
+            | IntToUtf8
+            | StringToInt
+            | StringToUInt
+            | IsStandard
+            | ToConsensusBuff
+            | PrincipalDestruct
+            | PrincipalConstruct
+            | Append
+            | Concat
+            | AsMaxLen
+            | ContractOf
+            | PrincipalOf
+            | ListCons
+            | GetBlockInfo
+            | GetBurnBlockInfo
+            | GetStacksBlockInfo
+            | GetTenureInfo
+            | TupleGet
+            | TupleMerge
+            | Len
+            | Print
+            | AsContract
+            | Begin
+            | FetchVar
+            | GetStxBalance
+            | StxGetAccount
+            | GetTokenBalance
+            | GetAssetOwner
+            | GetTokenSupply
+            | ElementAt
+            | IndexOf
+            | Slice
+            | ReplaceAt
+            | BitwiseAnd
+            | BitwiseOr
+            | BitwiseNot
+            | BitwiseLShift
+            | BitwiseRShift
+            | BitwiseXor2
+            | ElementAtAlias
+            | IndexOfAlias
+            | ContractHash
+            | ToAscii
+            | AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => {
                 // Check all arguments.
                 self.check_each_expression_is_read_only(args)
             }
@@ -436,6 +518,45 @@ impl<'a, 'b> ReadOnlyChecker<'a, 'b> {
 
                 self.check_each_expression_is_read_only(&args[2..])
                     .map(|args_read_only| args_read_only && is_function_read_only)
+            }
+            RestrictAssets => {
+                check_arguments_at_least(3, args)?;
+
+                // Check the asset owner argument.
+                let asset_owner_read_only = self.check_read_only(&args[0])?;
+
+                // Check the allowances argument.
+                let allowances =
+                    args[1]
+                        .match_list()
+                        .ok_or(StaticCheckErrorKind::ExpectedListOfAllowances(
+                            "restrict-assets?".into(),
+                            2,
+                        ))?;
+                let allowances_read_only = self.check_each_expression_is_read_only(allowances)?;
+
+                // Check the body expressions.
+                let body_read_only = self.check_each_expression_is_read_only(&args[2..])?;
+
+                Ok(asset_owner_read_only && allowances_read_only && body_read_only)
+            }
+            AsContractSafe => {
+                check_arguments_at_least(2, args)?;
+
+                // Check the allowances argument.
+                let allowances =
+                    args[0]
+                        .match_list()
+                        .ok_or(StaticCheckErrorKind::ExpectedListOfAllowances(
+                            "as-contract?".into(),
+                            1,
+                        ))?;
+                let allowances_read_only = self.check_each_expression_is_read_only(allowances)?;
+
+                // Check the body expressions.
+                let body_read_only = self.check_each_expression_is_read_only(&args[1..])?;
+
+                Ok(allowances_read_only && body_read_only)
             }
         }
     }

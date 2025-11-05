@@ -48,7 +48,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
 use stacks::chainstate::nakamoto::coordinator::{load_nakamoto_reward_set, TEST_COORDINATOR_STALL};
-use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use stacks::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use stacks::chainstate::nakamoto::shadow::shadow_chainstate_repair;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
@@ -151,77 +151,77 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: 0,
-            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_10,
             network_epoch: PEER_VERSION_EPOCH_1_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_3
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 201,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_4
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 201,
             end_height: 231,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: 231,
             end_height: 241,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 241,
             end_height: 251,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 251,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
     ];
@@ -230,84 +230,84 @@ lazy_static! {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: 0,
-            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_10,
             network_epoch: PEER_VERSION_EPOCH_1_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_3
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 201,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_4
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 201,
             end_height: 231,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: 231,
             end_height: 232,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 232,
             end_height: 233,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 233,
             end_height: 234,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
             start_height: 234,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
     ];
@@ -3228,10 +3228,12 @@ fn block_proposal_api_endpoint() {
     let tenure_change = None;
     let coinbase = None;
 
-    let tenure_cause = tenure_change.and_then(|tx: &StacksTransaction| match &tx.payload {
-        TransactionPayload::TenureChange(tc) => Some(tc.cause),
-        _ => None,
-    });
+    let tenure_cause = tenure_change
+        .and_then(|tx: &StacksTransaction| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
+            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        })
+        .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
     // Apply miner signature
     let sign = |p: &NakamotoBlockProposal| {
@@ -3251,6 +3253,7 @@ fn block_proposal_api_endpoint() {
             tenure_change,
             coinbase,
             1,
+            None,
             None,
             None,
         )
@@ -6837,6 +6840,7 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
             reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+            supports_sip034_tenure_extensions: false,
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6972,6 +6976,7 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
             reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+            supports_sip034_tenure_extensions: false,
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -7051,6 +7056,7 @@ fn signer_chainstate() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        supports_sip034_tenure_extensions: false,
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     sortitions_view
@@ -7543,6 +7549,9 @@ fn continue_tenure_extend() {
                             panic!("Expected other transactions to happen after tenure extend");
                         }
                         tenure_block_founds.push(parsed);
+                    }
+                    _ => {
+                        panic!("Unexpected tenure-extend cause {:?}", &payload.cause);
                     }
                 };
             }
@@ -11142,7 +11151,7 @@ fn test_tenure_extend_from_flashblocks() {
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
 
             if let TransactionPayload::TenureChange(payload) = &parsed.payload {
-                if payload.cause == TenureChangeCause::Extended {
+                if payload.cause.is_eq(&TenureChangeCause::Extended) {
                     has_extend = true;
                 }
             }
@@ -11662,6 +11671,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.mempool_walk_strategy = strategy;
+    naka_conf.miner.nakamoto_attempt_time_ms = 10_000;
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -12919,7 +12929,7 @@ fn miner_constructs_replay_block() {
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
     let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
     let tenure_change = parsed.try_as_tenure_change().unwrap();
-    assert_eq!(tenure_change.cause, TenureChangeCause::BlockFound);
+    assert!(tenure_change.cause.is_eq(&TenureChangeCause::BlockFound));
 
     info!("Verifying next block contains the expected replay txs...");
     let block: StacksBlockEvent =
@@ -15322,6 +15332,2463 @@ fn check_block_time_keyword() {
     .expect_err("Expected error, got ");
     info!("Invalid time: {err}");
     assert!(err.starts_with("BlockTimeNotAvailable"));
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Verify the `with-stacking` allowances work as expected when delegating STX.
+fn check_with_stacking_allowances_delegate_stx() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let deploy_fee = 3000;
+    let call_fee = 400;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + call_fee * 30,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let mut sender_nonce = 0;
+    let contract_name = "test-contract";
+    let contract = format!(
+        r#"
+(define-public (delegate-stx (amount uint) (allowed uint))
+  (as-contract? ((with-stacking allowed))
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
+      amount 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
+    ) (err u1))
+  )
+)
+(define-public (delegate-stx-2-allowances (amount uint) (allowed-1 uint) (allowed-2 uint))
+  (as-contract? ((with-stacking allowed-1) (with-stacking allowed-2))
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
+      amount 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
+    ) (err u1))
+  )
+)
+(define-public (delegate-stx-no-allowance (amount uint))
+  (as-contract? ()
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
+      amount 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
+    ) (err u1))
+  )
+)
+(define-public (delegate-stx-all (amount uint))
+  (as-contract? ((with-all-assets-unsafe))
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 delegate-stx
+      amount 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM none none
+    ) (err u1))
+  )
+)
+(define-public (revoke-delegate-stx)
+  (as-contract? ()
+    (unwrap! (contract-call? 'ST000000000000000000002AMW42H.pox-4 revoke-delegate-stx) (err u1))
+    true
+  )
+)
+"#
+    );
+
+    let contract_tx = make_contract_publish_versioned(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        contract_name,
+        &contract,
+        Some(ClarityVersion::Clarity4),
+    );
+    sender_nonce += 1;
+    let deploy_txid = submit_tx(&http_origin, &contract_tx);
+    info!("Submitted deploy txid: {deploy_txid}");
+
+    let mut stacks_block_height = 0;
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+        Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        .unwrap();
+
+    test_observer::clear();
+
+    let mut expected_results = HashMap::new();
+
+    let delegate_ok_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "delegate-stx",
+        &[Value::UInt(1000), Value::UInt(2000)],
+    );
+    sender_nonce += 1;
+    let delegate_ok_txid = submit_tx(&http_origin, &delegate_ok_tx);
+    info!("Submitted delegate_ok txid: {delegate_ok_txid}");
+    expected_results.insert(delegate_ok_txid, Value::okay_true());
+
+    let revoke_delegate_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "revoke-delegate-stx",
+        &[],
+    );
+    sender_nonce += 1;
+    let revoke_delegate_txid = submit_tx(&http_origin, &revoke_delegate_tx);
+    info!("Submitted revoke_delegate txid: {revoke_delegate_txid}");
+    expected_results.insert(revoke_delegate_txid, Value::okay_true());
+
+    let delegate_err_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "delegate-stx",
+        &[Value::UInt(1000), Value::UInt(200)],
+    );
+    sender_nonce += 1;
+    let delegate_err_txid = submit_tx(&http_origin, &delegate_err_tx);
+    info!("Submitted delegate_err txid: {delegate_err_txid}");
+    expected_results.insert(delegate_err_txid, Value::error(Value::UInt(0)).unwrap());
+
+    let delegate_2_ok_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "delegate-stx-2-allowances",
+        &[Value::UInt(1000), Value::UInt(2000), Value::UInt(3000)],
+    );
+    sender_nonce += 1;
+    let delegate_2_ok_txid = submit_tx(&http_origin, &delegate_2_ok_tx);
+    info!("Submitted delegate_2_ok txid: {delegate_2_ok_txid}");
+    expected_results.insert(delegate_2_ok_txid, Value::okay_true());
+
+    let revoke_delegate_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "revoke-delegate-stx",
+        &[],
+    );
+    sender_nonce += 1;
+    let revoke_delegate_txid = submit_tx(&http_origin, &revoke_delegate_tx);
+    info!("Submitted revoke_delegate txid: {revoke_delegate_txid}");
+    expected_results.insert(revoke_delegate_txid, Value::okay_true());
+
+    let delegate_2_both_err_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "delegate-stx-2-allowances",
+        &[Value::UInt(1000), Value::UInt(600), Value::UInt(700)],
+    );
+    sender_nonce += 1;
+    let delegate_2_both_err_txid = submit_tx(&http_origin, &delegate_2_both_err_tx);
+    info!("Submitted delegate_2_both_err txid: {delegate_2_both_err_txid}");
+    expected_results.insert(
+        delegate_2_both_err_txid,
+        Value::error(Value::UInt(0)).unwrap(),
+    );
+
+    let delegate_2_first_err_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "delegate-stx-2-allowances",
+        &[Value::UInt(1000), Value::UInt(600), Value::UInt(1000)],
+    );
+    sender_nonce += 1;
+    let delegate_2_first_err_txid = submit_tx(&http_origin, &delegate_2_first_err_tx);
+    info!("Submitted delegate_2_first_err txid: {delegate_2_first_err_txid}");
+    expected_results.insert(
+        delegate_2_first_err_txid,
+        Value::error(Value::UInt(0)).unwrap(),
+    );
+
+    let delegate_2_second_err_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "delegate-stx-2-allowances",
+        &[Value::UInt(1000), Value::UInt(2000), Value::UInt(100)],
+    );
+    sender_nonce += 1;
+    let delegate_2_second_err_txid = submit_tx(&http_origin, &delegate_2_second_err_tx);
+    info!("Submitted delegate_2_second_err txid: {delegate_2_second_err_txid}");
+    expected_results.insert(
+        delegate_2_second_err_txid,
+        Value::error(Value::UInt(1)).unwrap(),
+    );
+
+    let delegate_no_allowance_err_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "delegate-stx-no-allowance",
+        &[Value::UInt(1000)],
+    );
+    sender_nonce += 1;
+    let delegate_no_allowance_err_txid = submit_tx(&http_origin, &delegate_no_allowance_err_tx);
+    info!("Submitted delegate_no_allowance_err txid: {delegate_no_allowance_err_txid}");
+    expected_results.insert(
+        delegate_no_allowance_err_txid,
+        Value::error(Value::UInt(128)).unwrap(),
+    );
+
+    let delegate_all_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "delegate-stx-all",
+        &[Value::UInt(1000)],
+    );
+    sender_nonce += 1;
+    let delegate_all_txid = submit_tx(&http_origin, &delegate_all_tx);
+    info!("Submitted delegate_all txid: {delegate_all_txid}");
+    expected_results.insert(delegate_all_txid, Value::okay_true());
+
+    let revoke_delegate_tx = make_contract_call(
+        &sender_sk,
+        sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "revoke-delegate-stx",
+        &[],
+    );
+    sender_nonce += 1;
+    let revoke_delegate_txid = submit_tx(&http_origin, &revoke_delegate_tx);
+    info!("Submitted revoke_delegate txid: {revoke_delegate_txid}");
+    expected_results.insert(revoke_delegate_txid, Value::okay_true());
+
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        Ok(cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contract calls");
+
+    let blocks = test_observer::get_blocks();
+    let mut found = 0;
+    for block in blocks.iter() {
+        for tx in block.get("transactions").unwrap().as_array().unwrap() {
+            let txid = tx
+                .get("txid")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .strip_prefix("0x")
+                .unwrap();
+            if let Some(expected) = expected_results.get(txid) {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                found += 1;
+                assert_eq!(&parsed, expected);
+            } else {
+                // If there are any txids we don't expect, panic, because it probably means
+                // there is an error in the test itself.
+                panic!("Found unexpected txid: {txid}");
+            }
+        }
+    }
+
+    assert_eq!(
+        found,
+        expected_results.len(),
+        "Should have found all expected txs"
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Verify the `with-stacking` allowances work as expected when stacking STX
+fn check_with_stacking_allowances_stack_stx() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    let signer_sk = signers.signer_keys[0].clone();
+    let signer_pk = StacksPublicKey::from_private(&signer_sk);
+
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let deploy_fee = 3000;
+    let call_fee = 400;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + call_fee * 30,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
+    // Default stacker used for bootstrapping
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    // Stackers used for testing
+    let stackers: Vec<_> = (0..3).map(|_| setup_stacker(&mut naka_conf)).collect();
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let signer_key_hex = Value::buff_from(signer_pk.to_bytes_compressed()).unwrap();
+    let mut sender_nonce = 0;
+    let contract_name = "test-contract";
+    let contract = format!(
+        r#"
+(define-constant signer-key {signer_key_hex})
+(define-public (stack-stx (amount uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32)))) (signature (optional (buff 65))) (auth-id uint) (allowed uint))
+  (restrict-assets? tx-sender ((with-stacking allowed))
+    (match
+      (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-stx
+        amount pox-addr burn-block-height u12 signature signer-key amount auth-id
+      )
+      v true
+      e (try! (if false (ok true) (err (to-uint e))))
+    )
+  )
+)
+(define-public (stack-stx-2-allowances (amount uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32)))) (signature (optional (buff 65))) (auth-id uint) (allowed-1 uint) (allowed-2 uint))
+  (restrict-assets? tx-sender ((with-stacking allowed-1) (with-stacking allowed-2))
+    (match
+      (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-stx
+        amount pox-addr burn-block-height u12 signature signer-key amount auth-id
+      )
+      v true
+      e (try! (if false (ok true) (err (to-uint e))))
+    )
+  )
+)
+(define-public (stack-stx-no-allowance (amount uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32)))) (signature (optional (buff 65))) (auth-id uint))
+  (restrict-assets? tx-sender ()
+    (match
+      (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-stx
+        amount pox-addr burn-block-height u12 signature signer-key amount auth-id
+      )
+      v true
+      e (try! (if false (ok true) (err (to-uint e))))
+    )
+  )
+)
+(define-public (stack-stx-all (amount uint) (pox-addr (tuple (version (buff 1)) (hashbytes (buff 32)))) (signature (optional (buff 65))) (auth-id uint))
+  (begin
+    (try! (stx-transfer? amount tx-sender current-contract))
+    (as-contract? ((with-all-assets-unsafe))
+      (match
+        (contract-call? 'ST000000000000000000002AMW42H.pox-4 stack-stx
+          amount pox-addr burn-block-height u12 signature signer-key amount auth-id
+        )
+        v true
+        e (try! (if false (ok true) (err (to-uint e))))
+      )
+    )
+  )
+)
+"#
+    );
+
+    let contract_tx = make_contract_publish_versioned(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        contract_name,
+        &contract,
+        Some(ClarityVersion::Clarity4),
+    );
+    sender_nonce += 1;
+    let deploy_txid = submit_tx(&http_origin, &contract_tx);
+    info!("Submitted deploy txid: {deploy_txid}");
+
+    let mut stacks_block_height = 0;
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+        Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        .unwrap();
+
+    let block_height = btc_regtest_controller.get_headers_height();
+    let reward_cycle = btc_regtest_controller
+        .get_burnchain()
+        .block_height_to_reward_cycle(block_height)
+        .unwrap();
+
+    test_observer::clear();
+
+    // Amount to stack
+    let amount = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+
+    // Map txid to expected result, `true` for ok, `false` for error
+    let mut expected_results = HashMap::new();
+    let mut wait_for_nonce = HashMap::new();
+
+    // ***** Successfully stack with stackers[0]
+    let stacker = &stackers[0];
+    let stacker_addr = tests::to_addr(stacker);
+    let mut stacker_nonce = 0;
+
+    // Authorize the contract
+    let authorize_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &boot_code_addr(false),
+        "pox-4",
+        "allow-contract-caller",
+        &[
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+                .into(),
+            Value::none(),
+        ],
+    );
+    stacker_nonce += 1;
+    let authorize_txid = submit_tx(&http_origin, &authorize_tx);
+    info!("Submitted authorize txid: {authorize_txid}");
+    expected_results.insert(authorize_txid, Value::okay_true());
+
+    let auth_id = 1;
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        stacker_addr.bytes().clone(),
+    );
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature_bytes = make_pox_4_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle.into(),
+        &Pox4SignatureTopic::StackStx,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        POX_4_DEFAULT_STACKER_STX_AMT,
+        auth_id,
+    )
+    .unwrap()
+    .to_rsv();
+    let signature = Value::some(clarity::vm::Value::buff_from(signature_bytes).unwrap()).unwrap();
+    let stack_ok_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx",
+        &[
+            amount.clone(),
+            pox_addr_tuple,
+            signature,
+            Value::UInt(auth_id),
+            amount.clone(),
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_ok_txid = submit_tx(&http_origin, &stack_ok_tx);
+    info!("Submitted stack_ok txid: {stack_ok_txid}");
+    expected_results.insert(stack_ok_txid, Value::okay_true());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[1]
+    let stacker = &stackers[1];
+    let stacker_addr = tests::to_addr(stacker);
+    let mut stacker_nonce = 0;
+
+    // Authorize the contract
+    let authorize_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &boot_code_addr(false),
+        "pox-4",
+        "allow-contract-caller",
+        &[
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+                .into(),
+            Value::none(),
+        ],
+    );
+    stacker_nonce += 1;
+    let authorize_txid = submit_tx(&http_origin, &authorize_tx);
+    info!("Submitted authorize txid: {authorize_txid}");
+    expected_results.insert(authorize_txid, Value::okay_true());
+
+    let auth_id = 1;
+    let allowed = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 1);
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        stacker_addr.bytes().clone(),
+    );
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature_bytes = make_pox_4_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle.into(),
+        &Pox4SignatureTopic::StackStx,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        POX_4_DEFAULT_STACKER_STX_AMT,
+        auth_id,
+    )
+    .unwrap()
+    .to_rsv();
+    let signature = Value::some(clarity::vm::Value::buff_from(signature_bytes).unwrap()).unwrap();
+    let stack_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+            allowed,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_err_txid = submit_tx(&http_origin, &stack_err_tx);
+    info!("Submitted stack_err txid: {stack_err_txid}");
+    expected_results.insert(stack_err_txid, Value::error(Value::UInt(0)).unwrap());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Stack successfully with stackers[1] with two allowances
+    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT + 100);
+    let stack_2_ok_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-2-allowances",
+        &[
+            amount.clone(),
+            pox_addr_tuple,
+            signature,
+            Value::UInt(auth_id),
+            allowed1,
+            allowed2,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_2_ok_txid = submit_tx(&http_origin, &stack_2_ok_tx);
+    info!("Submitted stack_2_ok_txid txid: {stack_2_ok_txid}");
+    expected_results.insert(stack_2_ok_txid, Value::okay_true());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[2] with two allowances (both too small)
+    let stacker = &stackers[2];
+    let stacker_addr = tests::to_addr(stacker);
+    let mut stacker_nonce = 0;
+
+    // Authorize the contract
+    let authorize_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &boot_code_addr(false),
+        "pox-4",
+        "allow-contract-caller",
+        &[
+            QualifiedContractIdentifier::new(sender_addr.clone().into(), contract_name.into())
+                .into(),
+            Value::none(),
+        ],
+    );
+    stacker_nonce += 1;
+    let authorize_txid = submit_tx(&http_origin, &authorize_tx);
+    info!("Submitted authorize txid: {authorize_txid}");
+    expected_results.insert(authorize_txid, Value::okay_true());
+
+    let auth_id = 1;
+    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
+    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 1000);
+    let pox_addr = PoxAddress::from_legacy(
+        AddressHashMode::SerializeP2PKH,
+        stacker_addr.bytes().clone(),
+    );
+    let pox_addr_tuple: clarity::vm::Value = pox_addr.clone().as_clarity_tuple().unwrap().into();
+    let signature_bytes = make_pox_4_signer_key_signature(
+        &pox_addr,
+        &signer_sk,
+        reward_cycle.into(),
+        &Pox4SignatureTopic::StackStx,
+        naka_conf.burnchain.chain_id,
+        12_u128,
+        POX_4_DEFAULT_STACKER_STX_AMT,
+        auth_id,
+    )
+    .unwrap()
+    .to_rsv();
+    let signature = Value::some(clarity::vm::Value::buff_from(signature_bytes).unwrap()).unwrap();
+    let stack_2_both_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-2-allowances",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+            allowed1,
+            allowed2,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_2_both_err_txid = submit_tx(&http_origin, &stack_2_both_err_tx);
+    info!("Submitted stack_2_both_err txid: {stack_2_both_err_txid}");
+    expected_results.insert(stack_2_both_err_txid, Value::error(Value::UInt(0)).unwrap());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[2] with two allowances (first too small)
+    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
+    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+
+    let stack_2_first_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-2-allowances",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+            allowed1,
+            allowed2,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_2_first_err_txid = submit_tx(&http_origin, &stack_2_first_err_tx);
+    info!("Submitted stack_2_first_err txid: {stack_2_first_err_txid}");
+    expected_results.insert(
+        stack_2_first_err_txid,
+        Value::error(Value::UInt(0)).unwrap(),
+    );
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[2] with two allowances (second too small)
+    let allowed1 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT);
+    let allowed2 = Value::UInt(POX_4_DEFAULT_STACKER_STX_AMT - 100);
+
+    let stack_2_second_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-2-allowances",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+            allowed1,
+            allowed2,
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_2_second_err_txid = submit_tx(&http_origin, &stack_2_second_err_tx);
+    info!("Submitted stack_2_second_err txid: {stack_2_second_err_txid}");
+    expected_results.insert(
+        stack_2_second_err_txid,
+        Value::error(Value::UInt(1)).unwrap(),
+    );
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Fail to stack with stackers[2] with no allowance
+    let stack_no_allowance_err_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-no-allowance",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_no_allowance_err_txid = submit_tx(&http_origin, &stack_no_allowance_err_tx);
+    info!("Submitted stack_no_allowance_err txid: {stack_no_allowance_err_txid}");
+    expected_results.insert(
+        stack_no_allowance_err_txid,
+        Value::error(Value::UInt(128)).unwrap(),
+    );
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    // ***** Stack successfully with stackers[2] with with-all-assets-unsafe
+    let stack_all_tx = make_contract_call(
+        stacker,
+        stacker_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "stack-stx-all",
+        &[
+            amount.clone(),
+            pox_addr_tuple.clone(),
+            signature.clone(),
+            Value::UInt(auth_id),
+        ],
+    );
+    stacker_nonce += 1;
+    let stack_all_txid = submit_tx(&http_origin, &stack_all_tx);
+    info!("Submitted stack_all txid: {stack_all_txid}");
+    expected_results.insert(stack_all_txid, Value::okay_true());
+    wait_for_nonce.insert(stacker_addr.clone(), stacker_nonce);
+
+    wait_for(60, || {
+        for (addr, expected_nonce) in &wait_for_nonce {
+            let cur_nonce = get_account(&http_origin, addr).nonce;
+            if cur_nonce != *expected_nonce {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    })
+    .expect("Timed out waiting for contract calls");
+
+    let blocks = test_observer::get_blocks();
+    let mut found = 0;
+    for block in blocks.iter() {
+        for tx in block.get("transactions").unwrap().as_array().unwrap() {
+            let txid = tx
+                .get("txid")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .strip_prefix("0x")
+                .unwrap();
+            if let Some(expected) = expected_results.get(txid) {
+                let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                let parsed = Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap();
+                found += 1;
+                assert_eq!(&parsed, expected);
+            } else {
+                // If there are any txids we don't expect, panic, because it probably means
+                // there is an error in the test itself.
+                panic!("Found unexpected txid: {txid}");
+            }
+        }
+    }
+
+    assert_eq!(
+        found,
+        expected_results.len(),
+        "Should have found all expected txs"
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Verify the error handling and rollback works as expected in
+/// `restrict-assets?` expressions
+fn check_restrict_assets_rollback() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let recipient_sk = Secp256k1PrivateKey::random();
+    let recipient = tests::to_addr(&recipient_sk);
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let deploy_fee = 4000;
+    let call_fee = 400;
+    let max_transfer_amt = 1000;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + (max_transfer_amt + call_fee) * 30,
+    );
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let mut sender_nonce = 0;
+    let contract_name = "test-contract";
+    let contract = format!(
+        r#"
+(define-public (single-transfer
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (restrict-assets? tx-sender ((with-stx allowed))
+    (unwrap! (stx-transfer? amount tx-sender recipient) (err u200))
+  )
+)
+(define-public (two-transfers
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (restrict-assets? tx-sender ((with-stx allowed))
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (try! (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u300 e))
+    ))
+  )
+)
+(define-public (transfer-then-err
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (restrict-assets? tx-sender ((with-stx allowed))
+    (try! (match (stx-transfer? amount tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (try! (if false
+      (ok true)
+      (err u300)
+    ))
+  )
+)
+(define-public (err-then-transfer
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (restrict-assets? tx-sender ((with-stx allowed))
+    (try! (if false
+      (ok true)
+      (err u200)
+    ))
+    (try! (match (stx-transfer? amount tx-sender recipient)
+      v (ok v)
+      e (err (+ u300 e))
+    ))
+  )
+)
+(define-public (transfer-before
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (restrict-assets? tx-sender ((with-stx allowed))
+      (try! (match (stx-transfer? amount-2 tx-sender recipient)
+        v (ok v)
+        e (err (+ u300 e))
+      ))
+    )
+  )
+)
+(define-public (transfer-before-catch-err
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (unwrap-err! (restrict-assets? tx-sender ((with-stx allowed))
+        (try! (match (stx-transfer? amount-2 tx-sender recipient)
+          v (ok v)
+          e (err (+ u300 e))
+        ))
+      )
+      (err u400)
+    )
+    (ok true)
+  )
+)
+(define-public (transfer-after
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (unwrap!
+      (restrict-assets? tx-sender ((with-stx allowed))
+        (try! (match (stx-transfer? amount-1 tx-sender recipient)
+          v (ok v)
+          e (err (+ u200 e))
+        ))
+      )
+      (err u300)
+    )
+    (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    )
+  )
+)
+(define-public (transfer-after-catch-err
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (unwrap-err! (restrict-assets? tx-sender ((with-stx allowed))
+      (try! (match (stx-transfer? amount-1 tx-sender recipient)
+        v (ok v)
+        e (err (+ u300 e))
+      )))
+      (err u400)
+    )
+    (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    )
+  )
+)
+"#
+    );
+
+    let contract_tx = make_contract_publish_versioned(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        contract_name,
+        &contract,
+        Some(ClarityVersion::Clarity4),
+    );
+    sender_nonce += 1;
+    let deploy_txid = submit_tx(&http_origin, &contract_tx);
+    info!("Submitted deploy txid: {deploy_txid}");
+
+    let mut stacks_block_height = 0;
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+        Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        .unwrap();
+
+    let mut sender_balance = get_account(&http_origin, &sender_addr).balance;
+    let mut recipient_balance = get_account(&http_origin, &recipient).balance;
+
+    // helper to submit a call, wait for it to be mined/processed, and return the parsed result
+    fn submit_call_and_get_result(
+        http_origin: &str,
+        sender_sk: &Secp256k1PrivateKey,
+        sender_nonce: &mut u64,
+        call_fee: u64,
+        chain_id: u32,
+        sender_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[Value],
+        recipient: &StacksAddress,
+    ) -> (Value, u128, u128) {
+        let sender_balance = get_account(http_origin, sender_addr).balance;
+        let recipient_balance = get_account(http_origin, recipient).balance;
+        info!("sender balance: {sender_balance}");
+        info!("recipient balance: {recipient_balance}");
+
+        test_observer::clear();
+
+        let call_tx = make_contract_call(
+            sender_sk,
+            *sender_nonce,
+            call_fee,
+            chain_id,
+            sender_addr,
+            contract_name,
+            function_name,
+            function_args,
+        );
+        *sender_nonce += 1;
+        let call_txid = submit_tx(http_origin, &call_tx);
+        info!("Submitted call txid: {call_txid}");
+
+        wait_for(60, || {
+            let cur_sender_nonce = get_account(http_origin, sender_addr).nonce;
+            Ok(cur_sender_nonce == *sender_nonce)
+        })
+        .expect("Timed out waiting for contract calls");
+
+        let mut found = false;
+        let blocks = test_observer::get_blocks();
+        let mut parsed: Option<Value> = None;
+        for block in blocks.iter() {
+            for tx in block.get("transactions").unwrap().as_array().unwrap() {
+                let txid = tx
+                    .get("txid")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .strip_prefix("0x")
+                    .unwrap();
+                if txid == call_txid {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    parsed = Some(Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap());
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+        assert!(found, "Should have found expected tx");
+
+        let parsed = parsed.expect("parsed value");
+        let sender_balance = get_account(http_origin, sender_addr).balance;
+        let recipient_balance = get_account(http_origin, recipient).balance;
+        (parsed, sender_balance, recipient_balance)
+    }
+
+    info!("Test: Successful transfer");
+    let amount = 1000;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "single-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - amount - call_fee as u128;
+    let recipient_expected = recipient_balance + amount;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: Transfer that exceeds allowance");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 1000;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "single-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(500),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(0);
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: 2 transfers within allowance");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 200;
+    let amount2 = 600;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "two-transfers",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount1 - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: 2 transfers that exceed allowance");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 500;
+    let amount2 = 600;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "two-transfers",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(0);
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer then trigger an error in restrict-assets?");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 500;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-then-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(300);
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: error then transfer in restrict-assets?");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 500;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "err-then-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(200);
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer before successful restrict-assets?");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 700;
+    let amount2 = 500;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-before",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount1 - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer before restrict-assets? violation");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 700;
+    let amount2 = 1200;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-before-catch-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount1;
+    let recipient_expected = recipient_balance + amount1;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer after successful restrict-assets?");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 700;
+    let amount2 = 500;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-after",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount1 - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer after restrict-assets? violation");
+    sender_balance = new_sender_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 1200;
+    let amount2 = 700;
+
+    let (parsed, new_sender_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-after-catch-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let sender_expected = sender_balance - call_fee as u128 - amount2;
+    let recipient_expected = recipient_balance + amount2;
+    assert_eq!(
+        sender_expected, new_sender_balance,
+        "incorrect sender balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Verify the error handling and rollback works as expected in
+/// `as-contract?` expressions
+fn check_as_contract_rollback() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let mut signers = TestSigners::default();
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+    naka_conf.burnchain.chain_id = CHAIN_ID_TESTNET + 1;
+    let sender_sk = Secp256k1PrivateKey::random();
+    let recipient_sk = Secp256k1PrivateKey::random();
+    let recipient = tests::to_addr(&recipient_sk);
+    let sender_signer_sk = Secp256k1PrivateKey::random();
+    let sender_signer_addr = tests::to_addr(&sender_signer_sk);
+
+    // setup sender + recipient for some test stx transfers
+    // these are necessary for the interim blocks to get mined at all
+    let sender_addr = tests::to_addr(&sender_sk);
+    let contract_name = "test-contract";
+    let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
+        issuer: sender_addr.clone().into(),
+        name: contract_name.into(),
+    });
+    let deploy_fee = 4000;
+    let call_fee = 400;
+    let max_transfer_amt = 1000;
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_addr.clone()).to_string(),
+        deploy_fee + call_fee * 30,
+    );
+    naka_conf.add_initial_balance(contract_addr.to_string(), max_transfer_amt * 30);
+    naka_conf.add_initial_balance(
+        PrincipalData::from(sender_signer_addr.clone()).to_string(),
+        100000,
+    );
+
+    // Add epoch 3.3 to the configuration because it is not yet added to the
+    // default epoch list for integration tests.
+    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register_any(&mut naka_conf);
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[sender_signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+    wait_for_first_naka_block_commit(60, &counters.naka_submitted_commits);
+
+    // mine until epoch 3.3 height
+    loop {
+        next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 60, &coord_channel)
+            .unwrap();
+
+        // once we actually get a block in epoch 3.3, exit
+        let blocks = test_observer::get_blocks();
+        let last_block = blocks.last().unwrap();
+        if last_block
+            .get("burn_block_height")
+            .unwrap()
+            .as_u64()
+            .unwrap()
+            >= naka_conf.burnchain.epochs.as_ref().unwrap()[StacksEpochId::Epoch33].start_height
+        {
+            break;
+        }
+    }
+
+    info!(
+        "Nakamoto miner has advanced to bitcoin height {}",
+        get_chain_info_opt(&naka_conf).unwrap().burn_block_height
+    );
+
+    let info = get_chain_info_result(&naka_conf).unwrap();
+    let last_stacks_block_height = info.stacks_tip_height as u128;
+
+    next_block_and_mine_commit(&mut btc_regtest_controller, 60, &naka_conf, &counters).unwrap();
+
+    let mut sender_nonce = 0;
+    let contract = format!(
+        r#"
+(define-public (single-transfer
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (as-contract? ((with-stx allowed))
+    (unwrap! (stx-transfer? amount tx-sender recipient) (err u200))
+  )
+)
+(define-public (two-transfers
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (as-contract? ((with-stx allowed))
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (try! (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u300 e))
+    ))
+  )
+)
+(define-public (transfer-then-err
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (as-contract? ((with-stx allowed))
+    (try! (match (stx-transfer? amount tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (try! (if false
+      (ok true)
+      (err u300)
+    ))
+  )
+)
+(define-public (err-then-transfer
+    (recipient principal)
+    (amount uint)
+    (allowed uint)
+  )
+  (as-contract? ((with-stx allowed))
+    (try! (if false
+      (ok true)
+      (err u200)
+    ))
+    (try! (match (stx-transfer? amount tx-sender recipient)
+      v (ok v)
+      e (err (+ u300 e))
+    ))
+  )
+)
+(define-public (transfer-before
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (as-contract? ((with-stx allowed))
+      (try! (match (stx-transfer? amount-2 tx-sender recipient)
+        v (ok v)
+        e (err (+ u300 e))
+      ))
+    )
+  )
+)
+(define-public (transfer-before-catch-err
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (try! (match (stx-transfer? amount-1 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    ))
+    (unwrap-err! (as-contract? ((with-stx allowed))
+        (try! (match (stx-transfer? amount-2 tx-sender recipient)
+          v (ok v)
+          e (err (+ u300 e))
+        ))
+      )
+      (err u400)
+    )
+    (ok true)
+  )
+)
+(define-public (transfer-after
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (unwrap!
+      (as-contract? ((with-stx allowed))
+        (try! (match (stx-transfer? amount-1 tx-sender recipient)
+          v (ok v)
+          e (err (+ u200 e))
+        ))
+      )
+      (err u300)
+    )
+    (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    )
+  )
+)
+(define-public (transfer-after-catch-err
+    (recipient principal)
+    (amount-1 uint)
+    (amount-2 uint)
+    (allowed uint)
+  )
+  (begin
+    (unwrap-err! (as-contract? ((with-stx allowed))
+      (try! (match (stx-transfer? amount-1 tx-sender recipient)
+        v (ok v)
+        e (err (+ u300 e))
+      )))
+      (err u400)
+    )
+    (match (stx-transfer? amount-2 tx-sender recipient)
+      v (ok v)
+      e (err (+ u200 e))
+    )
+  )
+)
+"#
+    );
+
+    let contract_tx = make_contract_publish_versioned(
+        &sender_sk,
+        sender_nonce,
+        deploy_fee,
+        naka_conf.burnchain.chain_id,
+        contract_name,
+        &contract,
+        Some(ClarityVersion::Clarity4),
+    );
+    sender_nonce += 1;
+    let deploy_txid = submit_tx(&http_origin, &contract_tx);
+    info!("Submitted deploy txid: {deploy_txid}");
+
+    let mut stacks_block_height = 0;
+    wait_for(60, || {
+        let cur_sender_nonce = get_account(&http_origin, &to_addr(&sender_sk)).nonce;
+        let info = get_chain_info_result(&naka_conf).unwrap();
+        stacks_block_height = info.stacks_tip_height as u128;
+        Ok(stacks_block_height > last_stacks_block_height && cur_sender_nonce == sender_nonce)
+    })
+    .expect("Timed out waiting for contracts to publish");
+
+    next_block_and_process_new_stacks_block(&mut btc_regtest_controller, 30, &coord_channel)
+        .unwrap();
+
+    let mut contract_balance = get_account(&http_origin, &contract_addr).balance;
+    let mut recipient_balance = get_account(&http_origin, &recipient).balance;
+
+    // helper to submit a call, wait for it to be mined/processed, and return the parsed result
+    fn submit_call_and_get_result(
+        http_origin: &str,
+        sender_sk: &Secp256k1PrivateKey,
+        sender_nonce: &mut u64,
+        call_fee: u64,
+        chain_id: u32,
+        sender_addr: &StacksAddress,
+        contract_name: &str,
+        function_name: &str,
+        function_args: &[Value],
+        recipient: &StacksAddress,
+    ) -> (Value, u128, u128) {
+        let contract_addr = PrincipalData::Contract(QualifiedContractIdentifier {
+            issuer: sender_addr.clone().into(),
+            name: contract_name.into(),
+        });
+        let contract_balance = get_account(http_origin, &contract_addr).balance;
+        let recipient_balance = get_account(http_origin, recipient).balance;
+        info!("contract balance: {contract_balance}");
+        info!("recipient balance: {recipient_balance}");
+
+        test_observer::clear();
+
+        let call_tx = make_contract_call(
+            sender_sk,
+            *sender_nonce,
+            call_fee,
+            chain_id,
+            sender_addr,
+            contract_name,
+            function_name,
+            function_args,
+        );
+        *sender_nonce += 1;
+        let call_txid = submit_tx(http_origin, &call_tx);
+        info!("Submitted call txid: {call_txid}");
+
+        wait_for(60, || {
+            let cur_sender_nonce = get_account(http_origin, sender_addr).nonce;
+            Ok(cur_sender_nonce == *sender_nonce)
+        })
+        .expect("Timed out waiting for contract calls");
+
+        let mut found = false;
+        let blocks = test_observer::get_blocks();
+        let mut parsed: Option<Value> = None;
+        for block in blocks.iter() {
+            for tx in block.get("transactions").unwrap().as_array().unwrap() {
+                let txid = tx
+                    .get("txid")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .strip_prefix("0x")
+                    .unwrap();
+                if txid == call_txid {
+                    let raw_result = tx.get("raw_result").unwrap().as_str().unwrap();
+                    parsed = Some(Value::try_deserialize_hex_untyped(&raw_result[2..]).unwrap());
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+        assert!(found, "Should have found expected tx");
+
+        let parsed = parsed.expect("parsed value");
+        let contract_balance = get_account(http_origin, &contract_addr).balance;
+        let recipient_balance = get_account(http_origin, recipient).balance;
+        (parsed, contract_balance, recipient_balance)
+    }
+
+    info!("Test: Successful transfer");
+    let amount = 1000;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "single-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance - amount;
+    let recipient_expected = recipient_balance + amount;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: Transfer that exceeds allowance");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 1000;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "single-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(500),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(0);
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: 2 transfers within allowance");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 200;
+    let amount2 = 600;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "two-transfers",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance - amount1 - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: 2 transfers that exceed allowance");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 500;
+    let amount2 = 600;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "two-transfers",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(0);
+    assert_eq!(expected, parsed);
+    let sender_expected = contract_balance;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        sender_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer then trigger an error in restrict-assets?");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 500;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-then-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(300);
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: error then transfer in restrict-assets?");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount = 500;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "err-then-transfer",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::err_uint(200);
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+
+    info!("Test: transfer before successful restrict-assets?");
+    let sender_balance = get_account(&http_origin, &sender_addr).balance;
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let amount1 = 700;
+    let amount2 = 500;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-before",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance - amount2;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    let sender_expected = sender_balance - call_fee as u128 - amount1;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+    assert_eq!(
+        sender_expected,
+        get_account(&http_origin, &sender_addr).balance,
+        "incorrect sender balance"
+    );
+
+    info!("Test: transfer before restrict-assets? violation");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let sender_balance = get_account(&http_origin, &sender_addr).balance;
+    let amount1 = 700;
+    let amount2 = 1200;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-before-catch-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance + amount1;
+    let sender_expected = sender_balance - call_fee as u128 - amount1;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+    assert_eq!(
+        sender_expected,
+        get_account(&http_origin, &sender_addr).balance,
+        "incorrect sender balance"
+    );
+
+    info!("Test: transfer after successful restrict-assets?");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let sender_balance = get_account(&http_origin, &sender_addr).balance;
+    let amount1 = 700;
+    let amount2 = 500;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-after",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance - amount1;
+    let recipient_expected = recipient_balance + amount1 + amount2;
+    let sender_expected = sender_balance - call_fee as u128 - amount2;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+    assert_eq!(
+        sender_expected,
+        get_account(&http_origin, &sender_addr).balance,
+        "incorrect sender balance"
+    );
+
+    info!("Test: transfer after restrict-assets? violation");
+    contract_balance = new_contract_balance;
+    recipient_balance = new_recipient_balance;
+    let sender_balance = get_account(&http_origin, &sender_addr).balance;
+    let amount1 = 1200;
+    let amount2 = 700;
+
+    let (parsed, new_contract_balance, new_recipient_balance) = submit_call_and_get_result(
+        &http_origin,
+        &sender_sk,
+        &mut sender_nonce,
+        call_fee,
+        naka_conf.burnchain.chain_id,
+        &sender_addr,
+        contract_name,
+        "transfer-after-catch-err",
+        &[
+            Value::Principal(recipient.clone().into()),
+            Value::UInt(amount1),
+            Value::UInt(amount2),
+            Value::UInt(max_transfer_amt.into()),
+        ],
+        &recipient,
+    );
+    let expected = Value::okay_true();
+    assert_eq!(expected, parsed);
+    let contract_expected = contract_balance;
+    let recipient_expected = recipient_balance + amount2;
+    let sender_expected = sender_balance - call_fee as u128 - amount2;
+    assert_eq!(
+        contract_expected, new_contract_balance,
+        "incorrect contract balance"
+    );
+    assert_eq!(
+        recipient_expected, new_recipient_balance,
+        "incorrect recipient balance"
+    );
+    assert_eq!(
+        sender_expected,
+        get_account(&http_origin, &sender_addr).balance,
+        "incorrect sender balance"
+    );
 
     coord_channel
         .lock()

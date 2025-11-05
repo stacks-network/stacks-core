@@ -538,6 +538,28 @@ pub enum StaticCheckErrorKind {
     WriteAttemptedInReadOnly,
     /// `at-block` closure must be read-only but contains write operations.
     AtBlockClosureMustBeReadOnly,
+
+    // contract post-conditions
+    /// Post-condition expects a list of asset allowances but received invalid input.
+    /// The first `String` wraps the function name, and the second `i32` wraps the argument number.
+    ExpectedListOfAllowances(String, i32),
+    /// Allowance expressions are only allowed in specific contexts (`restrict-assets?` or `as-contract?`).
+    AllowanceExprNotAllowed,
+    /// Expected an allowance expression but found invalid input.
+    /// The `String` wraps the unexpected input.
+    ExpectedAllowanceExpr(String),
+    /// `with-all-assets-unsafe` is not allowed in this context.
+    WithAllAllowanceNotAllowed,
+    /// `with-all-assets-unsafe` cannot be used alongside other allowances.
+    WithAllAllowanceNotAlone,
+    /// `with-nft` allowance requires a list of asset identifiers.
+    WithNftExpectedListOfIdentifiers,
+    /// `with-nft` allowance identifiers list exceeds the maximum allowed length.
+    /// The first `u32` represents the maximum length, and the second represents the actual length.
+    MaxIdentifierLengthExceeded(u32, u32),
+    /// Too many allowances specified in post-condition.
+    /// The first `usize` represents the maximum allowed, and the second represents the actual count.
+    TooManyAllowances(usize, usize),
 }
 
 /// An error that occurs during the runtime analysis of a smart contract at runtime. Could be returnd by:
@@ -802,6 +824,30 @@ pub enum CheckErrorKind {
 
     /// Attempt to write to contract state in a read-only function.
     WriteAttemptedInReadOnly,
+    /// `at-block` closure must be read-only but contains write operations.
+    AtBlockClosureMustBeReadOnly,
+
+    // contract post-conditions
+    /// Post-condition expects a list of asset allowances but received invalid input.
+    /// The first `String` wraps the function name, and the second `i32` wraps the argument number.
+    ExpectedListOfAllowances(String, i32),
+    /// Allowance expressions are only allowed in specific contexts (`restrict-assets?` or `as-contract?`).
+    AllowanceExprNotAllowed,
+    /// Expected an allowance expression but found invalid input.
+    /// The `String` wraps the unexpected input.
+    ExpectedAllowanceExpr(String),
+    /// `with-all-assets-unsafe` is not allowed in this context.
+    WithAllAllowanceNotAllowed,
+    /// `with-all-assets-unsafe` cannot be used alongside other allowances.
+    WithAllAllowanceNotAlone,
+    /// `with-nft` allowance requires a list of asset identifiers.
+    WithNftExpectedListOfIdentifiers,
+    /// `with-nft` allowance identifiers list exceeds the maximum allowed length.
+    /// The first `u32` represents the maximum length, and the second represents the actual length.
+    MaxIdentifierLengthExceeded(u32, u32),
+    /// Too many allowances specified in post-condition.
+    /// The first `usize` represents the maximum allowed, and the second represents the actual count.
+    TooManyAllowances(usize, usize),
 }
 
 #[derive(Debug, PartialEq)]
@@ -892,6 +938,12 @@ impl From<(CommonCheckErrorKind, &SymbolicExpression)> for CommonCheckErrorKind 
 impl From<(CommonCheckErrorKind, &SymbolicExpression)> for CheckErrorKind {
     fn from(e: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         e.0.into()
+    }
+}
+
+impl fmt::Display for CommonCheckErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{self:?}")
     }
 }
 
@@ -987,6 +1039,12 @@ impl From<CostErrors> for CommonCheckErrorKind {
             CostErrors::Expect(s) => CommonCheckErrorKind::Expects(s),
             CostErrors::ExecutionTimeExpired => CommonCheckErrorKind::ExecutionTimeExpired,
         }
+    }
+}
+
+impl error::Error for CommonCheckErrorKind {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
     }
 }
 
@@ -1212,6 +1270,8 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::CostOverflow => "contract execution cost overflowed cost counter".into(),
             StaticCheckErrorKind::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {a:?} > {b:?}"),
             StaticCheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
+            StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
+            StaticCheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
             StaticCheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             StaticCheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             StaticCheckErrorKind::UnknownTypeName(name) => format!("failed to parse type: '{name}'"),
@@ -1292,9 +1352,16 @@ impl DiagnosableError for StaticCheckErrorKind {
                 "internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain".into()
             },
             StaticCheckErrorKind::UncheckedIntermediaryResponses => "intermediary responses in consecutive statements must be checked".into(),
-            StaticCheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
             StaticCheckErrorKind::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
-            StaticCheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
+            StaticCheckErrorKind::ExpectedListOfAllowances(fn_name, arg_num) => format!("{fn_name} expects a list of asset allowances as argument {arg_num}"),
+            StaticCheckErrorKind::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
+            StaticCheckErrorKind::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
+            StaticCheckErrorKind::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
+            StaticCheckErrorKind::WithAllAllowanceNotAlone => "with-all-assets-unsafe must not be used along with other allowances".into(),
+            StaticCheckErrorKind::WithNftExpectedListOfIdentifiers => "with-nft allowance must include a list of asset identifiers".into(),
+            StaticCheckErrorKind::MaxIdentifierLengthExceeded(max_len, len) => format!("with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
+            StaticCheckErrorKind::TooManyAllowances(max_allowed, found) => format!("too many allowances specified, the maximum is {max_allowed}, found {found}"),
+
         }
     }
 
@@ -1320,206 +1387,96 @@ impl DiagnosableError for CheckErrorKind {
         match &self {
             CheckErrorKind::SupertypeTooLarge => "supertype of two types is too large".into(),
             CheckErrorKind::Expects(s) => format!("unexpected interpreter behavior: {s}"),
-            CheckErrorKind::BadMatchOptionSyntax(source) => format!(
-                "match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
-                source.message()
-            ),
-            CheckErrorKind::BadMatchResponseSyntax(source) => format!(
-                "match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: {}",
-                source.message()
-            ),
-            CheckErrorKind::BadMatchInput(t) => format!(
-                "match requires an input of either a response or optional, found input: '{t}'"
-            ),
-            CheckErrorKind::CostOverflow => {
-                "contract execution cost overflowed cost counter".into()
-            }
-            CheckErrorKind::CostBalanceExceeded(a, b) => {
-                format!("contract execution cost exceeded budget: {a:?} > {b:?}")
-            }
-            CheckErrorKind::MemoryBalanceExceeded(a, b) => {
-                format!("contract execution cost exceeded memory budget: {a:?} > {b:?}")
-            }
+            CheckErrorKind::BadMatchOptionSyntax(source) =>
+                format!("match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: {}",
+                        source.message()),
+            CheckErrorKind::BadMatchResponseSyntax(source) =>
+                format!("match on a result type uses the following syntax: (match input ok-name if-ok-expression err-name if-err-expression). Caused by: {}",
+                        source.message()),
+            CheckErrorKind::BadMatchInput(t) =>
+                format!("match requires an input of either a response or optional, found input: '{t}'"),
+            CheckErrorKind::CostOverflow => "contract execution cost overflowed cost counter".into(),
+            CheckErrorKind::CostBalanceExceeded(a, b) => format!("contract execution cost exceeded budget: {a:?} > {b:?}"),
+            CheckErrorKind::MemoryBalanceExceeded(a, b) => format!("contract execution cost exceeded memory budget: {a:?} > {b:?}"),
+            CheckErrorKind::CostComputationFailed(s) => format!("contract cost computation failed: {s}"),
+            CheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
             CheckErrorKind::InvalidTypeDescription => "supplied type description is invalid".into(),
             CheckErrorKind::EmptyTuplesNotAllowed => "tuple types may not be empty".into(),
             CheckErrorKind::UnknownTypeName(name) => format!("failed to parse type: '{name}'"),
-            CheckErrorKind::ValueTooLarge => {
-                "created a type which was greater than maximum allowed value size".into()
-            }
-            CheckErrorKind::ValueOutOfBounds => {
-                "created a type which value size was out of defined bounds".into()
-            }
-            CheckErrorKind::TypeSignatureTooDeep => {
-                "created a type which was deeper than maximum allowed type depth".into()
-            }
+            CheckErrorKind::ValueTooLarge => "created a type which was greater than maximum allowed value size".into(),
+            CheckErrorKind::ValueOutOfBounds => "created a type which value size was out of defined bounds".into(),
+            CheckErrorKind::TypeSignatureTooDeep => "created a type which was deeper than maximum allowed type depth".into(),
             CheckErrorKind::ExpectedName => "expected a name argument to this function".into(),
-            CheckErrorKind::ListTypesMustMatch => {
-                "expecting elements of same type in a list".into()
-            }
-            CheckErrorKind::TypeError(expected_type, found_type) => {
-                format!("expecting expression of type '{expected_type}', found '{found_type}'")
-            }
-            CheckErrorKind::TypeValueError(expected_type, found_value) => {
-                format!("expecting expression of type '{expected_type}', found '{found_value}'")
-            }
-            CheckErrorKind::UnionTypeError(expected_types, found_type) => format!(
-                "expecting expression of type {}, found '{}'",
-                formatted_expected_types(expected_types),
-                found_type
-            ),
-            CheckErrorKind::UnionTypeValueError(expected_types, found_type) => format!(
-                "expecting expression of type {}, found '{}'",
-                formatted_expected_types(expected_types),
-                found_type
-            ),
-            CheckErrorKind::ExpectedOptionalOrResponseValue(found_value) => format!(
-                "expecting expression of type 'optional' or 'response', found '{found_value}'"
-            ),
-            CheckErrorKind::ExpectedOptionalValue(found_value) => {
-                format!("expecting expression of type 'optional', found '{found_value}'")
-            }
-            CheckErrorKind::ExpectedResponseValue(found_value) => {
-                format!("expecting expression of type 'response', found '{found_value}'")
-            }
-            CheckErrorKind::ExpectedContractPrincipalValue(found_value) => {
-                format!("expecting contract principal value, found '{found_value}'")
-            }
-            CheckErrorKind::CouldNotDetermineType => {
-                "type of expression cannot be determined".into()
-            }
-            CheckErrorKind::ExpectedTuple(type_signature) => {
-                format!("expecting tuple, found '{type_signature}'")
-            }
-            CheckErrorKind::NoSuchTupleField(field_name, tuple_signature) => {
-                format!("cannot find field '{field_name}' in tuple '{tuple_signature}'")
-            }
-            CheckErrorKind::NoSuchDataVariable(var_name) => {
-                format!("use of unresolved persisted variable '{var_name}'")
-            }
-            CheckErrorKind::BadTransferSTXArguments => {
-                "STX transfer expects an int amount, from principal, to principal".into()
-            }
-            CheckErrorKind::BadTransferFTArguments => {
-                "transfer expects an int amount, from principal, to principal".into()
-            }
-            CheckErrorKind::BadTransferNFTArguments => {
-                "transfer expects an asset, from principal, to principal".into()
-            }
-            CheckErrorKind::BadMintFTArguments => {
-                "mint expects a uint amount and from principal".into()
-            }
-            CheckErrorKind::BadBurnFTArguments => {
-                "burn expects a uint amount and from principal".into()
-            }
+            CheckErrorKind::ListTypesMustMatch => "expecting elements of same type in a list".into(),
+            CheckErrorKind::TypeError(expected_type, found_type) => format!("expecting expression of type '{expected_type}', found '{found_type}'"),
+            CheckErrorKind::TypeValueError(expected_type, found_value) => format!("expecting expression of type '{expected_type}', found '{found_value}'"),
+            CheckErrorKind::UnionTypeError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
+            CheckErrorKind::UnionTypeValueError(expected_types, found_type) => format!("expecting expression of type {}, found '{}'", formatted_expected_types(expected_types), found_type),
+            CheckErrorKind::ExpectedOptionalOrResponseValue(found_value) =>  format!("expecting expression of type 'optional' or 'response', found '{found_value}'"),
+            CheckErrorKind::ExpectedOptionalValue(found_value) => format!("expecting expression of type 'optional', found '{found_value}'"),
+            CheckErrorKind::ExpectedResponseValue(found_value) => format!("expecting expression of type 'response', found '{found_value}'"),
+            CheckErrorKind::ExpectedContractPrincipalValue(found_value) => format!("expecting contract principal value, found '{found_value}'"),
+            CheckErrorKind::CouldNotDetermineType => "type of expression cannot be determined".into(),
+            CheckErrorKind::ExpectedTuple(type_signature) => format!("expecting tuple, found '{type_signature}'"),
+            CheckErrorKind::NoSuchTupleField(field_name, tuple_signature) => format!("cannot find field '{field_name}' in tuple '{tuple_signature}'"),
+            CheckErrorKind::NoSuchDataVariable(var_name) => format!("use of unresolved persisted variable '{var_name}'"),
+            CheckErrorKind::BadTransferSTXArguments => "STX transfer expects an int amount, from principal, to principal".into(),
+            CheckErrorKind::BadTransferFTArguments => "transfer expects an int amount, from principal, to principal".into(),
+            CheckErrorKind::BadTransferNFTArguments => "transfer expects an asset, from principal, to principal".into(),
+            CheckErrorKind::BadMintFTArguments => "mint expects a uint amount and from principal".into(),
+            CheckErrorKind::BadBurnFTArguments => "burn expects a uint amount and from principal".into(),
             CheckErrorKind::NoSuchMap(map_name) => format!("use of unresolved map '{map_name}'"),
             CheckErrorKind::DefineFunctionBadSignature => "invalid function definition".into(),
             CheckErrorKind::BadFunctionName => "invalid function name".into(),
-            CheckErrorKind::PublicFunctionMustReturnResponse(found_type) => format!(
-                "public functions must return an expression of type 'response', found '{found_type}'"
-            ),
-            CheckErrorKind::ReturnTypesMustMatch(type_1, type_2) => format!(
-                "detected two execution paths, returning two different expression types (got '{type_1}' and '{type_2}')"
-            ),
-            CheckErrorKind::NoSuchContract(contract_identifier) => {
-                format!("use of unresolved contract '{contract_identifier}'")
-            }
-            CheckErrorKind::NoSuchPublicFunction(contract_identifier, function_name) => {
-                format!("contract '{contract_identifier}' has no public function '{function_name}'")
-            }
-            CheckErrorKind::PublicFunctionNotReadOnly(contract_identifier, function_name) => {
-                format!("function '{contract_identifier}' in '{function_name}' is not read-only")
-            }
-            CheckErrorKind::ContractAlreadyExists(contract_identifier) => {
-                format!("contract name '{contract_identifier}' conflicts with existing contract")
-            }
+            CheckErrorKind::PublicFunctionMustReturnResponse(found_type) => format!("public functions must return an expression of type 'response', found '{found_type}'"),
+            CheckErrorKind::ReturnTypesMustMatch(type_1, type_2) => format!("detected two execution paths, returning two different expression types (got '{type_1}' and '{type_2}')"),
+            CheckErrorKind::NoSuchContract(contract_identifier) => format!("use of unresolved contract '{contract_identifier}'"),
+            CheckErrorKind::NoSuchPublicFunction(contract_identifier, function_name) => format!("contract '{contract_identifier}' has no public function '{function_name}'"),
+            CheckErrorKind::PublicFunctionNotReadOnly(contract_identifier, function_name) => format!("function '{contract_identifier}' in '{function_name}' is not read-only"),
+            CheckErrorKind::ContractAlreadyExists(contract_identifier) => format!("contract name '{contract_identifier}' conflicts with existing contract"),
             CheckErrorKind::ContractCallExpectName => "missing contract name for call".into(),
-            CheckErrorKind::NoSuchBurnBlockInfoProperty(property_name) => {
-                format!("use of burn block unknown property '{property_name}'")
-            }
-            CheckErrorKind::NoSuchStacksBlockInfoProperty(property_name) => {
-                format!("use of unknown stacks block property '{property_name}'")
-            }
-            CheckErrorKind::GetBlockInfoExpectPropertyName => {
-                "missing property name for block info introspection".into()
-            }
-            CheckErrorKind::GetStacksBlockInfoExpectPropertyName => {
-                "missing property name for stacks block info introspection".into()
-            }
-            CheckErrorKind::GetTenureInfoExpectPropertyName => {
-                "missing property name for tenure info introspection".into()
-            }
-            CheckErrorKind::NameAlreadyUsed(name) => {
-                format!("defining '{name}' conflicts with previous value")
-            }
-            CheckErrorKind::NonFunctionApplication => {
-                "expecting expression of type function".into()
-            }
+            CheckErrorKind::NoSuchBurnBlockInfoProperty(property_name) => format!("use of burn block unknown property '{property_name}'"),
+            CheckErrorKind::NoSuchStacksBlockInfoProperty(property_name) => format!("use of unknown stacks block property '{property_name}'"),
+            CheckErrorKind::GetBlockInfoExpectPropertyName => "missing property name for block info introspection".into(),
+            CheckErrorKind::GetStacksBlockInfoExpectPropertyName => "missing property name for stacks block info introspection".into(),
+            CheckErrorKind::GetTenureInfoExpectPropertyName => "missing property name for tenure info introspection".into(),
+            CheckErrorKind::NameAlreadyUsed(name) => format!("defining '{name}' conflicts with previous value"),
+            CheckErrorKind::NonFunctionApplication => "expecting expression of type function".into(),
             CheckErrorKind::ExpectedListApplication => "expecting expression of type list".into(),
-            CheckErrorKind::ExpectedSequence(found_type) => format!(
-                "expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{found_type}'"
-            ),
+            CheckErrorKind::ExpectedSequence(found_type) => format!("expecting expression of type 'list', 'buff', 'string-ascii' or 'string-utf8' - found '{found_type}'"),
             CheckErrorKind::BadLetSyntax => "invalid syntax of 'let'".into(),
-            CheckErrorKind::CircularReference(references) => {
-                format!("detected circular reference: ({})", references.join(", "))
-            }
-            CheckErrorKind::BadSyntaxBinding(binding_error) => {
-                format!("invalid syntax binding: {}", &binding_error.message())
-            }
-            CheckErrorKind::UndefinedVariable(var_name) => {
-                format!("use of unresolved variable '{var_name}'")
-            }
-            CheckErrorKind::UndefinedFunction(var_name) => {
-                format!("use of unresolved function '{var_name}'")
-            }
-            CheckErrorKind::RequiresAtLeastArguments(expected, found) => {
-                format!("expecting >= {expected} arguments, got {found}")
-            }
-            CheckErrorKind::RequiresAtMostArguments(expected, found) => {
-                format!("expecting < {expected} arguments, got {found}")
-            }
-            CheckErrorKind::IncorrectArgumentCount(expected_count, found_count) => {
-                format!("expecting {expected_count} arguments, got {found_count}")
-            }
-            CheckErrorKind::TraitBasedContractCallInReadOnly => {
-                "use of trait based contract calls are not allowed in read-only context".into()
-            }
-            CheckErrorKind::WriteAttemptedInReadOnly => {
-                "expecting read-only statements, detected a writing operation".into()
-            }
+            CheckErrorKind::CircularReference(references) => format!("detected circular reference: ({})", references.join(", ")),
+            CheckErrorKind::BadSyntaxBinding(binding_error) => format!("invalid syntax binding: {}", &binding_error.message()),
+            CheckErrorKind::UndefinedVariable(var_name) => format!("use of unresolved variable '{var_name}'"),
+            CheckErrorKind::UndefinedFunction(var_name) => format!("use of unresolved function '{var_name}'"),
+            CheckErrorKind::RequiresAtLeastArguments(expected, found) => format!("expecting >= {expected} arguments, got {found}"),
+            CheckErrorKind::RequiresAtMostArguments(expected, found) => format!("expecting < {expected} arguments, got {found}"),
+            CheckErrorKind::IncorrectArgumentCount(expected_count, found_count) => format!("expecting {expected_count} arguments, got {found_count}"),
+            CheckErrorKind::TraitBasedContractCallInReadOnly => "use of trait based contract calls are not allowed in read-only context".into(),
+            CheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
+            CheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
             CheckErrorKind::BadTokenName => "expecting an token name as an argument".into(),
-            CheckErrorKind::NoSuchNFT(asset_name) => {
-                format!("tried to use asset function with a undefined asset ('{asset_name}')")
-            }
-            CheckErrorKind::NoSuchFT(asset_name) => {
-                format!("tried to use token function with a undefined token ('{asset_name}')")
-            }
-            CheckErrorKind::TraitReferenceUnknown(trait_name) => {
-                format!("use of undeclared trait <{trait_name}>")
-            }
-            CheckErrorKind::TraitMethodUnknown(trait_name, func_name) => {
-                format!("method '{func_name}' unspecified in trait <{trait_name}>")
-            }
-            CheckErrorKind::BadTraitImplementation(trait_name, func_name) => format!(
-                "invalid signature for method '{func_name}' regarding trait's specification <{trait_name}>"
-            ),
-            CheckErrorKind::ExpectedTraitIdentifier => {
-                "expecting expression of type trait identifier".into()
-            }
+            CheckErrorKind::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{asset_name}')"),
+            CheckErrorKind::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{asset_name}')"),
+            CheckErrorKind::TraitReferenceUnknown(trait_name) => format!("use of undeclared trait <{trait_name}>"),
+            CheckErrorKind::TraitMethodUnknown(trait_name, func_name) => format!("method '{func_name}' unspecified in trait <{trait_name}>"),
+            CheckErrorKind::BadTraitImplementation(trait_name, func_name) => format!("invalid signature for method '{func_name}' regarding trait's specification <{trait_name}>"),
+            CheckErrorKind::ExpectedTraitIdentifier => "expecting expression of type trait identifier".into(),
             CheckErrorKind::DefineTraitBadSignature => "invalid trait definition".into(),
-            CheckErrorKind::DefineTraitDuplicateMethod(method_name) => {
-                format!("duplicate method name '{method_name}' in trait definition")
-            }
+            CheckErrorKind::DefineTraitDuplicateMethod(method_name) => format!("duplicate method name '{method_name}' in trait definition"),
             CheckErrorKind::ContractOfExpectsTrait => "trait reference expected".into(),
             CheckErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
             CheckErrorKind::InvalidUTF8Encoding => "invalid UTF8 encoding".into(),
             CheckErrorKind::InvalidSecp65k1Signature => "invalid seckp256k1 signature".into(),
-            CheckErrorKind::CostComputationFailed(s) => {
-                format!("contract cost computation failed: {s}")
-            }
-            CheckErrorKind::CouldNotDetermineSerializationType => {
-                "could not determine the input type for the serialization function".into()
-            }
-            CheckErrorKind::ExecutionTimeExpired => "execution time expired".into(),
+            CheckErrorKind::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
+            CheckErrorKind::ExpectedListOfAllowances(fn_name, arg_num) => format!("{fn_name} expects a list of asset allowances as argument {arg_num}"),
+            CheckErrorKind::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
+            CheckErrorKind::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
+            CheckErrorKind::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
+            CheckErrorKind::WithAllAllowanceNotAlone => "with-all-assets-unsafe must not be used along with other allowances".into(),
+            CheckErrorKind::WithNftExpectedListOfIdentifiers => "with-nft allowance must include a list of asset identifiers".into(),
+            CheckErrorKind::MaxIdentifierLengthExceeded(max_len, len) => format!("with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
+            CheckErrorKind::TooManyAllowances(max_allowed, found) => format!("too many allowances specified, the maximum is {max_allowed}, found {found}"),
         }
     }
 

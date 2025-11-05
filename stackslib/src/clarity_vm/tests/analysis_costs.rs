@@ -228,9 +228,11 @@ fn epoch_21_test_all(use_mainnet: bool, version: ClarityVersion) {
             continue;
         }
 
-        let test = get_simple_test(f);
-        let cost = test_tracked_costs(test, StacksEpochId::Epoch21, version, ix + 1, &mut instance);
-        assert!(cost.exceeds(&baseline));
+        if let Some(test) = get_simple_test(f) {
+            let cost =
+                test_tracked_costs(test, StacksEpochId::Epoch21, version, ix + 1, &mut instance);
+            assert!(cost.exceeds(&baseline));
+        }
     }
 }
 
@@ -262,15 +264,16 @@ fn epoch_205_test_all(use_mainnet: bool) {
 
     for (ix, f) in NativeFunctions::ALL.iter().enumerate() {
         if f.get_min_version() == ClarityVersion::Clarity1 {
-            let test = get_simple_test(f);
-            let cost = test_tracked_costs(
-                test,
-                StacksEpochId::Epoch2_05,
-                ClarityVersion::Clarity1,
-                ix + 1,
-                &mut instance,
-            );
-            assert!(cost.exceeds(&baseline));
+            if let Some(test) = get_simple_test(f) {
+                let cost = test_tracked_costs(
+                    test,
+                    StacksEpochId::Epoch2_05,
+                    ClarityVersion::Clarity1,
+                    ix + 1,
+                    &mut instance,
+                );
+                assert!(cost.exceeds(&baseline));
+            }
         }
     }
 }

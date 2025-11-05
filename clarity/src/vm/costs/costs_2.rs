@@ -753,4 +753,16 @@ impl CostValues for Costs2 {
     fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
         Err(RuntimeError::NotImplemented.into())
     }
+
+    fn cost_restrict_assets(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeError::NotImplemented.into())
+    }
+
+    fn cost_as_contract_safe(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeError::NotImplemented.into())
+    }
+
+    fn cost_secp256r1verify(n: u64) -> InterpreterResult<ExecutionCost> {
+        Err(RuntimeError::NotImplemented.into())
+    }
 }

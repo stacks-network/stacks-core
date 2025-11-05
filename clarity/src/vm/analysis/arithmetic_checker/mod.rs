@@ -175,9 +175,31 @@ impl ArithmeticOnlyChecker<'_> {
             | ContractCall | StxTransfer | StxTransferMemo | StxBurn | AtBlock | GetStxBalance
             | GetTokenSupply | BurnToken | FromConsensusBuff | ToConsensusBuff | BurnAsset
             | StxGetAccount => Err(Error::FunctionNotPermitted(function)),
-            Append | Concat | AsMaxLen | ContractOf | PrincipalOf | ListCons | Print
-            | AsContract | ElementAt | ElementAtAlias | IndexOf | IndexOfAlias | Map | Filter
-            | Fold | Slice | ReplaceAt | ContractHash => Err(Error::FunctionNotPermitted(function)),
+            Append
+            | Concat
+            | AsMaxLen
+            | ContractOf
+            | PrincipalOf
+            | ListCons
+            | Print
+            | AsContract
+            | ElementAt
+            | ElementAtAlias
+            | IndexOf
+            | IndexOfAlias
+            | Map
+            | Filter
+            | Fold
+            | Slice
+            | ReplaceAt
+            | ContractHash
+            | RestrictAssets
+            | AsContractSafe
+            | AllowanceWithStx
+            | AllowanceWithFt
+            | AllowanceWithNft
+            | AllowanceWithStacking
+            | AllowanceAll => Err(Error::FunctionNotPermitted(function)),
             BuffToIntLe | BuffToUIntLe | BuffToIntBe | BuffToUIntBe => {
                 Err(Error::FunctionNotPermitted(function))
             }
@@ -187,8 +209,8 @@ impl ArithmeticOnlyChecker<'_> {
             IntToAscii | IntToUtf8 | StringToInt | StringToUInt | ToAscii => {
                 Err(Error::FunctionNotPermitted(function))
             }
-            Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Hash160 | Sha256
-            | Keccak256 => Err(Error::FunctionNotPermitted(function)),
+            Sha512 | Sha512Trunc256 | Secp256k1Recover | Secp256k1Verify | Secp256r1Verify
+            | Hash160 | Sha256 | Keccak256 => Err(Error::FunctionNotPermitted(function)),
             Add | Subtract | Divide | Multiply | CmpGeq | CmpLeq | CmpLess | CmpGreater
             | Modulo | Power | Sqrti | Log2 | BitwiseXor | And | Or | Not | Equals | If
             | ConsSome | ConsOkay | ConsError | DefaultTo | UnwrapRet | UnwrapErrRet | IsOkay

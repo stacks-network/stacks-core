@@ -233,9 +233,9 @@ fn run_analysis<C: ClarityStorage>(
         mainnet,
         default_chain_id(mainnet),
         if mainnet {
-            BLOCK_LIMIT_MAINNET_205.clone()
+            BLOCK_LIMIT_MAINNET_205
         } else {
-            HELIUM_BLOCK_LIMIT_20.clone()
+            HELIUM_BLOCK_LIMIT_20
         },
         &mut marf_kv.get_clarity_db(header_db, &NULL_BURN_STATE_DB),
         DEFAULT_CLI_EPOCH,
@@ -421,9 +421,9 @@ where
         mainnet,
         default_chain_id(mainnet),
         if mainnet {
-            BLOCK_LIMIT_MAINNET_205.clone()
+            BLOCK_LIMIT_MAINNET_205
         } else {
-            HELIUM_BLOCK_LIMIT_20.clone()
+            HELIUM_BLOCK_LIMIT_20
         },
         &mut db,
         DEFAULT_CLI_EPOCH,

@@ -1242,6 +1242,16 @@ impl Value {
             Err(VmInternalError::Expect("Expected response".into()).into())
         }
     }
+
+    pub fn expect_string_ascii(self) -> Result<String> {
+        if let Value::Sequence(SequenceData::String(CharType::ASCII(ASCIIData { data }))) = self {
+            Ok(String::from_utf8(data)
+                .map_err(|_| VmInternalError::Expect("Non UTF-8 data in string".into()))?)
+        } else {
+            error!("Value '{self:?}' is not an ASCII string");
+            Err(VmInternalError::Expect("Expected ASCII string".into()).into())
+        }
+    }
 }
 
 impl BuffData {

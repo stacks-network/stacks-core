@@ -2652,13 +2652,18 @@ fn clarity_trait_experiments_downcast_trait_5(
 ) {
     let mut marf = MemoryBackingStore::new();
     let mut db = marf.as_analysis_db();
+    let downcast_trait_5 = if version >= ClarityVersion::Clarity4 {
+        "downcast-trait-5-c4"
+    } else {
+        "downcast-trait-5"
+    };
 
     // Can we use a principal exp where a trait type is expected?
     // Principal can come from constant/var/map/function/keyword
     let err = db
         .execute(|db| {
             load_versioned(db, "math-trait", version, epoch)?;
-            load_versioned(db, "downcast-trait-5", version, epoch)
+            load_versioned(db, downcast_trait_5, version, epoch)
         })
         .unwrap_err();
     if epoch <= StacksEpochId::Epoch2_05 {
@@ -3499,147 +3504,6 @@ fn test_contract_hash(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         } else {
             &Err(StaticCheckErrorKind::UnknownFunction(
                 "contract-hash?".to_string(),
-            ))
-        };
-
-        assert_eq!(&actual, expected, "Failed for test case: {description}");
-    }
-}
-
-/// Pass various types to `to-ascii?`
-#[apply(test_clarity_versions)]
-fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
-    let to_ascii_response_type = Some(
-        TypeSignature::new_response(
-            TypeSignature::TO_ASCII_STRING_ASCII_MAX,
-            TypeSignature::UIntType,
-        )
-        .unwrap(),
-    );
-    let to_ascii_expected_types = vec![
-        TypeSignature::IntType,
-        TypeSignature::UIntType,
-        TypeSignature::BoolType,
-        TypeSignature::PrincipalType,
-        TypeSignature::TO_ASCII_BUFFER_MAX,
-        TypeSignature::STRING_UTF8_MAX,
-    ];
-    let test_cases = [
-        (
-            "(to-ascii? 123)",
-            "int type",
-            Ok(to_ascii_response_type.clone()),
-        ),
-        (
-            "(to-ascii? u123)",
-            "uint type",
-            Ok(to_ascii_response_type.clone()),
-        ),
-        (
-            "(to-ascii? true)",
-            "bool type",
-            Ok(to_ascii_response_type.clone()),
-        ),
-        (
-            "(to-ascii? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM)",
-            "standard principal",
-            Ok(to_ascii_response_type.clone()),
-        ),
-        (
-            "(to-ascii? 'ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.foo)",
-            "contract principal",
-            Ok(to_ascii_response_type.clone()),
-        ),
-        (
-            "(to-ascii? 0x1234)",
-            "buffer type",
-            Ok(to_ascii_response_type.clone()),
-        ),
-        (
-            &format!("(to-ascii? 0x{})", "ff".repeat(524284)),
-            "max len buffer type",
-            Ok(to_ascii_response_type.clone()),
-        ),
-        (
-            &format!("(to-ascii? 0x{})", "ff".repeat(524285)),
-            "oversized buffer type",
-            Err(StaticCheckErrorKind::UnionTypeError(
-                to_ascii_expected_types.clone(),
-                Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
-                    BufferLength::try_from(524285u32).unwrap(),
-                ))),
-            )),
-        ),
-        (
-            "(to-ascii? u\"I am serious, and don't call me Shirley.\")",
-            "utf8 string",
-            Ok(to_ascii_response_type),
-        ),
-        (
-            "(to-ascii? \"60 percent of the time, it works every time\")",
-            "ascii string",
-            Err(StaticCheckErrorKind::UnionTypeError(
-                to_ascii_expected_types.clone(),
-                Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
-                    StringSubtype::ASCII(BufferLength::try_from(43u32).unwrap()),
-                ))),
-            )),
-        ),
-        (
-            "(to-ascii? (list 1 2 3))",
-            "list type",
-            Err(StaticCheckErrorKind::UnionTypeError(
-                to_ascii_expected_types.clone(),
-                Box::new(TypeSignature::SequenceType(SequenceSubtype::ListType(
-                    ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
-                ))),
-            )),
-        ),
-        (
-            "(to-ascii? { a: 1, b: u2 })",
-            "tuple type",
-            Err(StaticCheckErrorKind::UnionTypeError(
-                to_ascii_expected_types.clone(),
-                Box::new(TypeSignature::TupleType(
-                    vec![
-                        (ClarityName::from("a"), TypeSignature::IntType),
-                        (ClarityName::from("b"), TypeSignature::UIntType),
-                    ]
-                    .try_into()
-                    .unwrap(),
-                )),
-            )),
-        ),
-        (
-            "(to-ascii? (some u789))",
-            "optional type",
-            Err(StaticCheckErrorKind::UnionTypeError(
-                to_ascii_expected_types.clone(),
-                Box::new(TypeSignature::new_option(TypeSignature::UIntType).unwrap()),
-            )),
-        ),
-        (
-            "(to-ascii? (ok true))",
-            "response type",
-            Err(StaticCheckErrorKind::UnionTypeError(
-                to_ascii_expected_types.clone(),
-                Box::new(
-                    TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
-                        .unwrap(),
-                ),
-            )),
-        ),
-    ];
-
-    for (source, description, clarity4_expected) in test_cases.iter() {
-        let result = mem_run_analysis(source, version, epoch);
-        let actual = result.map(|(type_sig, _)| type_sig).map_err(|e| *e.err);
-
-        let expected = if version >= ClarityVersion::Clarity4 {
-            clarity4_expected
-        } else {
-            &Err(StaticCheckErrorKind::UnknownFunction(
-                "to-ascii?".to_string(),
             ))
         };
 

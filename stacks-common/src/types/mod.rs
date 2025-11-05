@@ -69,12 +69,6 @@ pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::Deserial
 pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
-    #[cfg(any(test, feature = "testing"))]
-    fn sign_with_noncedata(
-        &self,
-        data_hash: &[u8],
-        noncedata: &[u8; 32],
-    ) -> Result<MessageSignature, &'static str>;
 }
 
 pub trait Address: Clone + fmt::Debug + fmt::Display {
@@ -447,6 +441,13 @@ impl StacksEpochId {
         StacksEpochId::Epoch32
     }
 
+    pub const ALL_GTE_30: &'static [StacksEpochId] = &[
+        StacksEpochId::Epoch30,
+        StacksEpochId::Epoch31,
+        StacksEpochId::Epoch32,
+        StacksEpochId::Epoch33,
+    ];
+
     /// In this epoch, how should the mempool perform garbage collection?
     pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
         match self {
@@ -500,6 +501,23 @@ impl StacksEpochId {
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
             | StacksEpochId::Epoch33 => true,
+        }
+    }
+
+    pub fn supports_specific_budget_extends(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
         }
     }
 
@@ -767,6 +785,27 @@ impl StacksEpochId {
     }
 
     pub fn uses_marfed_block_time(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
+        }
+    }
+
+    /// Before Epoch 3.3, the cost for arguments to functions was based on the
+    /// parameter type, not the actual size of the argument passed in. This
+    /// resulted in over-charging for arguments smaller than the maximum size
+    /// permitted for the parameter.
+    pub fn uses_arg_size_for_cost(&self) -> bool {
         match self {
             StacksEpochId::Epoch10
             | StacksEpochId::Epoch20

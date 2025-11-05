@@ -18,8 +18,8 @@ use clarity::vm::costs::ExecutionCost;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksBlockId,
 };
-use stacks_common::util::get_epoch_time_ms;
 use stacks_common::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use stacks_common::util::{get_epoch_time_ms, get_epoch_time_secs};
 
 use crate::chainstate::burn::db::sortdb::{SortitionDB, SortitionHandleConn};
 use crate::chainstate::burn::operations::*;
@@ -55,11 +55,14 @@ pub struct NakamotoTenureInfo {
 }
 
 impl NakamotoTenureInfo {
-    pub fn cause(&self) -> Option<TenureChangeCause> {
-        self.tenure_change_tx
-            .as_ref()
-            .map(|tx| tx.try_as_tenure_change())?
-            .map(|payload| payload.cause)
+    pub fn cause(&self) -> MinerTenureInfoCause {
+        let Some(tenure_change_tx) = self.tenure_change_tx.as_ref() else {
+            return MinerTenureInfoCause::NoTenureChange;
+        };
+        let Some(tenure_change_tx) = tenure_change_tx.try_as_tenure_change() else {
+            return MinerTenureInfoCause::NoTenureChange;
+        };
+        MinerTenureInfoCause::from(tenure_change_tx)
     }
 
     pub fn tenure_change_tx(&self) -> Option<&StacksTransaction> {
@@ -95,6 +98,92 @@ pub struct NakamotoBlockBuilder {
     contract_limit_percentage: Option<u8>,
 }
 
+/// NB: No PartialEq implementation is deliberate in order to ensure that we use the appropriate
+/// instance method to determine what class of cause this could be
+#[derive(Debug, Clone, Copy)]
+pub enum MinerTenureInfoCause {
+    NoTenureChange,
+    BlockFound,
+    Extended,
+    ExtendedRuntime,
+    ExtendedReadCount,
+    ExtendedReadLength,
+    ExtendedWriteCount,
+    ExtendedWriteLength,
+}
+
+impl From<&TenureChangePayload> for MinerTenureInfoCause {
+    fn from(tx: &TenureChangePayload) -> Self {
+        Self::from(tx.cause)
+    }
+}
+
+impl From<TenureChangeCause> for MinerTenureInfoCause {
+    fn from(cause: TenureChangeCause) -> Self {
+        match cause {
+            TenureChangeCause::BlockFound => MinerTenureInfoCause::BlockFound,
+            TenureChangeCause::Extended => MinerTenureInfoCause::Extended,
+            TenureChangeCause::ExtendedRuntime => MinerTenureInfoCause::ExtendedRuntime,
+            TenureChangeCause::ExtendedReadCount => MinerTenureInfoCause::ExtendedReadCount,
+            TenureChangeCause::ExtendedReadLength => MinerTenureInfoCause::ExtendedReadLength,
+            TenureChangeCause::ExtendedWriteCount => MinerTenureInfoCause::ExtendedWriteCount,
+            TenureChangeCause::ExtendedWriteLength => MinerTenureInfoCause::ExtendedWriteLength,
+        }
+    }
+}
+
+impl MinerTenureInfoCause {
+    /// Is this the start of a new tenure?
+    pub fn is_new_tenure(&self) -> bool {
+        match self {
+            MinerTenureInfoCause::BlockFound => true,
+            _ => false,
+        }
+    }
+
+    /// Is this a tenure extension of any kind?
+    pub fn is_tenure_extension_any(&self) -> bool {
+        match self {
+            MinerTenureInfoCause::NoTenureChange | MinerTenureInfoCause::BlockFound => false,
+            MinerTenureInfoCause::Extended
+            | MinerTenureInfoCause::ExtendedRuntime
+            | MinerTenureInfoCause::ExtendedReadCount
+            | MinerTenureInfoCause::ExtendedReadLength
+            | MinerTenureInfoCause::ExtendedWriteCount
+            | MinerTenureInfoCause::ExtendedWriteLength => true,
+        }
+    }
+
+    /// Is this an extend-all tenure extension?
+    pub fn is_tenure_extension_all(&self) -> bool {
+        match self {
+            MinerTenureInfoCause::Extended => true,
+            MinerTenureInfoCause::NoTenureChange
+            | MinerTenureInfoCause::BlockFound
+            | MinerTenureInfoCause::ExtendedRuntime
+            | MinerTenureInfoCause::ExtendedReadCount
+            | MinerTenureInfoCause::ExtendedReadLength
+            | MinerTenureInfoCause::ExtendedWriteCount
+            | MinerTenureInfoCause::ExtendedWriteLength => false,
+        }
+    }
+
+    /// Is this a new SIP-034 tenure extension?
+    /// I.e. an extension in one dimension, instead of all of them?
+    pub fn is_sip034_tenure_extension(&self) -> bool {
+        match self {
+            MinerTenureInfoCause::NoTenureChange
+            | MinerTenureInfoCause::BlockFound
+            | MinerTenureInfoCause::Extended => false,
+            MinerTenureInfoCause::ExtendedRuntime
+            | MinerTenureInfoCause::ExtendedReadCount
+            | MinerTenureInfoCause::ExtendedReadLength
+            | MinerTenureInfoCause::ExtendedWriteCount
+            | MinerTenureInfoCause::ExtendedWriteLength => true,
+        }
+    }
+}
+
 pub struct MinerTenureInfo<'a> {
     pub chainstate_tx: ChainstateTx<'a>,
     pub clarity_instance: &'a mut ClarityInstance,
@@ -108,7 +197,7 @@ pub struct MinerTenureInfo<'a> {
     pub parent_stacks_block_height: u64,
     pub parent_burn_block_height: u32,
     pub coinbase_height: u64,
-    pub cause: Option<TenureChangeCause>,
+    pub cause: MinerTenureInfoCause,
     pub active_reward_set: boot::RewardSet,
     pub tenure_block_commit_opt: Option<LeaderBlockCommitOp>,
     pub ephemeral: bool,
@@ -176,6 +265,7 @@ impl NakamotoBlockBuilder {
         bitvec_len: u16,
         soft_limit: Option<ExecutionCost>,
         contract_limit_percentage: Option<u8>,
+        timestamp: Option<u64>,
     ) -> Result<NakamotoBlockBuilder, Error> {
         let next_height = parent_stacks_header
             .anchored_header
@@ -214,6 +304,7 @@ impl NakamotoBlockBuilder {
                     .as_stacks_nakamoto()
                     .map(|b| b.timestamp)
                     .unwrap_or(0),
+                timestamp.unwrap_or(get_epoch_time_secs()),
             ),
             soft_limit,
             contract_limit_percentage,
@@ -228,7 +319,7 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
+        cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
         self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, false)
     }
@@ -241,7 +332,7 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
+        cause: MinerTenureInfoCause,
     ) -> Result<MinerTenureInfo<'a>, Error> {
         self.inner_load_tenure_info(chainstate, burn_dbconn, cause, false, true)
     }
@@ -254,7 +345,7 @@ impl NakamotoBlockBuilder {
         &self,
         chainstate: &'a mut StacksChainState,
         burn_dbconn: &'a SortitionHandleConn,
-        cause: Option<TenureChangeCause>,
+        cause: MinerTenureInfoCause,
         shadow_block: bool,
         ephemeral: bool,
     ) -> Result<MinerTenureInfo<'a>, Error> {
@@ -367,8 +458,8 @@ impl NakamotoBlockBuilder {
                 .flatten()
                 .unwrap_or(0);
 
-        let new_tenure = cause == Some(TenureChangeCause::BlockFound);
-        let coinbase_height = if new_tenure {
+        let is_new_tenure = cause.is_new_tenure();
+        let coinbase_height = if is_new_tenure {
             parent_coinbase_height
                 .checked_add(1)
                 .expect("Blockchain overflow")
@@ -429,9 +520,8 @@ impl NakamotoBlockBuilder {
                 info.parent_burn_block_height,
                 &info.burn_tip,
                 info.burn_tip_height,
-                info.cause == Some(TenureChangeCause::BlockFound),
                 info.coinbase_height,
-                info.cause == Some(TenureChangeCause::Extended),
+                info.cause,
                 &self.header.pox_treatment,
                 block_commit,
                 &info.active_reward_set,
@@ -449,9 +539,8 @@ impl NakamotoBlockBuilder {
                 info.parent_burn_block_height,
                 &info.burn_tip,
                 info.burn_tip_height,
-                info.cause == Some(TenureChangeCause::BlockFound),
                 info.coinbase_height,
-                info.cause == Some(TenureChangeCause::Extended),
+                info.cause,
                 &self.header.pox_treatment,
                 block_commit,
                 &info.active_reward_set,
@@ -581,6 +670,7 @@ impl NakamotoBlockBuilder {
             signer_bitvec_len,
             None,
             settings.mempool_settings.contract_cost_limit_percentage,
+            None,
         )?;
 
         let ts_start = get_epoch_time_ms();

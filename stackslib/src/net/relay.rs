@@ -997,7 +997,6 @@ impl Relayer {
             &block.header.block_hash()
         );
 
-        let config = chainstate.config();
         let tip = block_sn.sortition_id;
 
         let reward_info = match load_nakamoto_reward_set(
@@ -1039,17 +1038,13 @@ impl Relayer {
             return Err(chainstate_error::NoRegisteredSigners(reward_cycle));
         };
 
-        let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
-            &config,
+            chainstate,
             block,
             sort_handle,
-            &staging_db_tx,
-            headers_conn,
             &reward_set,
             obtained_method,
         )?;
-        staging_db_tx.commit()?;
 
         if accepted {
             info!("{}", &accept_msg);
@@ -1058,10 +1053,10 @@ impl Relayer {
                     return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
                 }
             }
-            return Ok(BlockAcceptResponse::Accepted);
+            Ok(BlockAcceptResponse::Accepted)
         } else {
-            info!("{}", &reject_msg);
-            return Ok(BlockAcceptResponse::AlreadyStored);
+            info!("{reject_msg}");
+            Ok(BlockAcceptResponse::AlreadyStored)
         }
     }
 

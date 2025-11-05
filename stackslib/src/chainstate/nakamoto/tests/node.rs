@@ -35,7 +35,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::NullEventDispatcher;
 use crate::chainstate::coordinator::{ChainsCoordinator, OnChainRewardSetProvider};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::staging_blocks::{
     NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
 };
@@ -646,7 +646,7 @@ impl TestStacksNode {
             burn_amount,
             miner_key,
             Some(&parent_block_snapshot),
-            tenure_change_cause == TenureChangeCause::BlockFound,
+            tenure_change_cause.is_new_tenure(),
             parent_is_shadow,
         );
 
@@ -793,6 +793,7 @@ impl TestStacksNode {
                         None
                     },
                     1,
+                    None,
                     None,
                     None,
                 )?
@@ -996,12 +997,12 @@ impl TestStacksNode {
         debug!("Build Nakamoto block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
-        let mut tenure_cause = None;
+        let mut tenure_cause = MinerTenureInfoCause::NoTenureChange;
         for tx in txs.iter() {
             let TransactionPayload::TenureChange(payload) = &tx.payload else {
                 continue;
             };
-            tenure_cause = Some(payload.cause);
+            tenure_cause = MinerTenureInfoCause::from(payload.cause);
             break;
         }
 
@@ -1127,19 +1128,13 @@ impl TestStacksNode {
         let mut sort_handle = sortdb.index_handle(&sort_tip);
 
         // Force the block to be added to the nakamoto_staging_blocks table
-        let config = stacks_node.chainstate.config();
-        let (headers_conn, staging_db_tx) =
-            stacks_node.chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
-            &config,
+            &mut stacks_node.chainstate,
             &nakamoto_block,
             &mut sort_handle,
-            &staging_db_tx,
-            headers_conn,
             &reward_set,
             NakamotoBlockObtainMethod::Pushed,
         )?;
-        staging_db_tx.commit()?;
         debug!("Accepted Nakamoto block {}", &nakamoto_block.block_id());
         // Actually attempt to process the accepted block added to nakamoto_staging_blocks
         // Will attempt to execute the transactions via a call to append_block
@@ -2101,7 +2096,7 @@ impl TestPeer<'_> {
                 );
             }
 
-            if tenure_tx.cause == TenureChangeCause::BlockFound {
+            if tenure_tx.cause.is_new_tenure() {
                 // block-founds are always in new tenures
                 assert!(!NakamotoChainState::check_tenure_continuity(
                     &mut chainstate.index_conn(),
