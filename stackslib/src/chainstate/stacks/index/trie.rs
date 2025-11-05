@@ -16,8 +16,6 @@
 
 /// This module defines the methods for reading and inserting into a Trie
 use sha2::Digest;
-use stacks_common::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
-use stacks_common::util::macros::is_trace;
 
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::marf::MARF;
@@ -27,6 +25,8 @@ use crate::chainstate::stacks::index::node::{
 };
 use crate::chainstate::stacks::index::storage::{TrieHashCalculationMode, TrieStorageConnection};
 use crate::chainstate::stacks::index::{Error, MarfTrieId, TrieHasher, TrieLeaf};
+use crate::types::chainstate::{TrieHash, TRIEHASH_ENCODED_SIZE};
+use crate::util::macros::is_trace;
 
 /// We don't actually instantiate a Trie, but we still need to pass a type parameter for the
 /// storage implementation.
@@ -190,7 +190,7 @@ impl Trie {
         storage: &mut TrieStorageConnection<T>,
         ptr: &TriePtr,
         cursor: &mut TrieCursor<T>,
-    ) -> Result<(TrieNodeType, TrieHash, TriePtr), Error> {
+    ) -> Result<(T, TrieNodeType, TrieHash, TriePtr), Error> {
         if !is_backptr(ptr.id()) {
             // child is in this block
             if ptr.id() == (TrieNodeID::Empty as u8) {
@@ -198,7 +198,7 @@ impl Trie {
                 return Err(Error::CorruptionError("ptr is empty".to_string()));
             }
             let (node, node_hash) = storage.read_nodetype(ptr)?;
-            Ok((node, node_hash, *ptr))
+            Ok((storage.get_cur_block(), node, node_hash, *ptr))
         } else {
             storage.bench_mut().marf_find_backptr_node_start();
             // ptr is a backptr -- find the block
@@ -224,7 +224,7 @@ impl Trie {
 
             let (node, node_hash) = storage.read_nodetype(&backptr)?;
             cursor.repair_backptr_step_backptr(&node, &backptr, storage.get_cur_block());
-            Ok((node, node_hash, backptr))
+            Ok((back_block_hash, node, node_hash, backptr))
         }
     }
 
