@@ -702,8 +702,7 @@ impl<T: MarfTrieId> MARF<T> {
                 );
 
                 // this node had a child for this chr at one point
-                let (back_block_hash, node, node_hash, node_ptr) =
-                    Trie::walk_backptr(storage, &ptr, cursor)?;
+                let (_, node, node_hash, node_ptr) = Trie::walk_backptr(storage, &ptr, cursor)?;
                 Ok((node, node_hash, node_ptr, ptr.back_block))
             }
         }
