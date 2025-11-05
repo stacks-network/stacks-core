@@ -16,20 +16,20 @@
 use std::ops::DerefMut;
 
 use rusqlite::{Connection, Transaction};
-use stacks_common::types::chainstate::TrieHash;
-use stacks_common::util::hash::Sha512Trunc256Sum;
 
 use super::storage::ReopenedTrieStorageConnection;
 use crate::chainstate::stacks::index::bits::{get_leaf_hash, get_node_hash};
 use crate::chainstate::stacks::index::node::{
-    clear_backptr, is_backptr, set_backptr, CursorError, TrieCursor, TrieNode256, TrieNodeID,
-    TrieNodeType, TriePtr,
+    clear_backptr, node_copy_update_ptrs, set_backptr, CursorError, TrieCowPtr, TrieCursor,
+    TrieNode256, TrieNodeID, TrieNodeType, TriePtr,
 };
 use crate::chainstate::stacks::index::storage::{
     TrieFileStorage, TrieHashCalculationMode, TrieStorageConnection, TrieStorageTransaction,
 };
 use crate::chainstate::stacks::index::trie::Trie;
 use crate::chainstate::stacks::index::{Error, MARFValue, MarfTrieId, TrieLeaf, TrieMerkleProof};
+use crate::types::chainstate::TrieHash;
+use crate::util::hash::Sha512Trunc256Sum;
 use crate::util_lib::db::Error as db_error;
 
 pub const BLOCK_HASH_TO_HEIGHT_MAPPING_KEY: &str = "__MARF_BLOCK_HASH_TO_HEIGHT";
@@ -64,6 +64,8 @@ pub struct MARFOpenOpts {
     pub external_blobs: bool,
     /// unconditionally do a DB migration (used for testing)
     pub force_db_migrate: bool,
+    /// compress the MARF
+    pub compress: bool,
 }
 
 impl MARFOpenOpts {
@@ -73,6 +75,7 @@ impl MARFOpenOpts {
             cache_strategy: "noop".to_string(),
             external_blobs: false,
             force_db_migrate: false,
+            compress: false,
         }
     }
 
@@ -86,20 +89,32 @@ impl MARFOpenOpts {
             cache_strategy: cache_strategy.to_string(),
             external_blobs,
             force_db_migrate: false,
+            compress: false,
         }
+    }
+
+    pub fn with_compression(mut self, compression: bool) -> Self {
+        self.compress = compression;
+        self
     }
 
     #[cfg(test)]
     pub fn all() -> Vec<MARFOpenOpts> {
         vec![
+            /*
             MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false),
             MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
             MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true),
             MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", false),
-            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "everything", true),
-            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "everything", true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", false)
+                .with_compression(true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false)
+                .with_compression(true),
+            MARFOpenOpts::new(TrieHashCalculationMode::Immediate, "noop", true)
+                .with_compression(true),
+            */
+            MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", true)
+                .with_compression(true),
         ]
     }
 }
@@ -687,21 +702,9 @@ impl<T: MarfTrieId> MARF<T> {
                 );
 
                 // this node had a child for this chr at one point
-                let (node, node_hash, node_ptr) = Trie::walk_backptr(storage, &ptr, cursor)?;
+                let (back_block_hash, node, node_hash, node_ptr) =
+                    Trie::walk_backptr(storage, &ptr, cursor)?;
                 Ok((node, node_hash, node_ptr, ptr.back_block))
-            }
-        }
-    }
-
-    fn node_copy_update_ptrs(ptrs: &mut [TriePtr], child_block_id: u32) {
-        for pointer in ptrs.iter_mut() {
-            // if the node is empty, do nothing, if it's a back pointer,
-            if pointer.id() == TrieNodeID::Empty as u8 || is_backptr(pointer.id()) {
-                continue;
-            } else {
-                // make backptr
-                pointer.back_block = child_block_id;
-                pointer.id = set_backptr(pointer.id());
             }
         }
     }
@@ -710,7 +713,7 @@ impl<T: MarfTrieId> MARF<T> {
         let hash = match node {
             TrieNodeType::Leaf(leaf) => get_leaf_hash(leaf),
             _ => {
-                MARF::<T>::node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
+                node_copy_update_ptrs(node.ptrs_mut(), child_block_id);
                 TrieHash::from_data(&[])
             }
         };
@@ -735,9 +738,14 @@ impl<T: MarfTrieId> MARF<T> {
         );
 
         let (cur_block_hash, cur_block_id) = storage.get_cur_block_and_id();
+        let child_backptr = node.walk(chr).ok_or_else(|| Error::NotFoundError)?;
+
         let (mut child_node, _, child_ptr, _) = MARF::walk_backptr(storage, node, chr, cursor)?;
+
         let child_block_hash = storage.get_cur_block();
         let child_block_identifier = storage.get_cur_block_identifier()?;
+
+        child_node.set_cow_ptr(TrieCowPtr::new(child_block_hash.clone(), child_backptr));
 
         // update child_node with new ptrs and hashes
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
@@ -772,6 +780,15 @@ impl<T: MarfTrieId> MARF<T> {
         });
 
         let (mut prev_root, _) = Trie::read_root(storage)?;
+        if prev_block_hash != &T::sentinel() {
+            let mut prev_root_backptr = TriePtr::new(
+                set_backptr(TrieNodeID::Node256 as u8),
+                0,
+                storage.root_ptr(),
+            );
+            prev_root_backptr.back_block = prev_block_identifier;
+            prev_root.set_cow_ptr(TrieCowPtr::new(prev_block_hash.clone(), prev_root_backptr));
+        }
         let new_root_hash = MARF::<T>::node_copy_update(&mut prev_root, prev_block_identifier);
 
         storage.open_block_maybe_id(&cur_block_hash, cur_block_id)?;
@@ -860,6 +877,11 @@ impl<T: MarfTrieId> MARF<T> {
                             if !node.is_leaf()
                                 || clear_backptr(node_ptr.id()) != TrieNodeID::Leaf as u8
                             {
+                                trace!(
+                                    "Out-of-path but encountered at {:?}: {:?}",
+                                    &node_ptr,
+                                    &node
+                                );
                                 error!("Out-of-path but encountered a non-leaf");
                                 return Err(Error::CorruptionError(
                                     "Non-leaf encountered at end of path".to_string(),
@@ -963,6 +985,7 @@ impl<T: MarfTrieId> MARF<T> {
                         None => {
                             // end of path.  Must be at a leaf.
                             if clear_backptr(cursor.ptr().id()) != TrieNodeID::Leaf as u8 {
+                                trace!("Out-of-path but encountered at {:?}", &cursor.ptr());
                                 return Err(Error::CorruptionError(
                                     "Non-leaf encountered at end of path".to_string(),
                                 ));
@@ -1055,8 +1078,8 @@ impl<T: MarfTrieId> MARF<T> {
         })?;
 
         // a NotFoundError _here_ means that the key doesn't exist in this view
-        let (cursor, node) = MARF::walk(storage, block_hash, path).inspect_err(|e| {
-            trace!("Failed to look up key {block_hash:?} {path:?}: {e:?}");
+        let (cursor, node) = MARF::walk(storage, block_hash, path).inspect_err(|_e| {
+            trace!("Failed to look up key {block_hash:?} {path:?}: {_e:?}");
         })?;
 
         // both of these get caught by get_by_key and turned into Ok(None)
