@@ -50,6 +50,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConn,
     NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
     NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
+    NAKAMOTO_CHAINSTATE_SCHEMA_7,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -282,8 +283,8 @@ impl DBConfig {
         });
         match epoch_id {
             StacksEpochId::Epoch10 => true,
-            StacksEpochId::Epoch20 => (1..=11).contains(&version_u32),
-            StacksEpochId::Epoch2_05 => (2..=11).contains(&version_u32),
+            StacksEpochId::Epoch20 => (1..=12).contains(&version_u32),
+            StacksEpochId::Epoch2_05 => (2..=12).contains(&version_u32),
             StacksEpochId::Epoch21
             | StacksEpochId::Epoch22
             | StacksEpochId::Epoch23
@@ -292,7 +293,7 @@ impl DBConfig {
             | StacksEpochId::Epoch30
             | StacksEpochId::Epoch31
             | StacksEpochId::Epoch32
-            | StacksEpochId::Epoch33 => (3..=11).contains(&version_u32),
+            | StacksEpochId::Epoch33 => (3..=12).contains(&version_u32),
         }
     }
 }
@@ -651,7 +652,7 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "11";
+pub const CHAINSTATE_VERSION: &str = "12";
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1141,6 +1142,14 @@ impl StacksChainState {
                         "Migrating chainstate schema from version 10 to 11: drop affirmation_weight from block_headers"
                     );
                     for cmd in CHAINSTATE_SCHEMA_5.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "11" => {
+                    info!(
+                        "Migrating chainstate schema from version 11 to 12: add index for nakamoto_block_headers"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_7.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
