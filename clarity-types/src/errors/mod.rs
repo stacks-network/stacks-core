@@ -232,7 +232,9 @@ impl fmt::Display for VmExecutionError {
         match self {
             VmExecutionError::Runtime(err, stack) => {
                 write!(f, "{err}")?;
-                if let Some(stack_trace) = stack {
+                if let Some(stack_trace) = stack
+                    && !stack_trace.is_empty()
+                {
                     writeln!(f, "\n Stack Trace: ")?;
                     for item in stack_trace.iter() {
                         writeln!(f, "{item}")?;

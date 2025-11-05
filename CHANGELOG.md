@@ -10,9 +10,8 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ### Added
 
 - Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
-
-### Added
-
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
 - New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
 
 ### Changed
@@ -20,6 +19,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Renamed Clarity 4's new `block-time` to `stacks-block-time`
 - Improve cost-tracking for type-checking function arguments in epoch 3.3 (see [#6425](https://github.com/stacks-network/stacks-core/issues/6425))
 - Replaced `libsecp256k1` with `k256` and `p256` from RustCrypto and removed separate Wasm implementations.
+- Added limits in the type-checker for the number of parameters in functions (maximum 256), and the number of methods in traits (maximum 256). These limits are enforced starting in Epoch 3.3.
 
 ## [3.2.0.0.2]
 

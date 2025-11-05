@@ -435,6 +435,9 @@ pub enum CheckErrorKind {
     /// Referenced function is unknown or not defined.
     /// The `String` wraps the non-existent function name.
     UnknownFunction(String),
+    /// Too many function parameters specified.
+    /// The first `usize` represents the number of parameters found, the second represents the maximum allowed.
+    TooManyFunctionParameters(usize, usize),
 
     // Traits
     /// Referenced trait does not exist in the specified contract.
@@ -467,6 +470,9 @@ pub enum CheckErrorKind {
     /// Trait implementation is incompatible with the expected trait definition.
     /// The first `Box<TraitIdentifier>` wraps the expected trait, and the second wraps the actual trait.
     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>),
+    /// Too many trait methods specified.
+    /// The first `usize` represents the number of methods found, the second the maximum allowed.
+    TraitTooManyMethods(usize, usize),
 
     // Strings
     /// String contains invalid or disallowed characters (e.g., non-ASCII in ASCII strings).
@@ -786,6 +792,7 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{type_1}' and '{type_2}')"),
             CheckErrorKind::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{function_name}"),
             CheckErrorKind::UnknownFunction(function_name) => format!("use of unresolved function '{function_name}'"),
+            CheckErrorKind::TooManyFunctionParameters(found, allowed) => format!("too many function parameters specified: found {found}, the maximum is {allowed}"),
             CheckErrorKind::TraitBasedContractCallInReadOnly => "use of trait based contract calls are not allowed in read-only context".into(),
             CheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
             CheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
@@ -804,6 +811,7 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::TraitReferenceNotAllowed => "trait references can not be stored".into(),
             CheckErrorKind::ContractOfExpectsTrait => "trait reference expected".into(),
             CheckErrorKind::IncompatibleTrait(expected_trait, actual_trait) => format!("trait '{actual_trait}' is not a compatible with expected trait, '{expected_trait}'"),
+            CheckErrorKind::TraitTooManyMethods(found, allowed) => format!("too many trait methods specified: found {found}, the maximum is {allowed}"),
             CheckErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
             CheckErrorKind::InvalidUTF8Encoding => "invalid UTF8 encoding".into(),
             CheckErrorKind::InvalidSecp65k1Signature => "invalid seckp256k1 signature".into(),
