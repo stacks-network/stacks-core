@@ -39,7 +39,11 @@ pub fn get_path_byte_len(p: &[u8]) -> usize {
 }
 
 /// Decode a trie path from a Readable object.
-/// Returns Error::CorruptionError if the path doesn't decode.
+/// This is up to 32 bytes, and must be prefixed by a 1-byte length.
+///
+/// Returns Ok(path-bytes) on success
+/// Returns Err(CorruptionError) if the path doesn't decode, or if the length prefix is invali
+/// Returns Err(IOError) on disk I/O failure
 pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
     let mut lenbuf = [0u8; 1];
     r.read_exact(&mut lenbuf).map_err(|e| {
@@ -76,7 +80,8 @@ pub fn path_from_bytes<R: Read>(r: &mut R) -> Result<Vec<u8>, Error> {
     Ok(retbuf)
 }
 
-/// Helper to return the number of children in a Trie, given its ID.
+/// Helper to return the number of children in a Trie, given its numeric ID
+/// Panics if `node_id` is not a valid trie node ID value
 fn node_id_to_ptr_count(node_id: u8) -> usize {
     match TrieNodeID::from_u8(clear_ctrl_bits(node_id))
         .unwrap_or_else(|| panic!("Unknown node ID {}", node_id))
@@ -92,13 +97,15 @@ fn node_id_to_ptr_count(node_id: u8) -> usize {
     }
 }
 
-/// Helper to determine how many bytes a Trie node's child pointers will take to encode.
+/// Helper to determine the maximum number of bytes a Trie node's child pointers will take to encode.
 pub fn get_ptrs_byte_len(ptrs: &[TriePtr]) -> usize {
     let node_id_len = 1;
     node_id_len + TRIEPTR_SIZE * ptrs.len()
 }
 
-/// Helper to determine a sparse ptr list's bitmap size
+/// Helper to determine a sparse TriePtr list's bitmap size, given the node ID's numeric value.
+/// Returns Some(size) if the node identified node type has ptrs
+/// Returns None if `id` is a `Leaf`, `Patch`, or `Empty` node, or is unrecognized.
 pub fn get_sparse_ptrs_bitmap_size(id: u8) -> Option<usize> {
     match TrieNodeID::from_u8(clear_ctrl_bits(id))? {
         TrieNodeID::Leaf => None,
@@ -113,7 +120,8 @@ pub fn get_sparse_ptrs_bitmap_size(id: u8) -> Option<usize> {
 
 /// Helper to determine what the compressed size of a ptrs list will be, depending on whether or
 /// not it's sparse or dense.
-/// Returns Some((size, sparse?)) on success
+///
+/// Returns Some((size, is-sparse?)) on success
 /// Returns None if the node doesn't have ptrs
 pub fn get_compressed_ptrs_size(id: u8, ptrs: &[TriePtr]) -> Option<(usize, bool)> {
     let bitmap_size = get_sparse_ptrs_bitmap_size(id)?;
@@ -145,15 +153,59 @@ pub fn get_ptrs_byte_len_compressed(id: u8, ptrs: &[TriePtr]) -> usize {
         .unwrap_or(0)
 }
 
-/// Read a Trie node's children from a Read object, and write them to the given ptrs_buf slice.
-/// Returns Ok(the Trie node ID detected) on success.  If the node was compressed, the compressed
-/// bit in the ID will be cleared.  But if the backptr is set, then the backptr bit will be
-/// preserved.
+/// Read a trie node's children pointers from a Read object, and write them to the given `ptrs_buf` slice.
+/// The `node_id` will indicate whether or not the pointers list is compressed (via its compressed
+/// bit).
 ///
-/// Returns Err(CorruptionError(..)) if the node ID is invalid, the read node ID is missing, or the
-/// read node ID does not match the given node ID
-/// Returns Err(IOError(..)) on read failure
-/// Returns Err(OverflowError) on integer overflow, should that happen
+/// An uncompressed list of `TriePtr`s is simply a sequence of uncompressed `TriePtr`s.  They are
+/// read verbatim into the `ptrs_buf` slice.
+///
+/// A compressed list of `TriePtr`s has either a sparse form or a dense form, and is comprised of 
+/// compressed `TriePtr`s (which have variable length).  In the sparse form, the byte encoding is
+/// as follows:
+/// 
+/// 0   1         1+B                                     1+B+N
+/// |---|-----------|---------------------------------------|
+///  0xff   bitmap    list of compressed `TriePtr`s
+///
+/// Where
+/// * 0xff is a marker bit that cannot be the first byte of a `TriePtr`, and indicates that a
+/// bitmap follows
+/// * `bitmap` is a bit field in which the ith bit is set if the ith `TriePtr` is not empty.  All
+/// other `TriePtr`s in `ptrs_buf` will be considered empty, and initialized as such.
+///
+/// The remaining bytes 1+B through 1+B+N contain the list of compressed `TriePtr`s -- one for each
+/// set bit in `bitmap`.
+///
+/// If the dense form is used, then the byte encoding is as follows:
+///
+/// 0                                     N
+/// |-------------------------------------|
+///   list of compresed `TriePtr`s
+///
+/// The dense form includes empty `TriePtr`s.  The dense form is used if the size of using the
+/// sparse form (with the bitmap) exceeds the size of using the dense form.  The dense form is used
+/// for tries that are full or nearly full.
+///
+/// This code path is not guaranteed to read a node's `TriePtr` list; it may instead read a
+/// `TriePatchNode`, which contains the _delta_ between two successive copies of the same node
+/// across a copy-on-write operation.  If a `TriePatchNode` is found, then it is returned as an
+/// Err(..) result, so the caller can apply it atop its targeted trie node.
+///
+/// Returns Ok(node-id) on success, where the compressed bit in `node-id` iw NOT set.  However, the
+/// backptr bit MAY be set (it is preserved).
+/// 
+/// Returns Err(Patch(..)) if the code encountered a TrieNodePatch instead of the expected trie
+/// node.  In this case, the patch will be decoded and returned, so that it can be applied by the
+/// caller on top of a base node.
+///
+/// Returns Err(CorruptionError(..)) if the node ID is invalid, the read node ID is missing, the
+/// read node ID does not match the given node ID, or the byte encoding is invalid given the
+/// expected pointers encoding.
+/// 
+/// Returns Err(IOError(..)) on read failure.
+/// 
+/// Returns Err(OverflowError) on integer overflow, should that happen.
 pub fn ptrs_from_bytes<R: Read + Seek>(
     node_id: u8,
     r: &mut R,
@@ -250,6 +302,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
 
         if *sparse_flag == 0xff {
             trace!("Node {} has sparse compressed ptrs", clear_ctrl_bits(*nid));
+
             // this is a sparse ptrs list
             let ptr_bytes = ptr_bytes.get(1..).ok_or_else(|| {
                 Error::CorruptionError("Failed to read >2 bytes from bytes array".into())
@@ -366,6 +419,7 @@ pub fn ptrs_from_bytes<R: Read + Seek>(
 }
 
 /// Calculate the hash of a TrieNode, given its childrens' hashes.
+/// Returns the TrieHash
 pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
     node: &T,
     child_hashes: &[TrieHash],
@@ -393,6 +447,7 @@ pub fn get_node_hash<M, T: ConsensusSerializable<M> + std::fmt::Debug>(
 }
 
 /// Calculate the hash of a TrieLeaf
+/// Returns the TrieHash
 pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     let mut hasher = TrieHasher::new();
     node.write_bytes(&mut hasher)
@@ -405,6 +460,8 @@ pub fn get_leaf_hash(node: &TrieLeaf) -> TrieHash {
     ret
 }
 
+/// Given a `TrieNodeType`, a slice of `TrieHash`, and a `BlockMap` for converting back-block
+/// pointers to block hashes, compute the hash of the node.
 pub fn get_nodetype_hash_bytes<T: MarfTrieId, M: BlockMap>(
     node: &TrieNodeType,
     child_hash_bytes: &[TrieHash],
@@ -438,6 +495,12 @@ pub fn read_hash_bytes<F: Read>(f: &mut F) -> Result<[u8; TRIEHASH_ENCODED_SIZE]
     Ok(hashbytes)
 }
 
+/// Lowl-level method for reading a block ID from a Read+Seek object.  The block ID is
+/// little-endian.
+/// 
+/// Returns Ok(block-id) on success
+/// Returns Err(CorruptionError(..)) if we run out of bytes to read (EOF)
+/// Returns Err(IOError(..)) if we encounter a disk I/O error
 pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
     let mut bytes = [0u8; 4];
     f.read_exact(&mut bytes).map_err(|e| {
@@ -456,7 +519,10 @@ pub fn read_block_identifier<F: Read + Seek>(f: &mut F) -> Result<u32, Error> {
 }
 
 /// Low-level method for reading a node's hash bytes into a buffer from a Read-able and Seek-able struct.
-/// The byte buffer must have sufficient space to hold the hash, or this program panics.
+/// This function is only concerned with getting the bytes, not casting it to a TrieHash.
+///
+/// Returns Ok(32-byte hash) on success.
+/// Returns Err(IOError(..)) on seek error or disk I/O error
 pub fn read_node_hash_bytes<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
@@ -466,13 +532,18 @@ pub fn read_node_hash_bytes<F: Read + Seek>(
     read_hash_bytes(f)
 }
 
-/// Read the root hash from a TrieFileStorage instance
+/// Read the root hash from a TrieFileStorage instance.
+/// This is always at the same location (s.root_trieptr())
+/// Returns Ok(root hash) on success
+/// Returns Err(NotFoundError) if, for some reason, the storage medium doesn't have the root node
+/// (should never happen)
+/// Returns Err(IOError(..)) on storage I/O failure
 pub fn read_root_hash<T: MarfTrieId>(s: &mut TrieStorageConnection<T>) -> Result<TrieHash, Error> {
     let ptr = s.root_trieptr();
     Ok(s.read_node_hash_bytes(&ptr)?)
 }
 
-/// count the number of allocated children in a list of a node's children pointers.
+/// Count the number of allocated children in a list of a node's children pointers.
 pub fn count_children(children: &[TriePtr]) -> usize {
     let mut cnt = 0;
     for child in children.iter() {
@@ -483,7 +554,8 @@ pub fn count_children(children: &[TriePtr]) -> usize {
     cnt
 }
 
-/// Read a node and its hash
+/// Read a node and its hash.
+/// Convenience wrapper around `inner_read_nodetype_at_head`
 pub fn read_nodetype<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
@@ -494,7 +566,10 @@ pub fn read_nodetype<F: Read + Seek>(
     read_nodetype_at_head(f, ptr.id())
 }
 
-/// Read a node
+/// Read a node, but ignore its hash.
+/// A hash of all 0's will be returned instead.
+///
+/// Convenience wrapper around `inner_read_nodetype_at_head`
 pub fn read_nodetype_nohash<F: Read + Seek>(
     f: &mut F,
     ptr: &TriePtr,
@@ -505,7 +580,8 @@ pub fn read_nodetype_nohash<F: Read + Seek>(
     read_nodetype_at_head_nohash(f, ptr.id())
 }
 
-/// Read a node and hash at the stream's current position
+/// Read a node and hash at the stream's current position.
+/// Convenience wrapper around `inner_read_nodetype_at_head`
 pub fn read_nodetype_at_head<F: Read + Seek>(
     f: &mut F,
     ptr_id: u8,
@@ -518,7 +594,10 @@ pub fn read_nodetype_at_head<F: Read + Seek>(
     })
 }
 
-/// Read a node at the stream's current position
+/// Read a node at the stream's current position.
+/// Does not read the hash, and instead just returns the `TrieNodeType`
+///
+/// Convenience wrapper around `inner_read_nodetype_at_head`
 pub fn read_nodetype_at_head_nohash<F: Read + Seek>(
     f: &mut F,
     ptr_id: u8,
@@ -526,17 +605,27 @@ pub fn read_nodetype_at_head_nohash<F: Read + Seek>(
     inner_read_nodetype_at_head(f, ptr_id, false).map(|(node, _)| node)
 }
 
-/// Deserialize a node.
-/// Node wire format for non-patch nodes:
+/// Deserialize a TrieNodeType and optionally its hash from the given Read+Seek object.
+/// The given `ptr_id` identifies the expected node type.
+///
+/// Node wire format for non-patch ("normal") nodes:
+///
 /// 0               32 33               33+X         33+X+Y
 /// |---------------|--|------------------|-----------|
 ///   node hash      id  ptrs & ptr data      path
 ///
-/// X is fixed and determined by the TrieNodeType variant.
+/// Node wire format for patch nodes:
 ///
-/// Y is variable, but no more than TrieHash::len().
-///
-/// If `read_hash` is false, then the contents of the node hash are undefined.
+/// 0               32 33               33+X
+/// |---------------|--|------------------|
+///   base node hash id  compressed ptrs
+/// 
+/// Returns Ok(node, Some(hash)) if the node is found, and `read_hash` is true
+/// Returns Ok(node, None) if the node is found, and `read_hash` is false
+/// Returns Err(Patch(..)) if a `TrieNodePatch` is found instead of the targeted node
+/// Returns Err(CorruptionError(..)) if the given `ptr_id` is not recognized, or the data read does
+/// not decode to a valid node or patch.
+/// Returns Err(IOError(..)) on disk I/O error
 fn inner_read_nodetype_at_head<F: Read + Seek>(
     f: &mut F,
     ptr_id: u8,
@@ -624,7 +713,8 @@ fn inner_read_nodetype_at_head<F: Read + Seek>(
     Ok((node, h))
 }
 
-/// calculate how many bytes a node will be when serialized, including its hash.
+/// Calculate how many bytes a node will be when serialized, including its hash.
+/// This assumes that none of the trie nodes will be compressed
 pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
     let hash_len = TRIEHASH_ENCODED_SIZE;
     let node_byte_len = node.byte_len();
@@ -632,15 +722,18 @@ pub fn get_node_byte_len(node: &TrieNodeType) -> usize {
 }
 
 /// calculate how many bytes a node will be when serialized, including its hash, using a compressed
-/// representation
+/// representation.  This includes considering whether or not the compressed representation will be
+/// dense or sparse.
 pub fn get_node_byte_len_compressed(node: &TrieNodeType) -> usize {
     let hash_len = TRIEHASH_ENCODED_SIZE;
     let node_byte_len = node.byte_len_compressed();
     hash_len + node_byte_len
 }
 
-/// write all the bytes for a node, including its hash, to the given Writeable object.
-/// Returns the number of bytes written.
+/// Write all the bytes for a node, including its hash, to the given Writeable object.
+/// The list of child pointers will NOT be compressed.
+/// Returns Ok(nw) on success, where `nw` is the number of bytes written.
+/// Returns Err(IOError(..)) on disk I/O error
 pub fn write_nodetype_bytes<F: Write + Seek>(
     f: &mut F,
     node: &TrieNodeType,
@@ -661,6 +754,10 @@ pub fn write_nodetype_bytes<F: Write + Seek>(
     Ok(end - start)
 }
 
+/// Write all of the bytes for a node, including its hash, to the given Writable object.
+/// The list of child pointers will be compressed as best as possible.
+/// Returns Ok(nw) on success, where `nw` is the number of bytes written.
+/// Returns Err(IOError(..)) on disk I/O error
 pub fn write_nodetype_bytes_compressed<F: Write + Seek>(
     f: &mut F,
     node: &TrieNodeType,
@@ -681,7 +778,16 @@ pub fn write_nodetype_bytes_compressed<F: Write + Seek>(
     Ok(end - start)
 }
 
+/// Write out the path to the given writable object.
+/// This includes the length prefix and path bytes
+///
+/// Returns Ok(()) on success
+/// Returns Err(CorruptionError(..)) if `path.len()` is greater than 32.
+/// Returns Err(IOError(..)) on disk I/O error
 pub fn write_path_to_bytes<W: Write>(path: &[u8], w: &mut W) -> Result<(), Error> {
+    if path.len() > 32 {
+        return Err(Error::CorruptionError("Invali path -- greater than 32 bytes".into()));
+    }
     w.write_all(&[path.len() as u8])?;
     w.write_all(path)?;
     Ok(())
