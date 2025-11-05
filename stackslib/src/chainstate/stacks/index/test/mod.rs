@@ -125,15 +125,6 @@ pub fn merkle_test_marf(
     value: &[u8],
     root_to_block: Option<HashMap<TrieHash, BlockHeaderHash>>,
 ) -> HashMap<TrieHash, BlockHeaderHash> {
-    test_debug!("---------");
-    test_debug!(
-        "MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?",
-        header,
-        path,
-        value
-    );
-    test_debug!("---------");
-
     s.open_block(header).unwrap();
     let (_, root_hash) = Trie::read_root(s).unwrap();
     let triepath = TrieHash::from_bytes(path).unwrap();
@@ -141,15 +132,26 @@ pub fn merkle_test_marf(
     let mut marf_value = [0u8; 40];
     marf_value.copy_from_slice(&value[0..40]);
 
+    test_debug!("---------");
+    test_debug!(
+        "MARF merkle prove: merkle_test_marf({:?}, {:?}, {:?})?",
+        header,
+        path,
+        value
+    );
+    test_debug!("MARF merkle verify target root hash: {:?}", &root_hash);
+    test_debug!("MARF merkle verify source block: {:?}", header);
+    test_debug!("---------");
+
     let proof = TrieMerkleProof::from_path(s, &triepath, &MARFValue(marf_value), header).unwrap();
+    let root_to_block = root_to_block.unwrap_or_else(|| s.read_root_to_block_table().unwrap());
 
     test_debug!("---------");
     test_debug!("MARF merkle verify: {:?}", &proof);
     test_debug!("MARF merkle verify target root hash: {:?}", &root_hash);
     test_debug!("MARF merkle verify source block: {:?}", header);
+    test_debug!("MARF root-to-block: {:?}", &root_to_block);
     test_debug!("---------");
-
-    let root_to_block = root_to_block.unwrap_or_else(|| s.read_root_to_block_table().unwrap());
 
     assert!(proof.verify(
         &triepath,
