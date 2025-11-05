@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This module contains consensus tests related to Clarity Parse errors.
-use clarity::vm::ast::parser::v2::MAX_CONTRACT_NAME_LEN;
+use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_NESTING_DEPTH};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
 #[allow(unused_imports)] // Just used for documentation purpose
@@ -23,17 +23,68 @@ use clarity::vm::{ast::errors::ParseErrors, representations::ContractName};
 use crate::chainstate::tests::consensus::contract_deploy_consensus_test;
 
 /// ParserError: [`ParseErrors::ExpressionStackDepthTooDeep`]
-/// Caused by: nested contract body exceeding stack depth limit
+/// Caused by: nested contract body exceeding stack depth limit on parsing tuples
 /// Outcome: block rejected
 #[test]
-fn test_stack_depth_too_deep() {
+fn test_stack_depth_too_deep_case_1_tuple_only_parsing() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: &{
-            let count = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
+            // In parse v2, open brace '{' have a stack count of 2.
+            let count = MAX_NESTING_DEPTH / 2 + 1;
             let body_start = "{ a : ".repeat(count as usize);
             let body_end = "} ".repeat(count as usize);
             format!("{body_start}u1 {body_end}")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrors::ExpressionStackDepthTooDeep`]
+/// Caused by: nested contract body exceeding stack depth limit on parsing lists
+/// Outcome: block rejected
+#[test]
+fn test_stack_depth_too_deep_case_2_list_only_parsing() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            // In parse v2, open parent '(' have a stack count of 1.
+            let count = MAX_NESTING_DEPTH;
+            let body_start = "(list ".repeat(count as usize);
+            let body_end = ")".repeat(count as usize);
+            format!("{body_start}u1 {body_end}")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrors::ExpressionStackDepthTooDeep`]
+/// Caused by: nested contract body exceeding stack depth limit on checking lists ast
+/// Outcome: block rejected
+#[test]
+fn test_stack_depth_too_deep_case_3_list_only_checker() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            // In parse v2, open parent '(' have a stack count of 1.
+            let count = AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64;
+            let body_start = "(list ".repeat(count as usize);
+            let body_end = ")".repeat(count as usize);
+            format!("{body_start}u1 {body_end}")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrors::VaryExpressionStackDepthTooDeep`]
+/// Caused by: nested contract body exceeding stack depth limit on checking vary list/tuple ast
+/// Outcome: block rejected
+#[test]
+fn test_vary_stack_depth_too_deep_checker() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let count = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
+            let body_start = "(list ".repeat(count as usize);
+            let body_end = ")".repeat(count as usize);
+            format!("{{ a: {body_start}u1 {body_end} }}")
         },
     );
 }
