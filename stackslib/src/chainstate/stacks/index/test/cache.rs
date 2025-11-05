@@ -60,6 +60,41 @@ fn test_marf_with_cache(
     data: &[Vec<(String, MARFValue)>],
     batch_size: Option<usize>,
 ) -> TrieHash {
+    inner_test_marf_with_cache(
+        test_name,
+        cache_strategy,
+        hash_strategy,
+        data,
+        batch_size,
+        false,
+    )
+}
+
+fn test_marf_with_cache_compressed(
+    test_name: &str,
+    cache_strategy: &str,
+    hash_strategy: TrieHashCalculationMode,
+    data: &[Vec<(String, MARFValue)>],
+    batch_size: Option<usize>,
+) -> TrieHash {
+    inner_test_marf_with_cache(
+        &format!("{}.compressed", test_name),
+        cache_strategy,
+        hash_strategy,
+        data,
+        batch_size,
+        true,
+    )
+}
+
+fn inner_test_marf_with_cache(
+    test_name: &str,
+    cache_strategy: &str,
+    hash_strategy: TrieHashCalculationMode,
+    data: &[Vec<(String, MARFValue)>],
+    batch_size: Option<usize>,
+    compress: bool,
+) -> TrieHash {
     let test_file = if test_name == ":memory:" {
         test_name.to_string()
     } else {
@@ -76,14 +111,16 @@ fn test_marf_with_cache(
         test_file
     };
 
-    let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true);
+    let mut marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true);
+    marf_opts.compress = compress;
+
     let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
     let mut marf = MARF::from_storage(f);
     let mut last_block_header = BlockHeaderHash::sentinel();
     let batch_size = batch_size.unwrap_or(0);
 
     for (i, block_data) in data.iter().enumerate() {
-        test_debug!("Write block {}", i);
+        info!("Write block {}", i);
         let mut block_hash_bytes = [0u8; 32];
         block_hash_bytes[0..8].copy_from_slice(&(i as u64).to_be_bytes());
 
@@ -106,7 +143,21 @@ fn test_marf_with_cache(
         }
 
         marf.commit().unwrap();
-        last_block_header = block_header;
+        last_block_header = block_header.clone();
+
+        let proof_block_data = data.get(i / 2).unwrap();
+        info!("Prove block {}", i / 2);
+        for (key, value) in proof_block_data.iter() {
+            let path = TrieHash::from_key(key);
+            info!("Prove {} = {}", &key, &to_hex(value.as_bytes()));
+            merkle_test_marf(
+                &mut marf.borrow_storage_backend(),
+                &block_header,
+                TrieHash::from_key(key).as_bytes(),
+                value.as_bytes(),
+                None,
+            );
+        }
     }
 
     let write_bench = marf.borrow_storage_backend().get_benchmarks();
@@ -155,6 +206,211 @@ fn test_marf_with_cache(
     root_hash = marf.get_root_hash_at(&last_block_header).unwrap();
     eprintln!("root hash at {:?}: {:?}", &last_block_header, &root_hash);
     root_hash
+}
+
+#[test]
+fn test_marf_node_compressed_1_insert() {
+    let test_data = make_test_insert_data(1, 256);
+    let compressed_root_hash = test_marf_with_cache_compressed(
+        "test_marf_node_compressed_1_insert",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(8),
+    );
+    eprintln!("Final root hash is {}", compressed_root_hash);
+
+    let root_hash = test_marf_with_cache(
+        "test_marf_node_compressed_1_insert",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(8),
+    );
+    eprintln!("Final root hash is {}", root_hash);
+
+    assert_eq!(root_hash, compressed_root_hash);
+}
+
+#[test]
+fn test_marf_node_compressed_1_trie() {
+    let test_data = make_test_insert_data(2048, 1);
+    let root_hash = test_marf_with_cache(
+        "test_marf_node_compressed_1_trie",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(8),
+    );
+    eprintln!("Final root hash is {}", root_hash);
+
+    let compressed_root_hash = test_marf_with_cache_compressed(
+        "test_marf_node_compressed_1_trie",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(8),
+    );
+
+    eprintln!("Final compressed root hash is {}", compressed_root_hash);
+
+    assert_eq!(root_hash, compressed_root_hash);
+}
+
+#[test]
+fn test_marf_node_compressed_8_inserts() {
+    let test_data = make_test_insert_data(8, 256);
+    let root_hash = test_marf_with_cache(
+        "test_marf_node_compressed_1_insert",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(8),
+    );
+    eprintln!("Final root hash is {}", root_hash);
+
+    let compressed_root_hash = test_marf_with_cache_compressed(
+        "test_marf_node_compressed_1_insert",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(8),
+    );
+    eprintln!("Final root hash is {}", compressed_root_hash);
+
+    assert_eq!(root_hash, compressed_root_hash);
+}
+
+#[test]
+fn test_marf_node_compressed_8_inserts_different_batches() {
+    let test_data = make_test_insert_data(8, 256);
+    let root_hash = test_marf_with_cache(
+        "test_marf_node_compressed_1_insert",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(8),
+    );
+    eprintln!("Final root hash is {}", root_hash);
+
+    let compressed_root_hash = test_marf_with_cache_compressed(
+        "test_marf_node_compressed_1_insert",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(5),
+    );
+    eprintln!("Final root hash is {}", compressed_root_hash);
+
+    assert_eq!(root_hash, compressed_root_hash);
+}
+
+/// Test that expanding a path into a leaf, node4, node16, node48, and then node256 repeatedly
+/// will produce patch nodes which can be read
+#[test]
+fn test_marf_patch_expansion() {
+    let hash_strategy = TrieHashCalculationMode::Deferred;
+    let cache_strategy = "noop";
+    let test_name = "test_marf_patch_expansion";
+
+    let data: Vec<_> = (0u8..=255u8)
+        .map(|i| {
+            let mut path = [0u8; 32];
+            path[31] = i;
+            vec![(TrieHash(path), MARFValue::from(u32::from(i)))]
+        })
+        .collect();
+
+    let test_dir = format!("/tmp/stacks-marf-tests/{}", test_name);
+    if fs::metadata(&test_dir).is_ok() {
+        fs::remove_dir_all(&test_dir).unwrap();
+    }
+    fs::create_dir_all(&test_dir).unwrap();
+
+    let test_file = format!(
+        "{}/marf-cache-{}-{:?}.sqlite",
+        &test_dir, cache_strategy, hash_strategy
+    );
+
+    let marf_opts = MARFOpenOpts::new(hash_strategy, cache_strategy, true);
+    let f = TrieFileStorage::open(&test_file, marf_opts).unwrap();
+    let mut marf = MARF::from_storage(f);
+    let mut last_block_header = BlockHeaderHash::sentinel();
+
+    for (i, block_data) in data.iter().enumerate() {
+        test_debug!("Write block {}", i);
+        let mut block_hash_bytes = [0u8; 32];
+        block_hash_bytes[0..8].copy_from_slice(&(i as u64).to_be_bytes());
+
+        let block_header = BlockHeaderHash(block_hash_bytes);
+        marf.begin(&last_block_header, &block_header).unwrap();
+
+        for (path, value) in block_data.iter() {
+            let leaf = TrieLeaf::from_value(&[], value.clone());
+            marf.insert_raw(path.clone(), leaf).unwrap();
+        }
+
+        marf.commit().unwrap();
+        last_block_header = block_header;
+    }
+
+    let write_bench = marf.borrow_storage_backend().get_benchmarks();
+    marf.borrow_storage_backend().reset_benchmarks();
+    eprintln!("MARF bench writes: {:#?}", &write_bench);
+
+    debug!("---------");
+    debug!("MARF gets");
+    debug!("---------");
+
+    let mut total_read_time = 0;
+    let mut root_hash = TrieHash([0u8; 32]);
+    for (i, block_data) in data.iter().enumerate() {
+        test_debug!("Read block {}", i);
+        for (path, value) in block_data.iter() {
+            let marf_leaf = TrieLeaf::from_value(&[], value.clone());
+
+            let read_time = SystemTime::now();
+            let leaf = MARF::get_path(
+                &mut marf.borrow_storage_backend(),
+                &last_block_header,
+                &path,
+            )
+            .unwrap()
+            .unwrap();
+
+            let read_time = read_time.elapsed().unwrap().as_nanos();
+            total_read_time += read_time;
+
+            assert_eq!(leaf.data.to_vec(), marf_leaf.data.to_vec());
+        }
+    }
+
+    let read_bench = marf.borrow_storage_backend().get_benchmarks();
+    eprintln!(
+        "MARF bench reads ({} total): {:#?}",
+        total_read_time, &read_bench
+    );
+
+    let mut bench = write_bench;
+    bench.add(&read_bench);
+
+    eprintln!("MARF bench total: {:#?}", &bench);
+
+    root_hash = marf.get_root_hash_at(&last_block_header).unwrap();
+    eprintln!("root hash at {:?}: {:?}", &last_block_header, &root_hash);
+}
+
+#[test]
+fn test_marf_node_compressed() {
+    let test_data = make_test_insert_data(8, 256);
+    let root_hash = test_marf_with_cache(
+        "test_marf_node_compressed",
+        "noop",
+        TrieHashCalculationMode::Immediate,
+        &test_data,
+        Some(8),
+    );
+    eprintln!("Final root hash is {}", root_hash);
 }
 
 #[test]
