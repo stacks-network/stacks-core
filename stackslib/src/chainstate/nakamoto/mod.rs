@@ -288,6 +288,14 @@ pub static NAKAMOTO_CHAINSTATE_SCHEMA_6: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS nakamoto_block_headers_by_ch_bv ON nakamoto_block_headers(consensus_hash, burn_view);"
 ];
 
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_7: &[&str] = &[
+    // schema change is JUST a new index, but the index is on a table
+    //  created by a migration, so don't add the index to the CHAINSTATE_INDEXES
+    r#"UPDATE db_config SET version = "12";"#,
+    "CREATE INDEX IF NOT EXISTS naka_block_headers_by_burn_hash ON nakamoto_block_headers(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS naka_block_headers_by_burn_ht ON nakamoto_block_headers(burn_header_height);"
+];
+
 #[cfg(test)]
 mod fault_injection {
     static PROCESS_BLOCK_STALL: std::sync::Mutex<bool> = std::sync::Mutex::new(false);
