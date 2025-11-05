@@ -17,8 +17,7 @@
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::analysis::type_checker::v2_1::{
-    check_arguments_at_least, StaticCheckError, StaticCheckErrorKind, TypeChecker,
-    TypingContext,
+    check_arguments_at_least, StaticCheckError, StaticCheckErrorKind, TypeChecker, TypingContext,
 };
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{analysis_typecheck_cost, runtime_cost};

@@ -26,8 +26,8 @@ pub use self::natives::{SimpleNativeFunction, TypedNativeFunction};
 use super::contexts::{TypeMap, TypingContext};
 use super::ContractAnalysis;
 pub use crate::vm::analysis::errors::{
-    check_argument_count, check_arguments_at_least, check_arguments_at_most,
-    StaticCheckError, StaticCheckErrorKind, SyntaxBindingErrorType,
+    check_argument_count, check_arguments_at_least, check_arguments_at_most, StaticCheckError,
+    StaticCheckErrorKind, SyntaxBindingErrorType,
 };
 use crate::vm::analysis::AnalysisDatabase;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
