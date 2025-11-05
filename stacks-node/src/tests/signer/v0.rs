@@ -641,7 +641,10 @@ impl MultipleMinerTest {
         //  and the rest are using node 2
         let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
             num_signers,
-            vec![(sender_addr, (send_amt + send_fee) * num_transfer_txs)],
+            vec![(
+                sender_addr,
+                ((send_amt + send_fee) * num_transfer_txs) as u128,
+            )],
             |signer_config| {
                 let node_host = match signer_distributor(signer_config.endpoint.port()) {
                     0 => &node_1_rpc_bind,
@@ -2293,7 +2296,7 @@ fn revalidate_unknown_parent() {
         num_signers,
         vec![(
             sender_addr.clone(),
-            (send_amt + send_fee) * max_nakamoto_tenures * inter_blocks_per_tenure,
+            ((send_amt + send_fee) * max_nakamoto_tenures * inter_blocks_per_tenure) as u128,
         )],
         |signer_config| {
             signer_config.node_host = node_1_rpc_bind.clone();
@@ -2848,8 +2851,10 @@ fn reloads_signer_set_in() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
+    );
 
     setup_epoch_3_reward_set(
         &signer_test.running_nodes.conf,
@@ -2972,7 +2977,7 @@ fn forked_tenure_testing(
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr.clone(), send_amt + send_fee)],
+            vec![(sender_addr.clone(), (send_amt + send_fee) as u128)],
             |config| {
                 // make the duration long enough that the reorg attempt will definitely be accepted
                 config.first_proposal_burn_block_timing = proposal_limit;
@@ -3565,7 +3570,7 @@ fn tx_replay_forking_test() {
             num_signers,
             vec![(
                 sender_addr.clone(),
-                (send_amt + send_fee) * 10 + deploy_fee + call_fee,
+                ((send_amt + send_fee) * 10 + deploy_fee + call_fee) as u128,
             )],
             |c| {
                 c.validate_with_replay_tx = true;
@@ -3800,8 +3805,8 @@ fn tx_replay_reject_invalid_proposals_during_replay() {
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
             vec![
-                (sender_addr.clone(), send_amt + send_fee),
-                (sender_addr2, send_amt + send_fee),
+                (sender_addr.clone(), (send_amt + send_fee) as u128),
+                (sender_addr2, (send_amt + send_fee) as u128),
             ],
             |c| {
                 c.validate_with_replay_tx = true;
@@ -3987,7 +3992,7 @@ fn tx_replay_btc_on_stx_invalidation() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr.clone(), (send_amt + send_fee) * 10)],
+            vec![(sender_addr.clone(), ((send_amt + send_fee) * 10) as u128)],
             |c| {
                 c.validate_with_replay_tx = true;
                 c.reset_replay_set_after_fork_blocks = 5;
@@ -4211,7 +4216,7 @@ fn tx_replay_failsafe() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr.clone(), (send_amt + send_fee) * 10)],
+            vec![(sender_addr.clone(), ((send_amt + send_fee) * 10) as u128)],
             |c| {
                 c.validate_with_replay_tx = true;
             },
@@ -4401,7 +4406,7 @@ fn tx_replay_starts_correctly() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr.clone(), (send_amt + send_fee) * 10)],
+            vec![(sender_addr.clone(), ((send_amt + send_fee) * 10) as u128)],
             |c| {
                 c.validate_with_replay_tx = true;
             },
@@ -4503,7 +4508,7 @@ fn tx_replay_disagreement() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr, (send_amt + send_fee) * 10)],
+            vec![(sender_addr, ((send_amt + send_fee) * 10) as u128)],
             |c| {
                 c.validate_with_replay_tx = true;
             },
@@ -4680,7 +4685,10 @@ fn tx_replay_solved_by_mempool_txs() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
+            vec![(
+                sender1_addr.clone(),
+                ((send_amt + send_fee) * num_txs) as u128,
+            )],
             |c| {
                 c.validate_with_replay_tx = true;
             },
@@ -4787,7 +4795,10 @@ fn tx_replay_rejected_when_forking_across_reward_cycle() {
     let num_txs = 1;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr.clone(), (send_amt + send_fee) * num_txs)],
+        vec![(
+            sender_addr.clone(),
+            ((send_amt + send_fee) * num_txs) as u128,
+        )],
         |_| {},
         |node_config| {
             node_config.miner.block_commit_delay = Duration::from_secs(1);
@@ -4920,7 +4931,10 @@ fn tx_replay_with_fork_occured_before_starting_replaying_txs() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
+            vec![(
+                sender1_addr.clone(),
+                ((send_amt + send_fee) * num_txs) as u128,
+            )],
             |c| {
                 c.validate_with_replay_tx = true;
             },
@@ -5031,7 +5045,10 @@ fn tx_replay_with_fork_after_empty_tenures_before_starting_replaying_txs() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
+            vec![(
+                sender1_addr.clone(),
+                ((send_amt + send_fee) * num_txs) as u128,
+            )],
             |c| {
                 c.validate_with_replay_tx = true;
                 c.reset_replay_set_after_fork_blocks = 5;
@@ -5159,7 +5176,10 @@ fn tx_replay_with_fork_causing_replay_set_to_be_updated() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
+            vec![(
+                sender1_addr.clone(),
+                ((send_amt + send_fee) * num_txs) as u128,
+            )],
             |c| {
                 c.validate_with_replay_tx = true;
             },
@@ -5296,7 +5316,10 @@ fn tx_replay_with_fork_causing_replay_to_be_cleared_due_to_cycle() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender1_addr.clone(), (send_amt + send_fee) * num_txs)],
+            vec![(
+                sender1_addr.clone(),
+                ((send_amt + send_fee) * num_txs) as u128,
+            )],
             |c| {
                 c.validate_with_replay_tx = true;
             },
@@ -5410,7 +5433,10 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr.clone(), deploy_fee + call_fee * call_num)],
+            vec![(
+                sender_addr.clone(),
+                (deploy_fee + call_fee * call_num) as u128,
+            )],
             |c| {
                 c.validate_with_replay_tx = true;
                 c.tenure_idle_timeout = Duration::from_secs(10);
@@ -5584,9 +5610,12 @@ fn tx_replay_with_fork_middle_replay_while_tenure_extending_and_new_tx_submitted
             vec![
                 (
                     sender1_addr.clone(),
-                    send1_deploy_fee + send1_call_fee * send1_call_num,
+                    (send1_deploy_fee + send1_call_fee * send1_call_num) as u128,
                 ),
-                (sender2_addr.clone(), (send2_amt + send2_fee) * send2_txs),
+                (
+                    sender2_addr.clone(),
+                    ((send2_amt + send2_fee) * send2_txs) as u128,
+                ),
             ],
             |c| {
                 c.validate_with_replay_tx = true;
@@ -6146,8 +6175,10 @@ fn end_of_tenure() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
+    );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let long_timeout = Duration::from_secs(200);
     let short_timeout = Duration::from_secs(20);
@@ -6282,8 +6313,10 @@ fn retry_on_rejection() {
     let send_fee = 180;
     let short_timeout = Duration::from_secs(30);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, (send_amt + send_fee) * 3)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, ((send_amt + send_fee) * 3) as u128)],
+    );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     signer_test.boot_to_epoch_3();
 
@@ -6402,8 +6435,10 @@ fn signers_broadcast_signed_blocks() {
     let send_amt = 100;
     let send_fee = 180;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
+    );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
     signer_test.boot_to_epoch_3();
@@ -6539,7 +6574,7 @@ fn tenure_extend_with_other_transactions() {
     let idle_timeout = Duration::from_secs(30);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * 2)],
+        vec![(sender_addr, ((send_amt + send_fee) * 2) as u128)],
         |config| {
             config.tenure_idle_timeout = idle_timeout;
             config.tenure_idle_timeout_buffer = Duration::from_secs(1);
@@ -6653,7 +6688,7 @@ fn snapshot_test() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr.clone(), (send_amt + send_fee) * 1000)],
+            vec![(sender_addr.clone(), ((send_amt + send_fee) * 1000) as u128)],
             |config| {
                 config.tenure_idle_timeout = idle_timeout;
             },
@@ -6708,7 +6743,7 @@ fn tx_replay_budget_exceeded_tenure_extend() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr.clone(), (send_amt + send_fee) * 1000)],
+            vec![(sender_addr.clone(), ((send_amt + send_fee) * 1000) as u128)],
             |c| {
                 c.validate_with_replay_tx = true;
                 c.tenure_idle_timeout = Duration::from_secs(60);
@@ -7018,7 +7053,7 @@ fn stx_transfers_dont_effect_idle_timeout() {
     let idle_timeout = Duration::from_secs(60);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * num_txs)],
+        vec![(sender_addr, ((send_amt + send_fee) * num_txs) as u128)],
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
@@ -7145,8 +7180,9 @@ fn idle_tenure_extend_active_mining() {
     let tenure_count = 2;
     let tx_fee = 10000;
     let deploy_fee = 190200;
-    let amount =
-        deploy_fee + tx_fee * num_txs * tenure_count * num_naka_blocks * 100 + 100 * tenure_count;
+    let amount = (deploy_fee
+        + tx_fee * num_txs * tenure_count * num_naka_blocks * 100
+        + 100 * tenure_count) as u128;
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let idle_timeout = Duration::from_secs(30);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
@@ -7410,7 +7446,7 @@ fn empty_tenure_delayed() {
     let block_proposal_timeout = Duration::from_secs(20);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
@@ -7570,7 +7606,7 @@ fn empty_sortition_before_approval() {
     let block_proposal_timeout = Duration::from_secs(20);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
@@ -7710,7 +7746,7 @@ fn empty_sortition_before_proposal() {
     let block_proposal_timeout = Duration::from_secs(20);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
             config.block_proposal_timeout = block_proposal_timeout;
@@ -8122,7 +8158,7 @@ fn signer_set_rollover() {
         .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
         .collect::<Vec<_>>();
 
-    initial_balances.push((sender_addr, (send_amt + send_fee) * 4));
+    initial_balances.push((sender_addr, ((send_amt + send_fee) * 4) as u128));
 
     let run_stamp = rand::random();
 
@@ -8429,7 +8465,10 @@ fn min_gap_between_blocks() {
     let time_between_blocks_ms = 10_000;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * interim_blocks)],
+        vec![(
+            sender_addr,
+            ((send_amt + send_fee) * interim_blocks) as u128,
+        )],
         |_config| {},
         |config| {
             config.miner.min_time_between_blocks_ms = time_between_blocks_ms;
@@ -9051,7 +9090,7 @@ fn partial_tenure_fork() {
         num_signers,
         vec![(
             sender_addr.clone(),
-            (send_amt + send_fee) * max_nakamoto_tenures * inter_blocks_per_tenure,
+            ((send_amt + send_fee) * max_nakamoto_tenures * inter_blocks_per_tenure) as u128,
         )],
         |signer_config| {
             signer_config.node_host = node_1_rpc_bind.clone();
@@ -9382,7 +9421,7 @@ fn locally_accepted_blocks_overriden_by_global_rejection() {
     let short_timeout_secs = 20;
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        vec![(sender_addr, ((send_amt + send_fee) * nmb_txs) as u128)],
     );
 
     let all_signers = signer_test.signer_test_pks();
@@ -9528,7 +9567,7 @@ fn locally_rejected_blocks_overriden_by_global_acceptance() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        vec![(sender_addr, ((send_amt + send_fee) * nmb_txs) as u128)],
     );
 
     let all_signers: Vec<_> = signer_test
@@ -9682,7 +9721,7 @@ fn reorg_locally_accepted_blocks_across_tenures_succeeds() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        vec![(sender_addr, ((send_amt + send_fee) * nmb_txs) as u128)],
         |config| {
             // Just accept all reorg attempts
             config.tenure_last_block_proposal_timeout = Duration::from_secs(0);
@@ -9899,7 +9938,7 @@ fn reorg_locally_accepted_blocks_across_tenures_fails() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        vec![(sender_addr, ((send_amt + send_fee) * nmb_txs) as u128)],
         |config| {
             // Do not alow any reorg attempts essentially
             config.tenure_last_block_proposal_timeout = Duration::from_secs(100_000);
@@ -10058,7 +10097,7 @@ fn miner_recovers_when_broadcast_block_delay_across_tenures_occurs() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        vec![(sender_addr, ((send_amt + send_fee) * nmb_txs) as u128)],
         |_config| {},
         |config| {
             // Accept all block proposals
@@ -10551,8 +10590,10 @@ fn continue_after_tenure_extend() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let send_amt = 100;
     let send_fee = 180;
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, (send_amt + send_fee) * 5)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, ((send_amt + send_fee) * 5) as u128)],
+    );
     let timeout = Duration::from_secs(200);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
 
@@ -10969,7 +11010,7 @@ fn block_validation_response_timeout() {
 
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
         |config| {
             config.block_proposal_validation_timeout = timeout;
         },
@@ -11272,7 +11313,7 @@ fn block_validation_pending_table() {
 
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
         |_| {},
         |_| {},
         None,
@@ -11435,7 +11476,7 @@ fn new_tenure_while_validating_previous_scenario() {
 
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
         |_| {},
         |_| {},
         None,
@@ -12142,7 +12183,7 @@ fn global_acceptance_depends_on_block_announcement() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * nmb_txs)],
+        vec![(sender_addr, ((send_amt + send_fee) * nmb_txs) as u128)],
         |config| {
             // Just accept all reorg attempts
             config.tenure_last_block_proposal_timeout = Duration::from_secs(0);
@@ -12586,8 +12627,10 @@ fn incoming_signers_ignore_block_proposals() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
+    );
     let timeout = Duration::from_secs(200);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     signer_test.boot_to_epoch_3();
@@ -12761,8 +12804,10 @@ fn outgoing_signers_ignore_block_proposals() {
     let sender_addr = tests::to_addr(&sender_sk);
     let send_amt = 100;
     let send_fee = 180;
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, send_amt + send_fee)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
+    );
     let timeout = Duration::from_secs(200);
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     signer_test.boot_to_epoch_3();
@@ -12952,7 +12997,7 @@ fn injected_signatures_are_ignored_across_boundaries() {
         .map(|addr| (addr.clone(), POX_4_DEFAULT_STACKER_BALANCE))
         .collect::<Vec<_>>();
 
-    initial_balances.push((sender_addr, (send_amt + send_fee) * 4));
+    initial_balances.push((sender_addr, ((send_amt + send_fee) * 4) as u128));
 
     let run_stamp = rand::random();
 
@@ -13328,7 +13373,7 @@ fn reorg_attempts_count_towards_miner_validity() {
     let reorg_attempts_activity_timeout = Duration::from_secs(20);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
         |config| {
             config.block_proposal_timeout = block_proposal_timeout;
             config.reorg_attempts_activity_timeout = reorg_attempts_activity_timeout;
@@ -13519,7 +13564,7 @@ fn reorg_attempts_activity_timeout_exceeded() {
     let tenure_extend_wait_timeout = Duration::from_secs(1000);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, send_amt + send_fee)],
+        vec![(sender_addr, (send_amt + send_fee) as u128)],
         |config| {
             config.block_proposal_timeout = block_proposal_timeout;
             config.reorg_attempts_activity_timeout = reorg_attempts_activity_timeout;
@@ -13671,7 +13716,10 @@ fn fast_sortition() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
-        vec![(sender_addr.clone(), num_transfers * (send_amt + send_fee))],
+        vec![(
+            sender_addr.clone(),
+            (num_transfers * (send_amt + send_fee) as u128),
+        )],
     );
 
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
@@ -13884,8 +13932,10 @@ fn single_miner_empty_sortition() {
     // partition the signer set so that ~half are listening and using node 1 for RPC and events,
     //  and the rest are using node 2
 
-    let signer_test: SignerTest<SpawnedSigner> =
-        SignerTest::new(num_signers, vec![(sender_addr, send_fee * 2 * 60 + 1000)]);
+    let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
+        num_signers,
+        vec![(sender_addr, (send_fee * 2 * 60 + 1000) as u128)],
+    );
     let conf = signer_test.running_nodes.conf.clone();
 
     signer_test.boot_to_epoch_3();
@@ -14476,7 +14526,10 @@ fn tenure_extend_cost_threshold() {
     let idle_timeout = Duration::from_secs(10);
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(deployer_addr.clone(), deploy_fee + tx_fee * num_txs)],
+        vec![(
+            deployer_addr.clone(),
+            (deploy_fee + tx_fee * num_txs) as u128,
+        )],
         |config| {
             config.tenure_idle_timeout = idle_timeout;
         },
@@ -16011,7 +16064,7 @@ fn repeated_rejection() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * 3)],
+        vec![(sender_addr, ((send_amt + send_fee) * 3) as u128)],
         |_| {},
         |config| {
             config.miner.block_rejection_timeout_steps.clear();
@@ -16123,7 +16176,7 @@ fn retry_proposal() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * 3)],
+        vec![(sender_addr, ((send_amt + send_fee) * 3) as u128)],
         |_| {},
         |config| {
             config.miner.block_rejection_timeout_steps.clear();
@@ -16252,7 +16305,7 @@ fn signer_can_accept_rejected_block() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new_with_config_modifications(
         num_signers,
-        vec![(sender_addr, (send_amt + send_fee) * 3)],
+        vec![(sender_addr, ((send_amt + send_fee) * 3) as u128)],
         |_| {},
         |config| {
             config.miner.block_rejection_timeout_steps.clear();
@@ -17352,7 +17405,7 @@ fn verify_mempool_caches() {
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
     let signer_test: SignerTest<SpawnedSigner> = SignerTest::new(
         num_signers,
-        vec![(sender_addr.clone(), (send_amt + send_fee) * 3)],
+        vec![(sender_addr.clone(), ((send_amt + send_fee) * 3) as u128)],
     );
     let http_origin = format!("http://{}", &signer_test.running_nodes.conf.node.rpc_bind);
     let miner_sk = signer_test
@@ -17520,7 +17573,7 @@ fn burn_block_height_behavior() {
         num_signers,
         vec![
             (sender_addr, send_amt + send_fee),
-            (deployer_addr.clone(), deploy_fee + tx_fee * 3),
+            (deployer_addr.clone(), (deploy_fee + tx_fee * 3) as u128),
         ],
         |config| {
             // make the duration long enough that the miner will be marked as malicious
@@ -18668,7 +18721,7 @@ fn contract_with_undefined_variable_compat() {
             num_signers,
             vec![(
                 sender_addr.clone(),
-                (send_amt + send_fee) * 10 + deploy_fee + call_fee,
+                ((send_amt + send_fee) * 10 + deploy_fee + call_fee) as u128,
             )],
             |c| {
                 c.validate_with_replay_tx = true;
@@ -19315,7 +19368,7 @@ fn tenure_extend_after_stale_commit_same_miner() {
     let signer_test: SignerTest<SpawnedSigner> =
         SignerTest::new_with_config_modifications_and_snapshot(
             num_signers,
-            vec![(sender_addr.clone(), (send_amt + send_fee) * 10)],
+            vec![(sender_addr.clone(), ((send_amt + send_fee) * 10) as u128)],
             |signer_cfg| {
                 signer_cfg.block_proposal_timeout = Duration::from_minutes(60);
             },

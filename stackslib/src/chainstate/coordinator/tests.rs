@@ -220,7 +220,7 @@ pub fn setup_states(
     vrf_keys: &[VRFPrivateKey],
     committers: &[StacksPrivateKey],
     pox_consts: Option<PoxConstants>,
-    initial_balances: Option<Vec<(PrincipalData, u64)>>,
+    initial_balances: Option<Vec<(PrincipalData, u128)>>,
     stacks_epoch_id: StacksEpochId,
 ) {
     setup_states_with_epochs(
@@ -239,7 +239,7 @@ pub fn setup_states_2_1(
     vrf_keys: &[VRFPrivateKey],
     committers: &[StacksPrivateKey],
     pox_consts: Option<PoxConstants>,
-    initial_balances: Option<Vec<(PrincipalData, u64)>>,
+    initial_balances: Option<Vec<(PrincipalData, u128)>>,
 ) {
     setup_states_with_epochs(
         paths,
@@ -257,7 +257,7 @@ pub fn setup_states_with_epochs(
     vrf_keys: &[VRFPrivateKey],
     committers: &[StacksPrivateKey],
     pox_consts: Option<PoxConstants>,
-    initial_balances: Option<Vec<(PrincipalData, u64)>>,
+    initial_balances: Option<Vec<(PrincipalData, u128)>>,
     stacks_epoch_id: StacksEpochId,
     epochs_opt: Option<EpochList>,
 ) {
@@ -988,7 +988,7 @@ fn missed_block_commits_2_05() {
 
     let stacker = p2pkh_from(&StacksPrivateKey::random());
     let rewards = pox_addr_from(&StacksPrivateKey::random());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
 
@@ -1307,7 +1307,7 @@ fn missed_block_commits_2_1() {
 
     let stacker = p2pkh_from(&StacksPrivateKey::random());
     let rewards = pox_addr_from(&StacksPrivateKey::random());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
 
@@ -1650,7 +1650,7 @@ fn late_block_commits_2_1() {
 
     let stacker = p2pkh_from(&StacksPrivateKey::random());
     let rewards = pox_addr_from(&StacksPrivateKey::random());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
 
@@ -2706,7 +2706,7 @@ fn test_pox_btc_ops() {
 
     let stacker = p2pkh_from(&StacksPrivateKey::random());
     let rewards = pox_addr_from(&StacksPrivateKey::random());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
 
@@ -2992,7 +2992,7 @@ fn test_stx_transfer_btc_ops() {
 
     let stacker = p2pkh_from(&StacksPrivateKey::random());
     let recipient = p2pkh_from(&StacksPrivateKey::random());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let transfer_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
 
@@ -3417,7 +3417,7 @@ fn test_delegate_stx_btc_ops() {
     let first_del = p2pkh_from(&StacksPrivateKey::random());
     let second_del = p2pkh_from(&StacksPrivateKey::random());
     let delegator_addr = p2pkh_from(&StacksPrivateKey::random());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let delegated_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![
         (first_del.clone().into(), balance),
@@ -3722,7 +3722,7 @@ fn test_initial_coinbase_reward_distributions() {
 
     let stacker = p2pkh_from(&StacksPrivateKey::random());
     let rewards = p2pkh_from(&StacksPrivateKey::random());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(stacker.clone().into(), balance)];
 
@@ -4593,7 +4593,7 @@ fn atlas_stop_start() {
 
     let signer_sk = StacksPrivateKey::random();
     let signer_pk = p2pkh_from(&signer_sk);
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![(signer_pk.clone().into(), balance)];
     let atlas_qci = QualifiedContractIdentifier::new(signer_pk.clone().into(), atlas_name.clone());
@@ -4889,7 +4889,7 @@ fn test_epoch_verify_active_pox_contract() {
     let stacker = p2pkh_from(&StacksPrivateKey::random());
     let stacker_2 = p2pkh_from(&StacksPrivateKey::random());
     let rewards = pox_addr_from(&StacksPrivateKey::random());
-    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let balance = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let stacked_amt = 1_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
     let initial_balances = vec![
         (stacker.clone().into(), balance),

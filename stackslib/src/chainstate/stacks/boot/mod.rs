@@ -1688,9 +1688,9 @@ pub mod test {
 
         let addrs: Vec<StacksAddress> = keys.iter().map(key_to_stacks_addr).collect();
 
-        let balances: Vec<(PrincipalData, u64)> = addrs
+        let balances: Vec<(PrincipalData, u128)> = addrs
             .into_iter()
-            .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
+            .map(|addr| (addr.into(), 1024 * POX_THRESHOLD_STEPS_USTX))
             .collect();
 
         peer_config.chain_config.initial_balances = balances;

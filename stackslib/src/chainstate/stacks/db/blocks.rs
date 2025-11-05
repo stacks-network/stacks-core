@@ -10868,7 +10868,7 @@ pub mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut init_balances: Vec<(PrincipalData, u64)> = del_addrs
+        let mut init_balances: Vec<(PrincipalData, u128)> = del_addrs
             .iter()
             .map(|addr| (addr.to_account_principal(), initial_balance))
             .collect();
@@ -11197,7 +11197,7 @@ pub mod test {
         .unwrap();
 
         let initial_balance = 1000000000;
-        let mut init_balances: Vec<(PrincipalData, u64)> = del_addrs
+        let mut init_balances: Vec<_> = del_addrs
             .iter()
             .map(|addr| (addr.to_account_principal(), initial_balance))
             .collect();

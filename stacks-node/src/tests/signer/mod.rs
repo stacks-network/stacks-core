@@ -178,7 +178,7 @@ impl<S: Signer<T> + Send + 'static, T: SignerEventTrait + 'static> SpawnedSigner
 }
 
 impl<Z: SpawnedSignerTrait> SignerTest<Z> {
-    pub fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u64)>) -> Self {
+    pub fn new(num_signers: usize, initial_balances: Vec<(StacksAddress, u128)>) -> Self {
         Self::new_with_config_modifications(
             num_signers,
             initial_balances,
@@ -191,7 +191,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
 
     pub fn new_with_config_modifications<F: FnMut(&mut SignerConfig), G: FnMut(&mut NeonConfig)>(
         num_signers: usize,
-        initial_balances: Vec<(StacksAddress, u64)>,
+        initial_balances: Vec<(StacksAddress, u128)>,
         signer_config_modifier: F,
         node_config_modifier: G,
         btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,
@@ -213,7 +213,7 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         G: FnMut(&mut NeonConfig),
     >(
         num_signers: usize,
-        initial_balances: Vec<(StacksAddress, u64)>,
+        initial_balances: Vec<(StacksAddress, u128)>,
         mut signer_config_modifier: F,
         mut node_config_modifier: G,
         btc_miner_pubkeys: Option<Vec<Secp256k1PublicKey>>,

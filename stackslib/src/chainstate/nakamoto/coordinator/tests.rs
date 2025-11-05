@@ -175,7 +175,7 @@ fn advance_to_nakamoto(
 /// otherwise, Nakamoto can't activate.
 fn boot_nakamoto_with_epochs<'a>(
     test_name: &str,
-    mut initial_balances: Vec<(PrincipalData, u64)>,
+    mut initial_balances: Vec<(PrincipalData, u128)>,
     test_signers: &mut TestSigners,
     test_stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
@@ -208,7 +208,7 @@ fn boot_nakamoto_with_epochs<'a>(
         .map(|test_stacker| {
             (
                 PrincipalData::from(key_to_stacks_addr(&test_stacker.stacker_private_key)),
-                u64::try_from(test_stacker.amount + 10000).expect("Stacking amount too large"),
+                test_stacker.amount + 10000,
             )
         })
         .collect();
@@ -270,7 +270,7 @@ fn boot_nakamoto_with_epochs<'a>(
 /// otherwise, Nakamoto can't activate.
 pub fn boot_nakamoto<'a>(
     test_name: &str,
-    initial_balances: Vec<(PrincipalData, u64)>,
+    initial_balances: Vec<(PrincipalData, u128)>,
     test_signers: &mut TestSigners,
     test_stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
@@ -290,7 +290,7 @@ pub fn boot_nakamoto<'a>(
 /// otherwise, Nakamoto can't activate.
 pub fn boot_nakamoto_3_2<'a>(
     test_name: &str,
-    initial_balances: Vec<(PrincipalData, u64)>,
+    initial_balances: Vec<(PrincipalData, u128)>,
     test_signers: &mut TestSigners,
     test_stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
@@ -310,7 +310,7 @@ pub fn boot_nakamoto_3_2<'a>(
 /// otherwise, Nakamoto can't activate.
 pub fn boot_nakamoto_3_3<'a>(
     test_name: &str,
-    initial_balances: Vec<(PrincipalData, u64)>,
+    initial_balances: Vec<(PrincipalData, u128)>,
     test_signers: &mut TestSigners,
     test_stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,

@@ -136,7 +136,7 @@ use crate::tests::signer::SignerTest;
 use crate::tests::{gen_random_port, get_chain_info, make_contract_publish, to_addr};
 use crate::{tests, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
-pub static POX_4_DEFAULT_STACKER_BALANCE: u64 = 100_000_000_000_000;
+pub static POX_4_DEFAULT_STACKER_BALANCE: u128 = 100_000_000_000_000;
 pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 
 use clarity::vm::database::STXBalance;
@@ -394,7 +394,7 @@ pub fn get_last_block_in_current_tenure(
 pub fn add_initial_balances(
     conf: &mut Config,
     accounts: usize,
-    amount: u64,
+    amount: u128,
 ) -> Vec<StacksPrivateKey> {
     (0..accounts)
         .map(|i| {
@@ -1588,7 +1588,7 @@ fn simple_neon_integration() {
     let send_fee = 100;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        send_amt * 2 + send_fee,
+        (send_amt * 2 + send_fee) as u128,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -2038,7 +2038,7 @@ fn flash_blocks_on_epoch_3_FLAKY() {
     let send_fee = 100;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        send_amt * 2 + send_fee,
+        (send_amt * 2 + send_fee) as u128,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -2288,7 +2288,7 @@ fn mine_multiple_per_tenure_integration() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        ((send_amt + send_fee) * tenure_count * inter_blocks_per_tenure) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -2476,7 +2476,7 @@ fn multiple_miners() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        ((send_amt + send_fee) * tenure_count * inter_blocks_per_tenure) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -3773,7 +3773,7 @@ fn follower_bootup_simple() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        ((send_amt + send_fee) * tenure_count * inter_blocks_per_tenure) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -4321,7 +4321,7 @@ fn follower_bootup_custom_chain_id() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        ((send_amt + send_fee) * tenure_count * inter_blocks_per_tenure) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -5246,7 +5246,7 @@ fn bad_commit_does_not_trigger_fork() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        send_amt + send_fee,
+        (send_amt + send_fee) as u128,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -5617,7 +5617,7 @@ fn check_block_heights() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        (3 * deploy_fee + (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -6376,7 +6376,8 @@ fn clarity_burn_state() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * inter_blocks_per_tenure,
+        (deploy_fee + tx_fee * tenure_count + tx_fee * tenure_count * inter_blocks_per_tenure)
+            as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -6649,7 +6650,7 @@ fn signer_chainstate() {
     let send_fee = 200;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * 20,
+        ((send_amt + send_fee) * 20) as u128,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -7244,7 +7245,7 @@ fn continue_tenure_extend() {
     let send_fee = 200;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * 20,
+        ((send_amt + send_fee) * 20) as u128,
     );
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -7711,7 +7712,7 @@ fn check_block_times() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        3 * deploy_fee + (send_amt + send_fee) * 12,
+        (3 * deploy_fee + (send_amt + send_fee) * 12) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -8104,7 +8105,7 @@ fn check_block_info() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        3 * deploy_fee + (send_amt + send_fee) * 2,
+        (3 * deploy_fee + (send_amt + send_fee) * 2) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -8742,7 +8743,7 @@ fn check_block_info_rewards() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        3 * deploy_fee + (send_amt + send_fee) * 2,
+        (3 * deploy_fee + (send_amt + send_fee) * 2) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -9093,7 +9094,7 @@ fn mock_mining() {
 
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        ((send_amt + send_fee) * tenure_count * inter_blocks_per_tenure) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -9458,7 +9459,7 @@ fn v3_signer_api_endpoint() {
     let send_fee = 180;
     conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        send_amt + send_fee,
+        (send_amt + send_fee) as u128,
     );
     conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
@@ -9740,7 +9741,7 @@ fn nakamoto_lockup_events() {
     let send_fee = 180;
     conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * 100,
+        ((send_amt + send_fee) * 100) as u128,
     );
     conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
     let recipient = PrincipalData::from(StacksAddress::burn_address(false));
@@ -9907,7 +9908,7 @@ fn skip_mining_long_tx() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_1_addr.clone()).to_string(),
-        send_amt * 15 + send_fee * 15,
+        (send_amt * 15 + send_fee * 15) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_2_addr.clone()).to_string(),
@@ -10491,8 +10492,9 @@ fn clarity_cost_spend_down() {
     let tx_fee = 10000;
     let small_deploy_fee = 190200;
     let large_deploy_fee = 570200;
-    let amount =
-        (large_deploy_fee + small_deploy_fee) + tx_fee * nmb_txs_per_signer + 100 * tenure_count;
+    let amount = ((large_deploy_fee + small_deploy_fee)
+        + tx_fee * nmb_txs_per_signer
+        + 100 * tenure_count) as u128;
     for sender_addr in sender_addrs {
         naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
     }
@@ -12419,13 +12421,13 @@ fn handle_considered_txs_foreign_key_failure() {
     let bad_sender_addr = tests::to_addr(&bad_sender_sk);
     naka_conf.add_initial_balance(
         PrincipalData::from(bad_sender_addr.clone()).to_string(),
-        send_amt + send_fee,
+        (send_amt + send_fee) as u128,
     );
     let good_sender_sk = Secp256k1PrivateKey::from_seed(&[31]);
     let good_sender_addr = tests::to_addr(&good_sender_sk);
     naka_conf.add_initial_balance(
         PrincipalData::from(good_sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * 2,
+        ((send_amt + send_fee) * 2) as u128,
     );
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
@@ -12576,7 +12578,7 @@ fn empty_mempool_sleep_ms() {
     let send_fee = 180;
     conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        send_amt + send_fee,
+        (send_amt + send_fee) as u128,
     );
     conf.add_initial_balance(PrincipalData::from(signer_addr.clone()).to_string(), 100000);
 
@@ -12696,7 +12698,7 @@ fn miner_constructs_replay_block() {
         // setup sender for test stx transfers
         naka_conf.add_initial_balance(
             PrincipalData::from(sender_addr.clone()).to_string(),
-            (send_amt + send_fee) * num_tx_per_sender,
+            ((send_amt + send_fee) * num_tx_per_sender) as u128,
         );
     }
 
@@ -13284,7 +13286,7 @@ fn test_sip_031_last_phase() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        ((send_amt + send_fee) * tenure_count * inter_blocks_per_tenure) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -13820,7 +13822,7 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
     let send_fee = 180;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        (send_amt + send_fee) * tenure_count * inter_blocks_per_tenure,
+        ((send_amt + send_fee) * tenure_count * inter_blocks_per_tenure) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -14353,12 +14355,12 @@ fn contract_limit_percentage_mempool_strategy_high_limit() {
     let large_deploy_fee = 1070200;
     let send_fee = 180;
     let send_amt = 100;
-    let amount = large_deploy_fee
+    let amount = (large_deploy_fee
         + small_deploy_fee
         + small_tx_fee * 2
         + large_tx_fee * 2
         + send_fee
-        + send_amt;
+        + send_amt) as u128;
     for sender_addr in sender_addrs {
         naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
     }
@@ -14693,8 +14695,12 @@ fn contract_limit_percentage_mempool_strategy_low_limit() {
     let large_deploy_fee = 1070200;
     let send_fee = 180;
     let send_amt = 100;
-    let amount =
-        large_deploy_fee + small_deploy_fee + small_tx_fee + large_tx_fee * 2 + send_fee + send_amt;
+    let amount = (large_deploy_fee
+        + small_deploy_fee
+        + small_tx_fee
+        + large_tx_fee * 2
+        + send_fee
+        + send_amt) as u128;
     for sender_addr in sender_addrs {
         naka_conf.add_initial_balance(PrincipalData::from(sender_addr.clone()).to_string(), amount);
     }
@@ -15006,7 +15012,7 @@ fn check_block_time_keyword() {
     let deploy_fee = 3000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        3 * deploy_fee + (send_amt + send_fee) * 12,
+        (3 * deploy_fee + (send_amt + send_fee) * 12) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -15285,7 +15291,7 @@ fn check_with_stacking_allowances_delegate_stx() {
     let call_fee = 400;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + call_fee * 30,
+        (deploy_fee + call_fee * 30) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -15681,7 +15687,7 @@ fn check_with_stacking_allowances_stack_stx() {
     let call_fee = 400;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + call_fee * 30,
+        (deploy_fee + call_fee * 30) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -16271,7 +16277,7 @@ fn check_restrict_assets_rollback() {
     let max_transfer_amt = 1000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + (max_transfer_amt + call_fee) * 30,
+        (deploy_fee + (max_transfer_amt + call_fee) * 30) as u128,
     );
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
@@ -16987,7 +16993,7 @@ fn check_as_contract_rollback() {
     let max_transfer_amt = 1000;
     naka_conf.add_initial_balance(
         PrincipalData::from(sender_addr.clone()).to_string(),
-        deploy_fee + call_fee * 30,
+        (deploy_fee + call_fee * 30) as u128,
     );
     naka_conf.add_initial_balance(contract_addr.to_string(), max_transfer_amt * 30);
     naka_conf.add_initial_balance(

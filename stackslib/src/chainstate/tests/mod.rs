@@ -78,7 +78,7 @@ pub struct TestChainstateConfig {
     pub current_block: u64,
     pub burnchain: Burnchain,
     pub test_name: String,
-    pub initial_balances: Vec<(PrincipalData, u64)>,
+    pub initial_balances: Vec<(PrincipalData, u128)>,
     pub initial_lockups: Vec<ChainstateAccountLockup>,
     pub spending_account: TestMiner,
     pub setup_code: String,

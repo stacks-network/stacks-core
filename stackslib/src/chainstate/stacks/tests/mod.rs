@@ -1402,7 +1402,7 @@ pub fn instantiate_and_exec(
     mainnet: bool,
     chain_id: u32,
     test_name: &str,
-    balances: Vec<(StacksAddress, u64)>,
+    balances: Vec<(StacksAddress, u128)>,
     post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
 ) -> StacksChainState {
     let path = chainstate_path(test_name);

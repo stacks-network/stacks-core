@@ -4454,11 +4454,11 @@ fn mempool_incorporate_pox_unlocks() {
                  }).unwrap();
 
                  if tenure_id <= 1 {
-                     assert_eq!(available_balance, total_balance as u128, "Failed at tenure_id={}", tenure_id);
+                     assert_eq!(available_balance, total_balance, "Failed at tenure_id={}", tenure_id);
                  } else if my_height <= lockup_end + 1 {
                      assert_eq!(available_balance, 0, "Failed at tenure_id={}", tenure_id);
                  } else if my_height == lockup_end + 2 {
-                     assert_eq!(available_balance, total_balance as u128 - 10_000, "Failed at tenure_id={}", tenure_id);
+                     assert_eq!(available_balance, total_balance - 10_000, "Failed at tenure_id={}", tenure_id);
                  } else {
                      assert_eq!(available_balance, 0, "Failed at tenure_id={}", tenure_id);
                  }
@@ -4472,7 +4472,7 @@ fn mempool_incorporate_pox_unlocks() {
                          "pox",
                          "stack-stx",
                          vec![
-                             Value::UInt(total_balance as u128 - 10_000),
+                             Value::UInt(total_balance - 10_000),
                              Value::Tuple(
                                  TupleData::from_data(vec![
                                      ("version".into(), Value::buff_from(vec![0x00]).unwrap()),
@@ -4502,7 +4502,7 @@ fn mempool_incorporate_pox_unlocks() {
                          1,
                          10_000,
                          &StacksAddress::burn_address(false).into(),
-                         total_balance - 10_000 - 10_000,
+                         total_balance as u64 - 10_000 - 10_000,
                      );
                      mempool
                          .submit(

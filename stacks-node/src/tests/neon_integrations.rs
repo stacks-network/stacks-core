@@ -1621,7 +1621,7 @@ fn deep_contract() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let spender_bal = 10_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ,
@@ -1731,7 +1731,7 @@ fn liquid_ustx_integration() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let spender_bal = 10_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ,
@@ -2450,8 +2450,8 @@ fn stack_stx_burn_op_test() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
-    let second_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let first_bal = 6_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
+    let second_bal = 2_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_addr_1,
@@ -2851,7 +2851,7 @@ fn vote_for_aggregate_key_burn_op_test() {
 
     let (mut conf, _miner_account) = neon_integration_test_conf();
 
-    let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let first_bal = 6_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
     let stacked_bal = 1_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
@@ -4184,7 +4184,7 @@ fn cost_voting_integration() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let spender_bal = 10_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ.clone(),
@@ -5215,9 +5215,9 @@ fn pox_integration_test() {
     test_observer::spawn();
     test_observer::register_any(&mut conf);
 
-    let first_bal = 6_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
-    let second_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
-    let third_bal = 2_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let first_bal = 6_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
+    let second_bal = 2_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
+    let third_bal = 2_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
     let stacked_bal = 1_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
@@ -5703,7 +5703,7 @@ fn atlas_integration_test() {
     let user_1 = StacksPrivateKey::random();
     let initial_balance_user_1 = InitialBalance {
         address: to_addr(&user_1).into(),
-        amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
+        amount: 1_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS),
     };
 
     // Prepare the config of the bootstrap node
@@ -6220,7 +6220,7 @@ fn antientropy_integration_test() {
     let user_1 = StacksPrivateKey::random();
     let initial_balance_user_1 = InitialBalance {
         address: to_addr(&user_1).into(),
-        amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
+        amount: 1_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS),
     };
 
     // Prepare the config of the bootstrap node
@@ -6495,7 +6495,7 @@ fn atlas_stress_integration_test() {
         let user = StacksPrivateKey::random();
         let initial_balance_user = InitialBalance {
             address: to_addr(&user).into(),
-            amount: 1_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS),
+            amount: 1_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS),
         };
         users.push(user);
         initial_balances.push(initial_balance_user);
@@ -8811,7 +8811,7 @@ fn min_txs() {
         fs::remove_file(path).unwrap();
     }
 
-    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let spender_bal = 10_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ,
@@ -8915,7 +8915,7 @@ fn filter_txs_by_type() {
         fs::remove_file(path).unwrap();
     }
 
-    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let spender_bal = 10_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ,
@@ -9025,7 +9025,7 @@ fn filter_txs_by_origin() {
             .into_iter()
             .collect();
 
-    let spender_bal = 10_000_000_000 * u64::from(core::MICROSTACKS_PER_STACKS);
+    let spender_bal = 10_000_000_000 * u128::from(core::MICROSTACKS_PER_STACKS);
 
     conf.initial_balances.push(InitialBalance {
         address: spender_princ,

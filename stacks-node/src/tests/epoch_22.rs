@@ -53,8 +53,8 @@ fn disable_pox() {
     let v1_unlock_height = 231;
     let epoch_2_2 = 255; // two blocks before next prepare phase.
 
-    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
-    let increase_by = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
+    let increase_by = 10_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
@@ -575,7 +575,7 @@ fn pox_2_unlock_all() {
     let v1_unlock_height = epoch_2_1 + 1;
     let epoch_2_2 = 239; // one block before a prepare phase
 
-    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
@@ -897,12 +897,12 @@ fn pox_2_unlock_all() {
     info!("spender_2_account = {spender_2_account:?}");
 
     assert_eq!(
-        spender_1_account.balance as u64,
-        spender_1_initial_balance - stacked - (5 * tx_fee),
+        spender_1_account.balance,
+        spender_1_initial_balance - stacked - (5 * tx_fee as u128),
         "Spender 1 should still be locked"
     );
     assert_eq!(
-        spender_1_account.locked as u64, stacked,
+        spender_1_account.locked, stacked,
         "Spender 1 should still be locked"
     );
     assert_eq!(
@@ -911,12 +911,12 @@ fn pox_2_unlock_all() {
     );
 
     assert_eq!(
-        spender_2_account.balance as u64,
-        spender_2_initial_balance - stacked - tx_fee,
+        spender_2_account.balance,
+        spender_2_initial_balance - stacked - tx_fee as u128,
         "Spender 2 should still be locked"
     );
     assert_eq!(
-        spender_2_account.locked as u64, stacked,
+        spender_2_account.locked, stacked,
         "Spender 2 should still be locked"
     );
     assert_eq!(

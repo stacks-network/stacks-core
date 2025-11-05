@@ -2384,3 +2384,48 @@ impl ClarityDatabase<'_> {
         Ok(epoch.epoch_id)
     }
 }
+
+#[test]
+fn increment_ustx_liquid_supply_overflow() {
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::errors::{Error, RuntimeErrorType};
+
+    let mut store = MemoryBackingStore::new();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    // Set the liquid supply to one less than the max
+    db.set_ustx_liquid_supply(u128::MAX - 1)
+        .expect("Failed to set liquid supply");
+    // Trust but verify.
+    assert_eq!(
+        db.get_total_liquid_ustx().unwrap(),
+        u128::MAX - 1,
+        "Supply should now be u128::MAX - 1"
+    );
+
+    db.increment_ustx_liquid_supply(1)
+        .expect("Increment by 1 should succeed");
+
+    // Trust but verify.
+    assert_eq!(
+        db.get_total_liquid_ustx().unwrap(),
+        u128::MAX,
+        "Supply should now be u128::MAX"
+    );
+
+    // Attempt to overflow
+    let err = db.increment_ustx_liquid_supply(1).unwrap_err();
+    assert!(matches!(
+        err,
+        Error::Runtime(RuntimeErrorType::ArithmeticOverflow, _)
+    ));
+
+    // Verify adding 0 doesn't overflow
+    db.increment_ustx_liquid_supply(0)
+        .expect("Increment by 0 should succeed");
+
+    assert_eq!(db.get_total_liquid_ustx().unwrap(), u128::MAX);
+
+    db.commit().unwrap();
+}

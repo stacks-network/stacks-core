@@ -246,7 +246,7 @@ impl ConsensusChain<'_> {
     /// * If any requested epoch is given `0` blocks
     pub fn new(
         test_name: &str,
-        initial_balances: Vec<(PrincipalData, u64)>,
+        initial_balances: Vec<(PrincipalData, u128)>,
         num_blocks_per_epoch: HashMap<StacksEpochId, u64>,
     ) -> Self {
         // Validate blocks
@@ -715,7 +715,7 @@ impl ConsensusTest<'_> {
     /// The map is converted into `num_blocks_per_epoch` for chain initialisation.
     pub fn new(
         test_name: &str,
-        initial_balances: Vec<(PrincipalData, u64)>,
+        initial_balances: Vec<(PrincipalData, u128)>,
         epoch_blocks: HashMap<StacksEpochId, Vec<TestBlock>>,
     ) -> Self {
         let mut num_blocks_per_epoch = HashMap::new();
@@ -832,7 +832,7 @@ impl ContractConsensusTest<'_> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         test_name: &str,
-        initial_balances: Vec<(PrincipalData, u64)>,
+        initial_balances: Vec<(PrincipalData, u128)>,
         deploy_epochs: &[StacksEpochId],
         call_epochs: &[StacksEpochId],
         contract_name: &str,
@@ -1408,7 +1408,7 @@ fn test_append_stx_transfers_success() {
         let sender_addr =
             StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk)).into();
         // give them enough to cover all transfers across all epochs
-        initial_balances.push((sender_addr, (send_amount + tx_fee) * total_epochs));
+        initial_balances.push((sender_addr, ((send_amount + tx_fee) * total_epochs) as u128));
     }
 
     // build transactions per epoch, incrementing nonce per sender
@@ -1464,59 +1464,89 @@ contract_deploy_consensus_test!(
     },
 );
 
-// Test RuntimeError::
+// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
+// Caused by: overflow when doing `pow` arithmetic operation
+// Outcome: block accepted.
 contract_call_consensus_test!(
     runtime_error_arithmetic_overflow_pow,
     contract_name: "overflow-pow",
     contract_code: &{
     r#"
-(define-public (overflow-pow-128)
+(define-public (trigger-overflow-pow)
   (ok (pow 2 128))
 )
     "#
     },
-    function_name: "overflow-pow-128",
+    function_name: "trigger-overflow-pow",
     function_args: &[],
 );
 
+// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
+// Caused by: overflow when doing `mul`` arithmetic operation
+// Outcome: block accepted.
 contract_call_consensus_test!(
     runtime_error_arithmetic_overflow_mul,
     contract_name: "overflow-mul",
     contract_code: &{
+        format!(
     r#"
-(define-public (overflow-mul-large)
-  (ok (* 10 (pow 2 126)))
+(define-public (trigger-overflow-mul)
+  (ok (* u{} u2))
 )
-    "#
+    "#, u128::MAX)
     },
-    function_name: "overflow-mul-large",
+    function_name: "trigger-overflow-mul",
     function_args: &[],
 );
 
+// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
+// Caused by: overflow when doing `add` arithmetic operation
+// Outcome: block accepted.
 contract_call_consensus_test!(
     runtime_error_arithmetic_overflow_add,
     contract_name: "overflow-add",
     contract_code: &{
+        format!(
     r#"
-(define-public (overflow-add-large)
-  (ok (+ (pow 2 126) (pow 2 126)))
+(define-public (trigger-overflow-add)
+  (ok (+ u{} u1))
 )
-    "#
+    "#, u128::MAX)
     },
-    function_name: "overflow-add-large",
+    function_name: "trigger-overflow-add",
     function_args: &[],
 );
 
+// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
+// Caused by: overflow when doing `add` arithmetic operation
+// Outcome: block accepted.
 contract_call_consensus_test!(
     runtime_error_arithmetic_overflow_to_int,
     contract_name: "overflow-to-int",
     contract_code: &{
+        format!(
     r#"
 (define-public (overflow-to-int-large)
-  (ok (to-int (pow u2 u127)))
+  (ok (to-int u{}))
 )
-    "#
+    "#, u128::MAX)
     },
     function_name: "overflow-to-int-large",
     function_args: &[],
 );
+
+// Caused by: overflow when attempting to increment the liquid stx supply over u128 when initializing the chainstate
+#[test]
+#[should_panic(expected = "FATAL: liquid STX overflow")]
+fn runtime_error_arithmetic_overflows_based_on_liquid_supply() {
+    let privk = StacksPrivateKey::from_hex(SK_1).unwrap();
+    let principal: PrincipalData =
+        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&privk)).into();
+    let initial_balances = vec![(principal, u128::MAX)];
+    // Just make sure we have a single block and epoch to pass initial checks
+    let mut num_blocks_per_epoch = HashMap::new();
+    num_blocks_per_epoch.insert(StacksEpochId::Epoch20, 1);
+
+    // The chain will fail to init since the stacks chainstate does not allow a liquid supply > MAX::u128
+    ConsensusChain::new(function_name!(), initial_balances, num_blocks_per_epoch);
+}

@@ -6677,7 +6677,7 @@ fn delegate_stack_increase(use_nakamoto: bool) {
 pub fn pox_4_scenario_test_setup<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
-    initial_balances: Vec<(PrincipalData, u64)>,
+    initial_balances: Vec<(PrincipalData, u128)>,
     use_nakamoto: bool,
 ) -> (
     TestPeer<'a>,
@@ -6800,7 +6800,7 @@ pub fn pox_4_scenario_test_setup<'a>(
 pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     test_name: &str,
     observer: &'a TestEventObserver,
-    initial_balances: Vec<(PrincipalData, u64)>,
+    initial_balances: Vec<(PrincipalData, u128)>,
 ) -> (
     TestPeer<'a>,
     usize,
@@ -6838,7 +6838,7 @@ pub fn pox_4_scenario_test_setup_nakamoto<'a>(
     let test_stackers = vec![TestStacker {
         signer_private_key: test_key.clone(),
         stacker_private_key: test_key.clone(),
-        amount: initial_stacker_balance as u128,
+        amount: initial_stacker_balance,
         pox_addr: Some(pox_addr_from(&test_key)),
         max_amount: None,
     }];
@@ -6901,7 +6901,7 @@ fn test_scenario_one(use_nakamoto: bool) {
     let mut alice = StackerSignerInfo::new();
     // Bob solo stacker-signer setup
     let mut bob = StackerSignerInfo::new();
-    let default_initial_balances: u64 = 1_000_000_000_000_000_000;
+    let default_initial_balances = 1_000_000_000_000_000_000;
     let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
@@ -7357,7 +7357,7 @@ fn test_deser_abort() {
     let mut alice = StackerSignerInfo::new();
     // Bob solo stacker-signer setup
     let mut bob = StackerSignerInfo::new();
-    let default_initial_balances: u64 = 1_000_000_000_000_000_000;
+    let default_initial_balances = 1_000_000_000_000_000_000;
     let initial_balances = vec![
         (alice.principal.clone(), default_initial_balances),
         (bob.principal.clone(), default_initial_balances),
@@ -9290,9 +9290,9 @@ pub fn prepare_pox4_test<'a>(
         boot_plan.add_default_balance = false;
         let addrs: Vec<StacksAddress> = keys.iter().map(key_to_stacks_addr).collect();
 
-        let balances: Vec<(PrincipalData, u64)> = addrs
+        let balances: Vec<(PrincipalData, u128)> = addrs
             .into_iter()
-            .map(|addr| (addr.into(), (1024 * POX_THRESHOLD_STEPS_USTX) as u64))
+            .map(|addr| (addr.into(), 1024 * POX_THRESHOLD_STEPS_USTX))
             .collect();
         boot_plan.initial_balances = balances;
         boot_plan.pox_constants = pox_constants.clone();

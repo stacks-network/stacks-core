@@ -409,7 +409,7 @@ pub fn make_nakamoto_peers_from_invs_and_balances<'a>(
     prepare_len: u32,
     bitvecs: Vec<Vec<bool>>,
     num_peers: usize,
-    initial_balances: Vec<(PrincipalData, u64)>,
+    initial_balances: Vec<(PrincipalData, u128)>,
 ) -> (TestPeer<'a>, Vec<TestPeer<'a>>) {
     make_nakamoto_peers_from_invs_ext(test_name, observer, bitvecs, |boot_plan| {
         boot_plan

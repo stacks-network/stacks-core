@@ -961,7 +961,7 @@ pub struct ChainStateBootData {
     pub first_burnchain_block_hash: BurnchainHeaderHash,
     pub first_burnchain_block_height: u32,
     pub first_burnchain_block_timestamp: u32,
-    pub initial_balances: Vec<(PrincipalData, u64)>,
+    pub initial_balances: Vec<(PrincipalData, u128)>,
     pub pox_constants: PoxConstants,
     pub post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     pub get_bulk_initial_lockups:
@@ -977,7 +977,7 @@ pub struct ChainStateBootData {
 impl ChainStateBootData {
     pub fn new(
         burnchain: &Burnchain,
-        initial_balances: Vec<(PrincipalData, u64)>,
+        initial_balances: Vec<(PrincipalData, u128)>,
         post_flight_callback: Option<Box<dyn FnOnce(&mut ClarityTx)>>,
     ) -> ChainStateBootData {
         ChainStateBootData {
@@ -1377,15 +1377,15 @@ impl StacksChainState {
             }
             for (address, amount) in boot_data.initial_balances.iter() {
                 clarity_tx.connection().as_transaction(|clarity| {
-                    StacksChainState::account_genesis_credit(clarity, address, (*amount).into())
+                    StacksChainState::account_genesis_credit(clarity, address, *amount)
                 });
                 initial_liquid_ustx = initial_liquid_ustx
-                    .checked_add(*amount as u128)
+                    .checked_add(*amount)
                     .expect("FATAL: liquid STX overflow");
                 let mint_event = StacksTransactionEvent::STXEvent(STXEventType::STXMintEvent(
                     STXMintEventData {
                         recipient: address.clone(),
-                        amount: *amount as u128,
+                        amount: *amount,
                     },
                 ));
                 allocation_events.push(mint_event);
@@ -2882,7 +2882,7 @@ pub mod test {
         mainnet: bool,
         chain_id: u32,
         test_name: &str,
-        balances: Vec<(StacksAddress, u64)>,
+        balances: Vec<(StacksAddress, u128)>,
     ) -> StacksChainState {
         let path = chainstate_path(test_name);
         if fs::metadata(&path).is_ok() {

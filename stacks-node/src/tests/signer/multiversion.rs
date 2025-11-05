@@ -287,7 +287,7 @@ fn with_new_miners<S: SpawnedSignerTrait>(supported_signer_protocol_version: u64
     let num_transfer_txs = 20;
     let initial_balances = vec![(
         sender_addr.clone(),
-        (send_amt + send_fee) * num_transfer_txs,
+        ((send_amt + send_fee) * num_transfer_txs) as u128,
     )];
     let miner_1_sk = Secp256k1PrivateKey::from_seed(&[1]);
 

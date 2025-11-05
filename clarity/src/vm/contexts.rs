@@ -289,6 +289,9 @@ impl AssetMap {
 
     // This will get the next amount for a (principal, stx) entry in the stx table.
     fn get_next_stx_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+        // Total liquid supply is always <= u128::MAX.
+        // This is bound by the initial balance which is bound by the total liquid supply
+        // therefore it cannot overflow as the liquid supply would overflow first
         let current_amount = self.stx_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
@@ -297,6 +300,9 @@ impl AssetMap {
 
     // This will get the next amount for a (principal, stx) entry in the burn table.
     fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
+        // Total liquid supply is always <= u128::MAX.
+        // This is bound by the initial balance which is bound by the total liquid supply
+        // therefore it cannot overflow as the liquid supply would overflow first
         let current_amount = self.burn_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)

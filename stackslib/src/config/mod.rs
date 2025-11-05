@@ -1097,18 +1097,18 @@ impl Config {
         path.to_str().expect("Unable to produce path").to_string()
     }
 
-    pub fn add_initial_balance(&mut self, address: String, amount: u64) {
+    pub fn add_initial_balance(&mut self, address: String, amount: u128) {
         let new_balance = InitialBalance {
-            address: PrincipalData::parse(&address).unwrap().into(),
+            address: PrincipalData::parse(&address).unwrap(),
             amount,
         };
         self.initial_balances.push(new_balance);
     }
 
     pub fn get_initial_liquid_ustx(&self) -> u128 {
-        let mut total = 0;
+        let mut total: u128 = 0;
         for ib in self.initial_balances.iter() {
-            total += ib.amount as u128
+            total = total.checked_add(ib.amount).unwrap()
         }
         total
     }
@@ -4518,7 +4518,7 @@ impl EventKeyType {
 #[derive(Debug, Clone, Deserialize)]
 pub struct InitialBalance {
     pub address: PrincipalData,
-    pub amount: u64,
+    pub amount: u128,
 }
 
 #[derive(Clone, Deserialize, Default, Debug)]
@@ -4536,7 +4536,7 @@ pub struct InitialBalanceFile {
     /// @default: No default.
     /// @required: true
     /// @units: microSTX
-    pub amount: u64,
+    pub amount: u128,
 }
 
 #[cfg(test)]

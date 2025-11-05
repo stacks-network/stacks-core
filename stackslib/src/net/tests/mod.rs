@@ -91,7 +91,7 @@ pub struct NakamotoBootPlan {
     pub test_name: String,
     pub pox_constants: PoxConstants,
     pub private_key: StacksPrivateKey,
-    pub initial_balances: Vec<(PrincipalData, u64)>,
+    pub initial_balances: Vec<(PrincipalData, u128)>,
     pub test_stackers: Vec<TestStacker>,
     pub test_signers: TestSigners,
     pub observer: Option<TestEventObserver>,
@@ -170,7 +170,7 @@ impl NakamotoBootPlan {
         let stacker_balances = self.test_stackers.iter().map(|test_stacker| {
             (
                 PrincipalData::from(key_to_stacks_addr(&test_stacker.stacker_private_key)),
-                u64::try_from(test_stacker.amount).expect("Stacking amount too large"),
+                test_stacker.amount,
             )
         });
         let signer_balances = self.test_stackers.iter().map(|test_stacker| {
@@ -233,7 +233,7 @@ impl NakamotoBootPlan {
         self
     }
 
-    pub fn with_initial_balances(mut self, initial_balances: Vec<(PrincipalData, u64)>) -> Self {
+    pub fn with_initial_balances(mut self, initial_balances: Vec<(PrincipalData, u128)>) -> Self {
         self.initial_balances = initial_balances;
         self
     }

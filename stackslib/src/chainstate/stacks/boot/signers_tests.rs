@@ -323,7 +323,7 @@ fn signers_db_get_slots() {
 
 pub fn prepare_signers_test<'a>(
     test_name: &str,
-    initial_balances: Vec<(PrincipalData, u64)>,
+    initial_balances: Vec<(PrincipalData, u128)>,
     stackers: &[TestStacker],
     observer: Option<&'a TestEventObserver>,
 ) -> (TestPeer<'a>, TestSigners, StacksBlockId, u128) {

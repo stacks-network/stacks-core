@@ -1045,7 +1045,7 @@ fn transition_adds_get_pox_addr_recipients() {
     let mut initial_balances = vec![];
     let mut expected_pox_addrs = HashSet::new();
 
-    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     for _i in 0..7 {
         let spender_sk = StacksPrivateKey::random();
@@ -1350,7 +1350,7 @@ fn transition_adds_mining_from_segwit() {
 
     let mut initial_balances = vec![];
 
-    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     for _i in 0..7 {
         let spender_sk = StacksPrivateKey::random();
@@ -1435,7 +1435,7 @@ fn transition_removes_pox_sunset() {
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
-    let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let first_bal = 6_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     let pox_pubkey = Secp256k1PublicKey::from_hex(
         "02f006a09b59979e2cb8449f58076152af6b124aa29b948a3714b8d5f15aa94ede",
@@ -2656,7 +2656,7 @@ fn test_v1_unlock_height_with_current_stackers() {
     let epoch_2_1 = 210;
     let v1_unlock_height = 211;
 
-    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
@@ -2909,7 +2909,7 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let epoch_2_1 = 230;
     let v1_unlock_height = 231;
 
-    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+    let stacked = 100_000_000_000 * (core::MICROSTACKS_PER_STACKS as u128);
 
     let spender_sk = StacksPrivateKey::random();
     let spender_addr: PrincipalData = to_addr(&spender_sk).into();
