@@ -1,8 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/parse_tests.rs
-assertion_line: 403
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(

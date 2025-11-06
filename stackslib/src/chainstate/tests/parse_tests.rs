@@ -83,7 +83,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         NameTooLong(_) => Tested,
         UnexpectedToken(_) => Tested,
         TupleColonExpectedv2 => Tested,
-        TupleCommaExpectedv2 => TODO,
+        TupleCommaExpectedv2 => Tested,
         TupleValueExpected => TODO,
         IllegalClarityName(_) => TODO,
         IllegalASCIIString(_) => TODO,
@@ -399,12 +399,23 @@ fn test_expected_trait_identifier() {
 }
 
 /// ParserError: [`ParseErrors::TupleColonExpectedv2`]
-/// Caused by: missing colon in tuple definition
+/// Caused by: missing colon in tuple definition separating field name and value
 /// Outcome: block accepted
 #[test]
 fn test_tuple_colon_expected_v2() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "{ a 1 }",
+    );
+}
+
+/// ParserError: [`ParseErrors::TupleCommaExpectedv2`]
+/// Caused by: missing comma in tuple definition separating fields
+/// Outcome: block accepted
+#[test]
+fn test_tuple_comma_expected_v2() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "{ a : 1  b : 2}",
     );
 }
