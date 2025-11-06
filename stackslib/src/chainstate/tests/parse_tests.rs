@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 /// This module contains consensus tests related to Clarity Parse errors.
-use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_NESTING_DEPTH};
+use clarity::vm::ast::parser::v2::MAX_NESTING_DEPTH;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
 #[allow(unused_imports)] // Just used for documentation purpose
@@ -211,20 +211,6 @@ fn test_lexer_unknown_symbol() {
     );
 }
 
-/// ParserError: [`ParseErrors::ContractNameTooLong`]
-/// Caused by: contract name longer than [`MAX_CONTRACT_NAME_LEN`]
-/// Outcome: Panic
-/// Due to [`ContractName::consensus_serialize`] when creating the transaction,
-/// this error variant is unreachable.
-#[test]
-#[should_panic]
-fn test_contract_name_too_long() {
-    contract_deploy_consensus_test!(
-        contract_name: &{"n".repeat(MAX_CONTRACT_NAME_LEN + 1)},
-        contract_code: "()",
-    );
-}
-
 /// ParserError: [`ParseErrors::ExpectedClosing`]
 /// Caused by: missing closing parenthesis
 /// Outcome: block accepted
@@ -257,4 +243,96 @@ fn test_expected_white_space() {
         //miss space between (get-one) and (ok u1)
         contract_code: "(define-public (get-one)(ok u1))",
     );
+}
+
+/// ParserError: [`ParseErrors::UnexpectedToken`]
+/// Caused by: unexpected token in the expression (rightest paranthesis)
+/// Outcome: block accepted
+#[test]
+fn test_unexpected_token() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-public (get-one) (ok u1)) )",
+    );
+}
+
+fn variant_coverage_report(variant: ParseErrors) {
+    enum VariantCoverage {
+        Unreachable_Functionally,
+        Unreachable_ExpectLike,
+        Unreachable_NotUsed,
+        Skipped,
+        Tested,
+
+        TODO,
+    }
+
+    use ParseErrors::*;
+    use VariantCoverage::*;
+
+    _ = match variant {
+        // Costs
+        CostOverflow => Unreachable_ExpectLike,
+        CostBalanceExceeded(_, _) => Unreachable_Functionally,
+        MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
+        CostComputationFailed(_) => Unreachable_ExpectLike,
+        ExecutionTimeExpired => Unreachable_NotUsed, // To re-check
+
+        TooManyExpressions => Unreachable_ExpectLike,
+        ExpressionStackDepthTooDeep => Tested,
+        VaryExpressionStackDepthTooDeep => Tested,
+        FailedParsingIntValue(_) => Tested,
+        CircularReference(_) => Tested,
+        NameAlreadyUsed(_) => Tested,
+        TraitReferenceNotAllowed => Tested,
+        ImportTraitBadSignature => Tested,
+        DefineTraitBadSignature => Tested,
+        ImplTraitBadSignature => Tested,
+        TraitReferenceUnknown(_) => Tested,
+
+        Lexer(LexerError) => Tested,
+        ContractNameTooLong(String) => Unreachable_Functionally,
+        ExpectedClosing(Token) => Tested,
+        ExpectedContractIdentifier => TODO,
+        ExpectedTraitIdentifier => TODO,
+        ExpectedWhitespace => Tested,
+        FailedParsingUIntValue(_) => Tested,
+        IllegalTraitName(_) => TODO,
+        InvalidPrincipalLiteral => TODO,
+        InvalidBuffer => TODO,
+        NameTooLong(_) => TODO,
+        UnexpectedToken(_) => Tested,
+        TupleColonExpectedv2 => TODO,
+        TupleCommaExpectedv2 => TODO,
+        TupleValueExpected => TODO,
+        IllegalClarityName(_) => TODO,
+        IllegalASCIIString(_) => TODO,
+        IllegalContractName(_) => TODO,
+        NoteToMatchThis(_) => Tested,
+        UnexpectedParserFailure => Unreachable_ExpectLike,
+        InterpreterFailure => Unreachable_ExpectLike, // currently cause block rejection
+
+        // V1
+        FailedCapturingInput
+        | SeparatorExpected(_)
+        | SeparatorExpectedAfterColon(_)
+        | ProgramTooLarge
+        | IllegalVariableName(_)
+        | FailedParsingBuffer(_)
+        | FailedParsingHexValue(_, _)
+        | FailedParsingPrincipal(_)
+        | FailedParsingField(_)
+        | FailedParsingRemainder(_)
+        | ClosingParenthesisUnexpected
+        | ClosingParenthesisExpected
+        | ClosingTupleLiteralUnexpected
+        | ClosingTupleLiteralExpected
+        | TupleColonExpected(_)
+        | TupleCommaExpected(_)
+        | TupleItemExpected(_)
+        | CommaSeparatorUnexpected
+        | ColonSeparatorUnexpected
+        | InvalidCharactersDetected
+        | InvalidEscaping => Skipped, //parser v1 should be removed?!
+    }
 }
