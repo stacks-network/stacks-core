@@ -180,8 +180,18 @@ pub fn logn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
     let nlog2 = u64::from(64 - 1 - n.leading_zeros());
     Ok(a.saturating_mul(nlog2).saturating_add(b))
 }
+
 pub fn nlogn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
     if n < 1 {
+        // This branch is effectively unreachable from any valid Clarity contract.
+        // All Clarity operations that eventually call `nlogn` (tuple operations, list `sort`,
+        // `filter`, `merge`, variable lookups) will either:
+        //   1. Be rejected by the parser (syntax errors), or
+        //   2. Be rejected by the type checker (UnknownType errors),
+        // before `nlogn` would ever be called with `n = 0`.
+        //
+        // Therefore, while `nlogn` has a runtime check for `n < 1` to guard against log2(0),
+        // no Clarity contract can trigger this error at runtime.
         return Err(crate::vm::errors::Error::Runtime(
             RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()),
             Some(vec![]),

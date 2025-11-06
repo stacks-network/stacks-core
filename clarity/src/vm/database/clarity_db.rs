@@ -2077,6 +2077,10 @@ impl ClarityDatabase<'_> {
         })?;
 
         if amount > current_supply {
+            // `SupplyUnderflow` is **unreachable** in normal Clarity execution:
+            // the sender's balance is checked first (`amount <= sender_balance`),
+            // and `sender_balance <= current_supply` always holds.
+            // Thus, `amount > current_supply` cannot occur.
             return Err(RuntimeErrorType::SupplyUnderflow(current_supply, amount).into());
         }
 

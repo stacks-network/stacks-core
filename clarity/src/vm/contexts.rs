@@ -287,35 +287,43 @@ impl AssetMap {
         }
     }
 
-    // This will get the next amount for a (principal, stx) entry in the stx table.
+    /// This will get the next amount for a (principal, stx) entry in the stx table.
     fn get_next_stx_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
-        // Total liquid supply is always <= u128::MAX.
-        // This is bound by the initial balance which is bound by the total liquid supply
-        // therefore it cannot overflow as the liquid supply would overflow first
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - Every `stx-transfer?` or `stx-burn?` is validated against the sender’s
+        //   **unlocked balance** before being queued in `AssetMap`.
+        // - The unlocked balance is a subset of `stx-liquid-supply`.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self.stx_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
 
-    // This will get the next amount for a (principal, stx) entry in the burn table.
+    /// This will get the next amount for a (principal, stx) entry in the burn table.
     fn get_next_stx_burn_amount(&self, principal: &PrincipalData, amount: u128) -> Result<u128> {
-        // Total liquid supply is always <= u128::MAX.
-        // This is bound by the initial balance which is bound by the total liquid supply
-        // therefore it cannot overflow as the liquid supply would overflow first
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - Every `stx-burn?` is validated against the sender’s **unlocked balance** first.
+        // - Unlocked balance is a subset of `stx-liquid-supply`, which is <= `u128::MAX`.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self.burn_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
             .ok_or(RuntimeErrorType::ArithmeticOverflow.into())
     }
-
-    // This will get the next amount for a (principal, asset) entry in the asset table.
+    /// This will get the next amount for a (principal, asset) entry in the asset table.
     fn get_next_amount(
         &self,
         principal: &PrincipalData,
         asset: &AssetIdentifier,
         amount: u128,
     ) -> Result<u128> {
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - The inner transaction must have **partially succeeded** to log any assets.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self
             .token_map
             .get(principal)
@@ -2267,5 +2275,50 @@ mod test {
                 .args[0],
             TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
+    }
+
+    #[test]
+    fn test_asset_map_arithmetic_overflows() {
+        use crate::vm::errors::Error;
+
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+        let t1 = AssetIdentifier {
+            contract_identifier: a_contract_id,
+            asset_name: "a".into(),
+        };
+
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+
+        // Token transfer: add u128::MAX followed by 1 to overflow
+        am1.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_token_transfer(&p1, t1.clone(), 1).unwrap_err(),
+            Error::Runtime(RuntimeErrorType::ArithmeticOverflow, _)
+        ));
+
+        // STX burn: add u128::MAX followed by 1 to overflow
+        am1.add_stx_burn(&p1, u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_stx_burn(&p1, 1).unwrap_err(),
+            Error::Runtime(RuntimeErrorType::ArithmeticOverflow, _)
+        ));
+
+        // STX transfer: add u128::MAX followed by 1 to overflow
+        am1.add_stx_transfer(&p1, u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_stx_transfer(&p1, 1).unwrap_err(),
+            Error::Runtime(RuntimeErrorType::ArithmeticOverflow, _)
+        ));
+
+        // commit_other: merge two maps where sum exceeds u128::MAX
+        am2.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
+        assert!(matches!(
+            am1.commit_other(am2).unwrap_err(),
+            Error::Runtime(RuntimeErrorType::ArithmeticOverflow, _)
+        ));
     }
 }
