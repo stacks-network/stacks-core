@@ -13,12 +13,12 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-/// This module contains consensus tests related to Clarity Parse errors.
-use clarity::vm::ast::parser::v2::MAX_NESTING_DEPTH;
+//! This module contains consensus tests related to Clarity Parse errors.
+
+use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::parser::v2::{MAX_NESTING_DEPTH, MAX_STRING_LEN};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
-#[allow(unused_imports)] // Just used for documentation purpose
-use clarity::vm::{ast::errors::ParseErrors, representations::ContractName};
 
 use crate::chainstate::tests::consensus::contract_deploy_consensus_test;
 
@@ -256,6 +256,20 @@ fn test_unexpected_token() {
     );
 }
 
+/// ParserError: [`ParseErrors::NameTooLong`]
+/// Caused by: identifier longer than [`MAX_STRING_LEN`]
+/// Outcome: block accepted
+#[test]
+fn test_name_too_long() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let name = "n".repeat(MAX_STRING_LEN + 1);
+            format!("(define-public ({name}) (ok u1))")
+        },
+    );
+}
+
 fn variant_coverage_report(variant: ParseErrors) {
     enum VariantCoverage {
         Unreachable_Functionally,
@@ -300,7 +314,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         IllegalTraitName(_) => TODO,
         InvalidPrincipalLiteral => TODO,
         InvalidBuffer => TODO,
-        NameTooLong(_) => TODO,
+        NameTooLong(_) => Tested,
         UnexpectedToken(_) => Tested,
         TupleColonExpectedv2 => TODO,
         TupleCommaExpectedv2 => TODO,
