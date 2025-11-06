@@ -53,7 +53,7 @@ fn variant_coverage_report(variant: ParseErrors) {
     _ = match variant {
         // Costs
         CostOverflow => Unreachable_ExpectLike,
-        CostBalanceExceeded(_, _) => Unreachable_Functionally,
+        CostBalanceExceeded(_, _) => Unreachable_Functionally, // due to epoch runtime epoch limits configuration.
         MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
         CostComputationFailed(_) => Unreachable_ExpectLike,
         ExecutionTimeExpired => Unreachable_NotUsed, // To re-check
@@ -71,14 +71,14 @@ fn variant_coverage_report(variant: ParseErrors) {
         TraitReferenceUnknown(_) => Tested,
 
         Lexer(LexerError) => Tested,
-        ContractNameTooLong(String) => Unreachable_Functionally,
+        ContractNameTooLong(String) => Unreachable_Functionally, // prevented by ContractName::consensus_serialize with panic
         ExpectedClosing(Token) => Tested,
         ExpectedContractIdentifier => TODO,
         ExpectedTraitIdentifier => TODO,
         ExpectedWhitespace => Tested,
         FailedParsingUIntValue(_) => Tested,
-        IllegalTraitName(_) => TODO,
-        InvalidPrincipalLiteral => TODO,
+        IllegalTraitName(_) => Unreachable_Functionally, // prevented by Lexer checks returning lexer errors
+        InvalidPrincipalLiteral => Tested,
         InvalidBuffer => TODO,
         NameTooLong(_) => Tested,
         UnexpectedToken(_) => Tested,
@@ -362,5 +362,16 @@ fn test_name_too_long() {
             let name = "n".repeat(MAX_STRING_LEN + 1);
             format!("(define-public ({name}) (ok u1))")
         },
+    );
+}
+
+/// ParserError: [`ParseErrors::InvalidPrincipalLiteral`]
+/// Caused by: valid principal chars but wrong format (due to the starting "AAA")
+/// Outcome: block accepted
+#[test]
+fn test_invalid_principal_literal() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",
     );
 }
