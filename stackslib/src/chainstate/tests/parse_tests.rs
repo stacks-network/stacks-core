@@ -71,7 +71,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         TraitReferenceUnknown(_) => Tested,
 
         Lexer(LexerError) => Tested,
-        ContractNameTooLong(String) => Unreachable_Functionally, // prevented by ContractName::consensus_serialize with panic
+        ContractNameTooLong(String) => Unreachable_Functionally, // prevented by ContractName::consensus_deserialize (panic)
         ExpectedClosing(Token) => Tested,
         ExpectedContractIdentifier => TODO,
         ExpectedTraitIdentifier => TODO,
@@ -79,7 +79,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         FailedParsingUIntValue(_) => Tested,
         IllegalTraitName(_) => Unreachable_Functionally, // prevented by Lexer checks returning lexer errors
         InvalidPrincipalLiteral => Tested,
-        InvalidBuffer => TODO,
+        InvalidBuffer => Unreachable_Functionally, // prevented by both Lexer checks, and StacksTransaction::consensus_deserialize with MAX_TRASACTION_LEN (panic)
         NameTooLong(_) => Tested,
         UnexpectedToken(_) => Tested,
         TupleColonExpectedv2 => TODO,
