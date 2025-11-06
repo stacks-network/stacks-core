@@ -288,6 +288,8 @@ pub enum StaticCheckErrorKind {
     /// Type signature nesting depth exceeds the allowed limit during analysis.
     TypeSignatureTooDeep,
     /// Expected a name (e.g., variable, function) but found an invalid or missing token.
+    /// NOTE: This error is only used nested in a BadMatchOptionSyntax, BadMatchResponseSyntax,
+    /// or BadMatchInput.
     ExpectedName,
     /// Supertype (e.g., trait or union) exceeds the maximum allowed size or complexity.
     /// This error indicates a transaction would invalidate a block if included.
@@ -1330,7 +1332,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::IfArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'if' must match (got '{type_1}' and '{type_2}')"),
             StaticCheckErrorKind::MatchArmsMustMatch(type_1, type_2) => format!("expression types returned by the arms of 'match' must match (got '{type_1}' and '{type_2}')"),
             StaticCheckErrorKind::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{type_1}' and '{type_2}')"),
-            StaticCheckErrorKind::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{function_name}"),
+            StaticCheckErrorKind::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{function_name}'"),
             StaticCheckErrorKind::UnknownFunction(function_name) => format!("use of unresolved function '{function_name}'"),
             StaticCheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
             StaticCheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),

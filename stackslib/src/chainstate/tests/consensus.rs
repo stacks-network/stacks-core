@@ -29,7 +29,7 @@ use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, MAX_TYPE_DEPTH};
 use clarity::vm::{ClarityVersion, Value as ClarityValue, MAX_CALL_STACK_DEPTH};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
@@ -1169,3 +1169,357 @@ contract_deploy_consensus_test!(
         format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}")
     },
 );
+
+// StaticCheckError: [`StaticCheckError::ValueTooLarge`]
+// Caused by: Value exceeds the maximum allowed size for type-checking
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_value_too_large,
+    contract_name: "value-too-large",
+    contract_code: "(as-max-len? 0x01 u1048577)",
+);
+
+// StaticCheckError: [`StaticCheckError::ValueOutOfBounds`]
+// Caused by: Value is outside the acceptable range for its type
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_value_out_of_bounds,
+    contract_name: "value-out-of-bounds",
+    contract_code: "(define-private (func (x (buff -12))) (len x))
+        (func 0x00)",
+);
+
+// StaticCheckError: [`StaticCheckError::ExpectedName`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_expected_name,
+    contract_name: "expected-name",
+    contract_code: "(match (some 1) 2 (+ 1 1) (+ 3 4))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedResponseType`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_expected_response_type,
+    contract_name: "expected-response-type",
+    contract_code: "(unwrap-err! (some 2) 2)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineResponseOkType`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_could_not_determine_response_ok_type,
+    contract_name: "could-not-determine",
+    contract_code: "(unwrap! (err 3) 2)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineResponseErrType`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_could_not_determine_response_err_type,
+    contract_name: "could-not-determine",
+    contract_code: "(unwrap-err-panic (ok 3))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineMatchTypes`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_could_not_determine_match_types,
+    contract_name: "could-not-determine",
+    contract_code: "(match none inner-value (/ 1 0) (+ 1 8))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::MatchArmsMustMatch`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_match_arms_must_match,
+    contract_name: "match-arms-must-match",
+    contract_code: "(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadMatchOptionSyntax`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_match_option_syntax,
+    contract_name: "bad-match-option",
+    contract_code: "(match (some 1) inner-value (+ 1 inner-value))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadMatchResponseSyntax`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_match_response_syntax,
+    contract_name: "bad-match-response",
+    contract_code: "(match (ok 1) inner-value (+ 1 inner-value))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::RequiresAtLeastArguments`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_requires_at_least_arguments,
+    contract_name: "requires-at-least",
+    contract_code: "(match)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadMatchInput`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_match_input,
+    contract_name: "bad-match-input",
+    contract_code: "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedOptionalType`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_expected_optional_type,
+    contract_name: "expected-optional-type",
+    contract_code: "(default-to 3 5)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NameAlreadyUsed`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_name_already_used,
+    contract_name: "name-already-used",
+    contract_code: "
+        (define-constant foo 10)
+        (define-constant foo 20)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ReturnTypesMustMatch`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_return_types_must_match,
+    contract_name: "return-types-must",
+    contract_code: "
+        (define-map tokens { id: int } { balance: int })
+        (define-private (my-get-token-balance)
+            (let ((balance (unwrap!
+                              (get balance (map-get? tokens (tuple (id 0))))
+                              (err 1))))
+              (err false)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::TypeError`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_type_error,
+    contract_name: "type-error",
+    contract_code: "(define-data-var cursor int true)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::DefineVariableBadSignature`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_define_variable_bad_signature,
+    contract_name: "define-variable-bad",
+    contract_code: "(define-data-var cursor 0x00)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::InvalidTypeDescription`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_invalid_type_description,
+    contract_name: "invalid-type-desc",
+    contract_code: "(define-data-var cursor 0x00 true)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::TypeSignatureTooDeep`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_type_signature_too_deep,
+    contract_name: "signature-too-deep",
+    contract_code: &{
+        let depth: usize = MAX_TYPE_DEPTH as usize + 1;
+        let mut s = String::from("(define-public (f (x ");
+        for _ in 0..depth {
+            s.push_str("(optional ");
+        }
+        s.push_str("uint");
+        for _ in 0..depth {
+            s.push_str(") ");
+        }
+        s.push_str(")) (ok x))");
+        s
+    },
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::SupertypeTooLarge`]
+// Caused by:
+// Outcome: block rejected.
+contract_deploy_consensus_test!(
+    static_check_error_supertype_too_large,
+    contract_name: "supertype-too-large",
+    contract_code: "
+        (define-data-var big (buff 600000) 0x00)
+        (define-data-var small (buff 10) 0x00)
+        (define-public (trigger)
+            (let ((initial (list (tuple (a (var-get big)) (b (var-get small))))))
+                (ok (append initial (tuple (a (var-get small)) (b (var-get big)))))))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ConstructedListTooLarge`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_constructed_list_too_large,
+    contract_name: "constructed-list-large",
+    contract_code: "
+        (define-data-var ints (list 65535 int) (list 0))
+        (define-public (trigger)
+            (let ((mapped (map sha512 (var-get ints))))
+                (ok mapped)
+            )
+        )",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::UnknownTypeName`]
+// Caused by:
+// Outcome: block accepted.
+// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
+//       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
+//       this error.
+contract_deploy_consensus_test!(
+    static_check_error_unknown_type_name,
+    contract_name: "unknown-type-name",
+    contract_code: "
+        (define-public (trigger)
+            (ok (from-consensus-buff? foo 0x00)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::UndefinedVariable`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_undefined_variable,
+    contract_name: "undefined-variable",
+    contract_code: "(+ x y z)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadMapTypeDefinition`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_map_type_definition,
+    contract_name: "bad-map-type",
+    contract_code: "(define-map lists { name: int } contents)",
+);
+
+// pub enum StaticCheckErrorKind {
+//     CostOverflow,
+//     CostBalanceExceeded(ExecutionCost, ExecutionCost),
+//     MemoryBalanceExceeded(u64, u64),
+//     CostComputationFailed(String),
+//     ExecutionTimeExpired,
+//     ValueTooLarge, [`static_check_error_value_too_large`]
+//     ValueOutOfBounds, [`static_check_error_value_out_of_bounds`]
+//     TypeSignatureTooDeep, [`static_check_error_type_signature_too_deep`]
+//     ExpectedName, [`static_check_error_expected_name`]
+//     SupertypeTooLarge, [`static_check_error_supertype_too_large`]
+//     Expects(String),
+//     BadMatchOptionSyntax(Box<StaticCheckErrorKind>), [`static_check_error_bad_match_option_syntax`]
+//     BadMatchResponseSyntax(Box<StaticCheckErrorKind>), [`static_check_error_bad_match_response_syntax`]
+//     BadMatchInput(Box<TypeSignature>), [`static_check_error_bad_match_input`]
+//     ConstructedListTooLarge, [`static_check_error_constructed_list_too_large`]
+//     TypeError(Box<TypeSignature>, Box<TypeSignature>),  [`static_check_error_type_error`]
+//     InvalidTypeDescription, [`static_check_error_invalid_type_description`]
+//     UnknownTypeName(String), [`static_check_error_unknown_type_name`]
+//     UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>),
+//     ExpectedOptionalType(Box<TypeSignature>), [`static_check_error_expected_optional_type`]
+//     ExpectedResponseType(Box<TypeSignature>), [`static_check_error_expected_response_type`]
+//     ExpectedOptionalOrResponseType(Box<TypeSignature>),
+//     CouldNotDetermineResponseOkType, [`static_check_error_could_not_determine_response_ok_type`]
+//     CouldNotDetermineResponseErrType, [`static_check_error_could_not_determine_response_err_type`]
+//     CouldNotDetermineSerializationType,
+//     UncheckedIntermediaryResponses,
+//     CouldNotDetermineMatchTypes, [`static_check_error_could_not_determine_match_types`]
+//     CouldNotDetermineType,
+//     TypeAlreadyAnnotatedFailure,
+//     CheckerImplementationFailure,
+//     BadTokenName,
+//     DefineNFTBadSignature,
+//     NoSuchNFT(String),
+//     NoSuchFT(String),
+//     BadTupleFieldName,
+//     ExpectedTuple(Box<TypeSignature>),
+//     NoSuchTupleField(String, TupleTypeSignature),
+//     EmptyTuplesNotAllowed,
+//     BadTupleConstruction(String),
+//     NoSuchDataVariable(String),
+//     BadMapName,
+//     NoSuchMap(String),
+//     DefineFunctionBadSignature,
+//     BadFunctionName,
+//     BadMapTypeDefinition, [`static_check_error_bad_map_type_definition`]
+//     PublicFunctionMustReturnResponse(Box<TypeSignature>),
+//     DefineVariableBadSignature, [`static_check_error_define_variable_bad_signature`]
+//     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+//     NoSuchContract(String),
+//     NoSuchPublicFunction(String, String),
+//     ContractAlreadyExists(String),
+//     ContractCallExpectName,
+//     ExpectedCallableType(Box<TypeSignature>),
+//     NoSuchBlockInfoProperty(String),
+//     NoSuchStacksBlockInfoProperty(String),
+//     NoSuchTenureInfoProperty(String),
+//     GetBlockInfoExpectPropertyName,
+//     GetBurnBlockInfoExpectPropertyName,
+//     GetStacksBlockInfoExpectPropertyName,
+//     GetTenureInfoExpectPropertyName,
+//     NameAlreadyUsed(String), [`static_check_error_name_already_used`]
+//     ReservedWord(String),
+//     NonFunctionApplication,
+//     ExpectedListApplication,
+//     ExpectedSequence(Box<TypeSignature>),
+//     MaxLengthOverflow,
+//     BadLetSyntax,
+//     BadSyntaxBinding(SyntaxBindingError),
+//     MaxContextDepthReached,
+//     UndefinedVariable(String),
+//     RequiresAtLeastArguments(usize, usize), [`static_check_error_requires_at_least_arguments`]
+//     RequiresAtMostArguments(usize, usize),
+//     IncorrectArgumentCount(usize, usize),
+//     IfArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+//     MatchArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_match_arms_must_match`]
+//     DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+//     IllegalOrUnknownFunctionApplication(String),
+//     UnknownFunction(String),
+//     NoSuchTrait(String, String),
+//     TraitReferenceUnknown(String),
+//     TraitMethodUnknown(String, String),
+//     ExpectedTraitIdentifier,
+//     BadTraitImplementation(String, String),
+//     DefineTraitBadSignature,
+//     DefineTraitDuplicateMethod(String),
+//     UnexpectedTraitOrFieldReference,
+//     ContractOfExpectsTrait,
+//     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>),
+//     WriteAttemptedInReadOnly,
+//     AtBlockClosureMustBeReadOnly,
+//     ExpectedListOfAllowances(String, i32),
+//     AllowanceExprNotAllowed,
+//     ExpectedAllowanceExpr(String),
+//     WithAllAllowanceNotAllowed,
+//     WithAllAllowanceNotAlone,
+//     WithNftExpectedListOfIdentifiers,
+//     MaxIdentifierLengthExceeded(u32, u32),
+//     TooManyAllowances(usize, usize),
+// }
