@@ -73,7 +73,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         Lexer(LexerError) => Tested,
         ContractNameTooLong(String) => Unreachable_Functionally, // prevented by ContractName::consensus_deserialize (panic)
         ExpectedClosing(Token) => Tested,
-        ExpectedContractIdentifier => TODO,
+        ExpectedContractIdentifier => Tested,
         ExpectedTraitIdentifier => TODO,
         ExpectedWhitespace => Tested,
         FailedParsingUIntValue(_) => Tested,
@@ -373,5 +373,16 @@ fn test_invalid_principal_literal() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",
+    );
+}
+
+/// ParserError: [`ParseErrors::ExpectedContractIdentifier`]
+/// Caused by: missing name in contract identifier (nothing after the dot '.')
+/// Outcome: block accepted
+#[test]
+fn test_expected_contract_identifier() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.)",
     );
 }
