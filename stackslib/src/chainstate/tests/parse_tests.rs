@@ -84,7 +84,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         UnexpectedToken(_) => Tested,
         TupleColonExpectedv2 => Tested,
         TupleCommaExpectedv2 => Tested,
-        TupleValueExpected => TODO,
+        TupleValueExpected => Tested,
         IllegalClarityName(_) => TODO,
         IllegalASCIIString(_) => TODO,
         IllegalContractName(_) => TODO,
@@ -113,7 +113,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         | CommaSeparatorUnexpected
         | ColonSeparatorUnexpected
         | InvalidCharactersDetected
-        | InvalidEscaping => Ignored, //parser v1 should be removed?!
+        | InvalidEscaping => Ignored, //parser v1 is deprecated and maybe removed in the next future.
     }
 }
 
@@ -399,7 +399,7 @@ fn test_expected_trait_identifier() {
 }
 
 /// ParserError: [`ParseErrors::TupleColonExpectedv2`]
-/// Caused by: missing colon in tuple definition separating field name and value
+/// Caused by: missing colon between field name and value in tuple definition
 /// Outcome: block accepted
 #[test]
 fn test_tuple_colon_expected_v2() {
@@ -410,12 +410,23 @@ fn test_tuple_colon_expected_v2() {
 }
 
 /// ParserError: [`ParseErrors::TupleCommaExpectedv2`]
-/// Caused by: missing comma in tuple definition separating fields
+/// Caused by: missing comma between fields in tuple definition 
 /// Outcome: block accepted
 #[test]
 fn test_tuple_comma_expected_v2() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
-        contract_code: "{ a : 1  b : 2}",
+        contract_code: "{ a : 1  b : 2 }",
+    );
+}
+
+/// ParserError: [`ParseErrors::TupleValueExpected`]
+/// Caused by: missing value for field in tuple definition
+/// Outcome: block accepted
+#[test]
+fn test_tuple_value_expected() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "{ a : ",
     );
 }

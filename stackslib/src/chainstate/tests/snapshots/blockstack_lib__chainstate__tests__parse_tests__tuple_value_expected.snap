@@ -4,12 +4,12 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "5ba074a74da014e52ff1a01d1058774e6968b715ae3c20db1c2eaf82b5f098d6",
+    marf_hash: "28efa87cf58aa612cbc1c79bf1b119d527fc5f862a97d2e80555ba51c70c0d93",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(expected value expression for tuple) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -21,7 +21,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 513,
+          runtime: 243,
         ),
       ),
     ],
@@ -30,16 +30,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 513,
+      runtime: 243,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a924ca50126300995e83004095441e3ebdcfd0a655b801fa6603ac7063ff1730",
+    marf_hash: "d301cfc403af39194c5d684da3e60869bdce4ba5a99ca982fdaa9e0d9b3dc310",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(expected value expression for tuple) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -51,7 +51,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 513,
+          runtime: 243,
         ),
       ),
     ],
@@ -60,16 +60,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 513,
+      runtime: 243,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "03b01587fc890301bfaf885e8f9a1fe8cf8a593868d8ab1befab9d94b729b259",
+    marf_hash: "580d31de8a8b833093e32803a245d4a900e0c7fe5eca2a98248bd24d67913e63",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_2-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(expected value expression for tuple) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -81,7 +81,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 513,
+          runtime: 243,
         ),
       ),
     ],
@@ -90,16 +90,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 513,
+      runtime: 243,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6a3333354e378de36ff638181fd61a35f7f6d65963bbb2e0d8ba9ca62dada206",
+    marf_hash: "889b459187c7b72d7cc87f4e60d8c0c4538fb122a9bdc7aa7dd9b1725a86a514",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(expected value expression for tuple) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -111,7 +111,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 513,
+          runtime: 243,
         ),
       ),
     ],
@@ -120,16 +120,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 513,
+      runtime: 243,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "87cfc5ebd65e627a75ea827a7a354b56b295f9f02e95ad747fca02fa9be81d25",
+    marf_hash: "81f1a9856b387d3a5796b5edb4d7c0074a5d17f131ea14445b824eb80431d60b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(expected value expression for tuple) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -141,7 +141,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 513,
+          runtime: 243,
         ),
       ),
     ],
@@ -150,16 +150,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 513,
+      runtime: 243,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ea91648a33f918f1ae2cb459cb9ac15e7e6072e715f3477572b8268c4aa3771b",
+    marf_hash: "7ea49bd1417727df0eed5cdc9fc15677508ac5db1c6df14c2352f6e2a8a4278d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(expected value expression for tuple) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -171,7 +171,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 513,
+          runtime: 243,
         ),
       ),
     ],
@@ -180,16 +180,16 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 513,
+      runtime: 243,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9072574e1e52098ebbc6522a50e6509eebbbefba1f7dc94d5c0501cf8b659bc0",
+    marf_hash: "a493bb53a3953b11b086581bf45d3d599f66600088a7523589d3d70ebe0976d9",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
         tx: "SmartContract(name: my-contract-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "Some(expected \',\' separating key-value pairs in tuple) [NON-CONSENSUS BREAKING]",
+        vm_error: "Some(expected value expression for tuple) [NON-CONSENSUS BREAKING]",
         return_type: Response(ResponseData(
           committed: false,
           data: Optional(OptionalData(
@@ -201,7 +201,7 @@ expression: result
           write_count: 0,
           read_length: 0,
           read_count: 0,
-          runtime: 513,
+          runtime: 243,
         ),
       ),
     ],
@@ -210,7 +210,7 @@ expression: result
       write_count: 0,
       read_length: 0,
       read_count: 0,
-      runtime: 513,
+      runtime: 243,
     ),
   )),
 ]
