@@ -1270,6 +1270,15 @@ contract_deploy_consensus_test!(
     contract_code: "(match)",
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::RequiresAtMostArguments`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_requires_at_most_arguments,
+    contract_name: "requires-at-most",
+    contract_code: r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo" "bar")"#,
+);
+
 // StaticCheckError: [`StaticCheckErrorKind::BadMatchInput`]
 // Caused by:
 // Outcome: block accepted.
@@ -1405,6 +1414,15 @@ contract_deploy_consensus_test!(
             (ok (from-consensus-buff? foo 0x00)))",
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::UnionTypeError`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_union_type_error,
+    contract_name: "union-type-error",
+    contract_code: "(map - (list true false true false))",
+);
+
 // StaticCheckError: [`StaticCheckErrorKind::UndefinedVariable`]
 // Caused by:
 // Outcome: block accepted.
@@ -1421,6 +1439,283 @@ contract_deploy_consensus_test!(
     static_check_error_bad_map_type_definition,
     contract_name: "bad-map-type",
     contract_code: "(define-map lists { name: int } contents)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineType`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_could_not_determine_type,
+    contract_name: "could-not-determine",
+    contract_code: "(index-of (list) none)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedSequence`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_expected_sequence,
+    contract_name: "expected-sequence",
+    contract_code: r#"(index-of 3 "a")"#,
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineSerializationType`]
+// Caused by:
+// Outcome: block accepted.
+// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
+//       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
+//       this error.
+contract_deploy_consensus_test!(
+    static_check_error_could_not_determine_serialization_type,
+    contract_name: "serialization-type",
+    contract_code: "
+        (define-trait trait-a ((ping () (response bool bool))))
+        (define-trait trait-b ((pong () (response bool bool))))
+        (define-public (trigger (first <trait-a>) (second <trait-b>))
+            (ok (to-consensus-buff? (list first second))))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::UncheckedIntermediaryResponses`]
+// Caused by: Intermediate `(ok ...)` expressions inside a `begin` block that are not unwrapped.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_unchecked_intermediary_responses,
+    contract_name: "unchecked-resp",
+    contract_code: "
+        (define-public (trigger)
+            (begin
+                (ok true)
+                (ok true)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchFT`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_no_such_ft,
+    contract_name: "no-such-ft",
+    contract_code: "(ft-get-balance stackoos tx-sender)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchNFT`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_no_such_nft,
+    contract_name: "no-such-nft",
+    contract_code: r#"(nft-get-owner? stackoos "abc")"#,
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::DefineNFTBadSignature`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_define_nft_bad_signature,
+    contract_name: "nft-bad-signature",
+    contract_code: "(define-non-fungible-token stackaroos integer)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadTokenName`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_token_name,
+    contract_name: "bad-token-name",
+    contract_code: "(ft-get-balance u1234 tx-sender)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::EmptyTuplesNotAllowed`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_empty_tuples_not_allowed,
+    contract_name: "empty-tuples-not",
+    contract_code: "
+        (define-private (set-cursor (value (tuple)))
+            value)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchDataVariable`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_no_such_data_variable,
+    contract_name: "no-such-data-var",
+    contract_code: "
+        (define-private (get-cursor)
+            (unwrap! (var-get cursor) 0))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NonFunctionApplication`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_non_function_application,
+    contract_name: "non-function-appl",
+    contract_code: "((lambda (x y) 1) 2 1)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchContract`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_no_such_contract,
+    contract_name: "no-such-contract",
+    contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name test! u1)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ContractCallExpectName`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_contract_call_expect_name,
+    contract_name: "ccall-expect-name",
+    contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name u1)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::DefaultTypesMustMatch`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_default_types_must_match,
+    contract_name: "default-types-must",
+    contract_code: "
+        (define-map tokens { id: int } { balance: int })
+        (default-to false (get balance (map-get? tokens (tuple (id 0)))))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::IfArmsMustMatch`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_if_arms_must_match,
+    contract_name: "if-arms-must-match",
+    contract_code: "(if true true 1)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::IllegalOrUnknownFunctionApplication`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_illegal_or_unknown_function_application,
+    contract_name: "illegal-or-unknown",
+    contract_code: "(map if (list 1 2 3 4 5))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::UnknownFunction`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_unknown_function,
+    contract_name: "unknown-function",
+    contract_code: "(ynot 1 2)",
+);
+
+// // StaticCheckError: [`StaticCheckErrorKind::UTraitReferenceUnknownnknownFunction`]
+// // Caused by:
+// // Outcome: block accepted.
+// contract_deploy_consensus_test!(
+//     static_check_error_trait_reference_unknown,
+//     contract_name: "trait-ref-unknown",
+//     contract_code: "",
+// );
+
+// StaticCheckError: [`StaticCheckErrorKind::IncorrectArgumentCount`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_incorrect_argument_count,
+    contract_name: "incorrect-arg-count",
+    contract_code: "(len (list 1) (list 1))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadSyntaxBinding`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_syntax_binding,
+    contract_name: "bad-syntax-binding",
+    contract_code: "(let ((1)) (+ 1 2))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedOptionalOrResponseType`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_expected_optional_or_response_type,
+    contract_name: "exp-opt-or-res",
+    contract_code: "(try! 3)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::DefineTraitBadSignature`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_define_trait_bad_signature,
+    contract_name: "def-trait-bad-sign",
+    contract_code: "(define-trait trait-1 ((get-1 uint uint)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::DefineTraitDuplicateMethod`]
+// Caused by:
+// Outcome: block accepted.
+// Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
+contract_deploy_consensus_test!(
+    static_check_error_define_trait_duplicate_method,
+    contract_name: "def-trait-dup-method",
+    contract_code: "
+        (define-trait double-method (
+            (foo (uint) (response uint uint))
+            (foo (bool) (response bool bool))
+        ))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::UnexpectedTraitOrFieldReference`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_unexpected_trait_or_field_reference,
+    contract_name: "trait-or-field-ref",
+    contract_code: "(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::IncompatibleTrait`]
+// Caused by: pass a trait to a trait parameter which is not compatible.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_incompatible_trait,
+    contract_name: "incompatible-trait",
+    contract_code: "
+    (define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-get-2 (contract <trait-1>))
+        (internal-get-2 contract))
+    (define-public (internal-get-2 (contract <trait-2>))
+        (contract-call? contract get-2 u1))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ReservedWord`]
+// Caused by:
+// Outcome: block accepted.
+// Note: This error was added in Clarity 3. Clarity 1 and 2
+//       will trigger a [`StaticCheckErrorKind::NameAlreadyUsed`].
+contract_deploy_consensus_test!(
+    static_check_error_reserved_word,
+    contract_name: "reserved-word",
+    contract_code: "(define-private (block-height) true)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchBlockInfoProperty`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_no_such_block_info_property,
+    contract_name: "no-such-block-info",
+    contract_code: "(get-burn-block-info? none u1)",
 );
 
 // pub enum StaticCheckErrorKind {
@@ -1442,28 +1737,28 @@ contract_deploy_consensus_test!(
 //     TypeError(Box<TypeSignature>, Box<TypeSignature>),  [`static_check_error_type_error`]
 //     InvalidTypeDescription, [`static_check_error_invalid_type_description`]
 //     UnknownTypeName(String), [`static_check_error_unknown_type_name`]
-//     UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>),
+//     UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>), [`static_check_error_union_type_error`]
 //     ExpectedOptionalType(Box<TypeSignature>), [`static_check_error_expected_optional_type`]
 //     ExpectedResponseType(Box<TypeSignature>), [`static_check_error_expected_response_type`]
-//     ExpectedOptionalOrResponseType(Box<TypeSignature>),
+//     ExpectedOptionalOrResponseType(Box<TypeSignature>), [`static_check_error_expected_optional_or_response_type`]
 //     CouldNotDetermineResponseOkType, [`static_check_error_could_not_determine_response_ok_type`]
 //     CouldNotDetermineResponseErrType, [`static_check_error_could_not_determine_response_err_type`]
-//     CouldNotDetermineSerializationType,
-//     UncheckedIntermediaryResponses,
+//     CouldNotDetermineSerializationType, [`static_check_error_could_not_determine_serialization_type`]
+//     UncheckedIntermediaryResponses, [`static_check_error_unchecked_intermediary_responses`]
 //     CouldNotDetermineMatchTypes, [`static_check_error_could_not_determine_match_types`]
-//     CouldNotDetermineType,
+//     CouldNotDetermineType, [`static_check_error_could_not_determine_type`]
 //     TypeAlreadyAnnotatedFailure,
 //     CheckerImplementationFailure,
-//     BadTokenName,
-//     DefineNFTBadSignature,
-//     NoSuchNFT(String),
-//     NoSuchFT(String),
+//     BadTokenName, [`static_check_error_bad_token_name`]
+//     DefineNFTBadSignature, [`static_check_error_define_nft_bad_signature`]
+//     NoSuchNFT(String), [`static_check_error_no_such_nft`]
+//     NoSuchFT(String), [`static_check_error_no_such_ft`]
 //     BadTupleFieldName,
 //     ExpectedTuple(Box<TypeSignature>),
 //     NoSuchTupleField(String, TupleTypeSignature),
-//     EmptyTuplesNotAllowed,
+//     EmptyTuplesNotAllowed, [`static_check_error_empty_tuples_not_allowed`]
 //     BadTupleConstruction(String),
-//     NoSuchDataVariable(String),
+//     NoSuchDataVariable(String), [`static_check_error_no_such_data_variable`]
 //     BadMapName,
 //     NoSuchMap(String),
 //     DefineFunctionBadSignature,
@@ -1471,13 +1766,13 @@ contract_deploy_consensus_test!(
 //     BadMapTypeDefinition, [`static_check_error_bad_map_type_definition`]
 //     PublicFunctionMustReturnResponse(Box<TypeSignature>),
 //     DefineVariableBadSignature, [`static_check_error_define_variable_bad_signature`]
-//     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
-//     NoSuchContract(String),
+//     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_return_types_must_match`]
+//     NoSuchContract(String), [`static_check_error_no_such_contract`]
 //     NoSuchPublicFunction(String, String),
 //     ContractAlreadyExists(String),
-//     ContractCallExpectName,
+//     ContractCallExpectName, [`static_check_error_contract_call_expect_name`]
 //     ExpectedCallableType(Box<TypeSignature>),
-//     NoSuchBlockInfoProperty(String),
+//     NoSuchBlockInfoProperty(String), [`static_check_error_no_such_block_info_property`]
 //     NoSuchStacksBlockInfoProperty(String),
 //     NoSuchTenureInfoProperty(String),
 //     GetBlockInfoExpectPropertyName,
@@ -1486,32 +1781,32 @@ contract_deploy_consensus_test!(
 //     GetTenureInfoExpectPropertyName,
 //     NameAlreadyUsed(String), [`static_check_error_name_already_used`]
 //     ReservedWord(String),
-//     NonFunctionApplication,
+//     NonFunctionApplication, [`static_check_error_non_function_application`]
 //     ExpectedListApplication,
-//     ExpectedSequence(Box<TypeSignature>),
+//     ExpectedSequence(Box<TypeSignature>), [`static_check_error_expected_sequence`]
 //     MaxLengthOverflow,
 //     BadLetSyntax,
-//     BadSyntaxBinding(SyntaxBindingError),
+//     BadSyntaxBinding(SyntaxBindingError), [`static_check_error_bad_syntax_binding`]
 //     MaxContextDepthReached,
-//     UndefinedVariable(String),
+//     UndefinedVariable(String), [`static_check_error_undefined_variable`]
 //     RequiresAtLeastArguments(usize, usize), [`static_check_error_requires_at_least_arguments`]
-//     RequiresAtMostArguments(usize, usize),
-//     IncorrectArgumentCount(usize, usize),
-//     IfArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+//     RequiresAtMostArguments(usize, usize), [`static_check_error_requires_at_most_arguments`]
+//     IncorrectArgumentCount(usize, usize), [`static_check_error_incorrect_argument_count`]
+//     IfArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_if_arms_must_match`]
 //     MatchArmsMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_match_arms_must_match`]
-//     DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
-//     IllegalOrUnknownFunctionApplication(String),
-//     UnknownFunction(String),
+//     DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_default_types_must_match`]
+//     IllegalOrUnknownFunctionApplication(String), [`static_check_error_illegal_or_unknown_function_application`]
+//     UnknownFunction(String), [`static_check_error_unknown_function`]
 //     NoSuchTrait(String, String),
 //     TraitReferenceUnknown(String),
 //     TraitMethodUnknown(String, String),
 //     ExpectedTraitIdentifier,
 //     BadTraitImplementation(String, String),
-//     DefineTraitBadSignature,
-//     DefineTraitDuplicateMethod(String),
-//     UnexpectedTraitOrFieldReference,
+//     DefineTraitBadSignature, [`static_check_error_define_trait_bad_signature`]
+//     DefineTraitDuplicateMethod(String), [`static_check_error_define_trait_duplicate_method`]
+//     UnexpectedTraitOrFieldReference, [`static_check_error_unexpected_trait_or_field_reference`]
 //     ContractOfExpectsTrait,
-//     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>),
+//     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>), [`static_check_error_incompatible_trait`]
 //     WriteAttemptedInReadOnly,
 //     AtBlockClosureMustBeReadOnly,
 //     ExpectedListOfAllowances(String, i32),
