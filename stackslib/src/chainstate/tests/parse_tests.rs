@@ -16,7 +16,7 @@
 //! This module contains consensus tests related to Clarity Parse errors.
 
 use clarity::vm::ast::errors::ParseErrors;
-use clarity::vm::ast::parser::v2::{MAX_NESTING_DEPTH, MAX_STRING_LEN};
+use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_NESTING_DEPTH, MAX_STRING_LEN};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
 
@@ -71,7 +71,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         TraitReferenceUnknown(_) => Tested,
 
         Lexer(LexerError) => Tested,
-        ContractNameTooLong(String) => Unreachable_Functionally, // prevented by ContractName::consensus_deserialize (panic)
+        ContractNameTooLong(String) => Tested,
         ExpectedClosing(Token) => Tested,
         ExpectedContractIdentifier => Tested,
         ExpectedTraitIdentifier => Tested,
@@ -428,5 +428,19 @@ fn test_tuple_value_expected() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "{ a : ",
+    );
+}
+
+/// ParserError: [`ParseErrors::ContractNameTooLong`]
+/// Caused by: contract name longer than [`MAX_CONTRACT_NAME_LEN`]
+/// Outcome: block accepted
+#[test]
+fn test_contract_name_too_long() { 
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let name = "a".repeat(MAX_CONTRACT_NAME_LEN + 1);
+            format!("(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.{name})")
+        },
     );
 }
