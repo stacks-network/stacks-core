@@ -219,9 +219,6 @@ pub enum CommonCheckErrorKind {
     /// The `String` wraps the non-existent type name.
     UnknownTypeName(String),
 
-    /// Could not determine the serialization type for a value during analysis.
-    CouldNotDetermineSerializationType,
-
     /// Could not determine the type of an expression during analysis.
     CouldNotDetermineType,
 
@@ -651,8 +648,6 @@ pub enum CheckErrorKind {
     /// Expected an optional or response value but found a different value.
     /// The `Box<Value>` wraps the actual value provided.
     ExpectedOptionalOrResponseValue(Box<Value>),
-    /// Could not determine the serialization type for a value during analysis.
-    CouldNotDetermineSerializationType,
     /// Expected a contract principal value but found a different value.
     /// The `Box<Value>` wraps the actual value provided.
     ExpectedContractPrincipalValue(Box<Value>),
@@ -1117,9 +1112,6 @@ impl From<CommonCheckErrorKind> for CheckErrorKind {
             CommonCheckErrorKind::TypeError(a, b) => CheckErrorKind::TypeError(a, b),
             CommonCheckErrorKind::BadSyntaxBinding(e) => CheckErrorKind::BadSyntaxBinding(e),
             CommonCheckErrorKind::ValueOutOfBounds => CheckErrorKind::ValueOutOfBounds,
-            CommonCheckErrorKind::CouldNotDetermineSerializationType => {
-                CheckErrorKind::CouldNotDetermineSerializationType
-            }
             CommonCheckErrorKind::EmptyTuplesNotAllowed => CheckErrorKind::EmptyTuplesNotAllowed,
             CommonCheckErrorKind::NameAlreadyUsed(name) => CheckErrorKind::NameAlreadyUsed(name),
             CommonCheckErrorKind::UnknownTypeName(name) => CheckErrorKind::UnknownTypeName(name),
@@ -1180,9 +1172,6 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::TypeError(a, b) => StaticCheckErrorKind::TypeError(a, b),
             CommonCheckErrorKind::BadSyntaxBinding(e) => StaticCheckErrorKind::BadSyntaxBinding(e),
             CommonCheckErrorKind::ValueOutOfBounds => StaticCheckErrorKind::ValueOutOfBounds,
-            CommonCheckErrorKind::CouldNotDetermineSerializationType => {
-                StaticCheckErrorKind::CouldNotDetermineSerializationType
-            }
             CommonCheckErrorKind::EmptyTuplesNotAllowed => {
                 StaticCheckErrorKind::EmptyTuplesNotAllowed
             }
@@ -1468,7 +1457,6 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
             CheckErrorKind::InvalidUTF8Encoding => "invalid UTF8 encoding".into(),
             CheckErrorKind::InvalidSecp65k1Signature => "invalid seckp256k1 signature".into(),
-            CheckErrorKind::CouldNotDetermineSerializationType => "could not determine the input type for the serialization function".into(),
             CheckErrorKind::ExpectedListOfAllowances(fn_name, arg_num) => format!("{fn_name} expects a list of asset allowances as argument {arg_num}"),
             CheckErrorKind::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
             CheckErrorKind::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
