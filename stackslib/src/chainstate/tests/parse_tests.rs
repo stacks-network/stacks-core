@@ -74,7 +74,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         ContractNameTooLong(String) => Unreachable_Functionally, // prevented by ContractName::consensus_deserialize (panic)
         ExpectedClosing(Token) => Tested,
         ExpectedContractIdentifier => Tested,
-        ExpectedTraitIdentifier => TODO,
+        ExpectedTraitIdentifier => Tested,
         ExpectedWhitespace => Tested,
         FailedParsingUIntValue(_) => Tested,
         IllegalTraitName(_) => Unreachable_Functionally, // prevented by Lexer checks returning lexer errors
@@ -384,5 +384,16 @@ fn test_expected_contract_identifier() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.)",
+    );
+}
+
+/// ParserError: [`ParseErrors::ExpectedTraitIdentifier`]
+/// Caused by: missing name in trait identifier (nothing after the dot '.')
+/// Outcome: block accepted
+#[test]
+fn test_expected_trait_identifier() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-constant my-trait-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.contract.)",
     );
 }
