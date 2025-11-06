@@ -82,7 +82,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         InvalidBuffer => Unreachable_Functionally, // prevented by both Lexer checks, and StacksTransaction::consensus_deserialize with MAX_TRASACTION_LEN (panic)
         NameTooLong(_) => Tested,
         UnexpectedToken(_) => Tested,
-        TupleColonExpectedv2 => TODO,
+        TupleColonExpectedv2 => Tested,
         TupleCommaExpectedv2 => TODO,
         TupleValueExpected => TODO,
         IllegalClarityName(_) => TODO,
@@ -395,5 +395,16 @@ fn test_expected_trait_identifier() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-trait-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.contract.)",
+    );
+}
+
+/// ParserError: [`ParseErrors::TupleColonExpectedv2`]
+/// Caused by: missing colon in tuple definition
+/// Outcome: block accepted
+#[test]
+fn test_tuple_colon_expected_v2() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "{ a 1 }",
     );
 }
