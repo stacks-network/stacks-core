@@ -22,6 +22,101 @@ use clarity::vm::MAX_CALL_STACK_DEPTH;
 
 use crate::chainstate::tests::consensus::contract_deploy_consensus_test;
 
+/// Generates a coverage classification report for a specific [`ParseErrors`] variant.
+///
+/// This method exists purely for **documentation and tracking purposes**.
+/// It helps maintainers understand which error variants have been:
+///
+/// - ✅ **Tested** — verified through consensus tests.
+/// - ⚙️ **Ignored** — not tested on purpose. (e.g. parser v1 errors).
+/// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
+#[allow(dead_code)]
+fn variant_coverage_report(variant: ParseErrors) {
+    enum VariantCoverage {
+        // Cannot occur through valid execution
+        Unreachable_Functionally,
+        // Unexpected error, that should never happen
+        Unreachable_ExpectLike,
+        // Defined but never used
+        Unreachable_NotUsed,
+        // Not tested on purpose
+        Ignored,
+        // Covered by consensus tests
+        Tested,
+
+        TODO,
+    }
+
+    use ParseErrors::*;
+    use VariantCoverage::*;
+
+    _ = match variant {
+        // Costs
+        CostOverflow => Unreachable_ExpectLike,
+        CostBalanceExceeded(_, _) => Unreachable_Functionally,
+        MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
+        CostComputationFailed(_) => Unreachable_ExpectLike,
+        ExecutionTimeExpired => Unreachable_NotUsed, // To re-check
+
+        TooManyExpressions => Unreachable_ExpectLike,
+        ExpressionStackDepthTooDeep => Tested,
+        VaryExpressionStackDepthTooDeep => Tested,
+        FailedParsingIntValue(_) => Tested,
+        CircularReference(_) => Tested,
+        NameAlreadyUsed(_) => Tested,
+        TraitReferenceNotAllowed => Tested,
+        ImportTraitBadSignature => Tested,
+        DefineTraitBadSignature => Tested,
+        ImplTraitBadSignature => Tested,
+        TraitReferenceUnknown(_) => Tested,
+
+        Lexer(LexerError) => Tested,
+        ContractNameTooLong(String) => Unreachable_Functionally,
+        ExpectedClosing(Token) => Tested,
+        ExpectedContractIdentifier => TODO,
+        ExpectedTraitIdentifier => TODO,
+        ExpectedWhitespace => Tested,
+        FailedParsingUIntValue(_) => Tested,
+        IllegalTraitName(_) => TODO,
+        InvalidPrincipalLiteral => TODO,
+        InvalidBuffer => TODO,
+        NameTooLong(_) => Tested,
+        UnexpectedToken(_) => Tested,
+        TupleColonExpectedv2 => TODO,
+        TupleCommaExpectedv2 => TODO,
+        TupleValueExpected => TODO,
+        IllegalClarityName(_) => TODO,
+        IllegalASCIIString(_) => TODO,
+        IllegalContractName(_) => TODO,
+        NoteToMatchThis(_) => Tested,
+        UnexpectedParserFailure => Unreachable_ExpectLike,
+        InterpreterFailure => Unreachable_ExpectLike, // currently cause block rejection
+
+        // V1
+        FailedCapturingInput
+        | SeparatorExpected(_)
+        | SeparatorExpectedAfterColon(_)
+        | ProgramTooLarge
+        | IllegalVariableName(_)
+        | FailedParsingBuffer(_)
+        | FailedParsingHexValue(_, _)
+        | FailedParsingPrincipal(_)
+        | FailedParsingField(_)
+        | FailedParsingRemainder(_)
+        | ClosingParenthesisUnexpected
+        | ClosingParenthesisExpected
+        | ClosingTupleLiteralUnexpected
+        | ClosingTupleLiteralExpected
+        | TupleColonExpected(_)
+        | TupleCommaExpected(_)
+        | TupleItemExpected(_)
+        | CommaSeparatorUnexpected
+        | ColonSeparatorUnexpected
+        | InvalidCharactersDetected
+        | InvalidEscaping => Ignored, //parser v1 should be removed?!
+    }
+}
+
 /// ParserError: [`ParseErrors::ExpressionStackDepthTooDeep`]
 /// Caused by: nested contract body exceeding stack depth limit on parsing tuples
 /// Outcome: block rejected
@@ -268,85 +363,4 @@ fn test_name_too_long() {
             format!("(define-public ({name}) (ok u1))")
         },
     );
-}
-
-fn variant_coverage_report(variant: ParseErrors) {
-    enum VariantCoverage {
-        Unreachable_Functionally,
-        Unreachable_ExpectLike,
-        Unreachable_NotUsed,
-        Skipped,
-        Tested,
-
-        TODO,
-    }
-
-    use ParseErrors::*;
-    use VariantCoverage::*;
-
-    _ = match variant {
-        // Costs
-        CostOverflow => Unreachable_ExpectLike,
-        CostBalanceExceeded(_, _) => Unreachable_Functionally,
-        MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
-        CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_NotUsed, // To re-check
-
-        TooManyExpressions => Unreachable_ExpectLike,
-        ExpressionStackDepthTooDeep => Tested,
-        VaryExpressionStackDepthTooDeep => Tested,
-        FailedParsingIntValue(_) => Tested,
-        CircularReference(_) => Tested,
-        NameAlreadyUsed(_) => Tested,
-        TraitReferenceNotAllowed => Tested,
-        ImportTraitBadSignature => Tested,
-        DefineTraitBadSignature => Tested,
-        ImplTraitBadSignature => Tested,
-        TraitReferenceUnknown(_) => Tested,
-
-        Lexer(LexerError) => Tested,
-        ContractNameTooLong(String) => Unreachable_Functionally,
-        ExpectedClosing(Token) => Tested,
-        ExpectedContractIdentifier => TODO,
-        ExpectedTraitIdentifier => TODO,
-        ExpectedWhitespace => Tested,
-        FailedParsingUIntValue(_) => Tested,
-        IllegalTraitName(_) => TODO,
-        InvalidPrincipalLiteral => TODO,
-        InvalidBuffer => TODO,
-        NameTooLong(_) => Tested,
-        UnexpectedToken(_) => Tested,
-        TupleColonExpectedv2 => TODO,
-        TupleCommaExpectedv2 => TODO,
-        TupleValueExpected => TODO,
-        IllegalClarityName(_) => TODO,
-        IllegalASCIIString(_) => TODO,
-        IllegalContractName(_) => TODO,
-        NoteToMatchThis(_) => Tested,
-        UnexpectedParserFailure => Unreachable_ExpectLike,
-        InterpreterFailure => Unreachable_ExpectLike, // currently cause block rejection
-
-        // V1
-        FailedCapturingInput
-        | SeparatorExpected(_)
-        | SeparatorExpectedAfterColon(_)
-        | ProgramTooLarge
-        | IllegalVariableName(_)
-        | FailedParsingBuffer(_)
-        | FailedParsingHexValue(_, _)
-        | FailedParsingPrincipal(_)
-        | FailedParsingField(_)
-        | FailedParsingRemainder(_)
-        | ClosingParenthesisUnexpected
-        | ClosingParenthesisExpected
-        | ClosingTupleLiteralUnexpected
-        | ClosingTupleLiteralExpected
-        | TupleColonExpected(_)
-        | TupleCommaExpected(_)
-        | TupleItemExpected(_)
-        | CommaSeparatorUnexpected
-        | ColonSeparatorUnexpected
-        | InvalidCharactersDetected
-        | InvalidEscaping => Skipped, //parser v1 should be removed?!
-    }
 }
