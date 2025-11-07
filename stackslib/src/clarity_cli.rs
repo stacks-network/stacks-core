@@ -1123,6 +1123,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "generate_address" => {
+            if args.len() != 1 {
+                eprintln!(
+                    "Usage: {} {}",
+                    invoked_by, args[0]
+                );
+                panic_test!();
+            }
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
             // version = 22
@@ -1273,6 +1280,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mut argv = args.to_vec();
             let clarity_version = parse_clarity_version_flag(&mut argv);
             let mainnet = !matches!(consume_arg(&mut argv, &["--testnet"], false), Ok(Some(_)));
+
+            if argv.len() != 1 {
+                eprintln!(
+                    "Usage: {} {} [--testnet] [--clarity_version N]",
+                    invoked_by, args[0]
+                );
+                panic_test!();
+            }
+
             let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new_free(
                 mainnet,
@@ -1344,6 +1360,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         "eval_raw" => {
             let mut argv = args.to_vec();
             let clarity_version = parse_clarity_version_flag(&mut argv);
+
+            if argv.len() != 1 {
+                eprintln!(
+                    "Usage: {} {} [--clarity_version N] < input.clar",
+                    invoked_by, args[0]
+                );
+                panic_test!();
+            }
+
             let content: String = {
                 let mut buffer = String::new();
                 friendly_expect(
@@ -1895,6 +1920,13 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "make_lcov" => {
+            if args.len() != 3 {
+                eprintln!(
+                    "Usage: {} {} [coverage-folder] [lcov-output-file]",
+                    invoked_by, args[0]
+                );
+                panic_test!();
+            }
             let mut register_files = vec![];
             let mut coverage_files = vec![];
             let coverage_folder = &args[1];
