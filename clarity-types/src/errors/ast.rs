@@ -24,7 +24,7 @@ use crate::token::Token;
 
 pub type ParseResult<T> = Result<T, ParseError>;
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq)]
 pub enum ParseErrors {
     // Cost errors
     CostOverflow,
@@ -149,45 +149,9 @@ impl fmt::Display for ParseError {
     }
 }
 
-impl error::Error for ParseError {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
-        None
-    }
-}
-
-impl From<ParseErrors> for ParseError {
-    fn from(err: ParseErrors) -> Self {
-        ParseError::new(err)
-    }
-}
-
-impl From<CostErrors> for ParseError {
-    fn from(err: CostErrors) -> Self {
-        match err {
-            CostErrors::CostOverflow => ParseError::new(ParseErrors::CostOverflow),
-            CostErrors::CostBalanceExceeded(a, b) => {
-                ParseError::new(ParseErrors::CostBalanceExceeded(a, b))
-            }
-            CostErrors::MemoryBalanceExceeded(a, b) => {
-                ParseError::new(ParseErrors::MemoryBalanceExceeded(a, b))
-            }
-            CostErrors::CostComputationFailed(s) => {
-                ParseError::new(ParseErrors::CostComputationFailed(s))
-            }
-            CostErrors::CostContractLoadFailure => ParseError::new(
-                ParseErrors::CostComputationFailed("Failed to load cost contract".into()),
-            ),
-            CostErrors::InterpreterFailure | CostErrors::Expect(_) => {
-                ParseError::new(ParseErrors::InterpreterFailure)
-            }
-            CostErrors::ExecutionTimeExpired => ParseError::new(ParseErrors::ExecutionTimeExpired),
-        }
-    }
-}
-
-impl DiagnosableError for ParseErrors {
-    fn message(&self) -> String {
-        match &self {
+impl fmt::Display for ParseErrors {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let message = match &self {
             ParseErrors::CostOverflow => "Used up cost budget during the parse".into(),
             ParseErrors::CostBalanceExceeded(bal, used) => {
                 format!("Used up cost budget during the parse: {bal} balance, {used} used")
@@ -295,13 +259,88 @@ impl DiagnosableError for ParseErrors {
             }
             ParseErrors::TupleValueExpected => "expected value expression for tuple".into(),
             ParseErrors::IllegalClarityName(name) => format!("illegal clarity name, '{name}'"),
-            ParseErrors::IllegalASCIIString(s) => format!("illegal ascii string \"{s}\""),
+            ParseErrors::IllegalASCIIString(s) => {
+                // Protect against console flooding and process hanging while running tests,
+                // using a purely arbitrary max chars limit.
+                #[cfg(any(test, feature = "testing"))]
+                let s = shorten_string_for_test(s, 100);
+
+                format!("illegal ascii string \"{s}\"")
+            }
             ParseErrors::ExpectedWhitespace => "expected whitespace before expression".into(),
             ParseErrors::NoteToMatchThis(token) => format!("to match this '{token}'"),
             ParseErrors::UnexpectedParserFailure => "unexpected failure while parsing".to_string(),
             ParseErrors::InterpreterFailure => "unexpected failure while parsing".to_string(),
             ParseErrors::ExecutionTimeExpired => "max execution time expired".to_string(),
+        };
+        write!(f, "{message}")
+    }
+}
+
+/// Test helper function to shorten big strings while running tests
+///
+/// This prevents both:
+///   - Console flooding with multi-megabyte output during test runs.
+///   - Potential test process blocking or hanging due to stdout buffering limits.
+///
+/// In case a the input `string` need to be shortned based on `max_chars`,
+/// the resulting string will be ellipsed showing the original character count.
+#[cfg(any(test, feature = "testing"))]
+fn shorten_string_for_test(string: &str, max_chars: usize) -> String {
+    let char_count = string.chars().count();
+    if char_count <= max_chars {
+        string.into()
+    } else {
+        let shortened: String = string.chars().take(max_chars).collect();
+        format!("{shortened}...[{char_count}]")
+    }
+}
+
+impl fmt::Debug for ParseErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+impl error::Error for ParseError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
+    }
+}
+
+impl From<ParseErrors> for ParseError {
+    fn from(err: ParseErrors) -> Self {
+        ParseError::new(err)
+    }
+}
+
+impl From<CostErrors> for ParseError {
+    fn from(err: CostErrors) -> Self {
+        match err {
+            CostErrors::CostOverflow => ParseError::new(ParseErrors::CostOverflow),
+            CostErrors::CostBalanceExceeded(a, b) => {
+                ParseError::new(ParseErrors::CostBalanceExceeded(a, b))
+            }
+            CostErrors::MemoryBalanceExceeded(a, b) => {
+                ParseError::new(ParseErrors::MemoryBalanceExceeded(a, b))
+            }
+            CostErrors::CostComputationFailed(s) => {
+                ParseError::new(ParseErrors::CostComputationFailed(s))
+            }
+            CostErrors::CostContractLoadFailure => ParseError::new(
+                ParseErrors::CostComputationFailed("Failed to load cost contract".into()),
+            ),
+            CostErrors::InterpreterFailure | CostErrors::Expect(_) => {
+                ParseError::new(ParseErrors::InterpreterFailure)
+            }
+            CostErrors::ExecutionTimeExpired => ParseError::new(ParseErrors::ExecutionTimeExpired),
         }
+    }
+}
+
+impl DiagnosableError for ParseErrors {
+    fn message(&self) -> String {
+        format!("{self}")
     }
 
     fn suggestion(&self) -> Option<String> {

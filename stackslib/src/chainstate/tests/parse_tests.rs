@@ -18,6 +18,7 @@
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_NESTING_DEPTH, MAX_STRING_LEN};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
+use clarity::vm::types::MAX_VALUE_SIZE;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
 
 use crate::chainstate::tests::consensus::contract_deploy_consensus_test;
@@ -79,14 +80,14 @@ fn variant_coverage_report(variant: ParseErrors) {
         FailedParsingUIntValue(_) => Tested,
         IllegalTraitName(_) => Unreachable_Functionally, // prevented by Lexer checks returning lexer errors
         InvalidPrincipalLiteral => Tested,
-        InvalidBuffer => Unreachable_Functionally, // prevented by both Lexer checks, and StacksTransaction::consensus_deserialize with MAX_TRASACTION_LEN (panic)
+        InvalidBuffer => Unreachable_Functionally, // prevented by both Lexer checks, and StacksTransaction::consensus_serialize with MAX_TRASACTION_LEN (panic)
         NameTooLong(_) => Tested,
         UnexpectedToken(_) => Tested,
         TupleColonExpectedv2 => Tested,
         TupleCommaExpectedv2 => Tested,
         TupleValueExpected => Tested,
-        IllegalClarityName(_) => TODO,
-        IllegalASCIIString(_) => TODO,
+        IllegalClarityName(_) => Unreachable_Functionally, // prevented by Lexer checks returning lexer errors
+        IllegalASCIIString(_) => Tested,
         IllegalContractName(_) => TODO,
         NoteToMatchThis(_) => Tested,
         UnexpectedParserFailure => Unreachable_ExpectLike,
@@ -410,7 +411,7 @@ fn test_tuple_colon_expected_v2() {
 }
 
 /// ParserError: [`ParseErrors::TupleCommaExpectedv2`]
-/// Caused by: missing comma between fields in tuple definition 
+/// Caused by: missing comma between fields in tuple definition
 /// Outcome: block accepted
 #[test]
 fn test_tuple_comma_expected_v2() {
@@ -435,12 +436,26 @@ fn test_tuple_value_expected() {
 /// Caused by: contract name longer than [`MAX_CONTRACT_NAME_LEN`]
 /// Outcome: block accepted
 #[test]
-fn test_contract_name_too_long() { 
+fn test_contract_name_too_long() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: &{
             let name = "a".repeat(MAX_CONTRACT_NAME_LEN + 1);
             format!("(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.{name})")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrors::IllegalASCIIString`]
+/// Caused by: string longer than [`MAX_VALUE_SIZE`]
+/// Outcome: block accepted
+#[test]
+fn test_illegal_ascii_string() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let string = "a".repeat(MAX_VALUE_SIZE as usize + 1);
+            format!("(define-constant my-str \"{string}\")")
         },
     );
 }

@@ -237,6 +237,7 @@ pub fn build_ast<T: CostTracker>(
 mod test {
     use std::collections::HashMap;
 
+    use clarity_types::types::MAX_VALUE_SIZE;
     use stacks_common::types::StacksEpochId;
 
     use crate::vm::ast::build_ast;
@@ -448,7 +449,7 @@ mod test {
     }
 
     #[test]
-    fn test_build_ast_exceeding_cost_balance_due_to_ast_parse() {
+    fn test_build_ast_error_exceeding_cost_balance_due_to_ast_parse() {
         let limit = ExecutionCost {
             read_count: u64::MAX,
             write_count: u64::MAX,
@@ -474,7 +475,7 @@ mod test {
     }
 
     #[test]
-    fn test_build_ast_exceeding_cost_balance_due_to_ast_cycle_detection_with_0_edges() {
+    fn test_build_ast_error_exceeding_cost_balance_due_to_ast_cycle_detection_with_0_edges() {
         let expected_ast_parse_cost = 1215;
         let expected_cycle_det_cost = 72;
         let expected_total = expected_ast_parse_cost + expected_cycle_det_cost;
@@ -506,7 +507,7 @@ mod test {
     }
 
     #[test]
-    fn test_build_ast_exceeding_cost_balance_due_to_ast_cycle_detection_with_1_edge() {
+    fn test_build_ast_error_exceeding_cost_balance_due_to_ast_cycle_detection_with_1_edge() {
         let expected_ast_parse_cost = 1215;
         let expected_cycle_det_cost = 213;
         let expected_total = expected_ast_parse_cost + expected_cycle_det_cost;
@@ -538,7 +539,7 @@ mod test {
     }
 
     #[test]
-    fn test_build_ast_vary_stack_too_deep_error() {
+    fn test_build_ast_error_vary_stack_too_deep() {
         // This contract pass the parse v2 MAX_NESTING_DEPTH but fails the [`VaryStackDepthChecker`]
         let contract = {
             let count = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
@@ -558,6 +559,28 @@ mod test {
 
         assert!(
             matches!(*err.err, ParseErrors::VaryExpressionStackDepthTooDeep),
+            "Instead found: {err}"
+        );
+    }
+
+    #[test]
+    fn test_build_ast_error_illegal_ascii_string_due_to_size() {
+        let contract = {
+            let string = "a".repeat(MAX_VALUE_SIZE as usize + 1);
+            format!("(define-constant my-str \"{string}\")")
+        };
+
+        let err = build_ast(
+            &QualifiedContractIdentifier::transient(),
+            &contract,
+            &mut (),
+            ClarityVersion::Clarity4,
+            StacksEpochId::Epoch33,
+        )
+        .expect_err("Expected parse error, but found success!");
+
+        assert!(
+            matches!(*err.err, ParseErrors::IllegalASCIIString(_)),
             "Instead found: {err}"
         );
     }
