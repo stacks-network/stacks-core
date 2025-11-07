@@ -1620,15 +1620,6 @@ contract_deploy_consensus_test!(
     contract_code: "(ynot 1 2)",
 );
 
-// // StaticCheckError: [`StaticCheckErrorKind::UTraitReferenceUnknownnknownFunction`]
-// // Caused by:
-// // Outcome: block accepted.
-// contract_deploy_consensus_test!(
-//     static_check_error_trait_reference_unknown,
-//     contract_name: "trait-ref-unknown",
-//     contract_code: "",
-// );
-
 // StaticCheckError: [`StaticCheckErrorKind::IncorrectArgumentCount`]
 // Caused by:
 // Outcome: block accepted.
@@ -1700,6 +1691,7 @@ contract_deploy_consensus_test!(
 // StaticCheckError: [`StaticCheckErrorKind::IncompatibleTrait`]
 // Caused by: pass a trait to a trait parameter which is not compatible.
 // Outcome: block accepted.
+// Note: Added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TypeError`].
 contract_deploy_consensus_test!(
     static_check_error_incompatible_trait,
     contract_name: "incompatible-trait",
@@ -1734,6 +1726,28 @@ contract_deploy_consensus_test!(
     static_check_error_no_such_block_info_property,
     contract_name: "no-such-block-info",
     contract_code: "(get-burn-block-info? none u1)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchStacksBlockInfoProperty`]
+// Caused by:
+// Outcome: block accepted.
+// Note: This error was added in Clarity 3. Clarity 1, and 2
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_no_such_stacks_block_info_property,
+    contract_name: "no-such-stacks-info",
+    contract_code: "(get-stacks-block-info? none u1)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchTenureInfoProperty`]
+// Caused by:
+// Outcome: block accepted.
+// Note: This error was added in Clarity 3. Clarity 1, and 2
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_no_such_tenure_info_property,
+    contract_name: "no-such-tenure-info",
+    contract_code: "(get-tenure-info? none u1)",
 );
 
 // StaticCheckError: [`StaticCheckErrorKind::TraitReferenceUnknown`]
@@ -1824,6 +1838,122 @@ contract_deploy_consensus_test!(
     ),
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::BadTupleConstruction`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_tuple_construction,
+    contract_name: "bad-tuple-constr",
+    contract_code: "(tuple (name 1) (name 2))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedTuple`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_expected_tuple,
+    contract_name: "expected-tuple",
+    contract_code: "(get field-0 (some 1))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchTupleField`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_no_such_tuple_field,
+    contract_name: "no-such-tuple-f",
+    contract_code: "(get value (tuple (name 1)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchMap`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_no_such_map,
+    contract_name: "no-such-map",
+    contract_code: "(map-get? non-existent (tuple (name 1)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadFunctionName`]
+// Caused by: defining a function whose signature does not start with an atom name.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_function_name,
+    contract_name: "bad-func-name",
+    contract_code: "(define-private (u1) u0)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::DefineFunctionBadSignature`]
+// Caused by: defining a function with an empty signature list.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_define_function_bad_signature,
+    contract_name: "def-func-bad-sign",
+    contract_code: "(define-private () 1)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadTupleFieldName`]
+// Caused by: using `(get ...)` with a tuple field argument that is not an atom.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_tuple_field_name,
+    contract_name: "bad-tuple-field-name",
+    contract_code: "(get u1 (tuple (foo u0)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadMapName`]
+// Caused by: passing a literal instead of a map identifier to `map-get?`.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_map_name,
+    contract_name: "bad-map-name",
+    contract_code: "(map-get? u1 (tuple (id u0)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::GetBlockInfoExpectPropertyName`]
+// Caused by: calling `get-block-info` with a non-atom property argument.
+// Outcome: block accepted.
+// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_get_block_info_expect_property_name,
+    contract_name: "info-exp-prop-name",
+    contract_code: "(get-block-info? u1 u0)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName`]
+// Caused by: calling `get-burn-block-info` with a non-atom property argument.
+// Outcome: block accepted.
+// Note: This error was added in Clarity 2. Clarity 1 will trigger
+//       a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_get_burn_block_info_expect_property_name,
+    contract_name: "burn-exp-prop-name",
+    contract_code: "(get-burn-block-info? u1 u0)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName`]
+// Caused by: calling `get-stacks-block-info` with a non-atom property argument.
+// Outcome: block accepted.
+// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
+//       a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_get_stacks_block_info_expect_property_name,
+    contract_name: "stacks-exp-prop-name",
+    contract_code: "(get-stacks-block-info? u1 u0)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::GetTenureInfoExpectPropertyName`]
+// Caused by: calling `get-tenure-info` with a non-atom property argument.
+// Outcome: block accepted.
+// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
+//       a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_get_tenure_info_expect_property_name,
+    contract_name: "tenure-exp-prop-name",
+    contract_code: "(get-tenure-info? u1 u0)",
+);
+
 // pub enum StaticCheckErrorKind {
 //     CostOverflow,
 //     CostBalanceExceeded(ExecutionCost, ExecutionCost),
@@ -1853,22 +1983,22 @@ contract_deploy_consensus_test!(
 //     UncheckedIntermediaryResponses, [`static_check_error_unchecked_intermediary_responses`]
 //     CouldNotDetermineMatchTypes, [`static_check_error_could_not_determine_match_types`]
 //     CouldNotDetermineType, [`static_check_error_could_not_determine_type`]
-//     TypeAlreadyAnnotatedFailure,
-//     CheckerImplementationFailure,
+//     TypeAlreadyAnnotatedFailure,  // Unreachable: The AST assigner gives each node a unique `id`, and the type checker visits each node exactly once, so duplicate annotations cannot occur.
+//     CheckerImplementationFailure,  // Unreachable
 //     BadTokenName, [`static_check_error_bad_token_name`]
 //     DefineNFTBadSignature, [`static_check_error_define_nft_bad_signature`]
 //     NoSuchNFT(String), [`static_check_error_no_such_nft`]
 //     NoSuchFT(String), [`static_check_error_no_such_ft`]
-//     BadTupleFieldName,
-//     ExpectedTuple(Box<TypeSignature>),
-//     NoSuchTupleField(String, TupleTypeSignature),
+//     BadTupleFieldName, [`static_check_error_bad_tuple_field_name`]
+//     ExpectedTuple(Box<TypeSignature>), [`static_check_error_expected_tuple`]
+//     NoSuchTupleField(String, TupleTypeSignature), [`static_check_error_no_such_tuple_field`]
 //     EmptyTuplesNotAllowed, [`static_check_error_empty_tuples_not_allowed`]
-//     BadTupleConstruction(String),
+//     BadTupleConstruction(String), [`static_check_error_bad_tuple_construction`]
 //     NoSuchDataVariable(String), [`static_check_error_no_such_data_variable`]
-//     BadMapName,
-//     NoSuchMap(String),
-//     DefineFunctionBadSignature,
-//     BadFunctionName,
+//     BadMapName, [`static_check_error_bad_map_name`]
+//     NoSuchMap(String), [`static_check_error_no_such_map`]
+//     DefineFunctionBadSignature, [`static_check_error_define_function_bad_signature`]
+//     BadFunctionName, [`static_check_error_bad_function_name`]
 //     BadMapTypeDefinition, [`static_check_error_bad_map_type_definition`]
 //     PublicFunctionMustReturnResponse(Box<TypeSignature>),
 //     DefineVariableBadSignature, [`static_check_error_define_variable_bad_signature`]
@@ -1879,12 +2009,12 @@ contract_deploy_consensus_test!(
 //     ContractCallExpectName, [`static_check_error_contract_call_expect_name`]
 //     ExpectedCallableType(Box<TypeSignature>),
 //     NoSuchBlockInfoProperty(String), [`static_check_error_no_such_block_info_property`]
-//     NoSuchStacksBlockInfoProperty(String),
-//     NoSuchTenureInfoProperty(String),
-//     GetBlockInfoExpectPropertyName,
-//     GetBurnBlockInfoExpectPropertyName,
-//     GetStacksBlockInfoExpectPropertyName,
-//     GetTenureInfoExpectPropertyName,
+//     NoSuchStacksBlockInfoProperty(String), [`static_check_error_no_such_stacks_block_info_property`]
+//     NoSuchTenureInfoProperty(String), [`static_check_error_no_such_tenure_info_property`]
+//     GetBlockInfoExpectPropertyName, [`static_check_error_get_block_info_expect_property_name`]
+//     GetBurnBlockInfoExpectPropertyName, [`static_check_error_get_burn_block_info_expect_property_name`]
+//     GetStacksBlockInfoExpectPropertyName, [`static_check_error_get_stacks_block_info_expect_property_name`]
+//     GetTenureInfoExpectPropertyName, [`static_check_error_get_tenure_info_expect_property_name`]
 //     NameAlreadyUsed(String), [`static_check_error_name_already_used`]
 //     ReservedWord(String), [`static_check_error_reserved_word`]
 //     NonFunctionApplication, [`static_check_error_non_function_application`]
@@ -1893,7 +2023,7 @@ contract_deploy_consensus_test!(
 //     MaxLengthOverflow, UNREACHABLE: should exceed u32 elements in memory.
 //     BadLetSyntax, [`static_check_error_bad_let_syntax`]
 //     BadSyntaxBinding(SyntaxBindingError), [`static_check_error_bad_syntax_binding`]
-//     MaxContextDepthReached,
+//     MaxContextDepthReached, /// Unreachable: Before type checking runs, the parser enforces an AST nesting limit of (5 + 64). Any contract exceeding depth 69 fails with [`ParseErrorKind::ExpressionStackDepthTooDeep`].
 //     UndefinedVariable(String), [`static_check_error_undefined_variable`]
 //     RequiresAtLeastArguments(usize, usize), [`static_check_error_requires_at_least_arguments`]
 //     RequiresAtMostArguments(usize, usize), [`static_check_error_requires_at_most_arguments`]
@@ -1903,10 +2033,10 @@ contract_deploy_consensus_test!(
 //     DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_default_types_must_match`]
 //     IllegalOrUnknownFunctionApplication(String), [`static_check_error_illegal_or_unknown_function_application`]
 //     UnknownFunction(String), [`static_check_error_unknown_function`]
-//     NoSuchTrait(String, String),
+//     NoSuchTrait(String, String), // Unreachable: all trait identifiers are validated by the parser and TraitsResolve before type checking; invalid or missing traits trigger TraitReferenceUnknown earlier, so this error is never returned.
 //     TraitReferenceUnknown(String), [`static_check_error_trait_reference_unknown`]
 //     TraitMethodUnknown(String, String), [`static_check_error_trait_method_unknown`]
-//     ExpectedTraitIdentifier,
+//     ExpectedTraitIdentifier, // Unreachable: (use-trait …) or (impl-trait …) with an invalid second argument fails in the AST stage, raising ParseErrorKind::ImportTraitBadSignature/ImplTraitBadSignature before static checks run.
 //     BadTraitImplementation(String, String),
 //     DefineTraitBadSignature, [`static_check_error_define_trait_bad_signature`]
 //     DefineTraitDuplicateMethod(String), [`static_check_error_define_trait_duplicate_method`]

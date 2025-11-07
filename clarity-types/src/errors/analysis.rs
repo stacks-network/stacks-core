@@ -248,6 +248,9 @@ pub enum CommonCheckErrorKind {
     IncorrectArgumentCount(usize, usize),
 
     /// Expected a trait identifier (e.g., `.trait-name`) but found an invalid token.
+    /// Unreachable: Before type-checking runs, if there is a (use-trait …) or (impl-trait …) with an
+    ///    invalid second argument is present, it will be caught by the parser and raise a
+    ///    [`ParseErrorKind::ImportTraitBadSignature`] or [`ParseErrorKind::ImplTraitBadSignature`].
     ExpectedTraitIdentifier,
     /// Invalid or malformed signature in a `(define-trait ...)` expression.
     DefineTraitBadSignature,
@@ -345,15 +348,18 @@ pub enum StaticCheckErrorKind {
     UncheckedIntermediaryResponses,
 
     // Match type errors
-    /// Could not determine the types for a match expression’s branches.
+    /// Could not determine the types for a match expression's branches.
     CouldNotDetermineMatchTypes,
     /// Could not determine the type of an expression during analysis.
     CouldNotDetermineType,
 
-    // Checker runtime failures
+    // Checker failures
     /// Attempt to re-annotate a type that was already annotated, indicating a bug.
+    /// Unreachable: The AST assigner gives each node a unique `id`, and the type checker visits
+    ///     each node exactly once, so duplicate annotations cannot occur.
     TypeAlreadyAnnotatedFailure,
     /// Unexpected failure in the type-checker implementation, indicating a bug.
+    /// Unreachable.
     CheckerImplementationFailure,
 
     // Assets
@@ -375,7 +381,7 @@ pub enum StaticCheckErrorKind {
     /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedTuple(Box<TypeSignature>),
     /// Referenced tuple field does not exist in the tuple type.
-    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple’s type.
+    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple's type.
     NoSuchTupleField(String, TupleTypeSignature),
     /// Empty tuple is not allowed in Clarity.
     EmptyTuplesNotAllowed,
@@ -474,7 +480,10 @@ pub enum StaticCheckErrorKind {
     /// The `SyntaxBindingError` wraps the specific binding error.
     BadSyntaxBinding(SyntaxBindingError),
 
-    /// Maximum context depth for type-checking has been reached.
+    /// Maximum context depth of [`MAX_CONTEXT_DEPTH`] for type-checking has been reached.
+    /// Unreachable: Before type checking runs, the parser enforces an AST nesting limit of
+    ///     [`AST_CALL_STACK_DEPTH_BUFFER`] + [`MAX_CALL_STACK_DEPTH`] (5 + 64). Any contract
+    ///     exceeding depth 69 fails with [`ParseErrorKind::ExpressionStackDepthTooDeep`].
     MaxContextDepthReached,
     /// Referenced variable is not defined in the current scope.
     /// The `String` wraps the non-existent variable name.
@@ -509,6 +518,9 @@ pub enum StaticCheckErrorKind {
     // Traits
     /// Referenced trait does not exist in the specified contract.
     /// The first `String` wraps the contract name, and the second wraps the trait name.
+    /// Unreachable: all trait identifiers are validated by the parser and TraitsResolver
+    ///     before type checking; invalid or missing traits trigger TraitReferenceUnknown
+    ///     earlier, so this error is never returned.
     NoSuchTrait(String, String),
     /// Referenced trait is not defined or cannot be found.
     /// The `String` wraps the non-existent trait name.
@@ -686,7 +698,7 @@ pub enum CheckErrorKind {
     /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedTuple(Box<TypeSignature>),
     /// Referenced tuple field does not exist in the tuple type.
-    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple’s type.
+    /// The `String` wraps the requested field name, and the `TupleTypeSignature` wraps the tuple's type.
     NoSuchTupleField(String, TupleTypeSignature),
     /// Empty tuple is not allowed in Clarity.
     EmptyTuplesNotAllowed,
