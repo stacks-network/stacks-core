@@ -1560,13 +1560,14 @@ impl StacksChainState {
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
-        if clarity_version == ClarityVersion::Clarity2 {
-            // requires 2.1 and higher
-            if clarity_block.get_epoch() < StacksEpochId::Epoch21 {
-                let msg = format!("Invalid transaction {}: asks for Clarity2, but not in Stacks epoch 2.1 or later", tx.txid());
-                info!("{}", &msg);
-                return Err(Error::InvalidStacksTransaction(msg, false));
-            }
+        if clarity_version > ClarityVersion::default_for_epoch(epoch) {
+            let msg = format!(
+                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch} only supports up to {}",
+                tx.txid(),
+                ClarityVersion::default_for_epoch(epoch)
+            );
+            info!("{msg}");
+            return Err(Error::InvalidStacksTransaction(msg, false));
         }
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
