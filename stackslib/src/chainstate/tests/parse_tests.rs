@@ -44,8 +44,6 @@ fn variant_coverage_report(variant: ParseErrors) {
         Ignored,
         // Covered by consensus tests
         Tested,
-
-        TODO,
     }
 
     use ParseErrors::*;
@@ -57,7 +55,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         CostBalanceExceeded(_, _) => Unreachable_Functionally, // due to epoch runtime epoch limits configuration.
         MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
         CostComputationFailed(_) => Unreachable_ExpectLike,
-        ExecutionTimeExpired => Unreachable_NotUsed, // To re-check
+        ExecutionTimeExpired => Unreachable_NotUsed,
 
         TooManyExpressions => Unreachable_ExpectLike,
         ExpressionStackDepthTooDeep => Tested,
@@ -78,7 +76,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         ExpectedTraitIdentifier => Tested,
         ExpectedWhitespace => Tested,
         FailedParsingUIntValue(_) => Tested,
-        IllegalTraitName(_) => Unreachable_Functionally, // prevented by Lexer checks returning lexer errors
+        IllegalTraitName(_) => Unreachable_Functionally, // prevented by Lexer checks returning `Lexer` variant
         InvalidPrincipalLiteral => Tested,
         InvalidBuffer => Unreachable_Functionally, // prevented by both Lexer checks, and StacksTransaction::consensus_serialize with MAX_TRASACTION_LEN (panic)
         NameTooLong(_) => Tested,
@@ -86,9 +84,9 @@ fn variant_coverage_report(variant: ParseErrors) {
         TupleColonExpectedv2 => Tested,
         TupleCommaExpectedv2 => Tested,
         TupleValueExpected => Tested,
-        IllegalClarityName(_) => Unreachable_Functionally, // prevented by Lexer checks returning lexer errors
+        IllegalClarityName(_) => Unreachable_Functionally, // prevented by Lexer checks returning `Lexer` variant
         IllegalASCIIString(_) => Tested,
-        IllegalContractName(_) => TODO,
+        IllegalContractName(_) => Unreachable_Functionally, // prevented by Lexer checks returning `Lexer` variant or Parser by MAX_CONTRACT_NAME_LEN returning `ContractNameTooLong` variant
         NoteToMatchThis(_) => Tested,
         UnexpectedParserFailure => Unreachable_ExpectLike,
         InterpreterFailure => Unreachable_ExpectLike, // currently cause block rejection
