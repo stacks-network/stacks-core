@@ -9,12 +9,17 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Added
 
-- Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
 - Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
+
+## [3.3.0.0.0]
 
 ### Added
 
+- Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
 - New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
+- Activation height selected and set for epoch 3.3 at Bitcoin block 923,222
 
 ### Changed
 

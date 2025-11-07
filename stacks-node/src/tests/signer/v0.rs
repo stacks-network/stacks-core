@@ -56,7 +56,9 @@ use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
+use stacks::config::{
+    Config as NeonConfig, EventKeyType, EventObserverConfig, DEFAULT_MAX_TENURE_BYTES,
+};
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::core::test_util::{
     insert_tx_in_mempool, make_big_read_count_contract, make_contract_call, make_contract_publish,
@@ -2048,6 +2050,7 @@ fn sip034_tenure_extend_proposal(allow: bool) {
                 None,
                 None,
                 None,
+                u64::from(DEFAULT_MAX_TENURE_BYTES),
             )
             .expect("Failed to build Nakamoto block");
 
@@ -3119,6 +3122,7 @@ fn forked_tenure_testing(
         burn_header_timestamp: tip_sn.burn_header_timestamp,
         anchored_block_size: tip_b_block.serialize_to_vec().len() as u64,
         burn_view: Some(tip_b_block.header.consensus_hash),
+        total_tenure_size: 0,
     };
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
@@ -17840,6 +17844,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         burn_header_timestamp: tip_sn.burn_header_timestamp,
         anchored_block_size: tenure_b_block.serialize_to_vec().len() as u64,
         burn_view: Some(tenure_b_block.header.consensus_hash),
+        total_tenure_size: 0,
     };
 
     // Block B was built atop block A
