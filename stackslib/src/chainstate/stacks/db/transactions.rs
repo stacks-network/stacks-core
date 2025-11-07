@@ -8669,7 +8669,7 @@ pub mod test {
         if let Err(Error::InvalidStacksTransaction(msg, ..)) =
             StacksChainState::process_transaction(&mut conn, &smart_contract_v2, false, None)
         {
-            assert!(msg.find("not in Stacks epoch 2.1 or later").is_some());
+            assert!(msg.find("asks for Clarity 2, but current epoch 2.05 only supports up to Clarity 1").is_some());
         } else {
             panic!("FATAL: did not recieve the appropriate error in processing a clarity2 tx in pre-2.1 epoch");
         }
