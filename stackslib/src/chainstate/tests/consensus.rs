@@ -1555,8 +1555,17 @@ contract_deploy_consensus_test!(
     contract_code: "((lambda (x y) 1) 2 1)",
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedListApplication`]
+// Caused by: calling append with lhs that is not a list.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_expected_list_application,
+    contract_name: "expected-list-appl",
+    contract_code: "(append 2 3)",
+);
+
 // StaticCheckError: [`StaticCheckErrorKind::NoSuchContract`]
-// Caused by:
+// Caused by: calling contract-call? with a non-existent contract name.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
     static_check_error_no_such_contract,
@@ -1565,7 +1574,7 @@ contract_deploy_consensus_test!(
 );
 
 // StaticCheckError: [`StaticCheckErrorKind::ContractCallExpectName`]
-// Caused by:
+// Caused by: calling contract-call? without a contract function name.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
     static_check_error_contract_call_expect_name,
@@ -1627,6 +1636,15 @@ contract_deploy_consensus_test!(
     static_check_error_incorrect_argument_count,
     contract_name: "incorrect-arg-count",
     contract_code: "(len (list 1) (list 1))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::BadLetSyntax`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_bad_let_syntax,
+    contract_name: "bad-let-syntax",
+    contract_code: "(let 1 2)",
 );
 
 // StaticCheckError: [`StaticCheckErrorKind::BadSyntaxBinding`]
@@ -1718,6 +1736,94 @@ contract_deploy_consensus_test!(
     contract_code: "(get-burn-block-info? none u1)",
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::TraitReferenceUnknown`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_trait_reference_unknown,
+    contract_name: "trait-ref-unknown",
+    contract_code: "(+ 1 <kvstore>)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::TraitMethodUnknown`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_trait_method_unknown,
+    contract_name: "trait-method-unknown",
+    contract_code: "
+        (define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (contract-call? contract get-2 u0))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::WriteAttemptedInReadOnly`]
+// Caused by:
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_write_attempted_in_read_only,
+    contract_name: "write-attempted-in-ro",
+    contract_code: "
+        (define-read-only (silly)
+            (map-delete map-name (tuple (value 1))))
+        (silly)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::WithAllAllowanceNotAllowed`]
+// Caused by:
+// Outcome: block accepted.
+// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_with_all_allowance_not_allowed,
+    contract_name: "all-allow-not-allowed",
+    contract_code: "(restrict-assets? tx-sender ((with-all-assets-unsafe)) true)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::WithAllAllowanceNotAlone`]
+// Caused by:
+// Outcome: block accepted.
+// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_with_all_allowance_not_alone,
+    contract_name: "all-allow-not-alone",
+    contract_code: "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::MaxIdentifierLengthExceeded`]
+// Caused by:
+// Outcome: block accepted.
+// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_max_identifier_length_exceeded,
+    contract_name: "max-ident-len-excd",
+    contract_code: &format!(
+        "(restrict-assets? tx-sender ((with-nft .token \"token-name\" (list {}))) true)",
+        std::iter::repeat_n("u1", 130)
+            .collect::<Vec<_>>()
+            .join(" ")
+    ),
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::TooManyAllowances`]
+// Caused by:
+// Outcome: block accepted.
+// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_too_many_allowances,
+    contract_name: "too-many-allowances",
+    contract_code: &format!(
+        "(restrict-assets? tx-sender ({} ) true)",
+        std::iter::repeat_n("(with-stx u1)", 130)
+            .collect::<Vec<_>>()
+            .join(" ")
+    ),
+);
+
 // pub enum StaticCheckErrorKind {
 //     CostOverflow,
 //     CostBalanceExceeded(ExecutionCost, ExecutionCost),
@@ -1780,12 +1886,12 @@ contract_deploy_consensus_test!(
 //     GetStacksBlockInfoExpectPropertyName,
 //     GetTenureInfoExpectPropertyName,
 //     NameAlreadyUsed(String), [`static_check_error_name_already_used`]
-//     ReservedWord(String),
+//     ReservedWord(String), [`static_check_error_reserved_word`]
 //     NonFunctionApplication, [`static_check_error_non_function_application`]
-//     ExpectedListApplication,
+//     ExpectedListApplication, [`static_check_error_expected_list_application`]
 //     ExpectedSequence(Box<TypeSignature>), [`static_check_error_expected_sequence`]
-//     MaxLengthOverflow,
-//     BadLetSyntax,
+//     MaxLengthOverflow, UNREACHABLE: should exceed u32 elements in memory.
+//     BadLetSyntax, [`static_check_error_bad_let_syntax`]
 //     BadSyntaxBinding(SyntaxBindingError), [`static_check_error_bad_syntax_binding`]
 //     MaxContextDepthReached,
 //     UndefinedVariable(String), [`static_check_error_undefined_variable`]
@@ -1798,8 +1904,8 @@ contract_deploy_consensus_test!(
 //     IllegalOrUnknownFunctionApplication(String), [`static_check_error_illegal_or_unknown_function_application`]
 //     UnknownFunction(String), [`static_check_error_unknown_function`]
 //     NoSuchTrait(String, String),
-//     TraitReferenceUnknown(String),
-//     TraitMethodUnknown(String, String),
+//     TraitReferenceUnknown(String), [`static_check_error_trait_reference_unknown`]
+//     TraitMethodUnknown(String, String), [`static_check_error_trait_method_unknown`]
 //     ExpectedTraitIdentifier,
 //     BadTraitImplementation(String, String),
 //     DefineTraitBadSignature, [`static_check_error_define_trait_bad_signature`]
@@ -1807,14 +1913,14 @@ contract_deploy_consensus_test!(
 //     UnexpectedTraitOrFieldReference, [`static_check_error_unexpected_trait_or_field_reference`]
 //     ContractOfExpectsTrait,
 //     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>), [`static_check_error_incompatible_trait`]
-//     WriteAttemptedInReadOnly,
+//     WriteAttemptedInReadOnly, [`static_check_error_write_attempted_in_read_only`]
 //     AtBlockClosureMustBeReadOnly,
 //     ExpectedListOfAllowances(String, i32),
 //     AllowanceExprNotAllowed,
 //     ExpectedAllowanceExpr(String),
-//     WithAllAllowanceNotAllowed,
-//     WithAllAllowanceNotAlone,
+//     WithAllAllowanceNotAllowed, [`static_check_error_with_all_allowance_not_allowed`]
+//     WithAllAllowanceNotAlone, [`static_check_error_with_all_allowance_not_alone`]
 //     WithNftExpectedListOfIdentifiers,
-//     MaxIdentifierLengthExceeded(u32, u32),
-//     TooManyAllowances(usize, usize),
+//     MaxIdentifierLengthExceeded(u32, u32), [`static_check_error_max_identifier_length_exceeded`]
+//     TooManyAllowances(usize, usize), [`static_check_error_too_many_allowances`]
 // }

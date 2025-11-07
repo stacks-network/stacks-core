@@ -462,6 +462,7 @@ pub enum StaticCheckErrorKind {
     /// The `Box<TypeSignature>` wraps the actual type provided.
     ExpectedSequence(Box<TypeSignature>),
     /// Sequence length exceeds the maximum allowed limit.
+    /// Unreachable: should exceed u32 elements in memory.
     MaxLengthOverflow,
 
     // Let syntax
