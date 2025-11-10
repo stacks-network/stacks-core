@@ -1171,6 +1171,30 @@ contract_deploy_consensus_test!(
     },
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::CostBalanceExceeded`]
+// Caused by: exceeding the static-read analysis budget during contract deployment.
+// The contract repeatedly performs static-dispatch `contract-call?` lookups against the boot
+// `.costs-3` contract, forcing the type checker to fetch the remote function signature enough
+// times to surpass the read-count limit in `BLOCK_LIMIT_MAINNET_21`.
+// Outcome: block rejected.
+contract_deploy_consensus_test!(
+    static_check_error_cost_balance_exceeded,
+    contract_name: "cost-balance-exceeded",
+    contract_code: &{
+        let boot_addr = boot_code_test_addr();
+        let mut contract = String::from("(define-read-only (trigger)\n  (begin\n");
+        let call_count = BLOCK_LIMIT_MAINNET_21.read_count as usize + 1;
+        let call_line = format!(
+            "(contract-call? '{boot_addr}.costs-3 cost_analysis_type_check u0)\n",
+        );
+        for _ in 0..call_count {
+            contract.push_str(&call_line);
+        }
+        contract.push_str("true))");
+        contract
+    },
+);
+
 // StaticCheckError: [`StaticCheckError::ValueTooLarge`]
 // Caused by: Value exceeds the maximum allowed size for type-checking
 // Outcome: block accepted.
@@ -2045,8 +2069,8 @@ contract_deploy_consensus_test!(
 );
 
 // pub enum StaticCheckErrorKind {
-//     CostOverflow,
-//     CostBalanceExceeded(ExecutionCost, ExecutionCost),
+//     CostOverflow,  // Unreachable: should exceed u64
+//     CostBalanceExceeded(ExecutionCost, ExecutionCost), [`static_check_error_cost_balance_exceeded`]
 //     MemoryBalanceExceeded(u64, u64),
 //     CostComputationFailed(String),
 //     ExecutionTimeExpired,
