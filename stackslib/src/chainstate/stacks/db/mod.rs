@@ -185,6 +185,9 @@ pub struct StacksHeaderInfo {
     /// The burnchain tip that is passed to Clarity while processing this block.
     /// This should always be `Some()` for Nakamoto blocks and `None` for 2.x blocks
     pub burn_view: Option<ConsensusHash>,
+    /// Total tenure size (reset at every tenure extend) in bytes
+    /// Not consensus-critical (may differ between nodes)
+    pub total_tenure_size: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -362,6 +365,7 @@ impl StacksHeaderInfo {
             burn_header_timestamp: 0,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         }
     }
 
@@ -382,6 +386,7 @@ impl StacksHeaderInfo {
             burn_header_timestamp: first_burnchain_block_timestamp,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         }
     }
 
@@ -454,6 +459,13 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             return Err(db_error::ParseError);
         }
 
+        let total_tenure_size = {
+            match header_type {
+                HeaderTypeNames::Epoch2 => 0,
+                HeaderTypeNames::Nakamoto => u64::from_column(row, "total_tenure_size")?,
+            }
+        };
+
         Ok(StacksHeaderInfo {
             anchored_header: stacks_header,
             microblock_tail: None,
@@ -465,6 +477,7 @@ impl FromRow<StacksHeaderInfo> for StacksHeaderInfo {
             burn_header_timestamp,
             anchored_block_size,
             burn_view,
+            total_tenure_size,
         })
     }
 }
@@ -2777,6 +2790,7 @@ impl StacksChainState {
             burn_header_timestamp: new_burnchain_timestamp,
             anchored_block_size: anchor_block_size,
             burn_view: None,
+            total_tenure_size: 0,
         };
 
         StacksChainState::insert_stacks_block_header(

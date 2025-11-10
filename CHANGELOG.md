@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
+## [Unreleased]
+
+### Added
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
+
 ## [3.3.0.0.1]
 
 - Add indexes to `nakamoto_block_headers` to fix a performance regression. Node may take a few minutes to restart during the upgrade while the new indexes are created.
