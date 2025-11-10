@@ -116,10 +116,11 @@ where command is one of:
   eval_at_chaintip   like `eval`, but does not advance to a new block.
   eval_at_block      like `eval_at_chaintip`, but accepts a index-block-hash to evaluate at,
                      must be passed eval string via stdin.
-  eval_raw           to typecheck and evaluate an expression without a contract or database context.
+  eval_raw           to typecheck and evaluate an expression without a contract or database context from stdin.
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
   generate_address   to generate a random Stacks public address for testing purposes.
+  make_lcov          to generate an LCOV coverage report from Clarity coverage data.
 ",
         invoked_by
     );
@@ -1363,9 +1364,12 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if argv.len() != 1 {
                 eprintln!(
-                    "Usage: {} {} [--clarity_version N] < input.clar",
+                    "Usage: {} {} [--clarity_version N]",
                     invoked_by, args[0]
                 );
+                eprintln!("   Examples:");
+                eprintln!("   echo \"(+ 1 2)\" | {} {}", invoked_by, args[0]);
+                eprintln!("   {} {} < input.clar", invoked_by, args[0]);
                 panic_test!();
             }
 
