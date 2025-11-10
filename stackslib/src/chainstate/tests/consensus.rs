@@ -51,6 +51,7 @@ use crate::core::test_util::{
 };
 use crate::core::{EpochList, BLOCK_LIMIT_MAINNET_21};
 use crate::net::tests::NakamotoBootPlan;
+use crate::util_lib::boot::boot_code_test_addr;
 
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
@@ -1582,6 +1583,29 @@ contract_deploy_consensus_test!(
     contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name u1)",
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedCallableType`]
+// Caused by: passing a non-callable constant as the contract principal in `contract-call?`.
+// Outcome: block accepted.
+// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TraitReferenceUnknown`].
+contract_deploy_consensus_test!(
+    static_check_error_expected_callable_type,
+    contract_name: "exp-callable-type",
+    contract_code: "
+        (define-constant bad-contract u1)
+        (contract-call? bad-contract call-me)
+    ",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::NoSuchPublicFunction`]
+// Caused by: calling a non-existent public or read-only function on a contract literal.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_no_such_public_function,
+    contract_name: "no-such-pub-func-lit",
+    // using the pox-4 contract as we know it exists!
+    contract_code: &format!("(contract-call? '{}.pox-4 missing-func)", boot_code_test_addr()),
+);
+
 // StaticCheckError: [`StaticCheckErrorKind::DefaultTypesMustMatch`]
 // Caused by:
 // Outcome: block accepted.
@@ -1759,6 +1783,15 @@ contract_deploy_consensus_test!(
     contract_code: "(+ 1 <kvstore>)",
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::ContractOfExpectsTrait`]
+// Caused by: calling `contract-of` with a non-trait argument.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_contract_of_expects_trait,
+    contract_name: "expect-trait",
+    contract_code: "(contract-of u1)",
+);
+
 // StaticCheckError: [`StaticCheckErrorKind::TraitMethodUnknown`]
 // Caused by:
 // Outcome: block accepted.
@@ -1784,6 +1817,52 @@ contract_deploy_consensus_test!(
         (silly)",
 );
 
+// StaticCheckError: [`StaticCheckErrorKind::AtBlockClosureMustBeReadOnly`]
+// Caused by: `at-block` closure must be read-only but contains write operations.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_at_block_closure_must_be_read_only,
+    contract_name: "closure-must-be-ro",
+    contract_code: "
+        (define-data-var foo int 1)
+        (define-private (foo-bar)
+            (at-block (sha256 0)
+               (var-set foo 0)))",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::AllowanceExprNotAllowed`]
+// Caused by: using an allowance expression outside of `restrict-assets?` or `as-contract?`.
+// Outcome: block accepted.
+// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_allowance_expr_not_allowed,
+    contract_name: "allow-expr-not-allo",
+    contract_code: "(with-stx u1)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedListOfAllowances`]
+// Caused by: post-condition expects a list of asset allowances but received invalid input.
+// Outcome: block accepted.
+// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_expected_list_of_allowances,
+    contract_name: "exp-list-of-allowances",
+    contract_code: "(restrict-assets? tx-sender u1 true)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::ExpectedAllowanceExpr`]
+// Caused by: allowance list contains a non-allowance expression.
+// Outcome: block accepted.
+// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_expected_allowance_expr,
+    contract_name: "exp-allowa-expr",
+    contract_code: "(restrict-assets? tx-sender ((not true)) true)",
+);
+
 // StaticCheckError: [`StaticCheckErrorKind::WithAllAllowanceNotAllowed`]
 // Caused by:
 // Outcome: block accepted.
@@ -1804,6 +1883,17 @@ contract_deploy_consensus_test!(
     static_check_error_with_all_allowance_not_alone,
     contract_name: "all-allow-not-alone",
     contract_code: "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
+);
+
+// StaticCheckError: [`StaticCheckErrorKind::WithNftExpectedListOfIdentifiers`]
+// Caused by: the third argument to `with-nft` is not a list of identifiers.
+// Outcome: block accepted.
+// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+contract_deploy_consensus_test!(
+    static_check_error_with_nft_expected_list_of_identifiers,
+    contract_name: "with-nft-exp-ident",
+    contract_code: r#"(restrict-assets? tx-sender ((with-nft tx-sender "token-name" tx-sender)) true)"#,
 );
 
 // StaticCheckError: [`StaticCheckErrorKind::MaxIdentifierLengthExceeded`]
@@ -2004,10 +2094,10 @@ contract_deploy_consensus_test!(
 //     DefineVariableBadSignature, [`static_check_error_define_variable_bad_signature`]
 //     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_return_types_must_match`]
 //     NoSuchContract(String), [`static_check_error_no_such_contract`]
-//     NoSuchPublicFunction(String, String),
+//     NoSuchPublicFunction(String, String), [`static_check_error_no_such_public_function`]
 //     ContractAlreadyExists(String),
 //     ContractCallExpectName, [`static_check_error_contract_call_expect_name`]
-//     ExpectedCallableType(Box<TypeSignature>),
+//     ExpectedCallableType(Box<TypeSignature>), [`static_check_error_expected_callable_type`]
 //     NoSuchBlockInfoProperty(String), [`static_check_error_no_such_block_info_property`]
 //     NoSuchStacksBlockInfoProperty(String), [`static_check_error_no_such_stacks_block_info_property`]
 //     NoSuchTenureInfoProperty(String), [`static_check_error_no_such_tenure_info_property`]
@@ -2041,16 +2131,16 @@ contract_deploy_consensus_test!(
 //     DefineTraitBadSignature, [`static_check_error_define_trait_bad_signature`]
 //     DefineTraitDuplicateMethod(String), [`static_check_error_define_trait_duplicate_method`]
 //     UnexpectedTraitOrFieldReference, [`static_check_error_unexpected_trait_or_field_reference`]
-//     ContractOfExpectsTrait,
+//     ContractOfExpectsTrait, [`static_check_error_contract_of_expects_trait`]
 //     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>), [`static_check_error_incompatible_trait`]
 //     WriteAttemptedInReadOnly, [`static_check_error_write_attempted_in_read_only`]
-//     AtBlockClosureMustBeReadOnly,
-//     ExpectedListOfAllowances(String, i32),
-//     AllowanceExprNotAllowed,
-//     ExpectedAllowanceExpr(String),
+//     AtBlockClosureMustBeReadOnly, [`static_check_error_at_block_closure_must_be_read_only`]
+//     ExpectedListOfAllowances(String, i32), [`static_check_error_expected_list_of_allowances`]
+//     AllowanceExprNotAllowed, [`static_check_error_allowance_expr_not_allowed`]
+//     ExpectedAllowanceExpr(String), [`static_check_error_expected_allowance_expr`]
 //     WithAllAllowanceNotAllowed, [`static_check_error_with_all_allowance_not_allowed`]
 //     WithAllAllowanceNotAlone, [`static_check_error_with_all_allowance_not_alone`]
-//     WithNftExpectedListOfIdentifiers,
+//     WithNftExpectedListOfIdentifiers, [`static_check_error_with_nft_expected_list_of_identifiers`]
 //     MaxIdentifierLengthExceeded(u32, u32), [`static_check_error_max_identifier_length_exceeded`]
 //     TooManyAllowances(usize, usize), [`static_check_error_too_many_allowances`]
 // }
