@@ -123,6 +123,7 @@ pub fn make_block(
         burn_header_timestamp: 0,
         anchored_block_size: 1,
         burn_view: None,
+        total_tenure_size: 0,
     };
 
     c_tx.commit_block();
