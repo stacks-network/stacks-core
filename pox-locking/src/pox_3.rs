@@ -19,7 +19,7 @@ use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::runtime_cost;
 use clarity::vm::database::{ClarityDatabase, STXBalance};
-use clarity::vm::errors::{Error as ClarityError, RuntimeErrorType};
+use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::events::{STXEventType, STXLockEventData, StacksTransactionEvent};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::{Environment, Value};
@@ -184,7 +184,7 @@ fn handle_stack_lockup_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     debug!(
         "Handle special-case contract-call to {:?} {} (which returned {:?})",
         boot_code_id(POX_3_NAME, global_context.mainnet),
@@ -223,15 +223,15 @@ fn handle_stack_lockup_pox_v3(
             return Ok(Some(event));
         }
         Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+            return Err(VmExecutionError::Runtime(
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
         Err(LockingError::PoxAlreadyLocked) => {
             // the caller tried to lock tokens into multiple pox contracts
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::PoxAlreadyLocked,
+            return Err(VmExecutionError::Runtime(
+                RuntimeError::PoxAlreadyLocked,
                 None,
             ));
         }
@@ -251,7 +251,7 @@ fn handle_stack_lockup_extension_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     // in this branch case, the PoX-3 contract has stored the extension information
     //  and performed the extension checks. Now, the VM needs to update the account locks
     //  (because the locks cannot be applied directly from the Clarity code itself)
@@ -291,8 +291,8 @@ fn handle_stack_lockup_extension_pox_v3(
             return Ok(Some(event));
         }
         Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+            return Err(VmExecutionError::Runtime(
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
@@ -315,7 +315,7 @@ fn handle_stack_lockup_increase_pox_v3(
     global_context: &mut GlobalContext,
     function_name: &str,
     value: &Value,
-) -> Result<Option<StacksTransactionEvent>, ClarityError> {
+) -> Result<Option<StacksTransactionEvent>, VmExecutionError> {
     // in this branch case, the PoX-3 contract has stored the increase information
     //  and performed the increase checks. Now, the VM needs to update the account locks
     //  (because the locks cannot be applied directly from the Clarity code itself)
@@ -353,8 +353,8 @@ fn handle_stack_lockup_increase_pox_v3(
             return Ok(Some(event));
         }
         Err(LockingError::DefunctPoxContract) => {
-            return Err(ClarityError::Runtime(
-                RuntimeErrorType::DefunctPoxContract,
+            return Err(VmExecutionError::Runtime(
+                RuntimeError::DefunctPoxContract,
                 None,
             ));
         }
@@ -378,7 +378,7 @@ pub fn handle_contract_call(
     function_name: &str,
     args: &[Value],
     value: &Value,
-) -> Result<(), ClarityError> {
+) -> Result<(), VmExecutionError> {
     // Generate a synthetic print event for all functions that alter stacking state
     let print_event_opt = if let Value::Response(response) = value {
         if response.committed {

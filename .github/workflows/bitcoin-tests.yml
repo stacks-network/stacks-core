@@ -56,6 +56,8 @@ jobs:
         id: exclude
         run: |
           cat << 'EOF' > raw_exclude.txt
+          # The following tests are excluded from CI runs. Some of these may be
+          #  worth investigating adding back into the CI
           tests::nakamoto_integrations::consensus_hash_event_dispatcher
           tests::neon_integrations::atlas_integration_test
           tests::neon_integrations::atlas_stress_integration_test
@@ -72,6 +74,8 @@ jobs:
           tests::signer::v0::tenure_extend_after_2_bad_commits
           tests::stackerdb::test_stackerdb_event_observer
           tests::stackerdb::test_stackerdb_load_store
+          # Epoch tests are covered by the epoch-tests CI workflow, and don't need to run
+          #  on every PR (for older epochs)
           tests::epoch_205::test_cost_limit_switch_version205
           tests::epoch_205::test_dynamic_db_method_costs
           tests::epoch_205::test_exact_block_costs
@@ -93,7 +97,9 @@ jobs:
           tests::epoch_23::trait_invocation_behavior
           tests::epoch_24::fix_to_pox_contract
           tests::epoch_24::verify_auto_unlock_behavior
+          # Disable this flaky test. We don't need continue testing Epoch 2 -> 3 transition
           tests::nakamoto_integrations::flash_blocks_on_epoch_3_FLAKY
+          # These mempool tests take a long time to run, and are meant to be run manually
           tests::nakamoto_integrations::large_mempool_original_constant_fee
           tests::nakamoto_integrations::large_mempool_original_random_fee
           tests::nakamoto_integrations::large_mempool_next_constant_fee
@@ -118,16 +124,12 @@ jobs:
           jq -e 'type == "array"' ignored_tests.json > /dev/null
           jq -e 'type == "array"' exclude.json > /dev/null
 
-          # Load exclude list into a jq variable
-          exclude_array=$(cat exclude.json)
+          # Keep only ignored tests NOT in exclude list
+          # First sort the inputs to use comm -23
+          jq -r '.[]' ignored_tests.json | sort > ignored_sorted.txt
+          jq -r '.[]' exclude.json     | sort > exclude_sorted.txt
 
-          # Filter ignored tests: keep only those NOT in exclude list
-          jq -c --argjson exclude "$exclude_array" '
-            .[] | select($exclude | contains([.]) | not)
-          ' ignored_tests.json > filtered_tests.json
-
-          # Convert to plain text lines
-          jq -r '.' filtered_tests.json > filtered.txt
+          comm -23 ignored_sorted.txt exclude_sorted.txt > filtered.txt
 
           echo "Final test count: $(wc -l < filtered.txt)"
 

@@ -66,8 +66,8 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
 };
 use crate::clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
-    Error as clarity_error, PreCommitClarityBlock,
+    ClarityBlockConnection, ClarityConnection, ClarityError, ClarityInstance,
+    ClarityReadOnlyConnection, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
@@ -558,7 +558,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     pub fn commit_mined_block(
         self,
         block_hash: &StacksBlockId,
-    ) -> Result<ExecutionCost, clarity_error> {
+    ) -> Result<ExecutionCost, ClarityError> {
         Ok(self.block.commit_mined_block(block_hash)?.get_total())
     }
 
@@ -2005,7 +2005,7 @@ impl StacksChainState {
         parent_id_bhh: &StacksBlockId,
         contract: &QualifiedContractIdentifier,
         code: &str,
-    ) -> Result<Value, clarity_error> {
+    ) -> Result<Value, ClarityError> {
         self.clarity_state.eval_read_only(
             parent_id_bhh,
             &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
@@ -2025,7 +2025,7 @@ impl StacksChainState {
         contract: &QualifiedContractIdentifier,
         function: &str,
         args: &[Value],
-    ) -> Result<Value, clarity_error> {
+    ) -> Result<Value, ClarityError> {
         let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
         let mut conn = self.clarity_state.read_only_connection_checked(
             parent_id_bhh,

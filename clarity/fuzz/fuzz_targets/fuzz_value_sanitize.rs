@@ -19,7 +19,7 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
-use clarity::vm::analysis::CheckErrors;
+use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::signatures::SequenceSubtype;
 use clarity::vm::types::{
@@ -131,9 +131,9 @@ impl arbitrary::Arbitrary<'_> for FuzzClarityValue {
     }
 }
 
-pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, CheckErrors> {
+pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, CheckErrorKind> {
     match me {
-        TypeSignature::NoType => Err(CheckErrors::CouldNotDetermineType),
+        TypeSignature::NoType => Err(CheckErrorKind::CouldNotDetermineType),
         TypeSignature::IntType => match x {
             ClarityValue::Int(_) => Ok(true),
             _ => Ok(false),
@@ -251,7 +251,7 @@ pub fn strict_admits(me: &TypeSignature, x: &ClarityValue) -> Result<bool, Check
         }
         TypeSignature::CallableType(_)
         | TypeSignature::ListUnionType(_)
-        | TypeSignature::TraitReferenceType(_) => Err(CheckErrors::TraitReferenceNotAllowed),
+        | TypeSignature::TraitReferenceType(_) => Err(CheckErrorKind::TraitReferenceNotAllowed),
     }
 }
 

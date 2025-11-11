@@ -2,24 +2,37 @@ use std::fmt;
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::{AnalysisDatabase, CheckError, CheckErrors, ContractAnalysis};
-use crate::vm::ast::errors::{ParseError, ParseErrors};
+use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind, ContractAnalysis, StaticCheckError};
+use crate::vm::ast::errors::{ParseError, ParseErrorKind};
 use crate::vm::ast::ContractAST;
 use crate::vm::contexts::{AssetMap, Environment, OwnedEnvironment};
 use crate::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::vm::database::ClarityDatabase;
-use crate::vm::errors::Error as InterpreterError;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::types::{BuffData, PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{analysis, ast, ClarityVersion, ContractContext, SymbolicExpression, Value};
 
+/// Top-level error type for Clarity contract processing, encompassing errors from parsing,
+/// type-checking, runtime evaluation, and transaction execution.
 #[derive(Debug)]
-pub enum Error {
-    Analysis(CheckError),
+pub enum ClarityError {
+    /// Error during static type-checking or semantic analysis.
+    /// The `StaticCheckError` wraps the specific type-checking error, including diagnostic details.
+    StaticCheck(StaticCheckError),
+    /// Error during lexical or syntactic parsing.
+    /// The `ParseError` wraps the specific parsing error, such as invalid syntax or tokens.
     Parse(ParseError),
-    Interpreter(InterpreterError),
+    /// Error during runtime evaluation in the virtual machine.
+    /// The `VmExecutionError` wraps the specific error, such as runtime errors or dynamic type-checking errors.
+    Interpreter(VmExecutionError),
+    /// Transaction is malformed or invalid due to blockchain-level issues.
+    /// The `String` wraps a human-readable description of the issue, such as incorrect format or invalid signatures.
     BadTransaction(String),
+    /// Transaction exceeds the allocated cost budget during execution.
+    /// The first `ExecutionCost` represents the total consumed cost, and the second represents the budget limit.
     CostError(ExecutionCost, ExecutionCost),
+    /// Transaction aborted by a callback (e.g., post-condition check or custom logic).
     AbortedByCallback {
         /// What the output value of the transaction would have been.
         /// This will be a Some for contract-calls, and None for contract initialization txs.
@@ -33,55 +46,55 @@ pub enum Error {
     },
 }
 
-impl fmt::Display for Error {
+impl fmt::Display for ClarityError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Error::CostError(ref a, ref b) => {
+            ClarityError::CostError(ref a, ref b) => {
                 write!(f, "Cost Error: {a} cost exceeded budget of {b} cost")
             }
-            Error::Analysis(ref e) => fmt::Display::fmt(e, f),
-            Error::Parse(ref e) => fmt::Display::fmt(e, f),
-            Error::AbortedByCallback { reason, .. } => {
+            ClarityError::StaticCheck(ref e) => fmt::Display::fmt(e, f),
+            ClarityError::Parse(ref e) => fmt::Display::fmt(e, f),
+            ClarityError::AbortedByCallback { reason, .. } => {
                 write!(f, "Post condition aborted transaction: {reason}")
             }
-            Error::Interpreter(ref e) => fmt::Display::fmt(e, f),
-            Error::BadTransaction(ref s) => fmt::Display::fmt(s, f),
+            ClarityError::Interpreter(ref e) => fmt::Display::fmt(e, f),
+            ClarityError::BadTransaction(ref s) => fmt::Display::fmt(s, f),
         }
     }
 }
 
-impl std::error::Error for Error {
+impl std::error::Error for ClarityError {
     fn cause(&self) -> Option<&dyn std::error::Error> {
         match *self {
-            Error::CostError(ref _a, ref _b) => None,
-            Error::AbortedByCallback { .. } => None,
-            Error::Analysis(ref e) => Some(e),
-            Error::Parse(ref e) => Some(e),
-            Error::Interpreter(ref e) => Some(e),
-            Error::BadTransaction(ref _s) => None,
+            ClarityError::CostError(ref _a, ref _b) => None,
+            ClarityError::AbortedByCallback { .. } => None,
+            ClarityError::StaticCheck(ref e) => Some(e),
+            ClarityError::Parse(ref e) => Some(e),
+            ClarityError::Interpreter(ref e) => Some(e),
+            ClarityError::BadTransaction(ref _s) => None,
         }
     }
 }
 
-impl From<CheckError> for Error {
-    fn from(e: CheckError) -> Self {
+impl From<StaticCheckError> for ClarityError {
+    fn from(e: StaticCheckError) -> Self {
         match *e.err {
-            CheckErrors::CostOverflow => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            CheckErrorKind::CostOverflow => {
+                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            CheckErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
-            CheckErrors::MemoryBalanceExceeded(_a, _b) => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            CheckErrorKind::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
+            CheckErrorKind::MemoryBalanceExceeded(_a, _b) => {
+                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            CheckErrors::ExecutionTimeExpired => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            CheckErrorKind::ExecutionTimeExpired => {
+                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            _ => Error::Analysis(e),
+            _ => ClarityError::StaticCheck(e),
         }
     }
 }
 
-/// Converts [`InterpreterError`] to [`Error`] for transaction execution contexts.
+/// Converts [`VmExecutionError`] to [`ClarityError`] for transaction execution contexts.
 ///
 /// This conversion is used in:
 /// - [`TransactionConnection::initialize_smart_contract`]
@@ -90,50 +103,50 @@ impl From<CheckError> for Error {
 ///
 /// # Notes
 ///
-/// - [`CheckErrors::MemoryBalanceExceeded`] and [`CheckErrors::CostComputationFailed`]
-///   are intentionally not converted to [`Error::CostError`].
-///   Instead, they remain wrapped in `Error::Interpreter(Unchecked(CheckErrors::MemoryBalanceExceeded))`,
+/// - [`CheckErrorKind::MemoryBalanceExceeded`] and [`CheckErrorKind::CostComputationFailed`]
+///   are intentionally not converted to [`ClarityError::CostError`].
+///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(CheckErrorKind::MemoryBalanceExceeded))`,
 ///   which causes the transaction to fail, but still be included in the block.
 ///
-/// - This behavior differs from direct conversions of [`CheckError`] and [`ParseError`] to [`Error`],
-///   where [`CheckErrors::MemoryBalanceExceeded`] is converted to [`Error::CostError`],
+/// - This behavior differs from direct conversions of [`StaticCheckError`] and [`ParseError`] to [`ClarityError`],
+///   where [`CheckErrorKind::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
 ///   during contract analysis.
 ///
 ///   As a result:
 ///   - A `MemoryBalanceExceeded` during contract analysis causes the block to be rejected.
 ///   - A `MemoryBalanceExceeded` during execution (initialization or contract call)
 ///     causes the transaction to fail, but the block remains valid.
-impl From<InterpreterError> for Error {
-    fn from(e: InterpreterError) -> Self {
+impl From<VmExecutionError> for ClarityError {
+    fn from(e: VmExecutionError) -> Self {
         match &e {
-            InterpreterError::Unchecked(CheckErrors::CostBalanceExceeded(a, b)) => {
-                Error::CostError(a.clone(), b.clone())
+            VmExecutionError::Unchecked(CheckErrorKind::CostBalanceExceeded(a, b)) => {
+                ClarityError::CostError(a.clone(), b.clone())
             }
-            InterpreterError::Unchecked(CheckErrors::CostOverflow) => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            VmExecutionError::Unchecked(CheckErrorKind::CostOverflow) => {
+                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            InterpreterError::Unchecked(CheckErrors::ExecutionTimeExpired) => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            VmExecutionError::Unchecked(CheckErrorKind::ExecutionTimeExpired) => {
+                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            _ => Error::Interpreter(e),
+            _ => ClarityError::Interpreter(e),
         }
     }
 }
 
-impl From<ParseError> for Error {
+impl From<ParseError> for ClarityError {
     fn from(e: ParseError) -> Self {
         match *e.err {
-            ParseErrors::CostOverflow => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            ParseErrorKind::CostOverflow => {
+                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrors::CostBalanceExceeded(a, b) => Error::CostError(a, b),
-            ParseErrors::MemoryBalanceExceeded(_a, _b) => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            ParseErrorKind::CostBalanceExceeded(a, b) => ClarityError::CostError(a, b),
+            ParseErrorKind::MemoryBalanceExceeded(_a, _b) => {
+                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            ParseErrors::ExecutionTimeExpired => {
-                Error::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
+            ParseErrorKind::ExecutionTimeExpired => {
+                ClarityError::CostError(ExecutionCost::max_value(), ExecutionCost::max_value())
             }
-            _ => Error::Parse(e),
+            _ => ClarityError::Parse(e),
         }
     }
 }
@@ -165,9 +178,9 @@ pub trait ClarityConnection {
         sponsor: Option<PrincipalData>,
         cost_track: LimitedCostTracker,
         to_do: F,
-    ) -> Result<R, InterpreterError>
+    ) -> Result<R, VmExecutionError>
     where
-        F: FnOnce(&mut Environment) -> Result<R, InterpreterError>,
+        F: FnOnce(&mut Environment) -> Result<R, VmExecutionError>,
     {
         let epoch_id = self.get_epoch();
         let clarity_version = ClarityVersion::default_for_epoch(epoch_id);
@@ -214,7 +227,7 @@ pub trait TransactionConnection: ClarityConnection {
     where
         A: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
         F: FnOnce(&mut OwnedEnvironment) -> Result<(R, AssetMap, Vec<StacksTransactionEvent>), E>,
-        E: From<InterpreterError>;
+        E: From<VmExecutionError>;
 
     /// Do something with the analysis database and cost tracker
     ///  instance of this transaction connection. This is a low-level
@@ -231,7 +244,7 @@ pub trait TransactionConnection: ClarityConnection {
         identifier: &QualifiedContractIdentifier,
         clarity_version: ClarityVersion,
         contract_content: &str,
-    ) -> Result<(ContractAST, ContractAnalysis), Error> {
+    ) -> Result<(ContractAST, ContractAnalysis), ClarityError> {
         let epoch_id = self.get_epoch();
 
         self.with_analysis_db(|db, mut cost_track| {
@@ -276,7 +289,7 @@ pub trait TransactionConnection: ClarityConnection {
         &mut self,
         identifier: &QualifiedContractIdentifier,
         contract_analysis: &ContractAnalysis,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         self.with_analysis_db(|db, cost_tracker| {
             db.begin();
             let result = db.insert_contract(identifier, contract_analysis);
@@ -284,13 +297,13 @@ pub trait TransactionConnection: ClarityConnection {
                 Ok(_) => {
                     let result = db
                         .commit()
-                        .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into());
+                        .map_err(|e| CheckErrorKind::Expects(format!("{e:?}")).into());
                     (cost_tracker, result)
                 }
                 Err(e) => {
                     let result = db
                         .roll_back()
-                        .map_err(|e| CheckErrors::Expects(format!("{e:?}")).into());
+                        .map_err(|e| CheckErrorKind::Expects(format!("{e:?}")).into());
                     if result.is_err() {
                         (cost_tracker, result)
                     } else {
@@ -309,12 +322,12 @@ pub trait TransactionConnection: ClarityConnection {
         to: &PrincipalData,
         amount: u128,
         memo: &BuffData,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error> {
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError> {
         self.with_abort_callback(
             |vm_env| {
                 vm_env
                     .stx_transfer(from, to, amount, memo)
-                    .map_err(Error::from)
+                    .map_err(ClarityError::from)
             },
             |_, _| None,
         )
@@ -336,7 +349,7 @@ pub trait TransactionConnection: ClarityConnection {
         args: &[Value],
         abort_call_back: F,
         max_execution_time: Option<std::time::Duration>,
-    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), Error>
+    ) -> Result<(Value, AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
@@ -360,13 +373,13 @@ pub trait TransactionConnection: ClarityConnection {
                         public_function,
                         &expr_args,
                     )
-                    .map_err(Error::from)
+                    .map_err(ClarityError::from)
             },
             abort_call_back,
         )
         .and_then(|(value, assets_modified, tx_events, reason)| {
             if let Some(reason) = reason {
-                Err(Error::AbortedByCallback {
+                Err(ClarityError::AbortedByCallback {
                     output: Some(Box::new(value)),
                     assets_modified: Box::new(assets_modified),
                     tx_events,
@@ -393,7 +406,7 @@ pub trait TransactionConnection: ClarityConnection {
         sponsor: Option<PrincipalData>,
         abort_call_back: F,
         max_execution_time: Option<std::time::Duration>,
-    ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), Error>
+    ) -> Result<(AssetMap, Vec<StacksTransactionEvent>), ClarityError>
     where
         F: FnOnce(&AssetMap, &mut ClarityDatabase) -> Option<String>,
     {
@@ -412,12 +425,12 @@ pub trait TransactionConnection: ClarityConnection {
                         contract_str,
                         sponsor,
                     )
-                    .map_err(Error::from)
+                    .map_err(ClarityError::from)
             },
             abort_call_back,
         )?;
         if let Some(reason) = reason {
-            Err(Error::AbortedByCallback {
+            Err(ClarityError::AbortedByCallback {
                 output: None,
                 assets_modified: Box::new(assets_modified),
                 tx_events,

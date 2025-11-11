@@ -43,7 +43,7 @@ use crate::chainstate::stacks::boot::{
 };
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
 use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::clarity::vm::analysis::errors::CheckError;
+use crate::clarity::vm::analysis::errors::StaticCheckError;
 use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
 use crate::clarity::vm::ast::build_ast;
 use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
@@ -51,7 +51,7 @@ use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use crate::clarity::vm::errors::{Error, InterpreterResult, RuntimeErrorType};
+use crate::clarity::vm::errors::{InterpreterResult, RuntimeError, VmExecutionError};
 use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
@@ -153,7 +153,7 @@ fn parse(
     source_code: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<Vec<SymbolicExpression>, Error> {
+) -> Result<Vec<SymbolicExpression>, VmExecutionError> {
     let ast = build_ast(
         contract_identifier,
         source_code,
@@ -161,7 +161,7 @@ fn parse(
         clarity_version,
         epoch,
     )
-    .map_err(|e| RuntimeErrorType::ASTError(Box::new(e)))?;
+    .map_err(|e| RuntimeError::ASTError(Box::new(e)))?;
     Ok(ast.expressions)
 }
 
@@ -209,7 +209,7 @@ fn run_analysis_free<C: ClarityStorage>(
     save_contract: bool,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     analysis::run_analysis(
         contract_identifier,
         expressions,
@@ -231,7 +231,7 @@ fn run_analysis<C: ClarityStorage>(
     save_contract: bool,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<ContractAnalysis, Box<(CheckError, LimitedCostTracker)>> {
+) -> Result<ContractAnalysis, Box<(StaticCheckError, LimitedCostTracker)>> {
     let mainnet = header_db.is_mainnet();
     let cost_track = LimitedCostTracker::new(
         mainnet,
@@ -455,7 +455,7 @@ pub fn vm_execute_in_epoch(
     program: &str,
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<Option<Value>, Error> {
+) -> Result<Option<Value>, VmExecutionError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
@@ -477,7 +477,10 @@ pub fn vm_execute_in_epoch(
 /// Execute program in a transient environment in the latest epoch.
 /// To be used only by CLI tools for program evaluation, not by consensus
 /// critical code.
-pub fn vm_execute(program: &str, clarity_version: ClarityVersion) -> Result<Option<Value>, Error> {
+pub fn vm_execute(
+    program: &str,
+    clarity_version: ClarityVersion,
+) -> Result<Option<Value>, VmExecutionError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), clarity_version);
     let mut marf = MemoryBackingStore::new();
