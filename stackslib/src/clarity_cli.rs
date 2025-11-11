@@ -120,7 +120,6 @@ where command is one of:
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
   generate_address   to generate a random Stacks public address for testing purposes.
-  make_lcov          to generate an LCOV coverage report from Clarity coverage data.
 ",
         invoked_by
     );
@@ -1918,13 +1917,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "make_lcov" => {
-            if args.len() != 3 {
-                eprintln!(
-                    "Usage: {} {} [coverage-folder] [lcov-output-file]",
-                    invoked_by, args[0]
-                );
-                panic_test!();
-            }
             let mut register_files = vec![];
             let mut coverage_files = vec![];
             let coverage_folder = &args[1];
