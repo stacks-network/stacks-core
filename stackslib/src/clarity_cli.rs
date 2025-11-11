@@ -1125,10 +1125,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
         }
         "generate_address" => {
             if args.len() != 1 {
-                eprintln!(
-                    "Usage: {} {}",
-                    invoked_by, args[0]
-                );
+                eprintln!("Usage: {} {}", invoked_by, args[0]);
                 panic_test!();
             }
             // random 20 bytes
@@ -1363,10 +1360,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let clarity_version = parse_clarity_version_flag(&mut argv);
 
             if argv.len() != 1 {
-                eprintln!(
-                    "Usage: {} {} [--clarity_version N]",
-                    invoked_by, args[0]
-                );
+                eprintln!("Usage: {} {} [--clarity_version N]", invoked_by, args[0]);
                 eprintln!("   Examples:");
                 eprintln!("   echo \"(+ 1 2)\" | {} {}", invoked_by, args[0]);
                 eprintln!("   {} {} < input.clar", invoked_by, args[0]);
