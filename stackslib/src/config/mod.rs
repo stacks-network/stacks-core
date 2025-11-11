@@ -134,6 +134,8 @@ const DEFAULT_EMPTY_MEMPOOL_SLEEP_MS: u64 = 2_500;
 const DEFAULT_MAX_EXECUTION_TIME_SECS: u64 = 30;
 /// Default number of seconds that a miner should wait before timing out an HTTP request to StackerDB.
 const DEFAULT_STACKERDB_TIMEOUT_SECS: u64 = 120;
+/// Default maximum size for a tenure (note: the counter is reset on tenure extend).
+pub const DEFAULT_MAX_TENURE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
 
 static HELIUM_DEFAULT_CONNECTION_OPTIONS: LazyLock<ConnectionOptions> =
     LazyLock::new(|| ConnectionOptions {
@@ -1150,12 +1152,14 @@ impl Config {
                 tenure_cost_limit_per_block_percentage: miner_config
                     .tenure_cost_limit_per_block_percentage,
                 contract_cost_limit_percentage: miner_config.contract_cost_limit_percentage,
+                log_skipped_transactions: miner_config.log_skipped_transactions,
             },
             miner_status,
             confirm_microblocks: false,
             max_execution_time: miner_config
                 .max_execution_time_secs
                 .map(Duration::from_secs),
+            max_tenure_bytes: miner_config.max_tenure_bytes,
         }
     }
 
@@ -1197,12 +1201,14 @@ impl Config {
                 tenure_cost_limit_per_block_percentage: miner_config
                     .tenure_cost_limit_per_block_percentage,
                 contract_cost_limit_percentage: miner_config.contract_cost_limit_percentage,
+                log_skipped_transactions: miner_config.log_skipped_transactions,
             },
             miner_status,
             confirm_microblocks: true,
             max_execution_time: miner_config
                 .max_execution_time_secs
                 .map(Duration::from_secs),
+            max_tenure_bytes: miner_config.max_tenure_bytes,
         }
     }
 
@@ -3061,6 +3067,18 @@ pub struct MinerConfig {
     /// @default: [`DEFAULT_STACKERDB_TIMEOUT_SECS`]
     /// @units: seconds.
     pub stackerdb_timeout: Duration,
+    /// Defines them maximum numnber of bytes to allow in a tenure.
+    /// The miner will stop mining if the limit is reached.
+    /// ---
+    /// @default: [`DEFAULT_MAX_TENURE_BYTES`]
+    /// @units: bytes.
+    pub max_tenure_bytes: u64,
+    /// Enable logging of skipped transactions (generally used for tests)
+    /// ---
+    /// @default: `false`
+    /// @notes:
+    ///   - Primarily intended for testing purposes.
+    pub log_skipped_transactions: bool,
 }
 
 impl Default for MinerConfig {
@@ -3116,6 +3134,8 @@ impl Default for MinerConfig {
             max_execution_time_secs: Some(DEFAULT_MAX_EXECUTION_TIME_SECS),
             replay_transactions: false,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
+            max_tenure_bytes: DEFAULT_MAX_TENURE_BYTES,
+            log_skipped_transactions: false,
         }
     }
 }
@@ -4061,6 +4081,8 @@ pub struct MinerConfigFile {
     /// TODO: remove this config option once its no longer a testing feature
     pub replay_transactions: Option<bool>,
     pub stackerdb_timeout_secs: Option<u64>,
+    pub max_tenure_bytes: Option<u64>,
+    pub log_skipped_transactions: Option<bool>,
 }
 
 impl MinerConfigFile {
@@ -4253,6 +4275,8 @@ impl MinerConfigFile {
             max_execution_time_secs: self.max_execution_time_secs,
             replay_transactions: self.replay_transactions.unwrap_or_default(),
             stackerdb_timeout: self.stackerdb_timeout_secs.map(Duration::from_secs).unwrap_or(miner_default_config.stackerdb_timeout),
+            max_tenure_bytes: self.max_tenure_bytes.unwrap_or(miner_default_config.max_tenure_bytes),
+            log_skipped_transactions: self.log_skipped_transactions.unwrap_or(miner_default_config.log_skipped_transactions),
         })
     }
 }

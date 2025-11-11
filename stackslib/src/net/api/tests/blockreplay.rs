@@ -16,16 +16,24 @@
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+use clarity::types::chainstate::StacksPrivateKey;
+use clarity::vm::{ClarityName, ContractName, Value as ClarityValue};
 use stacks_common::consts::CHAIN_ID_TESTNET;
 use stacks_common::types::chainstate::StacksBlockId;
 
-use crate::chainstate::stacks::{Error as ChainError, StacksTransaction};
-use crate::core::test_util::make_contract_publish;
+use crate::chainstate::stacks::{
+    Error as ChainError, StacksTransaction, StacksTransactionSigner, TransactionAnchorMode,
+    TransactionContractCall, TransactionPayload, TransactionPostConditionMode, TransactionVersion,
+};
+use crate::core::test_util::{
+    make_contract_publish, make_contract_publish_tx, make_unsigned_tx, to_addr,
+};
 use crate::net::api::blockreplay;
 use crate::net::api::tests::TestRPC;
 use crate::net::connection::ConnectionOptions;
 use crate::net::httpcore::{StacksHttp, StacksHttpRequest};
 use crate::net::test::TestEventObserver;
+use crate::net::tests::{NakamotoBootStep, NakamotoBootTenure};
 use crate::net::ProtocolFamily;
 use crate::stacks_common::codec::StacksMessageCodec;
 
@@ -147,19 +155,12 @@ fn test_try_make_response() {
 
     assert_eq!(resp.transactions.len(), tip_block.receipts.len());
 
-    for tx_index in 0..resp.transactions.len() {
-        assert_eq!(
-            resp.transactions[tx_index].txid,
-            tip_block.receipts[tx_index].transaction.txid()
-        );
-        assert_eq!(
-            resp.transactions[tx_index].events.len(),
-            tip_block.receipts[tx_index].events.len()
-        );
-        assert_eq!(
-            resp.transactions[tx_index].result,
-            tip_block.receipts[tx_index].result
-        );
+    for (resp_tx, tip_tx) in resp.transactions.iter().zip(tip_block.receipts.iter()) {
+        assert_eq!(resp_tx.txid, tip_tx.transaction.txid());
+        assert_eq!(resp_tx.events.len(), tip_tx.events.len());
+        assert_eq!(resp_tx.result, tip_tx.result);
+        assert_eq!(resp_tx.result_hex, tip_tx.result);
+        assert!(!resp_tx.post_condition_aborted);
     }
 
     // got a failure (404)
@@ -181,6 +182,129 @@ fn test_try_make_response() {
 
     let (preamble, body) = response.destruct();
     assert_eq!(preamble.status_code, 401);
+}
+
+/// Test that events properly set the `committed` flag to `false`
+/// when the transaction is aborted by a post-condition.
+#[test]
+fn replay_block_with_pc_failure() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+
+    let test_observer = TestEventObserver::new();
+
+    // Set up the RPC test with a contract, so that we can test a post-condition failure
+    let rpc_test =
+        TestRPC::setup_nakamoto_with_boot_plan(function_name!(), &test_observer, |boot_plan| {
+            let private_key = StacksPrivateKey::from_seed("blockreplay".as_bytes());
+            let addr = to_addr(&private_key);
+
+            let code_body =
+        "(define-public (test) (stx-transfer? u100 tx-sender 'ST000000000000000000002AMW42H))";
+
+            let contract_deploy = make_contract_publish_tx(
+                &private_key,
+                0,
+                1000,
+                CHAIN_ID_TESTNET,
+                &"test",
+                &code_body,
+                None,
+            );
+
+            let contract_call = {
+                let contract_name = ContractName::from("test");
+                let function_name = ClarityName::from("test");
+
+                let payload = TransactionContractCall {
+                    address: addr.clone(),
+                    contract_name,
+                    function_name,
+                    function_args: vec![],
+                };
+                let mut unsigned_tx = make_unsigned_tx(
+                    TransactionPayload::ContractCall(payload),
+                    &private_key,
+                    None,
+                    1,
+                    None,
+                    1000,
+                    CHAIN_ID_TESTNET,
+                    TransactionAnchorMode::Any,
+                    TransactionVersion::Testnet,
+                );
+                unsigned_tx.post_condition_mode = TransactionPostConditionMode::Deny;
+
+                let mut tx_signer = StacksTransactionSigner::new(&unsigned_tx);
+                tx_signer.sign_origin(&private_key).unwrap();
+                tx_signer.get_tx().unwrap()
+            };
+
+            let boot_tenures = vec![NakamotoBootTenure::Sortition(vec![
+                NakamotoBootStep::Block(vec![contract_deploy]),
+                NakamotoBootStep::Block(vec![contract_call]),
+            ])];
+
+            boot_plan
+                .with_boot_tenures(boot_tenures)
+                .with_ignore_transaction_errors(true)
+                .with_initial_balances(vec![(addr.into(), 1_000_000)])
+        });
+
+    let nakamoto_consensus_hash = rpc_test.consensus_hash.clone();
+
+    let mut requests = vec![];
+
+    let mut request =
+        StacksHttpRequest::new_block_replay(addr.clone().into(), &rpc_test.canonical_tip);
+    request.add_header("authorization".into(), "password".into());
+    requests.push(request);
+
+    let mut responses = rpc_test.run(requests);
+
+    let response = responses.remove(0);
+
+    debug!(
+        "Response:\n{}\n",
+        std::str::from_utf8(&response.try_serialize().unwrap()).unwrap()
+    );
+
+    let contents = response.clone().get_http_payload_ok().unwrap();
+    let response_json: serde_json::Value = contents.try_into().unwrap();
+
+    let result_hex = response_json
+        .get("transactions")
+        .expect("Expected JSON to have a transactions field")
+        .as_array()
+        .expect("Expected transactions to be an array")
+        .get(0)
+        .expect("Expected transactions to have at least one element")
+        .as_object()
+        .expect("Expected transaction to be an object")
+        .get("result_hex")
+        .expect("Expected JSON to have a result_hex field")
+        .as_str()
+        .unwrap();
+    let result = ClarityValue::try_deserialize_hex_untyped(&result_hex).unwrap();
+    result.expect_result_ok().expect("FATAL: result is not ok");
+
+    let resp = response.decode_replayed_block().unwrap();
+
+    let tip_block = test_observer.get_blocks().last().unwrap().clone();
+
+    assert_eq!(resp.transactions.len(), tip_block.receipts.len());
+
+    assert_eq!(resp.transactions.len(), 1);
+
+    let resp_tx = &resp.transactions.get(0).unwrap();
+
+    assert!(resp_tx.vm_error.is_some());
+
+    for event in resp_tx.events.iter() {
+        let committed = event.get("committed").unwrap().as_bool().unwrap();
+        assert!(!committed);
+    }
+
+    assert!(resp_tx.post_condition_aborted);
 }
 
 #[test]
