@@ -41,7 +41,7 @@ use crate::chainstate::stacks::miner::{
     TransactionSkipped,
 };
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
-use crate::clarity_vm::clarity::Error as ClarityError;
+use crate::clarity_vm::clarity::ClarityError;
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::mempool::ProposalCallbackReceiver;
 use crate::net::http::{

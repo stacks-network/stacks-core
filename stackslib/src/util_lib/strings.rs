@@ -19,7 +19,7 @@ use std::fmt;
 use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut};
 
-use clarity::vm::errors::RuntimeErrorType;
+use clarity::vm::errors::RuntimeError;
 use clarity::vm::representations::{
     ClarityName, ContractName, MAX_STRING_LEN as CLARITY_MAX_STRING_LENGTH,
 };
@@ -41,8 +41,8 @@ guarded_string!(
     "UrlString",
     URL_STRING_REGEX,
     CLARITY_MAX_STRING_LENGTH,
-    RuntimeErrorType,
-    RuntimeErrorType::BadNameValue
+    RuntimeError,
+    RuntimeError::BadNameValue
 );
 
 /// printable-ASCII-only string, but encodable.

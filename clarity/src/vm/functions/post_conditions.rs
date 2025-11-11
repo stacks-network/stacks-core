@@ -22,7 +22,7 @@ use crate::vm::contexts::AssetMap;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrors, InterpreterError, InterpreterResult,
+    check_arguments_at_least, CheckErrorKind, InterpreterResult, VmInternalError,
 };
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpression;
@@ -59,7 +59,7 @@ impl Allowance {
     /// Returns the size in bytes of the allowance when stored in memory.
     /// This is used to account for memory usage when evaluating `as-contract?`
     /// and `restrict-assets?` expressions.
-    pub fn size_in_bytes(&self) -> Result<usize, InterpreterError> {
+    pub fn size_in_bytes(&self) -> Result<usize, VmInternalError> {
         match self {
             Allowance::Stx(_) => Ok(std::mem::size_of::<StxAllowance>()),
             Allowance::Ft(ft) => Ok(std::mem::size_of::<FtAllowance>()
@@ -74,7 +74,7 @@ impl Allowance {
 
                 for id in &nft.asset_ids {
                     let memory_use = id.get_memory_use().map_err(|e| {
-                        InterpreterError::Expect(format!("Failed to calculate memory use: {e}"))
+                        VmInternalError::Expect(format!("Failed to calculate memory use: {e}"))
                     })?;
                     total_size += memory_use as usize;
                 }
@@ -94,22 +94,24 @@ fn eval_allowance(
 ) -> InterpreterResult<Allowance> {
     let list = allowance_expr
         .match_list()
-        .ok_or(CheckErrors::NonFunctionApplication)?;
+        .ok_or(CheckErrorKind::NonFunctionApplication)?;
     let (name_expr, rest) = list
         .split_first()
-        .ok_or(CheckErrors::NonFunctionApplication)?;
-    let name = name_expr.match_atom().ok_or(CheckErrors::BadFunctionName)?;
+        .ok_or(CheckErrorKind::NonFunctionApplication)?;
+    let name = name_expr
+        .match_atom()
+        .ok_or(CheckErrorKind::BadFunctionName)?;
     let Some(ref native_function) = NativeFunctions::lookup_by_name_at_version(
         name,
         env.contract_context.get_clarity_version(),
     ) else {
-        return Err(CheckErrors::ExpectedAllowanceExpr(name.to_string()).into());
+        return Err(CheckErrorKind::ExpectedAllowanceExpr(name.to_string()).into());
     };
 
     match native_function {
         NativeFunctions::AllowanceWithStx => {
             if rest.len() != 1 {
-                return Err(CheckErrors::IncorrectArgumentCount(1, rest.len()).into());
+                return Err(CheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
             let amount = eval(&rest[0], env, context)?;
             let amount = amount.expect_u128()?;
@@ -117,16 +119,17 @@ fn eval_allowance(
         }
         NativeFunctions::AllowanceWithFt => {
             if rest.len() != 3 {
-                return Err(CheckErrors::IncorrectArgumentCount(3, rest.len()).into());
+                return Err(CheckErrorKind::IncorrectArgumentCount(3, rest.len()).into());
             }
 
             let contract_value = eval(&rest[0], env, context)?;
             let contract = contract_value.clone().expect_principal()?;
             let contract_identifier = match contract {
                 PrincipalData::Standard(_) => {
-                    return Err(
-                        CheckErrors::ExpectedContractPrincipalValue(contract_value.into()).into(),
-                    );
+                    return Err(CheckErrorKind::ExpectedContractPrincipalValue(
+                        contract_value.into(),
+                    )
+                    .into());
                 }
                 PrincipalData::Contract(c) => c,
             };
@@ -146,16 +149,17 @@ fn eval_allowance(
         }
         NativeFunctions::AllowanceWithNft => {
             if rest.len() != 3 {
-                return Err(CheckErrors::IncorrectArgumentCount(3, rest.len()).into());
+                return Err(CheckErrorKind::IncorrectArgumentCount(3, rest.len()).into());
             }
 
             let contract_value = eval(&rest[0], env, context)?;
             let contract = contract_value.clone().expect_principal()?;
             let contract_identifier = match contract {
                 PrincipalData::Standard(_) => {
-                    return Err(
-                        CheckErrors::ExpectedContractPrincipalValue(contract_value.into()).into(),
-                    );
+                    return Err(CheckErrorKind::ExpectedContractPrincipalValue(
+                        contract_value.into(),
+                    )
+                    .into());
                 }
                 PrincipalData::Contract(c) => c,
             };
@@ -175,7 +179,7 @@ fn eval_allowance(
         }
         NativeFunctions::AllowanceWithStacking => {
             if rest.len() != 1 {
-                return Err(CheckErrors::IncorrectArgumentCount(1, rest.len()).into());
+                return Err(CheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
             let amount = eval(&rest[0], env, context)?;
             let amount = amount.expect_u128()?;
@@ -183,11 +187,11 @@ fn eval_allowance(
         }
         NativeFunctions::AllowanceAll => {
             if !rest.is_empty() {
-                return Err(CheckErrors::IncorrectArgumentCount(1, rest.len()).into());
+                return Err(CheckErrorKind::IncorrectArgumentCount(1, rest.len()).into());
             }
             Ok(Allowance::All)
         }
-        _ => Err(CheckErrors::ExpectedAllowanceExpr(name.to_string()).into()),
+        _ => Err(CheckErrorKind::ExpectedAllowanceExpr(name.to_string()).into()),
     }
 }
 
@@ -206,7 +210,7 @@ pub fn special_restrict_assets(
     let asset_owner_expr = &args[0];
     let allowance_list = args[1]
         .match_list()
-        .ok_or(CheckErrors::ExpectedListOfAllowances(
+        .ok_or(CheckErrorKind::ExpectedListOfAllowances(
             "restrict-assets?".into(),
             2,
         ))?;
@@ -222,7 +226,7 @@ pub fn special_restrict_assets(
     )?;
 
     if allowance_list.len() > MAX_ALLOWANCES {
-        return Err(CheckErrors::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
+        return Err(CheckErrorKind::TooManyAllowances(MAX_ALLOWANCES, allowance_list.len()).into());
     }
 
     let mut allowances = Vec::with_capacity(allowance_list.len());
@@ -271,7 +275,7 @@ pub fn special_restrict_assets(
         }
         Ok(None) => {
             // Body had no expressions (shouldn't happen due to argument checks)
-            Err(InterpreterError::Expect("Failed to get body result".into()).into())
+            Err(VmInternalError::Expect("Failed to get body result".into()).into())
         }
         Err(e) => {
             // Runtime error inside body, pass it up
@@ -293,7 +297,7 @@ pub fn special_as_contract(
 
     let allowance_list = args[0]
         .match_list()
-        .ok_or(CheckErrors::ExpectedListOfAllowances(
+        .ok_or(CheckErrorKind::ExpectedListOfAllowances(
             "as-contract?".into(),
             1,
         ))?;
@@ -312,7 +316,7 @@ pub fn special_as_contract(
         for allowance_expr in allowance_list {
             let allowance = eval_allowance(allowance_expr, env, context)?;
             let allowance_memory = u64::try_from(allowance.size_in_bytes()?)
-                .map_err(|_| InterpreterError::Expect("Allowance size too large".into()))?;
+                .map_err(|_| VmInternalError::Expect("Allowance size too large".into()))?;
             env.add_memory(allowance_memory)?;
             memory_use += allowance_memory;
             allowances.push(allowance);
@@ -365,7 +369,7 @@ pub fn special_as_contract(
             }
             Ok(None) => {
                 // Body had no expressions (shouldn't happen due to argument checks)
-                Err(InterpreterError::Expect("Failed to get body result".into()).into())
+                Err(VmInternalError::Expect("Failed to get body result".into()).into())
             }
             Err(e) => {
                 // Runtime error inside body, pass it up
@@ -550,5 +554,5 @@ pub fn special_allowance(
     _env: &mut Environment,
     _context: &LocalContext,
 ) -> InterpreterResult<Value> {
-    Err(CheckErrors::AllowanceExprNotAllowed.into())
+    Err(CheckErrorKind::AllowanceExprNotAllowed.into())
 }
