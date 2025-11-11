@@ -425,7 +425,7 @@ impl TestTxFactory {
             TestTxSpec::ContractDeploy { sender, .. } => sender,
             TestTxSpec::ContractCall { sender, .. } => sender,
         };
-        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk));
+        let address = to_addr(sender_privk);
         let nonce = self
             .nonce_counter
             .get_mut(&address)
@@ -1171,12 +1171,13 @@ contract_deploy_consensus_test!(
     },
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::CostBalanceExceeded`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::CostBalanceExceeded`]
 // Caused by: exceeding the static-read analysis budget during contract deployment.
 // The contract repeatedly performs static-dispatch `contract-call?` lookups against the boot
 // `.costs-3` contract, forcing the type checker to fetch the remote function signature enough
-// times to surpass the read-count limit in `BLOCK_LIMIT_MAINNET_21`.
+// times to surpass the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
 // Outcome: block rejected.
+// Note: Takes a couple of minutes to run!
 contract_deploy_consensus_test!(
     static_check_error_cost_balance_exceeded,
     contract_name: "cost-balance-exceeded",
@@ -1195,7 +1196,7 @@ contract_deploy_consensus_test!(
     },
 );
 
-// StaticCheckError: [`StaticCheckError::ValueTooLarge`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ValueTooLarge`]
 // Caused by: Value exceeds the maximum allowed size for type-checking
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1204,7 +1205,7 @@ contract_deploy_consensus_test!(
     contract_code: "(as-max-len? 0x01 u1048577)",
 );
 
-// StaticCheckError: [`StaticCheckError::ValueOutOfBounds`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ValueOutOfBounds`]
 // Caused by: Value is outside the acceptable range for its type
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1214,7 +1215,7 @@ contract_deploy_consensus_test!(
         (func 0x00)",
 );
 
-// StaticCheckError: [`StaticCheckError::ExpectedName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedName`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1223,7 +1224,7 @@ contract_deploy_consensus_test!(
     contract_code: "(match (some 1) 2 (+ 1 1) (+ 3 4))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedResponseType`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedResponseType`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1232,7 +1233,7 @@ contract_deploy_consensus_test!(
     contract_code: "(unwrap-err! (some 2) 2)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineResponseOkType`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineResponseOkType`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1241,7 +1242,7 @@ contract_deploy_consensus_test!(
     contract_code: "(unwrap! (err 3) 2)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineResponseErrType`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineResponseErrType`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1250,7 +1251,7 @@ contract_deploy_consensus_test!(
     contract_code: "(unwrap-err-panic (ok 3))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineMatchTypes`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineMatchTypes`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1259,7 +1260,7 @@ contract_deploy_consensus_test!(
     contract_code: "(match none inner-value (/ 1 0) (+ 1 8))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::MatchArmsMustMatch`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::MatchArmsMustMatch`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1268,7 +1269,7 @@ contract_deploy_consensus_test!(
     contract_code: "(match (some 1) inner-value (+ 1 inner-value) (> 1 28))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadMatchOptionSyntax`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMatchOptionSyntax`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1277,7 +1278,7 @@ contract_deploy_consensus_test!(
     contract_code: "(match (some 1) inner-value (+ 1 inner-value))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadMatchResponseSyntax`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMatchResponseSyntax`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1286,7 +1287,7 @@ contract_deploy_consensus_test!(
     contract_code: "(match (ok 1) inner-value (+ 1 inner-value))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::RequiresAtLeastArguments`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::RequiresAtLeastArguments`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1295,7 +1296,7 @@ contract_deploy_consensus_test!(
     contract_code: "(match)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::RequiresAtMostArguments`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::RequiresAtMostArguments`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1304,7 +1305,7 @@ contract_deploy_consensus_test!(
     contract_code: r#"(principal-construct? 0x22 0xfa6bf38ed557fe417333710d6033e9419391a320 "foo" "bar")"#,
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadMatchInput`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMatchInput`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1313,7 +1314,7 @@ contract_deploy_consensus_test!(
     contract_code: "(match 1 ok-val (/ ok-val 0) err-val (+ err-val 7))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedOptionalType`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedOptionalType`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1322,7 +1323,7 @@ contract_deploy_consensus_test!(
     contract_code: "(default-to 3 5)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NameAlreadyUsed`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NameAlreadyUsed`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1333,7 +1334,7 @@ contract_deploy_consensus_test!(
         (define-constant foo 20)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ReturnTypesMustMatch`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ReturnTypesMustMatch`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1348,7 +1349,7 @@ contract_deploy_consensus_test!(
               (err false)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::TypeError`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeError`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1357,7 +1358,7 @@ contract_deploy_consensus_test!(
     contract_code: "(define-data-var cursor int true)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::DefineVariableBadSignature`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineVariableBadSignature`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1366,7 +1367,7 @@ contract_deploy_consensus_test!(
     contract_code: "(define-data-var cursor 0x00)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::InvalidTypeDescription`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::InvalidTypeDescription`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1375,7 +1376,7 @@ contract_deploy_consensus_test!(
     contract_code: "(define-data-var cursor 0x00 true)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::TypeSignatureTooDeep`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeSignatureTooDeep`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1396,7 +1397,7 @@ contract_deploy_consensus_test!(
     },
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::SupertypeTooLarge`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::SupertypeTooLarge`]
 // Caused by:
 // Outcome: block rejected.
 contract_deploy_consensus_test!(
@@ -1410,7 +1411,7 @@ contract_deploy_consensus_test!(
                 (ok (append initial (tuple (a (var-get small)) (b (var-get big)))))))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ConstructedListTooLarge`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ConstructedListTooLarge`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1425,7 +1426,7 @@ contract_deploy_consensus_test!(
         )",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::UnknownTypeName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownTypeName`]
 // Caused by:
 // Outcome: block accepted.
 // Note: during analysis, this error can only be triggered by `from-consensus-buff?`
@@ -1439,7 +1440,7 @@ contract_deploy_consensus_test!(
             (ok (from-consensus-buff? foo 0x00)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::UnionTypeError`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::UnionTypeError`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1448,7 +1449,7 @@ contract_deploy_consensus_test!(
     contract_code: "(map - (list true false true false))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::UndefinedVariable`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::UndefinedVariable`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1457,7 +1458,7 @@ contract_deploy_consensus_test!(
     contract_code: "(+ x y z)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadMapTypeDefinition`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapTypeDefinition`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1466,7 +1467,7 @@ contract_deploy_consensus_test!(
     contract_code: "(define-map lists { name: int } contents)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineType`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineType`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1475,7 +1476,7 @@ contract_deploy_consensus_test!(
     contract_code: "(index-of (list) none)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedSequence`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedSequence`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1484,7 +1485,7 @@ contract_deploy_consensus_test!(
     contract_code: r#"(index-of 3 "a")"#,
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::CouldNotDetermineSerializationType`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineSerializationType`]
 // Caused by:
 // Outcome: block accepted.
 // Note: during analysis, this error can only be triggered by `from-consensus-buff?`
@@ -1500,7 +1501,7 @@ contract_deploy_consensus_test!(
             (ok (to-consensus-buff? (list first second))))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::UncheckedIntermediaryResponses`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::UncheckedIntermediaryResponses`]
 // Caused by: Intermediate `(ok ...)` expressions inside a `begin` block that are not unwrapped.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1513,7 +1514,7 @@ contract_deploy_consensus_test!(
                 (ok true)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchFT`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchFT`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1522,7 +1523,7 @@ contract_deploy_consensus_test!(
     contract_code: "(ft-get-balance stackoos tx-sender)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchNFT`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchNFT`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1531,7 +1532,7 @@ contract_deploy_consensus_test!(
     contract_code: r#"(nft-get-owner? stackoos "abc")"#,
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::DefineNFTBadSignature`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineNFTBadSignature`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1540,7 +1541,7 @@ contract_deploy_consensus_test!(
     contract_code: "(define-non-fungible-token stackaroos integer)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadTokenName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTokenName`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1549,7 +1550,7 @@ contract_deploy_consensus_test!(
     contract_code: "(ft-get-balance u1234 tx-sender)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::EmptyTuplesNotAllowed`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::EmptyTuplesNotAllowed`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1560,7 +1561,7 @@ contract_deploy_consensus_test!(
             value)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchDataVariable`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchDataVariable`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1571,7 +1572,7 @@ contract_deploy_consensus_test!(
             (unwrap! (var-get cursor) 0))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NonFunctionApplication`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NonFunctionApplication`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1580,7 +1581,7 @@ contract_deploy_consensus_test!(
     contract_code: "((lambda (x y) 1) 2 1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedListApplication`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedListApplication`]
 // Caused by: calling append with lhs that is not a list.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1589,7 +1590,7 @@ contract_deploy_consensus_test!(
     contract_code: "(append 2 3)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchContract`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchContract`]
 // Caused by: calling contract-call? with a non-existent contract name.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1598,7 +1599,7 @@ contract_deploy_consensus_test!(
     contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name test! u1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ContractCallExpectName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ContractCallExpectName`]
 // Caused by: calling contract-call? without a contract function name.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1607,7 +1608,7 @@ contract_deploy_consensus_test!(
     contract_code: "(contract-call? 'S1G2081040G2081040G2081040G208105NK8PE5.contract-name u1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedCallableType`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedCallableType`]
 // Caused by: passing a non-callable constant as the contract principal in `contract-call?`.
 // Outcome: block accepted.
 // Note: This error was added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TraitReferenceUnknown`].
@@ -1620,7 +1621,7 @@ contract_deploy_consensus_test!(
     ",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchPublicFunction`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchPublicFunction`]
 // Caused by: calling a non-existent public or read-only function on a contract literal.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1630,7 +1631,7 @@ contract_deploy_consensus_test!(
     contract_code: &format!("(contract-call? '{}.pox-4 missing-func)", boot_code_test_addr()),
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::DefaultTypesMustMatch`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::DefaultTypesMustMatch`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1641,7 +1642,7 @@ contract_deploy_consensus_test!(
         (default-to false (get balance (map-get? tokens (tuple (id 0)))))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::IfArmsMustMatch`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::IfArmsMustMatch`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1650,7 +1651,7 @@ contract_deploy_consensus_test!(
     contract_code: "(if true true 1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::IllegalOrUnknownFunctionApplication`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::IllegalOrUnknownFunctionApplication`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1659,7 +1660,7 @@ contract_deploy_consensus_test!(
     contract_code: "(map if (list 1 2 3 4 5))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::UnknownFunction`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownFunction`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1668,7 +1669,7 @@ contract_deploy_consensus_test!(
     contract_code: "(ynot 1 2)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::IncorrectArgumentCount`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::IncorrectArgumentCount`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1677,7 +1678,7 @@ contract_deploy_consensus_test!(
     contract_code: "(len (list 1) (list 1))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadLetSyntax`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadLetSyntax`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1686,7 +1687,7 @@ contract_deploy_consensus_test!(
     contract_code: "(let 1 2)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadSyntaxBinding`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadSyntaxBinding`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1695,8 +1696,8 @@ contract_deploy_consensus_test!(
     contract_code: "(let ((1)) (+ 1 2))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedOptionalOrResponseType`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedOptionalOrResponseType`]
+// Caused by: expected an optional or response type, but got a value
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
     static_check_error_expected_optional_or_response_type,
@@ -1704,7 +1705,7 @@ contract_deploy_consensus_test!(
     contract_code: "(try! 3)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::DefineTraitBadSignature`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitBadSignature`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1713,8 +1714,8 @@ contract_deploy_consensus_test!(
     contract_code: "(define-trait trait-1 ((get-1 uint uint)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::DefineTraitDuplicateMethod`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitDuplicateMethod`]
+// Caused by: trait definition contains duplicate method names
 // Outcome: block accepted.
 // Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
 contract_deploy_consensus_test!(
@@ -1727,8 +1728,8 @@ contract_deploy_consensus_test!(
         ))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::UnexpectedTraitOrFieldReference`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::UnexpectedTraitOrFieldReference`]
+// Caused by: unexpected use of trait reference or field
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
     static_check_error_unexpected_trait_or_field_reference,
@@ -1736,7 +1737,7 @@ contract_deploy_consensus_test!(
     contract_code: "(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::IncompatibleTrait`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::IncompatibleTrait`]
 // Caused by: pass a trait to a trait parameter which is not compatible.
 // Outcome: block accepted.
 // Note: Added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TypeError`].
@@ -1756,8 +1757,8 @@ contract_deploy_consensus_test!(
         (contract-call? contract get-2 u1))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ReservedWord`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ReservedWord`]
+// Caused by: name is a reserved word
 // Outcome: block accepted.
 // Note: This error was added in Clarity 3. Clarity 1 and 2
 //       will trigger a [`StaticCheckErrorKind::NameAlreadyUsed`].
@@ -1767,8 +1768,8 @@ contract_deploy_consensus_test!(
     contract_code: "(define-private (block-height) true)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchBlockInfoProperty`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchBlockInfoProperty`]
+// Caused by: referenced an unknown property of a burn block
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
     static_check_error_no_such_block_info_property,
@@ -1776,8 +1777,8 @@ contract_deploy_consensus_test!(
     contract_code: "(get-burn-block-info? none u1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchStacksBlockInfoProperty`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchStacksBlockInfoProperty`]
+// Caused by: referenced an unknown property of a stacks block
 // Outcome: block accepted.
 // Note: This error was added in Clarity 3. Clarity 1, and 2
 //       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
@@ -1787,8 +1788,8 @@ contract_deploy_consensus_test!(
     contract_code: "(get-stacks-block-info? none u1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchTenureInfoProperty`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchTenureInfoProperty`]
+// Caused by: referenced an unknown property of a tenure
 // Outcome: block accepted.
 // Note: This error was added in Clarity 3. Clarity 1, and 2
 //       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
@@ -1798,8 +1799,8 @@ contract_deploy_consensus_test!(
     contract_code: "(get-tenure-info? none u1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::TraitReferenceUnknown`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitReferenceUnknown`]
+// Caused by: referenced trait is unknown
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
     static_check_error_trait_reference_unknown,
@@ -1807,7 +1808,7 @@ contract_deploy_consensus_test!(
     contract_code: "(+ 1 <kvstore>)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ContractOfExpectsTrait`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ContractOfExpectsTrait`]
 // Caused by: calling `contract-of` with a non-trait argument.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1816,8 +1817,8 @@ contract_deploy_consensus_test!(
     contract_code: "(contract-of u1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::TraitMethodUnknown`]
-// Caused by:
+// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitMethodUnknown`]
+// Caused by: defining a method that is not declared in the trait
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
     static_check_error_trait_method_unknown,
@@ -1829,7 +1830,7 @@ contract_deploy_consensus_test!(
             (contract-call? contract get-2 u0))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::WriteAttemptedInReadOnly`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::WriteAttemptedInReadOnly`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1841,7 +1842,7 @@ contract_deploy_consensus_test!(
         (silly)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::AtBlockClosureMustBeReadOnly`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::AtBlockClosureMustBeReadOnly`]
 // Caused by: `at-block` closure must be read-only but contains write operations.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1854,7 +1855,7 @@ contract_deploy_consensus_test!(
                (var-set foo 0)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::AllowanceExprNotAllowed`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::AllowanceExprNotAllowed`]
 // Caused by: using an allowance expression outside of `restrict-assets?` or `as-contract?`.
 // Outcome: block accepted.
 // Note: This error was added in Clarity 4. Clarity 1, 2, and 3
@@ -1865,7 +1866,7 @@ contract_deploy_consensus_test!(
     contract_code: "(with-stx u1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedListOfAllowances`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedListOfAllowances`]
 // Caused by: post-condition expects a list of asset allowances but received invalid input.
 // Outcome: block accepted.
 // Note: This error was added in Clarity 4. Clarity 1, 2, and 3
@@ -1876,7 +1877,7 @@ contract_deploy_consensus_test!(
     contract_code: "(restrict-assets? tx-sender u1 true)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedAllowanceExpr`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedAllowanceExpr`]
 // Caused by: allowance list contains a non-allowance expression.
 // Outcome: block accepted.
 // Note: This error was added in Clarity 4. Clarity 1, 2, and 3
@@ -1887,7 +1888,7 @@ contract_deploy_consensus_test!(
     contract_code: "(restrict-assets? tx-sender ((not true)) true)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::WithAllAllowanceNotAllowed`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::WithAllAllowanceNotAllowed`]
 // Caused by:
 // Outcome: block accepted.
 // Note: This error was added in Clarity 4. Clarity 1, 2, and 3
@@ -1898,7 +1899,7 @@ contract_deploy_consensus_test!(
     contract_code: "(restrict-assets? tx-sender ((with-all-assets-unsafe)) true)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::WithAllAllowanceNotAlone`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::WithAllAllowanceNotAlone`]
 // Caused by:
 // Outcome: block accepted.
 // Note: This error was added in Clarity 4. Clarity 1, 2, and 3
@@ -1909,7 +1910,7 @@ contract_deploy_consensus_test!(
     contract_code: "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::WithNftExpectedListOfIdentifiers`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::WithNftExpectedListOfIdentifiers`]
 // Caused by: the third argument to `with-nft` is not a list of identifiers.
 // Outcome: block accepted.
 // Note: This error was added in Clarity 4. Clarity 1, 2, and 3
@@ -1920,7 +1921,7 @@ contract_deploy_consensus_test!(
     contract_code: r#"(restrict-assets? tx-sender ((with-nft tx-sender "token-name" tx-sender)) true)"#,
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::MaxIdentifierLengthExceeded`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::MaxIdentifierLengthExceeded`]
 // Caused by:
 // Outcome: block accepted.
 // Note: This error was added in Clarity 4. Clarity 1, 2, and 3
@@ -1936,7 +1937,7 @@ contract_deploy_consensus_test!(
     ),
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::TooManyAllowances`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyAllowances`]
 // Caused by:
 // Outcome: block accepted.
 // Note: This error was added in Clarity 4. Clarity 1, 2, and 3
@@ -1952,7 +1953,7 @@ contract_deploy_consensus_test!(
     ),
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadTupleConstruction`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTupleConstruction`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1961,7 +1962,7 @@ contract_deploy_consensus_test!(
     contract_code: "(tuple (name 1) (name 2))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::ExpectedTuple`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedTuple`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1970,7 +1971,7 @@ contract_deploy_consensus_test!(
     contract_code: "(get field-0 (some 1))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchTupleField`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchTupleField`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1979,7 +1980,7 @@ contract_deploy_consensus_test!(
     contract_code: "(get value (tuple (name 1)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::NoSuchMap`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchMap`]
 // Caused by:
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1988,7 +1989,7 @@ contract_deploy_consensus_test!(
     contract_code: "(map-get? non-existent (tuple (name 1)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadFunctionName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadFunctionName`]
 // Caused by: defining a function whose signature does not start with an atom name.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -1997,7 +1998,7 @@ contract_deploy_consensus_test!(
     contract_code: "(define-private (u1) u0)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::DefineFunctionBadSignature`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineFunctionBadSignature`]
 // Caused by: defining a function with an empty signature list.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -2006,7 +2007,7 @@ contract_deploy_consensus_test!(
     contract_code: "(define-private () 1)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadTupleFieldName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTupleFieldName`]
 // Caused by: using `(get ...)` with a tuple field argument that is not an atom.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -2015,7 +2016,7 @@ contract_deploy_consensus_test!(
     contract_code: "(get u1 (tuple (foo u0)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::BadMapName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapName`]
 // Caused by: passing a literal instead of a map identifier to `map-get?`.
 // Outcome: block accepted.
 contract_deploy_consensus_test!(
@@ -2024,7 +2025,7 @@ contract_deploy_consensus_test!(
     contract_code: "(map-get? u1 (tuple (id u0)))",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::GetBlockInfoExpectPropertyName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBlockInfoExpectPropertyName`]
 // Caused by: calling `get-block-info` with a non-atom property argument.
 // Outcome: block accepted.
 // Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
@@ -2035,7 +2036,7 @@ contract_deploy_consensus_test!(
     contract_code: "(get-block-info? u1 u0)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName`]
 // Caused by: calling `get-burn-block-info` with a non-atom property argument.
 // Outcome: block accepted.
 // Note: This error was added in Clarity 2. Clarity 1 will trigger
@@ -2046,7 +2047,7 @@ contract_deploy_consensus_test!(
     contract_code: "(get-burn-block-info? u1 u0)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName`]
 // Caused by: calling `get-stacks-block-info` with a non-atom property argument.
 // Outcome: block accepted.
 // Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
@@ -2057,7 +2058,7 @@ contract_deploy_consensus_test!(
     contract_code: "(get-stacks-block-info? u1 u0)",
 );
 
-// StaticCheckError: [`StaticCheckErrorKind::GetTenureInfoExpectPropertyName`]
+// StaticCheckErrorKind: [`StaticCheckErrorKind::GetTenureInfoExpectPropertyName`]
 // Caused by: calling `get-tenure-info` with a non-atom property argument.
 // Outcome: block accepted.
 // Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
@@ -2068,18 +2069,149 @@ contract_deploy_consensus_test!(
     contract_code: "(get-tenure-info? u1 u0)",
 );
 
+// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTraitImplementation`]
+// Caused by: trying to implement a trait with a bad implementation.
+// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_trait_implementation() {
+    let contract_name = "contract-name";
+    let contract_defining_trait = "(define-trait trait-1 (
+        (get-1 ((list 10 uint)) (response uint uint))))";
+    let impl_contract = format!(
+        "(impl-trait .{contract}.trait-1)
+    (define-public (get-1 (x (list 5 uint))) (ok u1))",
+        contract = contract_name
+    );
+
+    let mut nonce = 0;
+
+    let tx_fee = (contract_defining_trait.len() * 100) as u64;
+    let mut epochs_blocks: HashMap<StacksEpochId, Vec<TestBlock>> = HashMap::new();
+    let deploy_tx = make_contract_publish_versioned(
+        &FAUCET_PRIV_KEY,
+        nonce,
+        tx_fee,
+        CHAIN_ID_TESTNET,
+        &contract_name,
+        &contract_defining_trait,
+        None,
+    );
+    nonce += 1;
+    epochs_blocks
+        .entry(*EPOCHS_TO_TEST.first().unwrap())
+        .or_insert(vec![])
+        .push(TestBlock {
+            transactions: vec![
+                StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap(),
+            ],
+        });
+
+    for epoch in EPOCHS_TO_TEST {
+        for version in clarity_versions_for_epoch(*epoch) {
+            let epoch_name = format!("Epoch{}", epoch.to_string().replace(".", "_"));
+            let name = format!(
+                "{contract_name}-{epoch_name}-{}",
+                version.to_string().replace(" ", "")
+            );
+            let deploy_tx = make_contract_publish_versioned(
+                &FAUCET_PRIV_KEY,
+                nonce,
+                tx_fee,
+                CHAIN_ID_TESTNET,
+                &name,
+                &impl_contract,
+                Some(*version),
+            );
+            nonce += 1;
+
+            let deploy_tx =
+                StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap();
+
+            let entry = epochs_blocks
+                .entry(*epoch)
+                .or_insert(vec![])
+                .push(TestBlock {
+                    transactions: vec![deploy_tx],
+                });
+        }
+    }
+
+    let result = ConsensusTest::new(function_name!(), vec![]).run(epochs_blocks);
+
+    insta::assert_ron_snapshot!(result);
+}
+
+// Error: [`Error::InvalidStacksTransaction("Duplicate contract")`]
+// Caused by: trying to deploy a contract that already exists.
+// Outcome: block rejected.
+#[test]
+fn error_invalid_stacks_transaction_duplicate_contract() {
+    let contract_code = "(define-constant buff-0 0x00)";
+    let mut nonce = 0;
+
+    let tx_fee = (contract_code.len() * 100) as u64;
+    let mut epochs_blocks: HashMap<StacksEpochId, Vec<TestBlock>> = HashMap::new();
+    let contract_name = "contract-name";
+    let deploy_tx = make_contract_publish_versioned(
+        &FAUCET_PRIV_KEY,
+        nonce,
+        tx_fee,
+        CHAIN_ID_TESTNET,
+        &contract_name,
+        &contract_code,
+        None,
+    );
+    nonce += 1;
+    epochs_blocks
+        .entry(*EPOCHS_TO_TEST.first().unwrap())
+        .or_insert(vec![])
+        .push(TestBlock {
+            transactions: vec![
+                StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap(),
+            ],
+        });
+
+    for epoch in EPOCHS_TO_TEST {
+        for version in clarity_versions_for_epoch(*epoch) {
+            let deploy_tx = make_contract_publish_versioned(
+                &FAUCET_PRIV_KEY,
+                nonce,
+                tx_fee,
+                CHAIN_ID_TESTNET,
+                &contract_name,
+                &contract_code,
+                Some(*version),
+            );
+
+            let deploy_tx =
+                StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap();
+
+            let entry = epochs_blocks
+                .entry(*epoch)
+                .or_insert(vec![])
+                .push(TestBlock {
+                    transactions: vec![deploy_tx],
+                });
+        }
+    }
+
+    let result = ConsensusTest::new(function_name!(), vec![]).run(epochs_blocks);
+
+    insta::assert_ron_snapshot!(result);
+}
+
 // pub enum StaticCheckErrorKind {
 //     CostOverflow,  // Unreachable: should exceed u64
 //     CostBalanceExceeded(ExecutionCost, ExecutionCost), [`static_check_error_cost_balance_exceeded`]
 //     MemoryBalanceExceeded(u64, u64),
-//     CostComputationFailed(String),
-//     ExecutionTimeExpired,
+//     CostComputationFailed(String),  // Unreachable
+//     ExecutionTimeExpired, // Unreachable: can only be triggered at runtime. The CostError::ExecutionTimeExpired is immediately transformed into a VmExecutionError::Unchecked
 //     ValueTooLarge, [`static_check_error_value_too_large`]
 //     ValueOutOfBounds, [`static_check_error_value_out_of_bounds`]
 //     TypeSignatureTooDeep, [`static_check_error_type_signature_too_deep`]
 //     ExpectedName, [`static_check_error_expected_name`]
 //     SupertypeTooLarge, [`static_check_error_supertype_too_large`]
-//     Expects(String),
+//     Expects(String),  // unreachable
 //     BadMatchOptionSyntax(Box<StaticCheckErrorKind>), [`static_check_error_bad_match_option_syntax`]
 //     BadMatchResponseSyntax(Box<StaticCheckErrorKind>), [`static_check_error_bad_match_response_syntax`]
 //     BadMatchInput(Box<TypeSignature>), [`static_check_error_bad_match_input`]
@@ -2119,7 +2251,7 @@ contract_deploy_consensus_test!(
 //     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_return_types_must_match`]
 //     NoSuchContract(String), [`static_check_error_no_such_contract`]
 //     NoSuchPublicFunction(String, String), [`static_check_error_no_such_public_function`]
-//     ContractAlreadyExists(String),
+//     ContractAlreadyExists(String), Unreachable: during normal operations, `StacksChainState::process_transaction_payload` will check if the contract exists already, invalidating the block before executing analysis.
 //     ContractCallExpectName, [`static_check_error_contract_call_expect_name`]
 //     ExpectedCallableType(Box<TypeSignature>), [`static_check_error_expected_callable_type`]
 //     NoSuchBlockInfoProperty(String), [`static_check_error_no_such_block_info_property`]
@@ -2151,7 +2283,7 @@ contract_deploy_consensus_test!(
 //     TraitReferenceUnknown(String), [`static_check_error_trait_reference_unknown`]
 //     TraitMethodUnknown(String, String), [`static_check_error_trait_method_unknown`]
 //     ExpectedTraitIdentifier, // Unreachable: (use-trait …) or (impl-trait …) with an invalid second argument fails in the AST stage, raising ParseErrorKind::ImportTraitBadSignature/ImplTraitBadSignature before static checks run.
-//     BadTraitImplementation(String, String),
+//     BadTraitImplementation(String, String), [`static_check_error_bad_trait_implementation`]
 //     DefineTraitBadSignature, [`static_check_error_define_trait_bad_signature`]
 //     DefineTraitDuplicateMethod(String), [`static_check_error_define_trait_duplicate_method`]
 //     UnexpectedTraitOrFieldReference, [`static_check_error_unexpected_trait_or_field_reference`]
@@ -2168,3 +2300,21 @@ contract_deploy_consensus_test!(
 //     MaxIdentifierLengthExceeded(u32, u32), [`static_check_error_max_identifier_length_exceeded`]
 //     TooManyAllowances(usize, usize), [`static_check_error_too_many_allowances`]
 // }
+
+// CheckError: [`CheckErrorKind::CostBalanceExceeded`]
+// Caused by: exceeding the cost analysis budget during contract initialization.
+//   The contract repeatedly performs `var-get` lookups on a data variable,
+//   forcing the type checker to fetch the variable enough times to exceed
+//   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
+// Outcome: block rejected.
+contract_deploy_consensus_test!(
+    check_error_cost_balance_exceeded,
+    contract_name: "cost-balance-exceeded",
+    contract_code: &format!("
+        (define-data-var foo int 1)
+        (begin
+            {}
+        )",
+        "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_21.read_count as usize + 1)
+    ),
+);
