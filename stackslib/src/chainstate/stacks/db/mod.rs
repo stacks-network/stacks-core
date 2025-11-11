@@ -665,8 +665,8 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "12";
-pub const CHAINSTATE_VERSION_NUMBER: u32 = 12;
+pub const CHAINSTATE_VERSION: &str = "13";
+pub const CHAINSTATE_VERSION_NUMBER: u32 = 13;
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
