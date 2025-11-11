@@ -9608,3 +9608,110 @@ fn mock_miner_replay() {
     miner_channel.stop_chains_coordinator();
     follower_channel.stop_chains_coordinator();
 }
+
+#[test]
+#[ignore]
+fn least_supertype_test() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    // the contract that we want to make sure is not published
+    let caller_src = "
+(define-data-var my-list (list 10 { a: int }) (list { a: 1 }))
+(var-set my-list
+  (unwrap! (as-max-len?
+    (append (var-get my-list)
+            { a: 2, b: 2 })
+    u10)
+  (err  1)))
+(print (var-get my-list))
+";
+
+    let spender_sk = StacksPrivateKey::random();
+    let spender_addr = to_addr(&spender_sk);
+    let spender_princ: PrincipalData = spender_addr.clone().into();
+
+    let (mut conf, _miner_account) = neon_integration_test_conf();
+
+    test_observer::spawn();
+
+    conf.events_observers.insert(EventObserverConfig {
+        endpoint: format!("localhost:{}", test_observer::EVENT_OBSERVER_PORT),
+        events_keys: vec![EventKeyType::AnyEvent],
+        timeout_ms: 1_000,
+        disable_retries: false,
+    });
+
+    let spender_bal = 10_000_000_000 * (core::MICROSTACKS_PER_STACKS as u64);
+
+    conf.initial_balances.push(InitialBalance {
+        address: spender_princ,
+        amount: spender_bal,
+    });
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+
+    let burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
+
+    let mut btc_regtest_controller = BitcoinRegtestController::with_burnchain(
+        conf.clone(),
+        None,
+        Some(burnchain_config.clone()),
+        None,
+    );
+    let http_origin = format!("http://{}", &conf.node.rpc_bind);
+
+    btc_regtest_controller.bootstrap_chain(201);
+
+    eprintln!("Chain bootstrapped...");
+
+    let mut run_loop = neon::RunLoop::new(conf.clone());
+    let blocks_processed = run_loop.get_blocks_processed_arc();
+    let _client = reqwest::blocking::Client::new();
+    let channel = run_loop.get_coordinator_channel().unwrap();
+
+    thread::spawn(move || run_loop.start(Some(burnchain_config), 0));
+
+    // give the run loop some time to start up!
+    wait_for_runloop(&blocks_processed);
+
+    // first block wakes up the run loop
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // first block will hold our VRF registration
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // second block will be the first mined Stacks block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    let _sort_height = channel.get_sortitions_processed();
+
+    let publish = make_contract_publish(
+        &spender_sk,
+        0,
+        1000,
+        conf.burnchain.chain_id,
+        "caller",
+        caller_src,
+    );
+
+    let txid = submit_tx(&http_origin, &publish);
+    println!("Submitted contract publish txid: {txid}");
+
+    // mine 1 burn block for the miner to issue the next block
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+    // mine next burn block for the miner to win
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // clear and mine another burnchain block, so that the new winner is seen by the observer
+    //   (the observer is logically "one block behind" the miner
+    next_block_and_wait(&mut btc_regtest_controller, &blocks_processed);
+
+    // Ensure that the transaction was not mined by checking the account nonce
+    let account = get_account(&http_origin, &spender_addr);
+    assert_eq!(account.nonce, 0);
+}
