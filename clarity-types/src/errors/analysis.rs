@@ -240,6 +240,9 @@ pub enum CommonCheckErrorKind {
     /// Incorrect number of arguments provided to a function.
     /// The first `usize` represents the expected count, and the second represents the actual count.
     IncorrectArgumentCount(usize, usize),
+    /// Too many function parameters specified.
+    /// The first `usize` represents the number of parameters found, the second represents the maximum allowed.
+    TooManyFunctionParameters(usize, usize),
 
     /// Expected a trait identifier (e.g., `.trait-name`) but found an invalid token.
     ExpectedTraitIdentifier,
@@ -248,6 +251,9 @@ pub enum CommonCheckErrorKind {
     /// Trait definition contains duplicate method names.
     /// The `String` wraps the duplicate method name.
     DefineTraitDuplicateMethod(String),
+    /// Too many trait methods specified.
+    /// The first `usize` represents the number of methods found, the second the maximum allowed.
+    TraitTooManyMethods(usize, usize),
 }
 
 /// An error detected during the static analysis of a smart contract at deployment time.
@@ -496,6 +502,9 @@ pub enum StaticCheckErrorKind {
     /// Referenced function is unknown or not defined.
     /// The `String` wraps the non-existent function name.
     UnknownFunction(String),
+    /// Too many function parameters specified.
+    /// The first `usize` represents the number of parameters found, the second represents the maximum allowed.
+    TooManyFunctionParameters(usize, usize),
 
     // Traits
     /// Referenced trait does not exist in the specified contract.
@@ -524,6 +533,9 @@ pub enum StaticCheckErrorKind {
     /// Trait implementation is incompatible with the expected trait definition.
     /// The first `Box<TraitIdentifier>` wraps the expected trait, and the second wraps the actual trait.
     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>),
+    /// Too many trait methods specified.
+    /// The first `usize` represents the number of methods found, the second the maximum allowed.
+    TraitTooManyMethods(usize, usize),
 
     /// Attempt to write to contract state in a read-only function.
     WriteAttemptedInReadOnly,
@@ -777,6 +789,9 @@ pub enum CheckErrorKind {
     /// Incorrect number of arguments provided to a function.
     /// The first `usize` represents the expected count, and the second represents the actual count.
     IncorrectArgumentCount(usize, usize),
+    /// Too many function parameters specified.
+    /// The first `usize` represents the number of parameters found, the second represents the maximum allowed.
+    TooManyFunctionParameters(usize, usize),
 
     // Traits
     /// Referenced trait is not defined or cannot be found.
@@ -800,6 +815,9 @@ pub enum CheckErrorKind {
     TraitBasedContractCallInReadOnly,
     /// `contract-of` expects a trait type but found a different type.
     ContractOfExpectsTrait,
+    /// Too many trait methods specified.
+    /// The first `usize` represents the number of methods found, the second the maximum allowed.
+    TraitTooManyMethods(usize, usize),
 
     // Strings
     /// String contains invalid or disallowed characters (e.g., non-ASCII in ASCII strings).
@@ -1084,6 +1102,9 @@ impl From<CommonCheckErrorKind> for CheckErrorKind {
             CommonCheckErrorKind::RequiresAtMostArguments(expected, args) => {
                 CheckErrorKind::RequiresAtMostArguments(expected, args)
             }
+            CommonCheckErrorKind::TooManyFunctionParameters(found, allowed) => {
+                CheckErrorKind::TooManyFunctionParameters(found, allowed)
+            }
             CommonCheckErrorKind::ExpectedName => CheckErrorKind::ExpectedName,
             CommonCheckErrorKind::DefineFunctionBadSignature => {
                 CheckErrorKind::DefineFunctionBadSignature
@@ -1097,6 +1118,9 @@ impl From<CommonCheckErrorKind> for CheckErrorKind {
             CommonCheckErrorKind::TypeSignatureTooDeep => CheckErrorKind::TypeSignatureTooDeep,
             CommonCheckErrorKind::DefineTraitDuplicateMethod(s) => {
                 CheckErrorKind::DefineTraitDuplicateMethod(s)
+            }
+            CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
+                CheckErrorKind::TraitTooManyMethods(found, allowed)
             }
             CommonCheckErrorKind::DefineTraitBadSignature => {
                 CheckErrorKind::DefineTraitBadSignature
@@ -1138,6 +1162,9 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             CommonCheckErrorKind::RequiresAtMostArguments(expected, args) => {
                 StaticCheckErrorKind::RequiresAtMostArguments(expected, args)
             }
+            CommonCheckErrorKind::TooManyFunctionParameters(found, allowed) => {
+                StaticCheckErrorKind::TooManyFunctionParameters(found, allowed)
+            }
             CommonCheckErrorKind::ExpectedName => StaticCheckErrorKind::ExpectedName,
             CommonCheckErrorKind::DefineFunctionBadSignature => {
                 StaticCheckErrorKind::DefineFunctionBadSignature
@@ -1158,6 +1185,9 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
             }
             CommonCheckErrorKind::DefineTraitBadSignature => {
                 StaticCheckErrorKind::DefineTraitBadSignature
+            }
+            CommonCheckErrorKind::TraitTooManyMethods(found, allowed) => {
+                StaticCheckErrorKind::TraitTooManyMethods(found, allowed)
             }
             CommonCheckErrorKind::InvalidTypeDescription => {
                 StaticCheckErrorKind::InvalidTypeDescription
@@ -1315,6 +1345,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::DefaultTypesMustMatch(type_1, type_2) => format!("expression types passed in 'default-to' must match (got '{type_1}' and '{type_2}')"),
             StaticCheckErrorKind::IllegalOrUnknownFunctionApplication(function_name) => format!("use of illegal / unresolved function '{function_name}"),
             StaticCheckErrorKind::UnknownFunction(function_name) => format!("use of unresolved function '{function_name}'"),
+            StaticCheckErrorKind::TooManyFunctionParameters(found, allowed) => format!("too many function parameters specified: found {found}, the maximum is {allowed}"),
             StaticCheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
             StaticCheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
             StaticCheckErrorKind::BadTokenName => "expecting an token name as an argument".into(),
@@ -1331,6 +1362,7 @@ impl DiagnosableError for StaticCheckErrorKind {
             StaticCheckErrorKind::DefineTraitDuplicateMethod(method_name) => format!("duplicate method name '{method_name}' in trait definition"),
             StaticCheckErrorKind::ContractOfExpectsTrait => "trait reference expected".into(),
             StaticCheckErrorKind::IncompatibleTrait(expected_trait, actual_trait) => format!("trait '{actual_trait}' is not a compatible with expected trait, '{expected_trait}'"),
+            StaticCheckErrorKind::TraitTooManyMethods(found, allowed) => format!("too many trait methods specified: found {found}, the maximum is {allowed}"),
             StaticCheckErrorKind::TypeAlreadyAnnotatedFailure | StaticCheckErrorKind::CheckerImplementationFailure => {
                 "internal error - please file an issue on https://github.com/stacks-network/stacks-blockchain".into()
             },
@@ -1435,6 +1467,7 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::RequiresAtLeastArguments(expected, found) => format!("expecting >= {expected} arguments, got {found}"),
             CheckErrorKind::RequiresAtMostArguments(expected, found) => format!("expecting < {expected} arguments, got {found}"),
             CheckErrorKind::IncorrectArgumentCount(expected_count, found_count) => format!("expecting {expected_count} arguments, got {found_count}"),
+            CheckErrorKind::TooManyFunctionParameters(found, allowed) => format!("too many function parameters specified: found {found}, the maximum is {allowed}"),
             CheckErrorKind::TraitBasedContractCallInReadOnly => "use of trait based contract calls are not allowed in read-only context".into(),
             CheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
             CheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
@@ -1448,6 +1481,7 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::DefineTraitBadSignature => "invalid trait definition".into(),
             CheckErrorKind::DefineTraitDuplicateMethod(method_name) => format!("duplicate method name '{method_name}' in trait definition"),
             CheckErrorKind::ContractOfExpectsTrait => "trait reference expected".into(),
+            CheckErrorKind::TraitTooManyMethods(found, allowed) => format!("too many trait methods specified: found {found}, the maximum is {allowed}"),
             CheckErrorKind::InvalidCharactersDetected => "invalid characters detected".into(),
             CheckErrorKind::InvalidUTF8Encoding => "invalid UTF8 encoding".into(),
             CheckErrorKind::InvalidSecp65k1Signature => "invalid seckp256k1 signature".into(),

@@ -57,6 +57,13 @@ use crate::vm::ClarityVersion;
 #[cfg(test)]
 pub mod tests;
 
+/// The maximum number of parameters a function definition can have.
+/// This limit is enforced starting in Epoch 3.3.
+pub const MAX_FUNCTION_PARAMETERS: usize = 256;
+/// The maximum number of methods a trait definition can have.
+/// This limit is enforced starting in Epoch 3.3.
+pub const MAX_TRAIT_METHODS: usize = 256;
+
 /*
 
 Type-checking in our language is achieved through a single-direction inference.
@@ -1307,6 +1314,15 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let (function_name, args) = signature
             .split_first()
             .ok_or(StaticCheckErrorKind::RequiresAtLeastArguments(1, 0))?;
+
+        if self.epoch.limits_parameter_and_method_count() && args.len() > MAX_FUNCTION_PARAMETERS {
+            return Err(StaticCheckErrorKind::TooManyFunctionParameters(
+                args.len(),
+                MAX_FUNCTION_PARAMETERS,
+            )
+            .into());
+        }
+
         let function_name = function_name
             .match_atom()
             .ok_or(StaticCheckErrorKind::BadFunctionName)?;
@@ -1695,7 +1711,7 @@ impl<'a, 'b> TypeChecker<'a, 'b> {
         let trait_signature = TypeSignature::parse_trait_type_repr(
             function_types,
             &mut (),
-            StacksEpochId::Epoch21,
+            self.epoch,
             self.clarity_version,
         )?;
 

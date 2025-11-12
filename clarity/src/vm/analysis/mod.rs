@@ -56,10 +56,9 @@ pub fn mem_type_check(
     epoch: StacksEpochId,
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let contract: Vec<SymbolicExpression> =
-        build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-            .map_err(|_| StaticCheckErrorKind::Expects("Failed to build AST".into()))?
-            .expressions;
+    let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+        .map_err(|e| StaticCheckErrorKind::Expects(format!("Failed to build AST: {e}")))?
+        .expressions;
 
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();

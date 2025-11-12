@@ -17,6 +17,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::str::FromStr;
 use std::sync::LazyLock;
 
 #[cfg(feature = "rusqlite")]
@@ -69,6 +70,12 @@ pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::Deserial
 pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
+    #[cfg(any(test, feature = "testing"))]
+    fn sign_with_noncedata(
+        &self,
+        data_hash: &[u8],
+        noncedata: &[u8; 32],
+    ) -> Result<MessageSignature, &'static str>;
 }
 
 pub trait Address: Clone + fmt::Debug + fmt::Display {
@@ -438,7 +445,7 @@ impl StacksEpochId {
 
     #[cfg(not(any(test, feature = "testing")))]
     pub const fn latest() -> StacksEpochId {
-        StacksEpochId::Epoch32
+        StacksEpochId::Epoch33
     }
 
     pub const ALL_GTE_30: &'static [StacksEpochId] = &[
@@ -821,6 +828,25 @@ impl StacksEpochId {
             StacksEpochId::Epoch33 => true,
         }
     }
+
+    /// In Epoch 3.3, limits are introduced on the number of parameters
+    /// in function definitions and the number of methods in trait definitions.
+    pub fn limits_parameter_and_method_count(&self) -> bool {
+        match self {
+            StacksEpochId::Epoch10
+            | StacksEpochId::Epoch20
+            | StacksEpochId::Epoch2_05
+            | StacksEpochId::Epoch21
+            | StacksEpochId::Epoch22
+            | StacksEpochId::Epoch23
+            | StacksEpochId::Epoch24
+            | StacksEpochId::Epoch25
+            | StacksEpochId::Epoch30
+            | StacksEpochId::Epoch31
+            | StacksEpochId::Epoch32 => false,
+            StacksEpochId::Epoch33 => true,
+        }
+    }
 }
 
 impl std::fmt::Display for StacksEpochId {
@@ -838,6 +864,28 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch31 => write!(f, "3.1"),
             StacksEpochId::Epoch32 => write!(f, "3.2"),
             StacksEpochId::Epoch33 => write!(f, "3.3"),
+        }
+    }
+}
+
+impl FromStr for StacksEpochId {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1.0" => Ok(StacksEpochId::Epoch10),
+            "2.0" => Ok(StacksEpochId::Epoch20),
+            "2.05" => Ok(StacksEpochId::Epoch2_05),
+            "2.1" => Ok(StacksEpochId::Epoch21),
+            "2.2" => Ok(StacksEpochId::Epoch22),
+            "2.3" => Ok(StacksEpochId::Epoch23),
+            "2.4" => Ok(StacksEpochId::Epoch24),
+            "2.5" => Ok(StacksEpochId::Epoch25),
+            "3.0" => Ok(StacksEpochId::Epoch30),
+            "3.1" => Ok(StacksEpochId::Epoch31),
+            "3.2" => Ok(StacksEpochId::Epoch32),
+            "3.3" => Ok(StacksEpochId::Epoch33),
+            _ => Err("Invalid epoch string"),
         }
     }
 }
