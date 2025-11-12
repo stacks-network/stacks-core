@@ -16,7 +16,7 @@
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use perf_event::events::Hardware;
-use perf_event::Builder;
+use perf_event::{Builder, Counter};
 use regex::{Captures, Regex};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
@@ -43,6 +43,7 @@ use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 pub struct RPCNakamotoBlockReplayRequestHandler {
     pub block_id: Option<StacksBlockId>,
     pub auth: Option<String>,
+    pub profiler: bool,
 }
 
 impl RPCNakamotoBlockReplayRequestHandler {
@@ -50,6 +51,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
         Self {
             block_id: None,
             auth,
+            profiler: false,
         }
     }
 
@@ -159,14 +161,35 @@ impl RPCNakamotoBlockReplayRequestHandler {
         for (i, tx) in block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
-            let mut perf_event_instructions = Builder::new(Hardware::INSTRUCTIONS).build().unwrap();
-            let mut perf_event_cpu_cycles = Builder::new(Hardware::CPU_CYCLES).build().unwrap();
-            let mut perf_event_ref_cpu_cycles =
-                Builder::new(Hardware::REF_CPU_CYCLES).build().unwrap();
+            let mut perf_event_cpu_instructions: Option<Counter> = None;
+            let mut perf_event_cpu_cycles: Option<Counter> = None;
+            let mut perf_event_cpu_ref_cycles: Option<Counter> = None;
 
-            perf_event_instructions.enable().unwrap();
-            perf_event_cpu_cycles.enable().unwrap();
-            perf_event_ref_cpu_cycles.enable().unwrap();
+            if self.profiler {
+                if let Ok(mut perf_event_cpu_instructions_result) =
+                    Builder::new(Hardware::INSTRUCTIONS).build()
+                {
+                    if perf_event_cpu_instructions_result.enable().is_ok() {
+                        perf_event_cpu_instructions = Some(perf_event_cpu_instructions_result);
+                    }
+                }
+
+                if let Ok(mut perf_event_cpu_cycles_result) =
+                    Builder::new(Hardware::CPU_CYCLES).build()
+                {
+                    if perf_event_cpu_cycles_result.enable().is_ok() {
+                        perf_event_cpu_cycles = Some(perf_event_cpu_cycles_result);
+                    }
+                }
+
+                if let Ok(mut perf_event_cpu_ref_cycles_result) =
+                    Builder::new(Hardware::REF_CPU_CYCLES).build()
+                {
+                    if perf_event_cpu_ref_cycles_result.enable().is_ok() {
+                        perf_event_cpu_ref_cycles = Some(perf_event_cpu_ref_cycles_result);
+                    }
+                }
+            }
 
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,
@@ -176,13 +199,35 @@ impl RPCNakamotoBlockReplayRequestHandler {
                 None,
             );
 
-            perf_event_instructions.disable().unwrap();
-            perf_event_cpu_cycles.disable().unwrap();
-            perf_event_ref_cpu_cycles.disable().unwrap();
+            let mut cpu_instructions: Option<u64> = None;
+            let mut cpu_cycles: Option<u64> = None;
+            let mut cpu_ref_cycles: Option<u64> = None;
 
-            let cpu_instructions = perf_event_instructions.read().unwrap();
-            let cpu_cycles = perf_event_cpu_cycles.read().unwrap();
-            let cpu_ref_cycles = perf_event_ref_cpu_cycles.read().unwrap();
+            if self.profiler {
+                if let Some(mut perf_event_cpu_instructions) = perf_event_cpu_instructions {
+                    if perf_event_cpu_instructions.disable().is_ok() {
+                        if let Ok(value) = perf_event_cpu_instructions.read() {
+                            cpu_instructions = Some(value);
+                        }
+                    }
+                }
+
+                if let Some(mut perf_event_cpu_cycles) = perf_event_cpu_cycles {
+                    if perf_event_cpu_cycles.disable().is_ok() {
+                        if let Ok(value) = perf_event_cpu_cycles.read() {
+                            cpu_cycles = Some(value);
+                        }
+                    }
+                }
+
+                if let Some(mut perf_event_cpu_ref_cycles) = perf_event_cpu_ref_cycles {
+                    if perf_event_cpu_ref_cycles.disable().is_ok() {
+                        if let Ok(value) = perf_event_cpu_ref_cycles.read() {
+                            cpu_ref_cycles = Some(value);
+                        }
+                    }
+                }
+            }
 
             let err = match tx_result {
                 TransactionResult::Success(tx_result) => {
@@ -219,9 +264,9 @@ impl RPCNakamotoBlockReplayRequestHandler {
         for (receipt, cpu_instructions, cpu_cycles, cpu_ref_cycles) in &txs_receipts {
             let transaction = RPCReplayedBlockTransaction::from_receipt(
                 receipt,
-                Some(*cpu_instructions),
-                Some(*cpu_cycles),
-                Some(*cpu_ref_cycles),
+                cpu_instructions,
+                cpu_cycles,
+                cpu_ref_cycles,
             );
             rpc_replayed_block.transactions.push(transaction);
         }
@@ -260,9 +305,9 @@ pub struct RPCReplayedBlockTransaction {
 impl RPCReplayedBlockTransaction {
     pub fn from_receipt(
         receipt: &StacksTransactionReceipt,
-        cpu_instructions: Option<u64>,
-        cpu_cycles: Option<u64>,
-        cpu_ref_cycles: Option<u64>,
+        cpu_instructions: &Option<u64>,
+        cpu_cycles: &Option<u64>,
+        cpu_ref_cycles: &Option<u64>,
     ) -> Self {
         let events = receipt
             .events
@@ -291,9 +336,9 @@ impl RPCReplayedBlockTransaction {
             stx_burned: receipt.stx_burned,
             execution_cost: receipt.execution_cost.clone(),
             events,
-            cpu_instructions,
-            cpu_cycles,
-            cpu_ref_cycles,
+            cpu_instructions: cpu_instructions.clone(),
+            cpu_cycles: cpu_cycles.clone(),
+            cpu_ref_cycles: cpu_ref_cycles.clone(),
         }
     }
 }
@@ -406,6 +451,10 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
             .map_err(|_| Error::DecodeError("Invalid path: unparseable block id".to_string()))?;
 
         self.block_id = Some(block_id);
+
+        if let Some(profiler_match) = captures.name("profiler") {
+            self.profiler = profiler_match.as_str() == "1"
+        }
 
         Ok(HttpRequestContents::new().query_string(query))
     }
