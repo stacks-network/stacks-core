@@ -1,8 +1,6 @@
 ---
 source: stackslib/src/chainstate/tests/consensus.rs
-assertion_line: 893
 expression: result
-snapshot_kind: text
 ---
 [
   Success(ExpectedBlockOutput(
