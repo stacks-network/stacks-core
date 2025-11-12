@@ -103,6 +103,12 @@ pub struct NakamotoBootPlan {
     pub network_id: u32,
     pub txindex: bool,
     pub epochs: Option<EpochList<ExecutionCost>>,
+    /// Additional transactions to include in the tip block
+    pub tip_transactions: Vec<StacksTransaction>,
+    /// Additional tenures to include at the end of the boot plan
+    pub extra_tenures: Vec<NakamotoBootTenure>,
+    /// Do not fail if a transaction returns error (by default the BootPlan will stop on tx failure)
+    pub ignore_transaction_errors: bool,
 }
 
 impl NakamotoBootPlan {
@@ -122,7 +128,10 @@ impl NakamotoBootPlan {
             malleablized_blocks: true,
             network_id: default_config.network_id,
             txindex: false,
+            extra_tenures: vec![],
             epochs: None,
+            tip_transactions: vec![],
+            ignore_transaction_errors: false,
         }
     }
 
@@ -222,6 +231,16 @@ impl NakamotoBootPlan {
         self
     }
 
+    pub fn with_tip_transactions(mut self, tip_transactions: Vec<StacksTransaction>) -> Self {
+        self.tip_transactions = tip_transactions;
+        self
+    }
+
+    pub fn with_ignore_transaction_errors(mut self, ignore_transaction_errors: bool) -> Self {
+        self.ignore_transaction_errors = ignore_transaction_errors;
+        self
+    }
+
     pub fn with_test_stackers(mut self, test_stackers: Vec<TestStacker>) -> Self {
         self.test_stackers = test_stackers;
         self
@@ -244,6 +263,11 @@ impl NakamotoBootPlan {
 
     pub fn with_txindex(mut self, txindex: bool) -> Self {
         self.txindex = txindex;
+        self
+    }
+
+    pub fn with_boot_tenures(mut self, boot_tenures: Vec<NakamotoBootTenure>) -> Self {
+        self.extra_tenures = boot_tenures;
         self
     }
 
@@ -470,12 +494,15 @@ impl NakamotoBootPlan {
 
     pub fn boot_into_nakamoto_peers(
         self,
-        boot_plan: Vec<NakamotoBootTenure>,
+        mut boot_plan: Vec<NakamotoBootTenure>,
         observer: Option<&TestEventObserver>,
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
         let test_signers = self.test_signers.clone();
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
+        let ignore_transaction_errors = self.ignore_transaction_errors;
+
+        boot_plan.extend(self.extra_tenures.clone());
 
         let (mut peer, mut other_peers) = self.boot_nakamoto_peers(observer);
         if boot_plan.is_empty() {
@@ -824,13 +851,14 @@ impl NakamotoBootPlan {
                         // transactions processed in the same order
                         assert_eq!(receipt.transaction.txid(), tx.txid());
                         // no CheckErrorKind
-                        assert!(
-                            receipt.vm_error.is_none(),
-                            "Receipt had a CheckErrorKind: {:?}",
-                            &receipt
-                        );
-                        // transaction was not aborted post-hoc
-                        assert!(!receipt.post_condition_aborted);
+                        if !ignore_transaction_errors {
+                            assert!(
+                                receipt.vm_error.is_none(),
+                                "Receipt had a CheckErrorKind: {receipt:?}"
+                            );
+                            // transaction was not aborted post-hoc
+                            assert!(!receipt.post_condition_aborted);
+                        }
                     }
                 }
             }

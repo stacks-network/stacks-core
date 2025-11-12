@@ -78,7 +78,6 @@ impl std::error::Error for ClarityError {
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
 impl From<StaticCheckError> for ClarityError {
     fn from(e: StaticCheckError) -> Self {
         match *e.err {
@@ -97,6 +96,28 @@ impl From<StaticCheckError> for ClarityError {
     }
 }
 
+/// Converts [`VmExecutionError`] to [`ClarityError`] for transaction execution contexts.
+///
+/// This conversion is used in:
+/// - [`TransactionConnection::initialize_smart_contract`]
+/// - [`TransactionConnection::run_contract_call`]
+/// - [`TransactionConnection::run_stx_transfer`]
+///
+/// # Notes
+///
+/// - [`CheckErrorKind::MemoryBalanceExceeded`] and [`CheckErrorKind::CostComputationFailed`]
+///   are intentionally not converted to [`ClarityError::CostError`].
+///   Instead, they remain wrapped in `ClarityError::Interpreter(VmExecutionError::Unchecked(CheckErrorKind::MemoryBalanceExceeded))`,
+///   which causes the transaction to fail, but still be included in the block.
+///
+/// - This behavior differs from direct conversions of [`StaticCheckError`] and [`ParseError`] to [`ClarityError`],
+///   where [`CheckErrorKind::MemoryBalanceExceeded`] is converted to [`ClarityError::CostError`],
+///   during contract analysis.
+///
+///   As a result:
+///   - A `MemoryBalanceExceeded` during contract analysis causes the block to be rejected.
+///   - A `MemoryBalanceExceeded` during execution (initialization or contract call)
+///     causes the transaction to fail, but the block remains valid.
 impl From<VmExecutionError> for ClarityError {
     fn from(e: VmExecutionError) -> Self {
         match &e {

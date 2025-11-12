@@ -515,6 +515,31 @@ where
 
     plan.initial_balances.append(&mut initial_balances);
 
+    if !plan.tip_transactions.is_empty() {
+        let mut tip_transactions = plan.tip_transactions.clone();
+        if let Some(tip_tenure) = boot_tenures.last_mut() {
+            match tip_tenure {
+                NakamotoBootTenure::Sortition(boot_steps) => match boot_steps.last_mut().unwrap() {
+                    NakamotoBootStep::Block(transactions) => {
+                        transactions.append(&mut tip_transactions)
+                    }
+                    _ => (),
+                },
+                NakamotoBootTenure::NoSortition(boot_steps) => {
+                    let boot_steps_len = boot_steps.len();
+                    // when NakamotoBootTenure::NoSortition is in place we have every NakamotoBootStep::Block
+                    // followed by NakamotoBootStep::TenureExtend (this is why we index by boot_steps_len - 2)
+                    match boot_steps.get_mut(boot_steps_len - 2).unwrap() {
+                        NakamotoBootStep::Block(transactions) => {
+                            transactions.append(&mut tip_transactions)
+                        }
+                        _ => (),
+                    }
+                }
+            }
+        }
+    }
+
     let (peer, other_peers) = plan.boot_into_nakamoto_peers(boot_tenures, Some(observer));
     (peer, other_peers)
 }

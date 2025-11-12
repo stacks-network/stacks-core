@@ -27,7 +27,7 @@ use crate::vm::ClarityVersion;
 
 /// Test type-checking for `restrict-assets?` expressions
 #[apply(test_clarity_versions)]
-fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksEpochId) {
+fn test_restrict_assets(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         // simple
         (
@@ -180,13 +180,15 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
             // restrict-assets? is only available in Clarity 4+
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap(),
+                &type_check_helper_version(code, version, epoch).unwrap(),
                 "{code}",
             );
         }
@@ -197,13 +199,15 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
             // restrict-assets? is only available in Clarity 4+
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_err,
-                type_check_helper_version(code, version)
+                type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err
                     .as_ref(),
@@ -215,7 +219,7 @@ fn test_restrict_assets(#[case] version: ClarityVersion, #[case] _epoch: StacksE
 
 /// Test type-checking for `as-contract?` expressions
 #[apply(test_clarity_versions)]
-fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpochId) {
+fn test_as_contract(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         // simple
         (
@@ -345,13 +349,15 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
             // as-contract? is only available in Clarity 4+
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("as-contract?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}"
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap(),
+                &type_check_helper_version(code, version, epoch).unwrap(),
                 "{code}"
             );
         }
@@ -362,13 +368,15 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
             // as-contract? is only available in Clarity 4+
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("as-contract?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}"
             );
         } else {
             assert_eq!(
                 expected_err,
-                type_check_helper_version(code, version)
+                type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err
                     .as_ref(),
@@ -380,7 +388,7 @@ fn test_as_contract(#[case] version: ClarityVersion, #[case] _epoch: StacksEpoch
 
 /// Test type-checking for `with-stx` allowance expressions
 #[apply(test_clarity_versions)]
-fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] _epoch: StacksEpochId) {
+fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         // basic usage
         (
@@ -437,13 +445,15 @@ fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}"
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap(),
+                &type_check_helper_version(code, version, epoch).unwrap(),
                 "{code}"
             );
         }
@@ -453,13 +463,15 @@ fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}"
             );
         } else {
             assert_eq!(
                 expected_err,
-                type_check_helper_version(code, version)
+                type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err
                     .as_ref(),
@@ -471,7 +483,7 @@ fn test_with_stx_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
 
 /// Test type-checking for `with-ft` allowance expressions
 #[apply(test_clarity_versions)]
-fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: StacksEpochId) {
+fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         // basic usage with shortcut contract principal
         (
@@ -577,13 +589,15 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap(),
+                &type_check_helper_version(code, version, epoch).unwrap(),
                 "{code}",
             );
         }
@@ -593,13 +607,15 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_err,
-                type_check_helper_version(code, version)
+                type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err
                     .as_ref(),
@@ -611,7 +627,7 @@ fn test_with_ft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stack
 
 /// Test type-checking for `with-nft` allowance expressions
 #[apply(test_clarity_versions)]
-fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: StacksEpochId) {
+fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         // basic usage with shortcut contract principal
         (
@@ -721,13 +737,15 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap(),
+                &type_check_helper_version(code, version, epoch).unwrap(),
                 "{code}",
             );
         }
@@ -737,13 +755,15 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_err,
-                type_check_helper_version(code, version)
+                type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err
                     .as_ref(),
@@ -755,7 +775,7 @@ fn test_with_nft_allowance(#[case] version: ClarityVersion, #[case] _epoch: Stac
 
 /// Test type-checking for `with-stacking` allowance expressions
 #[apply(test_clarity_versions)]
-fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] _epoch: StacksEpochId) {
+fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) {
     let good = [
         // basic usage
         (
@@ -807,13 +827,15 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] _epoch:
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap(),
+                &type_check_helper_version(code, version, epoch).unwrap(),
                 "{code}",
             );
         }
@@ -823,13 +845,15 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] _epoch:
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_err,
-                type_check_helper_version(code, version)
+                type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err
                     .as_ref(),
@@ -843,7 +867,7 @@ fn test_with_stacking_allowance(#[case] version: ClarityVersion, #[case] _epoch:
 #[apply(test_clarity_versions)]
 fn test_with_all_assets_unsafe_allowance(
     #[case] version: ClarityVersion,
-    #[case] _epoch: StacksEpochId,
+    #[case] epoch: StacksEpochId,
 ) {
     let good = [
         // basic usage
@@ -870,13 +894,15 @@ fn test_with_all_assets_unsafe_allowance(
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("as-contract?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_type,
-                &type_check_helper_version(code, version).unwrap(),
+                &type_check_helper_version(code, version, epoch).unwrap(),
                 "{code}",
             );
         }
@@ -886,13 +912,15 @@ fn test_with_all_assets_unsafe_allowance(
         if version < ClarityVersion::Clarity4 {
             assert_eq!(
                 StaticCheckErrorKind::UnknownFunction("restrict-assets?".to_string()),
-                *type_check_helper_version(code, version).unwrap_err().err,
+                *type_check_helper_version(code, version, epoch)
+                    .unwrap_err()
+                    .err,
                 "{code}",
             );
         } else {
             assert_eq!(
                 expected_err,
-                type_check_helper_version(code, version)
+                type_check_helper_version(code, version, epoch)
                     .unwrap_err()
                     .err
                     .as_ref(),

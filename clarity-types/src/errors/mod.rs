@@ -233,7 +233,9 @@ impl fmt::Display for VmExecutionError {
         match self {
             VmExecutionError::Runtime(err, stack) => {
                 write!(f, "{err}")?;
-                if let Some(stack_trace) = stack {
+                if let Some(stack_trace) = stack
+                    && !stack_trace.is_empty()
+                {
                     writeln!(f, "\n Stack Trace: ")?;
                     for item in stack_trace.iter() {
                         writeln!(f, "{item}")?;
@@ -295,8 +297,6 @@ impl From<RuntimeError> for VmExecutionError {
     }
 }
 
-// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
-// So there shouldn't be any need to convert it to a VmExecutionError.
 impl From<CommonCheckErrorKind> for VmExecutionError {
     fn from(err: CommonCheckErrorKind) -> Self {
         VmExecutionError::Unchecked(err.into())
@@ -309,8 +309,6 @@ impl From<CheckErrorKind> for VmExecutionError {
     }
 }
 
-// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
-// So there shouldn't be any need to convert it to a VmExecutionError.
 impl From<(CommonCheckErrorKind, &SymbolicExpression)> for VmExecutionError {
     fn from(err: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         VmExecutionError::Unchecked(err.0.into())

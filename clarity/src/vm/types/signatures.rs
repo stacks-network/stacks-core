@@ -26,6 +26,7 @@ pub use clarity_types::types::Value;
 use stacks_common::types::StacksEpochId;
 
 use self::TypeSignature::SequenceType;
+use crate::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use crate::vm::costs::{runtime_cost, CostOverflowingMath};
 use crate::vm::errors::{SyntaxBindingError, SyntaxBindingErrorType};
 use crate::vm::representations::{
@@ -409,6 +410,22 @@ impl TypeSignatureExt for TypeSignature {
             .match_list()
             .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
 
+        // Check the method count against the maximum allowed
+        if epoch.limits_parameter_and_method_count() && functions_types.len() > MAX_TRAIT_METHODS {
+            return Err(CommonCheckErrorKind::TraitTooManyMethods(
+                functions_types.len(),
+                MAX_TRAIT_METHODS,
+            ));
+        }
+
+        // Check the method count against the maximum allowed
+        if epoch.limits_parameter_and_method_count() && functions_types.len() > MAX_TRAIT_METHODS {
+            return Err(CommonCheckErrorKind::TraitTooManyMethods(
+                functions_types.len(),
+                MAX_TRAIT_METHODS,
+            ));
+        }
+
         for function_type in functions_types.iter() {
             let args = function_type
                 .match_list()
@@ -426,6 +443,17 @@ impl TypeSignatureExt for TypeSignature {
             let fn_args_exprs = args[1]
                 .match_list()
                 .ok_or(CommonCheckErrorKind::DefineTraitBadSignature)?;
+
+            // Check the argument count against the maximum allowed
+            if epoch.limits_parameter_and_method_count()
+                && fn_args_exprs.len() > MAX_FUNCTION_PARAMETERS
+            {
+                return Err(CommonCheckErrorKind::TooManyFunctionParameters(
+                    fn_args_exprs.len(),
+                    MAX_FUNCTION_PARAMETERS,
+                ));
+            }
+
             let fn_args = fn_args_exprs
                 .iter()
                 .map(|arg_type| TypeSignature::parse_type_repr(epoch, arg_type, accounting))

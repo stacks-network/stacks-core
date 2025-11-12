@@ -28,7 +28,9 @@ use stacks_common::types::StacksEpochId;
 pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
-pub use self::errors::{CheckErrorKind, StaticCheckError, StaticCheckErrorKind};
+pub use self::errors::{
+    CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
+};
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;
@@ -54,10 +56,9 @@ pub fn mem_type_check(
     epoch: StacksEpochId,
 ) -> Result<(Option<TypeSignature>, ContractAnalysis), StaticCheckError> {
     let contract_identifier = QualifiedContractIdentifier::transient();
-    let contract: Vec<SymbolicExpression> =
-        build_ast(&contract_identifier, snippet, &mut (), version, epoch)
-            .map_err(|_| StaticCheckErrorKind::Expects("Failed to build AST".into()))?
-            .expressions;
+    let contract = build_ast(&contract_identifier, snippet, &mut (), version, epoch)
+        .map_err(|e| StaticCheckErrorKind::Expects(format!("Failed to build AST: {e}")))?
+        .expressions;
 
     let mut marf = MemoryBackingStore::new();
     let mut analysis_db = marf.as_analysis_db();
