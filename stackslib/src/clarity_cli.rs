@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{fs, io};
@@ -1959,29 +1958,6 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     (1, Some(result))
                 }
             }
-        }
-        "make_lcov" => {
-            let mut register_files = vec![];
-            let mut coverage_files = vec![];
-            let coverage_folder = &args[1];
-            let lcov_output_file = &args[2];
-            for folder_entry in
-                fs::read_dir(coverage_folder).expect("Failed to read the coverage folder")
-            {
-                let folder_entry =
-                    folder_entry.expect("Failed to read entry in the coverage folder");
-                let entry_path = folder_entry.path();
-                if entry_path.is_file() {
-                    if entry_path.extension() == Some(OsStr::new("clarcovref")) {
-                        register_files.push(entry_path)
-                    } else if entry_path.extension() == Some(OsStr::new("clarcov")) {
-                        coverage_files.push(entry_path)
-                    }
-                }
-            }
-            CoverageReporter::produce_lcov(lcov_output_file, &register_files, &coverage_files)
-                .expect("Failed to produce an lcov output");
-            (0, None)
         }
         _ => {
             print_usage(invoked_by);
