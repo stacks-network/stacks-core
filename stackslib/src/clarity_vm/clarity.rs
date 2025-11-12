@@ -1918,7 +1918,7 @@ impl<'a, 'b> ClarityBlockConnection<'a, 'b> {
             }
 
             info!("Epoch 3.3 initialized");
-            (old_cost_tracker, Ok(vec![]))
+            (old_cost_tracker, Ok(vec![costs_4_initialization_receipt]))
         })
     }
 
