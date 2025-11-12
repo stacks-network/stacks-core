@@ -27,6 +27,7 @@ use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKe
 use clarity::types::{StacksEpoch, StacksEpochId};
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
+use clarity::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, MAX_TYPE_DEPTH};
@@ -1757,6 +1758,36 @@ contract_deploy_consensus_test!(
         (contract-call? contract get-2 u1))",
 );
 
+// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitTooManyMethods`]
+// Caused by: a trait has too many methods.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_trait_too_many_methods,
+    contract_name: "too-many-methods",
+    contract_code: &format!(
+        "(define-trait trait-1 ({}))",
+        (0..(MAX_TRAIT_METHODS + 1))
+            .map(|i| format!("(method-{i} (uint) (response uint uint))"))
+            .collect::<Vec<String>>()
+            .join(" ")
+    ),
+);
+
+// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyFunctionParameters`]
+// Caused by: a function has too many parameters.
+// Outcome: block accepted.
+contract_deploy_consensus_test!(
+    static_check_error_too_many_function_parameters,
+    contract_name: "too-many-params",
+    contract_code: &format!(
+        "(define-trait trait-1 ((method ({}) (response uint uint))))",
+        (0..(MAX_FUNCTION_PARAMETERS + 1))
+            .map(|i| "uint".to_string())
+            .collect::<Vec<String>>()
+            .join(" ")
+    ),
+);
+
 // StaticCheckErrorKind: [`StaticCheckErrorKind::ReservedWord`]
 // Caused by: name is a reserved word
 // Outcome: block accepted.
@@ -2279,6 +2310,7 @@ fn error_invalid_stacks_transaction_duplicate_contract() {
 //     DefaultTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_default_types_must_match`]
 //     IllegalOrUnknownFunctionApplication(String), [`static_check_error_illegal_or_unknown_function_application`]
 //     UnknownFunction(String), [`static_check_error_unknown_function`]
+//     TooManyFunctionParameters(usize, usize), [`static_check_error_too_many_function_parameters`]
 //     NoSuchTrait(String, String), // Unreachable: all trait identifiers are validated by the parser and TraitsResolve before type checking; invalid or missing traits trigger TraitReferenceUnknown earlier, so this error is never returned.
 //     TraitReferenceUnknown(String), [`static_check_error_trait_reference_unknown`]
 //     TraitMethodUnknown(String, String), [`static_check_error_trait_method_unknown`]
@@ -2289,6 +2321,7 @@ fn error_invalid_stacks_transaction_duplicate_contract() {
 //     UnexpectedTraitOrFieldReference, [`static_check_error_unexpected_trait_or_field_reference`]
 //     ContractOfExpectsTrait, [`static_check_error_contract_of_expects_trait`]
 //     IncompatibleTrait(Box<TraitIdentifier>, Box<TraitIdentifier>), [`static_check_error_incompatible_trait`]
+//     TraitTooManyMethods(usize, usize), [`static_check_error_trait_too_many_methods`]
 //     WriteAttemptedInReadOnly, [`static_check_error_write_attempted_in_read_only`]
 //     AtBlockClosureMustBeReadOnly, [`static_check_error_at_block_closure_must_be_read_only`]
 //     ExpectedListOfAllowances(String, i32), [`static_check_error_expected_list_of_allowances`]
