@@ -289,13 +289,17 @@ pub static NAKAMOTO_CHAINSTATE_SCHEMA_6: &[&str] = &[
 ];
 
 pub static NAKAMOTO_CHAINSTATE_SCHEMA_7: &[&str] = &[
-    r#"
-    UPDATE db_config SET version = "12";
-    "#,
+    // schema change is JUST a new index, but the index is on a table
+    //  created by a migration, so don't add the index to the CHAINSTATE_INDEXES
+    r#"UPDATE db_config SET version = "12";"#,
+    "CREATE INDEX IF NOT EXISTS naka_block_headers_by_burn_hash ON nakamoto_block_headers(burn_header_hash);",
+    "CREATE INDEX IF NOT EXISTS naka_block_headers_by_burn_ht ON nakamoto_block_headers(burn_header_height);"
+];
+
+pub static NAKAMOTO_CHAINSTATE_SCHEMA_8: &[&str] = &[
+    r#"UPDATE db_config SET version = "13";"#,
     // Add a `total_tenure_size` field to the block header row, so we can keep track
     // of the whole tenure size (and eventually limit it)
-    //
-    //
     //
     // Default to 0.
     r#"
