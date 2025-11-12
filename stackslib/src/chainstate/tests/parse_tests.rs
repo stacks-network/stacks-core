@@ -40,16 +40,16 @@ use crate::core::BLOCK_LIMIT_MAINNET_21;
 #[allow(dead_code)]
 fn variant_coverage_report(variant: ParseErrorKind) {
     enum VariantCoverage {
-        // Cannot occur through valid execution
-        Unreachable_Functionally,
+        // Cannot occur through valid execution. The string is to explain the reason.
+        Unreachable_Functionally(&'static str),
         // Unexpected error, that should never happen
         Unreachable_ExpectLike,
         // Defined but never used
         Unreachable_NotUsed,
-        // Not tested on purpose
-        Ignored,
-        // Covered by consensus tests
-        Tested,
+        // Not tested on purpose. The string is to explain the reason.
+        Ignored(&'static str),
+        // Covered by consensus tests. The func lists is for to link the variant with the related tests
+        Tested(Vec<fn()>),
     }
 
     use ParseErrorKind::*;
@@ -58,42 +58,45 @@ fn variant_coverage_report(variant: ParseErrorKind) {
     _ = match variant {
         // Costs
         CostOverflow => Unreachable_ExpectLike,
-        CostBalanceExceeded(_, _) => Tested,
+        CostBalanceExceeded(_, _) => Tested(vec![test_cost_balance_exceeded]),
         MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
         CostComputationFailed(_) => Unreachable_ExpectLike,
         ExecutionTimeExpired => Unreachable_NotUsed,
 
         TooManyExpressions => Unreachable_ExpectLike,
-        ExpressionStackDepthTooDeep => Tested,
-        VaryExpressionStackDepthTooDeep => Tested,
-        FailedParsingIntValue(_) => Tested,
-        CircularReference(_) => Tested,
-        NameAlreadyUsed(_) => Tested,
-        TraitReferenceNotAllowed => Tested,
-        ImportTraitBadSignature => Tested,
-        DefineTraitBadSignature => Tested,
-        ImplTraitBadSignature => Tested,
-        TraitReferenceUnknown(_) => Tested,
-
-        Lexer(LexerError) => Tested,
-        ContractNameTooLong(String) => Tested,
-        ExpectedClosing(Token) => Tested,
-        ExpectedContractIdentifier => Tested,
-        ExpectedTraitIdentifier => Tested,
-        ExpectedWhitespace => Tested,
-        FailedParsingUIntValue(_) => Tested,
-        IllegalTraitName(_) => Unreachable_Functionally, // prevented by Lexer checks returning `Lexer` variant
-        InvalidPrincipalLiteral => Tested,
-        InvalidBuffer => Unreachable_Functionally, // prevented by both Lexer checks, and StacksTransaction::consensus_serialize with MAX_TRASACTION_LEN (panic)
-        NameTooLong(_) => Tested,
-        UnexpectedToken(_) => Tested,
-        TupleColonExpectedv2 => Tested,
-        TupleCommaExpectedv2 => Tested,
-        TupleValueExpected => Tested,
-        IllegalClarityName(_) => Unreachable_Functionally, // prevented by Lexer checks returning `Lexer` variant
-        IllegalASCIIString(_) => Tested,
-        IllegalContractName(_) => Unreachable_Functionally, // prevented by Lexer checks returning `Lexer` variant or Parser by MAX_CONTRACT_NAME_LEN returning `ContractNameTooLong` variant
-        NoteToMatchThis(_) => Tested,
+        ExpressionStackDepthTooDeep => Tested(vec![
+            test_stack_depth_too_deep_case_2_list_only_parsing,
+            test_stack_depth_too_deep_case_2_list_only_parsing,
+            test_stack_depth_too_deep_case_3_list_only_checker,
+        ]),
+        VaryExpressionStackDepthTooDeep => Tested(vec![test_vary_stack_depth_too_deep_checker]),
+        FailedParsingIntValue(_) => Tested(vec![test_failed_parsing_int_value]),
+        CircularReference(_) => Tested(vec![test_circular_reference]),
+        NameAlreadyUsed(_) => Tested(vec![test_named_already_used]),
+        TraitReferenceNotAllowed => Tested(vec![test_trait_ref_not_allowed]),
+        ImportTraitBadSignature => Tested(vec![test_import_trait_bad_signature]),
+        DefineTraitBadSignature => Tested(vec![test_define_trait_bad_signature]),
+        ImplTraitBadSignature => Tested(vec![test_impl_trait_bad_signature]),
+        TraitReferenceUnknown(_) => Tested(vec![test_trait_reference_unknown]),
+        Lexer(LexerError) => Tested(vec![test_lexer_unknown_symbol]),
+        ContractNameTooLong(String) => Tested(vec![test_contract_name_too_long]),
+        ExpectedClosing(Token) => Tested(vec![test_expected_closing]),
+        ExpectedContractIdentifier => Tested(vec![test_expected_contract_identifier]),
+        ExpectedTraitIdentifier => Tested(vec![test_expected_trait_identifier]),
+        ExpectedWhitespace => Tested(vec![test_expected_white_space]),
+        FailedParsingUIntValue(_) => Tested(vec![test_failed_parsing_uint_value]),
+        IllegalTraitName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant"),
+        InvalidPrincipalLiteral => Tested(vec![test_invalid_principal_literal]),
+        InvalidBuffer => Unreachable_Functionally("prevented by both Lexer checks, and StacksTransaction::consensus_serialize with MAX_TRANSACTION_LEN (panic)"),
+        NameTooLong(_) => Tested(vec![test_name_too_long]),
+        UnexpectedToken(_) => Tested(vec![test_unexpected_token]),
+        TupleColonExpectedv2 => Tested(vec![test_tuple_colon_expected_v2]),
+        TupleCommaExpectedv2 => Tested(vec![test_tuple_comma_expected_v2]),
+        TupleValueExpected => Tested(vec![test_tuple_value_expected]),
+        IllegalClarityName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant"),
+        IllegalASCIIString(_) => Tested(vec![test_illegal_ascii_string]),
+        IllegalContractName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant or Parser by MAX_CONTRACT_NAME_LEN returning `ContractNameTooLong` variant"),
+        NoteToMatchThis(_) => Tested(vec![test_note_to_match_this]),
         UnexpectedParserFailure => Unreachable_ExpectLike,
         InterpreterFailure => Unreachable_ExpectLike, // currently cause block rejection
 
@@ -118,7 +121,7 @@ fn variant_coverage_report(variant: ParseErrorKind) {
         | CommaSeparatorUnexpected
         | ColonSeparatorUnexpected
         | InvalidCharactersDetected
-        | InvalidEscaping => Ignored, //parser v1 is deprecated and maybe removed in the next future.
+        | InvalidEscaping => Ignored("parser v1 is deprecated and maybe removed in the next future."),
     }
 }
 
