@@ -45,6 +45,7 @@ siphasher = "0.3.7"
 rusqlite = { workspace = true }
 time = "0.3.41"
 toml = { workspace = true }
+perf-event2 = "0.7.4"
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"

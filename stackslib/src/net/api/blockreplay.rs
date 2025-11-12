@@ -15,6 +15,8 @@
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
+use perf_event::events::Hardware;
+use perf_event::Builder;
 use regex::{Captures, Regex};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
@@ -157,6 +159,15 @@ impl RPCNakamotoBlockReplayRequestHandler {
         for (i, tx) in block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
+            let mut perf_event_instructions = Builder::new(Hardware::INSTRUCTIONS).build().unwrap();
+            let mut perf_event_cpu_cycles = Builder::new(Hardware::CPU_CYCLES).build().unwrap();
+            let mut perf_event_ref_cpu_cycles =
+                Builder::new(Hardware::REF_CPU_CYCLES).build().unwrap();
+
+            perf_event_instructions.enable().unwrap();
+            perf_event_cpu_cycles.enable().unwrap();
+            perf_event_ref_cpu_cycles.enable().unwrap();
+
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,
                 tx,
@@ -164,9 +175,23 @@ impl RPCNakamotoBlockReplayRequestHandler {
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
             );
+
+            perf_event_instructions.disable().unwrap();
+            perf_event_cpu_cycles.disable().unwrap();
+            perf_event_ref_cpu_cycles.disable().unwrap();
+
+            let cpu_instructions = perf_event_instructions.read().unwrap();
+            let cpu_cycles = perf_event_cpu_cycles.read().unwrap();
+            let cpu_ref_cycles = perf_event_ref_cpu_cycles.read().unwrap();
+
             let err = match tx_result {
                 TransactionResult::Success(tx_result) => {
-                    txs_receipts.push(tx_result.receipt);
+                    txs_receipts.push((
+                        tx_result.receipt,
+                        cpu_instructions,
+                        cpu_cycles,
+                        cpu_ref_cycles,
+                    ));
                     Ok(())
                 }
                 _ => Err(format!("Problematic tx {i}")),
@@ -191,8 +216,13 @@ impl RPCNakamotoBlockReplayRequestHandler {
         let mut rpc_replayed_block =
             RPCReplayedBlock::from_block(block, block_fees, tenure_id, parent_block_id);
 
-        for receipt in &txs_receipts {
-            let transaction = RPCReplayedBlockTransaction::from_receipt(receipt);
+        for (receipt, cpu_instructions, cpu_cycles, cpu_ref_cycles) in &txs_receipts {
+            let transaction = RPCReplayedBlockTransaction::from_receipt(
+                receipt,
+                Some(*cpu_instructions),
+                Some(*cpu_cycles),
+                Some(*cpu_ref_cycles),
+            );
             rpc_replayed_block.transactions.push(transaction);
         }
 
@@ -221,10 +251,19 @@ pub struct RPCReplayedBlockTransaction {
     pub execution_cost: ExecutionCost,
     /// generated events
     pub events: Vec<serde_json::Value>,
+    /// profiling data based on linux perf_events
+    pub cpu_instructions: Option<u64>,
+    pub cpu_cycles: Option<u64>,
+    pub cpu_ref_cycles: Option<u64>,
 }
 
 impl RPCReplayedBlockTransaction {
-    pub fn from_receipt(receipt: &StacksTransactionReceipt) -> Self {
+    pub fn from_receipt(
+        receipt: &StacksTransactionReceipt,
+        cpu_instructions: Option<u64>,
+        cpu_cycles: Option<u64>,
+        cpu_ref_cycles: Option<u64>,
+    ) -> Self {
         let events = receipt
             .events
             .iter()
@@ -252,6 +291,9 @@ impl RPCReplayedBlockTransaction {
             stx_burned: receipt.stx_burned,
             execution_cost: receipt.execution_cost.clone(),
             events,
+            cpu_instructions,
+            cpu_cycles,
+            cpu_ref_cycles,
         }
     }
 }

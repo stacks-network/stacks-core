@@ -3586,6 +3586,7 @@ dependencies = [
  "mutants",
  "nix",
  "percent-encoding",
+ "perf-event2",
  "pox-locking 2.4.0",
  "prometheus",
  "proptest",
