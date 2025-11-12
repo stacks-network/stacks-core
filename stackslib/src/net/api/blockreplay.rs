@@ -15,7 +15,9 @@
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use perf_event::events::Hardware;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use perf_event::{Builder, Counter};
 use regex::{Captures, Regex};
 use stacks_common::codec::StacksMessageCodec;
@@ -166,6 +168,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
             let mut perf_event_cpu_cycles: Option<Counter> = None;
             let mut perf_event_cpu_ref_cycles: Option<Counter> = None;
 
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             if self.profiler {
                 if let Ok(mut perf_event_cpu_instructions_result) =
                     Builder::new(Hardware::INSTRUCTIONS).build()
@@ -204,6 +207,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
             let mut cpu_cycles: Option<u64> = None;
             let mut cpu_ref_cycles: Option<u64> = None;
 
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             if self.profiler {
                 if let Some(mut perf_event_cpu_instructions) = perf_event_cpu_instructions {
                     if perf_event_cpu_instructions.disable().is_ok() {
