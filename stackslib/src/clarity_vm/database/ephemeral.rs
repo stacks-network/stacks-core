@@ -21,7 +21,7 @@ use clarity::vm::database::sqlite::{
     sqlite_insert_metadata,
 };
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
-use clarity::vm::errors::{InterpreterError, InterpreterResult, RuntimeErrorType};
+use clarity::vm::errors::{InterpreterResult, RuntimeError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite;
 use rusqlite::Connection;
@@ -67,7 +67,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// disappear when this instance is dropped
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
+    /// Returns Err(VmInternalError(..)) on sqlite failure
     fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip() {
             self.teardown_views();
@@ -85,7 +85,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// unless the RAM-only sqlite DB is experiencing problems (which is probably not recoverable).
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
+    /// Returns Err(VmInternalError(..)) on sqlite failure
     fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()> {
         self.teardown_views();
         let res = SqliteConnection::drop_metadata(self.ephemeral_marf.sqlite_tx(), target);
@@ -111,7 +111,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// transaction, so no disk I/O will be performed.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
+    /// Returns Err(VmInternalError(..)) on sqlite failure
     fn drop_unconfirmed(mut self) -> InterpreterResult<()> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip().cloned() {
             debug!("Drop unconfirmed MARF trie {}", tip);
@@ -127,13 +127,13 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// motions just in case any errors would be reported.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
+    /// Returns Err(VmInternalError(..)) on sqlite failure
     fn commit_to_processed_block(mut self, target: &StacksBlockId) -> InterpreterResult<()> {
         if self.ephemeral_marf.get_open_chain_tip().is_some() {
             self.commit_metadata_for_trie(target)?;
             let _ = self.ephemeral_marf.commit_to(target).map_err(|e| {
                 error!("Failed to commit to ephemeral MARF block {target}: {e:?}",);
-                InterpreterError::Expect("Failed to commit to MARF block".into())
+                VmInternalError::Expect("Failed to commit to MARF block".into())
             })?;
         }
         Ok(())
@@ -145,7 +145,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
     /// motions just in case any errors would be reported.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
+    /// Returns Err(VmInternalError(..)) on sqlite failure
     fn commit_to_mined_block(mut self, target: &StacksBlockId) -> InterpreterResult<()> {
         if let Some(tip) = self.ephemeral_marf.get_open_chain_tip().cloned() {
             // rollback the side_store
@@ -156,7 +156,7 @@ impl ClarityMarfStoreTransaction for EphemeralMarfStore<'_> {
             self.drop_metadata_for_trie(&tip)?;
             let _ = self.ephemeral_marf.commit_mined(target).map_err(|e| {
                 error!("Failed to commit to mined MARF block {target}: {e:?}",);
-                InterpreterError::Expect("Failed to commit to MARF block".into())
+                VmInternalError::Expect("Failed to commit to MARF block".into())
             })?;
         }
         Ok(())
@@ -246,11 +246,11 @@ impl<'a> EphemeralMarfStore<'a> {
     }
 
     /// Test to see if a given tip is in the ephemeral MARF
-    fn is_ephemeral_tip(&mut self, tip: &StacksBlockId) -> Result<bool, InterpreterError> {
+    fn is_ephemeral_tip(&mut self, tip: &StacksBlockId) -> Result<bool, VmInternalError> {
         match self.ephemeral_marf.get_root_hash_at(tip) {
             Ok(_) => Ok(true),
             Err(Error::NotFoundError) => Ok(false),
-            Err(e) => Err(InterpreterError::MarfFailure(e.to_string())),
+            Err(e) => Err(VmInternalError::MarfFailure(e.to_string())),
         }
     }
 
@@ -321,7 +321,7 @@ impl<'a> EphemeralMarfStore<'a> {
                 trace!("Ephemeral MarfedKV get not found",);
                 Ok(None)
             }
-            Err(e) => Err(InterpreterError::Expect(format!(
+            Err(e) => Err(VmInternalError::Expect(format!(
                 "ERROR: Unexpected MARF failure: {e:?}"
             ))
             .into()),
@@ -334,7 +334,7 @@ impl<'a> EphemeralMarfStore<'a> {
     ///
     /// Returns Ok(Some(V)) if the key was mapped in eiher MARF
     /// Returns Ok(None) if the key was not mapped in either MARF
-    /// Returns Err(InterpreterError(..)) on failure.
+    /// Returns Err(VmInternalError(..)) on failure.
     fn get_with_fn<Key, V, TxGetter, MarfGetter>(
         &mut self,
         key: Key,
@@ -397,7 +397,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
             .map_err(|e| match e {
                 Error::NotFoundError => {
                     test_debug!("No such block {:?} (NotFoundError)", &bhh);
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 Error::NonMatchingForks(_bh1, _bh2) => {
                     test_debug!(
@@ -406,7 +406,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                         BlockHeaderHash(_bh1),
                         BlockHeaderHash(_bh2)
                     );
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
@@ -441,7 +441,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 let side_key = marf_value.to_hex();
                 let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
                     .ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {side_key}",
                         ))
                     })?;
@@ -477,7 +477,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 );
                 let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
                     .ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                         "ERROR: Ephemeral MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -509,7 +509,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 let side_key = marf_value.to_hex();
                 let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
                     .ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -544,7 +544,7 @@ impl ClarityBackingStore for EphemeralMarfStore<'_> {
                 let side_key = marf_value.to_hex();
                 let data = SqliteConnection::get(ephemeral_marf.sqlite_conn(), &side_key)?
                     .ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))

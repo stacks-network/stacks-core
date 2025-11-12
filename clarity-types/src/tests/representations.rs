@@ -15,7 +15,7 @@
 
 use rstest::rstest;
 
-use crate::errors::RuntimeErrorType;
+use crate::errors::RuntimeError;
 use crate::representations::{
     CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH, ClarityName, ContractName, MAX_STRING_LEN,
 };
@@ -73,7 +73,7 @@ fn test_clarity_name_invalid(#[case] name: &str) {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        RuntimeErrorType::BadNameValue(_, _)
+        RuntimeError::BadNameValue(_, _)
     ));
 }
 
@@ -157,7 +157,7 @@ fn test_contract_name_invalid(#[case] name: &str) {
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        RuntimeErrorType::BadNameValue(_, _)
+        RuntimeError::BadNameValue(_, _)
     ));
 }
 

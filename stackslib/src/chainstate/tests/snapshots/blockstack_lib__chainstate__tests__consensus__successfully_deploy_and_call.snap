@@ -592,595 +592,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "dfd7987ed3594de16a5a049afddcc6b1554d1c872ff62505193d651f39358ba1",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_0-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "eb2610cbcb9bcb2b9ef4ca096ea86ba5c650c0827948e2ea3d7217134f78abbb",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_05-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "aacde9ab4bb9e268861e798a60cebe203ad63eb620557a807c18be6ca4778b36",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_1-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "1dadd6143cdd8858b1be818ec305284d5d7b5ea5c74798a55bbaa65fd4960da4",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_1-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "33f654fae321df1a7a8c999ff5bd9f7157838686cc66052713350fbabfec6475",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_2-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a62d1626724274fde8a5ff7896df804e8d9d9b360fd15e3f5c4163c1b1883fc4",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_2-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "03113d14b71423632965e65c09ae3c25e02fcadb50643597fbb422b63fb40046",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_3-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a98500c481c27c5a9a145be38e97899bff6594094792c2e096554dc1d673ac6c",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_3-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "662d3b6c0b7626514a6b6db933085131eabbed7e511a652821e04b391293f562",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_4-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d1542be1ac31dcad1cd400f4da054ff9483e8288f4eb62c81ad0c738565c1748",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_4-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "de0cc119f7d0fb0c6bee1dbc197f8e00b50a818b7cb71b197271d0d52547ee18",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_5-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6d65110f96a096b36de9e731d2c05d1e489a60964db8a68192794c3ab188d698",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch2_5-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "4c1bfbe42283cc5e98bedaf29f389b9dbddbcae1fc6a9f3dd58a159f8acaa0d2",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7e6068e2124476b0bc68b5ea1b92af144b69b2e5cc99070dafdf7ecbf6ffa3ab",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "5f3f0b515bdf85a87ddf95d0630c988c96e2e8f4072435755d4572a2a19ee13f",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_0-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "38c1fe84e0a3a5b865dc3c04c2834f8fe6ef0ac0ac5bc0976496af7b3d99e9e1",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "83cb893a388306c229959558bc8840911099641abf724707687cb36d1a49ea8f",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "54e129237da03ab5215ec50928b16950a3f1a11a25a7d509e5ca488e30904a70",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_1-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7abd4e113f31e7d9431617303f68757d880cf98badbba442269c79f1397fece0",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity1, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "0ef2659b0f4a3e3cd79b983c42308a8791d73d9c54f98ce1babad6bce4f450af",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity2, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6fb786959add35c7f138469509e89a151410346410432724577e1dafe1209fb1",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: foo_contract-Epoch3_2-Clarity3, function_name: bar, function_args: [[UInt(1)]])",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: UInt(1),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 103,
-          read_count: 3,
-          runtime: 499,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 103,
-      read_count: 3,
-      runtime: 499,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7c49b5e1ef621f812e098505662ec22466e35dba63790f0207ca975ba140e1bf",
+    marf_hash: "a4cbd10703dea6ad57c7659369199d4182a5ecaf263ad0e01026b9be1bc51473",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1208,7 +620,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1ce3dbfc54ed002976f2ac1b9481002cc5693c6986a0a276aa493204ce5c50cd",
+    marf_hash: "d7edad5e9756c70ab5268cce0e56aa5c319b185e7c2e5ee3c40484499042478d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1236,7 +648,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bc53a4af2876d50e4b1f2fc617662a2c7fe407f399a5e9ed70f1a5d6ef632c96",
+    marf_hash: "5750fafc9ba7ffb596e2d8ded6292ea83018739a8ae51e0c05e37a89ed995e3f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1264,7 +676,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1a5f4dcc0061e5f372a7fcea574f14942ac7366f16ef7254adbdcd08b1559a0a",
+    marf_hash: "0f6ba07b5b18385c2613a36c21fa9eaf5361135fe19f4e8b552d60af07e76a5b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1292,7 +704,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "611f8299c20e38188d76c1d8981a8ea5d000c73ede60c854010598d23c75f7f4",
+    marf_hash: "57c61d7b265b9a9279e02f33a4a28569f44f7d990bea2ecde0eb8176671f341e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1320,7 +732,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "fad2c2400a9ed905609b276a3e0ac12e82666495a187cc9d96c6f15c2ce0f9f2",
+    marf_hash: "8b265e09aa43e9bb5889ef6b1403a1a9d00ebdcf1d6658cd179989899be30e4e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1348,7 +760,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ff78af2148d178968917f4dcc3bf0e84e99e94e7e03cce0481e7bb2ed722e64f",
+    marf_hash: "0c343515da886e74b5dff7ecf87ba29d3055d0405be301903a7dbaed89764eef",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1376,7 +788,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c24417065f0ae7793e7b7048483d88d6d847d06f5dc141a2e82f5d9cfc708036",
+    marf_hash: "c990674e046e3bf43cddce38b63f575a54942d5bbc59a82ca20c479c06484684",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1404,7 +816,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0cd887293455e8a6d347eae14d5b9790dcc7cb015294c2a929477ca3e7afd51f",
+    marf_hash: "b60782bcc43253fd9d7f9ac7caf4b40f401dfcf9e7bcab92e90a89c5b77ce6d8",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1432,7 +844,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "130b8d2b572b04c64fd7d9b34cd63ec0400a792f5a3bb1eb905a80074f10a68b",
+    marf_hash: "de40601c9e106c83e6e95b31ca0b96adf9de68c10e06cfda6148c5d1ae4d2203",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1460,7 +872,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ed142964c3dafbe32c916591ef45f871fbf31330d770884ec466aa13fdc57790",
+    marf_hash: "d602ab64d74f9ba0ea39b22c70e7b080456ef52d68f4947a67045bdb3c8d7601",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1488,7 +900,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "7b61d1f32b9ee3c3672aee6fe1c31298c2b5a92f04304df3b2e1c16e51501dfe",
+    marf_hash: "989a87c2bef5ffffe6bebf7de89b4351c47de61e860c04f2434f0751f3fd2273",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1516,7 +928,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3f01fae225c8345bd4d00385351a0e06c368975409fdb5ed550413a8c2752bde",
+    marf_hash: "bd2ce483b41029a36c9855f4dc6d10d879e40a1fa8fc65e47cafc36b46c389cd",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1544,7 +956,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "c19b2af6f7214f293596ed8ee49f4a719d117699655fcf0dfdae6a94c993f318",
+    marf_hash: "6b838e3dadb8674ab2dfb23df6ade1514d34c093c48fdcfb154cfab68c217a89",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1572,7 +984,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6742b63ec373563e0f67b06e09e48dcaeff96501d8b2971af9db4309d353d120",
+    marf_hash: "b4ad0448c57e7b9b0b3b69e620dca51dd7e806e19bac634bea678f072fe34836",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1600,7 +1012,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d8649197d538722552412dce20ce4c197035bf92b5c247b2668361d9a4755942",
+    marf_hash: "0dec6566225ad2fdca73bbf110784b572b994c7a68c793d7153d6b21b0a1146a",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1628,7 +1040,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6cde15ab15ad480cd95a0f4beb707e5db334c55cff6027f37bc0b1b8cb44ea41",
+    marf_hash: "4a10700632ece7d4bbceb7a26d9a1ddc69e3e7c7b2853cd01908097542ad3f08",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1656,7 +1068,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d6c085c796f234102b6de6259e0e014aa88e789923d00fb8f7a25857cc9f1a15",
+    marf_hash: "fa9a13c1fafca5ea14deb091d68b15a9903f81179ee29b8896e4c982167e7aa5",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1684,7 +1096,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "645db2f08fb74c7cd7830cb90d8db8dccc3c4e37b89be42d3c7b2bd214f58556",
+    marf_hash: "c348fcd9051e9f063e1d3a23b15e1a75aafffac301ca34621ea91d7694ac1704",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1712,7 +1124,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "43e8fb9110329a7a8892e227509f5833b3a0cfe54f4c0c1d1ae58d17622d6e01",
+    marf_hash: "ecbae54ee9982e437c4696275a7610f36df03d680c14067287db13d3d5bf26f4",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1740,7 +1152,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6564f3eccdf42fb951cc61b687b493b339c68f3a185328eede8f3bbc2d60435d",
+    marf_hash: "fbaaef905833900012ea45aaa03f1559fde41f0cb82b96092f4f8b89d7eb73d5",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1768,7 +1180,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1c926315fee79fd91f30ece3612ea499866ff5d8e26ea76947d3147675d2463c",
+    marf_hash: "d4fbc33dfe9063caa374c4551df8def2921afcd4d6a22a68d82315e05084314c",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1796,7 +1208,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6fd0a270a21d6defe7796db517f01351dbf4690a3087b2ad045530f0f10f0d9c",
+    marf_hash: "591b0fb01a49c37026533463be5aa3ca9d7c2d839717efd3a06e2ccaf8a49369",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1824,7 +1236,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "12dcc58b837c4780423c76953847dcfa787adfc3a12745319e245cd944aa0c17",
+    marf_hash: "1fb5d45e06726589956a9d9fbc74e14e626c7bf1a34fa18667d5ea2ef665b416",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1852,7 +1264,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9bcf59d22afcbbdd3ea4660e823b385ebc9b0098310c893b0810378041d63d06",
+    marf_hash: "cafd6a9f60540daa59cca2df829cd9fa6e4e97907d97e4fb797438df0ae20570",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1880,7 +1292,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "157c33212448710e558bf87edcb73a65f7c7d64ea25f11c0d1197e9c3ebe7b85",
+    marf_hash: "bd424e051d35fe4448009304d3225bcf7b92bb9284bb54f00e4b11331aa90ad6",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1908,7 +1320,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d36b236e0c9430cf3c6782b8d1d56b777c83328861d428bcc72a6fe497d4c5ee",
+    marf_hash: "066755c28b042aec9f717b41aa5d197db13bfcd9813967f67ae918d0153b03d0",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1936,7 +1348,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "29c9591ed858e7f921eb0af320f8823ca5c80255a4003d86d444bc5cbb9128ad",
+    marf_hash: "8e88cf1f602d9d4f9395b134a11daab5ea802bc25fecf8eb1ba9ac9442aaf170",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1964,7 +1376,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "76de1f6c346b550f60eca65ae89861c1fd7a73f463ea928791bd2e63ff15b18f",
+    marf_hash: "536c7b1e016a9a2021ece1650298e5e861903c9d9a9c7a6060905527357ce2e0",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(

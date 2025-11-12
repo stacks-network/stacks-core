@@ -50,7 +50,7 @@ use crate::chainstate::nakamoto::{
     HeaderTypeNames, NakamotoBlockHeader, NakamotoChainState, NakamotoStagingBlocksConn,
     NAKAMOTO_CHAINSTATE_SCHEMA_1, NAKAMOTO_CHAINSTATE_SCHEMA_2, NAKAMOTO_CHAINSTATE_SCHEMA_3,
     NAKAMOTO_CHAINSTATE_SCHEMA_4, NAKAMOTO_CHAINSTATE_SCHEMA_5, NAKAMOTO_CHAINSTATE_SCHEMA_6,
-    NAKAMOTO_CHAINSTATE_SCHEMA_7,
+    NAKAMOTO_CHAINSTATE_SCHEMA_7, NAKAMOTO_CHAINSTATE_SCHEMA_8,
 };
 use crate::chainstate::stacks::address::StacksAddressExtensions;
 use crate::chainstate::stacks::boot::*;
@@ -66,8 +66,8 @@ use crate::chainstate::stacks::{
     C32_ADDRESS_VERSION_TESTNET_SINGLESIG, *,
 };
 use crate::clarity_vm::clarity::{
-    ClarityBlockConnection, ClarityConnection, ClarityInstance, ClarityReadOnlyConnection,
-    Error as clarity_error, PreCommitClarityBlock,
+    ClarityBlockConnection, ClarityConnection, ClarityError, ClarityInstance,
+    ClarityReadOnlyConnection, PreCommitClarityBlock,
 };
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::HeadersDBConn;
@@ -558,7 +558,7 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
     pub fn commit_mined_block(
         self,
         block_hash: &StacksBlockId,
-    ) -> Result<ExecutionCost, clarity_error> {
+    ) -> Result<ExecutionCost, ClarityError> {
         Ok(self.block.commit_mined_block(block_hash)?.get_total())
     }
 
@@ -665,8 +665,8 @@ impl<'a> DerefMut for ChainstateTx<'a> {
     }
 }
 
-pub const CHAINSTATE_VERSION: &str = "12";
-pub const CHAINSTATE_VERSION_NUMBER: u32 = 12;
+pub const CHAINSTATE_VERSION: &str = "13";
+pub const CHAINSTATE_VERSION_NUMBER: u32 = 13;
 
 const CHAINSTATE_INITIAL_SCHEMA: &[&str] = &[
     "PRAGMA foreign_keys = ON;",
@@ -1161,9 +1161,17 @@ impl StacksChainState {
                 }
                 "11" => {
                     info!(
-                        "Migrating chainstate schema from version 11 to 12: add total_tenure_size field"
+                        "Migrating chainstate schema from version 11 to 12: add index for nakamoto_block_headers"
                     );
                     for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_7.iter() {
+                        tx.execute_batch(cmd)?;
+                    }
+                }
+                "12" => {
+                    info!(
+                        "Migrating chainstate schema from version 12 to 13: add total_tenure_size field"
+                    );
+                    for cmd in NAKAMOTO_CHAINSTATE_SCHEMA_8.iter() {
                         tx.execute_batch(cmd)?;
                     }
                 }
@@ -1997,7 +2005,7 @@ impl StacksChainState {
         parent_id_bhh: &StacksBlockId,
         contract: &QualifiedContractIdentifier,
         code: &str,
-    ) -> Result<Value, clarity_error> {
+    ) -> Result<Value, ClarityError> {
         self.clarity_state.eval_read_only(
             parent_id_bhh,
             &HeadersDBConn(StacksDBConn::new(&self.state_index, ())),
@@ -2017,7 +2025,7 @@ impl StacksChainState {
         contract: &QualifiedContractIdentifier,
         function: &str,
         args: &[Value],
-    ) -> Result<Value, clarity_error> {
+    ) -> Result<Value, ClarityError> {
         let headers_db = HeadersDBConn(StacksDBConn::new(&self.state_index, ()));
         let mut conn = self.clarity_state.read_only_connection_checked(
             parent_id_bhh,
