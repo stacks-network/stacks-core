@@ -8,9 +8,15 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 ## [Unreleased]
 
 ### Added
+
 - Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
 - Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
-- 
+- Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
+
+## [3.3.0.0.1]
+
+- Add indexes to `nakamoto_block_headers` to fix a performance regression. Node may take a few minutes to restart during the upgrade while the new indexes are created.
+
 ## [3.3.0.0.0]
 
 ### Added
