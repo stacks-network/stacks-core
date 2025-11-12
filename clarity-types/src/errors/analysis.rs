@@ -154,25 +154,19 @@ impl From<SyntaxBindingError> for CommonCheckErrorKind {
     }
 }
 
-/// Internal set of error variants that are shared exclusively between static analysis (deployment)
-//  and runtime checking (execution), specifically for validation logic that is implemented in common
-//  code paths used by both.
+/// Shared set of error variants that are between static analysis (during contract deployment)
+/// and runtime checking (during contract execution), specifically for validation logic that
+/// is implemented in common code paths used by both.
 ///
-/// **This enum is strictly for internal use and is not a part of the public API.**
+/// All these variants represent errors that can arise only from code executed in both analysis and
+/// execution contexts—such as argument count checks, type size limits, or shared cost tracking logic.
+/// If an error may be triggered by either context via common logic, it lives here.
 ///
-/// All these variants represent errors that can arise *only* from code executed in both analysis and execution
-/// contexts—such as argument count checks, type size limits, or shared cost tracking logic. If an error
-/// may be triggered by either context via common logic, it lives here.
-///
-/// Importantly, this enum does *not* cover all errors common to both analysis and execution.
+/// Importantly, this enum does not cover all errors common to both analysis and execution.
 /// There are other error shared error variants, but those are generated specifically by logic
 /// that is unique to static analysis or unique to execution. These errors are defined separately
-/// and do not pass through this enum. Only error cases that can possibly arise from a shared validation
-/// flow will appear here.
-///
-/// When a `CommonCheckErrorKind` is produced, it is always converted immediately into either a
-/// [`StaticCheckErrorKind`] (when encountered during deployment analysis) *or* a
-/// [`CheckErrorKind`] (when encountered at runtime).
+/// and do not pass through this enum. Only error cases that can possibly arise from a shared
+/// validation flow will appear here.
 #[derive(Debug, PartialEq)]
 pub enum CommonCheckErrorKind {
     // Cost checker errors
@@ -862,8 +856,7 @@ pub struct StaticCheckError {
 }
 
 impl CheckErrorKind {
-    /// Does this check error indicate that the transaction should be
-    /// rejected?
+    /// This check indicates that the transaction should be rejected.
     pub fn rejectable(&self) -> bool {
         matches!(
             self,
@@ -873,6 +866,7 @@ impl CheckErrorKind {
 }
 
 impl StaticCheckErrorKind {
+    /// This check indicates that the transaction should be rejected.
     pub fn rejectable(&self) -> bool {
         matches!(
             self,

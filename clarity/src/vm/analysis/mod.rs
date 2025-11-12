@@ -28,7 +28,9 @@ use stacks_common::types::StacksEpochId;
 pub use self::analysis_db::AnalysisDatabase;
 use self::arithmetic_checker::ArithmeticOnlyChecker;
 use self::contract_interface_builder::build_contract_interface;
-pub use self::errors::{CheckErrorKind, StaticCheckError, StaticCheckErrorKind};
+pub use self::errors::{
+    CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind,
+};
 use self::read_only_checker::ReadOnlyChecker;
 use self::trait_checker::TraitChecker;
 use self::type_checker::v2_05::TypeChecker as TypeChecker2_05;

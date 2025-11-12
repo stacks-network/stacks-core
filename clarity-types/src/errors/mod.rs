@@ -295,8 +295,6 @@ impl From<RuntimeError> for VmExecutionError {
     }
 }
 
-// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
-// So there shouldn't be any need to convert it to a VmExecutionError.
 impl From<CommonCheckErrorKind> for VmExecutionError {
     fn from(err: CommonCheckErrorKind) -> Self {
         VmExecutionError::Unchecked(err.into())
@@ -309,8 +307,6 @@ impl From<CheckErrorKind> for VmExecutionError {
     }
 }
 
-// TODO: remove. CommonCheckErrorKind shouldn't be used in the public API.
-// So there shouldn't be any need to convert it to a VmExecutionError.
 impl From<(CommonCheckErrorKind, &SymbolicExpression)> for VmExecutionError {
     fn from(err: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
         VmExecutionError::Unchecked(err.0.into())
