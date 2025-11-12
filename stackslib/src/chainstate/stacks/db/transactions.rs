@@ -21,7 +21,7 @@ use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::{VmExecutionError, VmInternalError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -33,9 +33,7 @@ use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
-use crate::clarity_vm::clarity::{
-    ClarityConnection, ClarityTransactionConnection, Error as clarity_error,
-};
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
 use crate::util_lib::strings::VecDisplay;
 
 /// This is a safe-to-hash Clarity value
@@ -43,12 +41,12 @@ use crate::util_lib::strings::VecDisplay;
 struct HashableClarityValue(Value);
 
 impl TryFrom<Value> for HashableClarityValue {
-    type Error = InterpreterError;
+    type Error = VmExecutionError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         // check that serialization _will_ be successful when hashed
         let _bytes = value.serialize_to_vec().map_err(|_| {
-            InterpreterError::Interpreter(clarity::vm::errors::InterpreterError::Expect(
+            VmExecutionError::Internal(VmInternalError::Expect(
                 "Failed to serialize asset in NFT during post-condition checks".into(),
             ))
         })?;
@@ -192,10 +190,10 @@ impl StacksTransactionReceipt {
     pub fn from_analysis_failure(
         tx: StacksTransaction,
         analysis_cost: ExecutionCost,
-        error: clarity::vm::clarity::Error,
+        error: ClarityError,
     ) -> StacksTransactionReceipt {
         let error_string = match error {
-            clarity_error::Analysis(ref check_error) => {
+            ClarityError::StaticCheck(ref check_error) => {
                 if let Some(span) = check_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
@@ -205,7 +203,7 @@ impl StacksTransactionReceipt {
                     check_error.diagnostic.message.to_string()
                 }
             }
-            clarity_error::Parse(ref parse_error) => {
+            ClarityError::Parse(ref parse_error) => {
                 if let Some(span) = parse_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
@@ -254,7 +252,7 @@ impl StacksTransactionReceipt {
         tx: StacksTransaction,
         cost: ExecutionCost,
         contract_analysis: ContractAnalysis,
-        error: CheckErrors,
+        error: CheckErrorKind,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -273,7 +271,7 @@ impl StacksTransactionReceipt {
     pub fn from_runtime_failure_contract_call(
         tx: StacksTransaction,
         cost: ExecutionCost,
-        error: CheckErrors,
+        error: CheckErrorKind,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -353,7 +351,7 @@ impl From<TransactionNonceMismatch> for MemPoolRejection {
 
 pub enum ClarityRuntimeTxError {
     Acceptable {
-        error: clarity_error,
+        error: ClarityError,
         err_type: &'static str,
     },
     AbortedByCallback {
@@ -368,35 +366,35 @@ pub enum ClarityRuntimeTxError {
         reason: String,
     },
     CostError(ExecutionCost, ExecutionCost),
-    AnalysisError(CheckErrors),
-    Rejectable(clarity_error),
+    AnalysisError(CheckErrorKind),
+    Rejectable(ClarityError),
 }
 
-pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
+pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxError {
     match error {
         // runtime errors are okay
-        clarity_error::Interpreter(InterpreterError::Runtime(_, _)) => {
+        ClarityError::Interpreter(VmExecutionError::Runtime(_, _)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "runtime error",
             }
         }
-        clarity_error::Interpreter(InterpreterError::ShortReturn(_)) => {
+        ClarityError::Interpreter(VmExecutionError::EarlyReturn(_)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
             }
         }
-        clarity_error::Interpreter(InterpreterError::Unchecked(check_error)) => {
+        ClarityError::Interpreter(VmExecutionError::Unchecked(check_error)) => {
             if check_error.rejectable() {
-                ClarityRuntimeTxError::Rejectable(clarity_error::Interpreter(
-                    InterpreterError::Unchecked(check_error),
+                ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
+                    VmExecutionError::Unchecked(check_error),
                 ))
             } else {
                 ClarityRuntimeTxError::AnalysisError(check_error)
             }
         }
-        clarity_error::AbortedByCallback {
+        ClarityError::AbortedByCallback {
             output,
             assets_modified,
             tx_events,
@@ -407,7 +405,7 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
             tx_events,
             reason,
         },
-        clarity_error::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
+        ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
@@ -632,7 +630,7 @@ impl StacksChainState {
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
         txid: Txid,
-    ) -> Result<Option<String>, InterpreterError> {
+    ) -> Result<Option<String>, VmExecutionError> {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
             HashMap::new();
         let mut checked_nonfungible_assets: HashMap<
@@ -961,7 +959,7 @@ impl StacksChainState {
             env.add_memory(u64::from(
                 TypeSignature::PrincipalType
                     .size()
-                    .map_err(InterpreterError::from)?,
+                    .map_err(VmExecutionError::from)?,
             ))
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
 
@@ -1210,8 +1208,8 @@ impl StacksChainState {
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
                                            "error" => %check_error);
-                                return Err(Error::ClarityError(clarity_error::Interpreter(
-                                    InterpreterError::Unchecked(check_error),
+                                return Err(Error::ClarityError(ClarityError::Interpreter(
+                                    VmExecutionError::Unchecked(check_error),
                                 )));
                             }
                         }
@@ -1279,7 +1277,7 @@ impl StacksChainState {
                     Ok(x) => x,
                     Err(e) => {
                         match e {
-                            clarity_error::CostError(ref cost_after, ref budget) => {
+                            ClarityError::CostError(ref cost_after, ref budget) => {
                                 warn!("Block compute budget exceeded on {}: cost before={}, after={}, budget={}", tx.txid(), &cost_before, cost_after, budget);
                                 return Err(Error::CostOverflowError(
                                     cost_before,
@@ -1288,13 +1286,13 @@ impl StacksChainState {
                                 ));
                             }
                             other_error => {
-                                if let clarity_error::Parse(err) = &other_error {
+                                if let ClarityError::Parse(err) = &other_error {
                                     if err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
-                                if let clarity_error::Analysis(err) = &other_error {
+                                if let ClarityError::StaticCheck(err) = &other_error {
                                     if err.err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
@@ -1434,8 +1432,8 @@ impl StacksChainState {
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "error" => %check_error);
-                                return Err(Error::ClarityError(clarity_error::Interpreter(
-                                    InterpreterError::Unchecked(check_error),
+                                return Err(Error::ClarityError(ClarityError::Interpreter(
+                                    VmExecutionError::Unchecked(check_error),
                                 )));
                             }
                         }
@@ -8276,7 +8274,7 @@ pub mod test {
                 None,
             )
             .unwrap_err();
-            let Error::ClarityError(clarity_error::BadTransaction(msg)) = &err else {
+            let Error::ClarityError(ClarityError::BadTransaction(msg)) = &err else {
                 panic!("Unexpected error type");
             };
             assert!(msg.find("never seen in this fork").is_some());
@@ -9506,7 +9504,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9559,7 +9557,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9610,7 +9608,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9662,7 +9660,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -10166,7 +10164,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -10625,7 +10623,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -10731,7 +10729,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {

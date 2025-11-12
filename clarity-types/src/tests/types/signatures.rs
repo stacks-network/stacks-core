@@ -14,7 +14,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 use std::collections::HashSet;
 
-use crate::errors::CheckErrors;
+use crate::errors::CheckErrorKind;
 use crate::representations::CONTRACT_MAX_NAME_LENGTH;
 use crate::types::TypeSignature::{BoolType, IntType, ListUnionType, UIntType};
 use crate::types::signatures::{CallableSubtype, TypeSignature};
@@ -43,7 +43,7 @@ fn test_buffer_length_try_from_u32_trait() {
     assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
 
     let err = BufferLength::try_from(MAX_VALUE_SIZE + 1).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
+    assert_eq!(CheckErrorKind::ValueTooLarge, err);
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn test_buffer_length_try_from_usize_trait() {
     assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
 
     let err = BufferLength::try_from(MAX_VALUE_SIZE as usize + 1).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
+    assert_eq!(CheckErrorKind::ValueTooLarge, err);
 }
 
 #[test]
@@ -67,10 +67,10 @@ fn test_buffer_length_try_from_i128_trait() {
     assert_eq!(MAX_VALUE_SIZE, buffer.get_value());
 
     let err = BufferLength::try_from(MAX_VALUE_SIZE as i128 + 1).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
+    assert_eq!(CheckErrorKind::ValueTooLarge, err);
 
     let err = BufferLength::try_from(-1_i128).unwrap_err();
-    assert_eq!(CheckErrors::ValueOutOfBounds, err);
+    assert_eq!(CheckErrorKind::ValueOutOfBounds, err);
 }
 
 #[test]
@@ -229,7 +229,7 @@ fn test_string_utf8_length_try_from_u32_trait() {
     assert_eq!(MAX_UTF8_VALUE_SIZE, string.get_value());
 
     let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE + 1).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
+    assert_eq!(CheckErrorKind::ValueTooLarge, err);
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn test_string_utf8_length_try_from_usize_trait() {
     assert_eq!(MAX_UTF8_VALUE_SIZE, string.get_value());
 
     let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as usize + 1).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
+    assert_eq!(CheckErrorKind::ValueTooLarge, err);
 }
 
 #[test]
@@ -259,10 +259,10 @@ fn test_string_utf8_length_try_from_i128_trait() {
     assert_eq!(MAX_UTF8_VALUE_SIZE, string.get_value());
 
     let err = StringUTF8Length::try_from(MAX_UTF8_VALUE_SIZE as i128 + 1).unwrap_err();
-    assert_eq!(CheckErrors::ValueTooLarge, err);
+    assert_eq!(CheckErrorKind::ValueTooLarge, err);
 
     let err = StringUTF8Length::try_from(-1_i128).unwrap_err();
-    assert_eq!(CheckErrors::ValueOutOfBounds, err);
+    assert_eq!(CheckErrorKind::ValueOutOfBounds, err);
 }
 
 #[test]
@@ -826,11 +826,11 @@ fn test_least_supertype() {
     for pair in bad_pairs {
         matches!(
             TypeSignature::least_supertype_v2_1(&pair.0, &pair.1).unwrap_err(),
-            CheckErrors::TypeError(..)
+            CheckErrorKind::TypeError(..)
         );
         matches!(
             TypeSignature::least_supertype_v2_1(&pair.1, &pair.0).unwrap_err(),
-            CheckErrors::TypeError(..)
+            CheckErrorKind::TypeError(..)
         );
     }
 }

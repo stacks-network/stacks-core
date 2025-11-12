@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_NESTING_DEPTH, MAX_STRING_LEN};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::types::MAX_VALUE_SIZE;
@@ -29,7 +29,7 @@ use crate::chainstate::tests::consensus::{
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 
-/// Generates a coverage classification report for a specific [`ParseErrors`] variant.
+/// Generates a coverage classification report for a specific [`ParseErrorKind`] variant.
 ///
 /// This method exists purely for **documentation and tracking purposes**.
 /// It helps maintainers understand which error variants have been:
@@ -38,7 +38,7 @@ use crate::core::BLOCK_LIMIT_MAINNET_21;
 /// - ⚙️ **Ignored** — not tested on purpose. (e.g. parser v1 errors).
 /// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
 #[allow(dead_code)]
-fn variant_coverage_report(variant: ParseErrors) {
+fn variant_coverage_report(variant: ParseErrorKind) {
     enum VariantCoverage {
         // Cannot occur through valid execution
         Unreachable_Functionally,
@@ -52,7 +52,7 @@ fn variant_coverage_report(variant: ParseErrors) {
         Tested,
     }
 
-    use ParseErrors::*;
+    use ParseErrorKind::*;
     use VariantCoverage::*;
 
     _ = match variant {
@@ -122,349 +122,7 @@ fn variant_coverage_report(variant: ParseErrors) {
     }
 }
 
-/// ParserError: [`ParseErrors::ExpressionStackDepthTooDeep`]
-/// Caused by: nested contract body exceeding stack depth limit on parsing tuples
-/// Outcome: block rejected
-#[test]
-fn test_stack_depth_too_deep_case_1_tuple_only_parsing() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: &{
-            // In parse v2, open brace '{' have a stack count of 2.
-            let count = MAX_NESTING_DEPTH / 2 + 1;
-            let body_start = "{ a : ".repeat(count as usize);
-            let body_end = "} ".repeat(count as usize);
-            format!("{body_start}u1 {body_end}")
-        },
-    );
-}
-
-/// ParserError: [`ParseErrors::ExpressionStackDepthTooDeep`]
-/// Caused by: nested contract body exceeding stack depth limit on parsing lists
-/// Outcome: block rejected
-#[test]
-fn test_stack_depth_too_deep_case_2_list_only_parsing() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: &{
-            // In parse v2, open parent '(' have a stack count of 1.
-            let count = MAX_NESTING_DEPTH;
-            let body_start = "(list ".repeat(count as usize);
-            let body_end = ")".repeat(count as usize);
-            format!("{body_start}u1 {body_end}")
-        },
-    );
-}
-
-/// ParserError: [`ParseErrors::ExpressionStackDepthTooDeep`]
-/// Caused by: nested contract body exceeding stack depth limit on checking lists ast
-/// Outcome: block rejected
-#[test]
-fn test_stack_depth_too_deep_case_3_list_only_checker() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: &{
-            // In parse v2, open parent '(' have a stack count of 1.
-            let count = AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64;
-            let body_start = "(list ".repeat(count as usize);
-            let body_end = ")".repeat(count as usize);
-            format!("{body_start}u1 {body_end}")
-        },
-    );
-}
-
-/// ParserError: [`ParseErrors::VaryExpressionStackDepthTooDeep`]
-/// Caused by: nested contract body exceeding stack depth limit on checking vary list/tuple ast
-/// Outcome: block rejected
-#[test]
-fn test_vary_stack_depth_too_deep_checker() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: &{
-            let count = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
-            let body_start = "(list ".repeat(count as usize);
-            let body_end = ")".repeat(count as usize);
-            format!("{{ a: {body_start}u1 {body_end} }}")
-        },
-    );
-}
-
-/// ParserError: [`ParseErrors::FailedParsingIntValue`]
-/// Caused by: number bigger than i128
-/// Outcome: block accepted
-#[test]
-fn test_failed_parsing_int_value() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(define-data-var my-int int 340282366920938463463374607431768211455)",
-    );
-}
-
-/// ParserError [`ParseErrors::FailedParsingUIntValue`]
-/// Caused by: number bigger than u128
-/// Outcome: block accepted
-#[test]
-fn test_failed_parsing_uint_value() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(define-data-var my-uint uint u999340282366920938463463374607431768211455)",
-    );
-}
-
-/// ParserError [`ParseErrors::CircularReference`]
-/// Caused by: interdependent functions
-/// Outcome: block accepted
-#[test]
-fn test_circular_reference() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "
-            (define-constant my-a my-b)
-            (define-constant my-b my-a)
-        ",
-    );
-}
-
-/// ParserError [`ParseErrors::NameAlreadyUsed`]
-/// Caused by: trait name conflicts only
-/// Outcome: block accepted
-#[test]
-fn test_named_already_used() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "
-            (define-trait trait-1 (
-                (get-1 (uint) (response uint uint))))
-            (define-trait trait-1 (
-                (get-1 (int) (response uint uint)))) 
-        ",
-    );
-}
-
-/// ParserError [`ParseErrors::TraitReferenceNotAllowed`]
-/// Caused by: trait reference can not be stored
-/// Outcome: block accepted
-#[test]
-fn test_trait_ref_not_allowed() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "
-            (define-trait trait-1 (
-                (get-1 (uint) (response uint uint))))
-            (define-map kv-store { key: uint } { value: <trait-1> }) 
-        ",
-    );
-}
-
-/// ParserError [`ParseErrors::ImportTraitBadSignature`]
-/// Caused by: trait import with bad signature (missing trait name or identifier)
-/// Outcome: block accepted
-#[test]
-fn test_import_trait_bad_signature() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(use-trait)",
-    );
-}
-
-/// ParserError [`ParseErrors::DefineTraitBadSignature`]
-/// Caused by: trait define with bad signature (missing trait name or definition)
-/// Outcome: block accepted
-#[test]
-fn test_define_trait_bad_signature() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(define-trait)",
-    );
-}
-
-/// ParserError [`ParseErrors::ImplTraitBadSignature`]
-/// Caused by: trait implementation with bad signature (missing trait identifier)
-/// Outcome: block accepted
-#[test]
-fn test_impl_trait_bad_signature() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(impl-trait)",
-    );
-}
-
-/// ParserError [`ParseErrors::TraitReferenceUnknown`]
-/// Caused by: referencing an undeclared trait
-/// Outcome: block accepted
-#[test]
-fn test_trait_reference_unknown() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(+ 1 <my-trait>)",
-    );
-}
-
-/// ParserError: [`ParseErrors::Lexer`]
-/// Caused by: unknown symbol
-/// Outcome: block accepted
-#[test]
-fn test_lexer_unknown_symbol() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(define-data-var my-uint uint _)",
-    );
-}
-
-/// ParserError: [`ParseErrors::ExpectedClosing`]
-/// Caused by: missing closing parenthesis
-/// Outcome: block accepted
-#[test]
-fn test_expected_closing() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(",
-    );
-}
-
-/// ParserError: [`ParseErrors::NoteToMatchThis`]
-/// Caused by: missing open parenthesis matching the close one
-/// Outcome: block accepted
-#[test]
-fn test_note_to_match_this() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "())",
-    );
-}
-
-/// ParserError: [`ParseErrors::ExpectedWhitespace`]
-/// Caused by: missing space before expression
-/// Outcome: block accepted
-#[test]
-fn test_expected_white_space() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        //miss space between (get-one) and (ok u1)
-        contract_code: "(define-public (get-one)(ok u1))",
-    );
-}
-
-/// ParserError: [`ParseErrors::UnexpectedToken`]
-/// Caused by: unexpected token in the expression (rightest paranthesis)
-/// Outcome: block accepted
-#[test]
-fn test_unexpected_token() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(define-public (get-one) (ok u1)) )",
-    );
-}
-
-/// ParserError: [`ParseErrors::NameTooLong`]
-/// Caused by: identifier longer than [`MAX_STRING_LEN`]
-/// Outcome: block accepted
-#[test]
-fn test_name_too_long() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: &{
-            let name = "n".repeat(MAX_STRING_LEN + 1);
-            format!("(define-public ({name}) (ok u1))")
-        },
-    );
-}
-
-/// ParserError: [`ParseErrors::InvalidPrincipalLiteral`]
-/// Caused by: valid principal chars but wrong format (due to the starting "AAA")
-/// Outcome: block accepted
-#[test]
-fn test_invalid_principal_literal() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",
-    );
-}
-
-/// ParserError: [`ParseErrors::ExpectedContractIdentifier`]
-/// Caused by: missing name in contract identifier (nothing after the dot '.')
-/// Outcome: block accepted
-#[test]
-fn test_expected_contract_identifier() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.)",
-    );
-}
-
-/// ParserError: [`ParseErrors::ExpectedTraitIdentifier`]
-/// Caused by: missing name in trait identifier (nothing after the dot '.')
-/// Outcome: block accepted
-#[test]
-fn test_expected_trait_identifier() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "(define-constant my-trait-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.contract.)",
-    );
-}
-
-/// ParserError: [`ParseErrors::TupleColonExpectedv2`]
-/// Caused by: missing colon between field name and value in tuple definition
-/// Outcome: block accepted
-#[test]
-fn test_tuple_colon_expected_v2() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "{ a 1 }",
-    );
-}
-
-/// ParserError: [`ParseErrors::TupleCommaExpectedv2`]
-/// Caused by: missing comma between fields in tuple definition
-/// Outcome: block accepted
-#[test]
-fn test_tuple_comma_expected_v2() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "{ a : 1  b : 2 }",
-    );
-}
-
-/// ParserError: [`ParseErrors::TupleValueExpected`]
-/// Caused by: missing value for field in tuple definition
-/// Outcome: block accepted
-#[test]
-fn test_tuple_value_expected() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "{ a : ",
-    );
-}
-
-/// ParserError: [`ParseErrors::ContractNameTooLong`]
-/// Caused by: contract name longer than [`MAX_CONTRACT_NAME_LEN`]
-/// Outcome: block accepted
-#[test]
-fn test_contract_name_too_long() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: &{
-            let name = "a".repeat(MAX_CONTRACT_NAME_LEN + 1);
-            format!("(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.{name})")
-        },
-    );
-}
-
-/// ParserError: [`ParseErrors::IllegalASCIIString`]
-/// Caused by: string longer than [`MAX_VALUE_SIZE`]
-/// Outcome: block accepted
-#[test]
-fn test_illegal_ascii_string() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: &{
-            let string = "a".repeat(MAX_VALUE_SIZE as usize + 1);
-            format!("(define-constant my-str \"{string}\")")
-        },
-    );
-}
-
-/// ParserError: [`ParseErrors::CostBalanceExceeded`]
+/// ParserError: [`ParseErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding runtime cost limit [`BLOCK_LIMIT_MAINNET_21`] during contract deploy parsing
 /// Outcome: block rejected
 /// Note: This cost error is remapped as [`crate::chainstate::stacks::Error::CostOverflowError`]
@@ -532,8 +190,8 @@ fn test_cost_balance_exceeded() {
             ));
 
             // Create a large contract that exceeds the runtime cost limit during parsing
-            // NOTE: this is the only relevant transaction to demonstrate the runtime cost to be exceeded during parsing.
-            //       the previous txs are just for test preparation.
+            // NOTE: This is the only transaction relevant for demonstrating the runtime cost exceeding the limit during parsing.
+            //        Previous transactions are included only for test setup. Hence, clarity version is used here.
             nonce += 1;
             txs.push(ConsensusUtils::new_deploy_tx(
                 nonce,
@@ -552,4 +210,346 @@ fn test_cost_balance_exceeded() {
     }
 
     insta::assert_ron_snapshot!(result);
+}
+
+/// ParserError: [`ParseErrorKind::ExpressionStackDepthTooDeep`]
+/// Caused by: nested contract body exceeding stack depth limit on parsing tuples
+/// Outcome: block rejected
+#[test]
+fn test_stack_depth_too_deep_case_1_tuple_only_parsing() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            // In parse v2, open brace '{' have a stack count of 2.
+            let count = MAX_NESTING_DEPTH / 2 + 1;
+            let body_start = "{ a : ".repeat(count as usize);
+            let body_end = "} ".repeat(count as usize);
+            format!("{body_start}u1 {body_end}")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrorKind::ExpressionStackDepthTooDeep`]
+/// Caused by: nested contract body exceeding stack depth limit on parsing lists
+/// Outcome: block rejected
+#[test]
+fn test_stack_depth_too_deep_case_2_list_only_parsing() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            // In parse v2, open parent '(' have a stack count of 1.
+            let count = MAX_NESTING_DEPTH;
+            let body_start = "(list ".repeat(count as usize);
+            let body_end = ")".repeat(count as usize);
+            format!("{body_start}u1 {body_end}")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrorKind::ExpressionStackDepthTooDeep`]
+/// Caused by: nested contract body exceeding stack depth limit on checking lists ast
+/// Outcome: block rejected
+#[test]
+fn test_stack_depth_too_deep_case_3_list_only_checker() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            // In parse v2, open parent '(' have a stack count of 1.
+            let count = AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64;
+            let body_start = "(list ".repeat(count as usize);
+            let body_end = ")".repeat(count as usize);
+            format!("{body_start}u1 {body_end}")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrorKind::VaryExpressionStackDepthTooDeep`]
+/// Caused by: nested contract body exceeding stack depth limit on checking vary list/tuple ast
+/// Outcome: block rejected
+#[test]
+fn test_vary_stack_depth_too_deep_checker() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let count = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64) - 1;
+            let body_start = "(list ".repeat(count as usize);
+            let body_end = ")".repeat(count as usize);
+            format!("{{ a: {body_start}u1 {body_end} }}")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrorKind::FailedParsingIntValue`]
+/// Caused by: number bigger than i128
+/// Outcome: block accepted
+#[test]
+fn test_failed_parsing_int_value() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-data-var my-int int 340282366920938463463374607431768211455)",
+    );
+}
+
+/// ParserError [`ParseErrorKind::FailedParsingUIntValue`]
+/// Caused by: number bigger than u128
+/// Outcome: block accepted
+#[test]
+fn test_failed_parsing_uint_value() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-data-var my-uint uint u999340282366920938463463374607431768211455)",
+    );
+}
+
+/// ParserError [`ParseErrorKind::CircularReference`]
+/// Caused by: interdependent functions
+/// Outcome: block accepted
+#[test]
+fn test_circular_reference() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "
+            (define-constant my-a my-b)
+            (define-constant my-b my-a)
+        ",
+    );
+}
+
+/// ParserError [`ParseErrorKind::NameAlreadyUsed`]
+/// Caused by: trait name conflicts only
+/// Outcome: block accepted
+#[test]
+fn test_named_already_used() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "
+            (define-trait trait-1 (
+                (get-1 (uint) (response uint uint))))
+            (define-trait trait-1 (
+                (get-1 (int) (response uint uint)))) 
+        ",
+    );
+}
+
+/// ParserError [`ParseErrorKind::TraitReferenceNotAllowed`]
+/// Caused by: trait reference can not be stored
+/// Outcome: block accepted
+#[test]
+fn test_trait_ref_not_allowed() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "
+            (define-trait trait-1 (
+                (get-1 (uint) (response uint uint))))
+            (define-map kv-store { key: uint } { value: <trait-1> }) 
+        ",
+    );
+}
+
+/// ParserError [`ParseErrorKind::ImportTraitBadSignature`]
+/// Caused by: trait import with bad signature (missing trait name or identifier)
+/// Outcome: block accepted
+#[test]
+fn test_import_trait_bad_signature() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(use-trait)",
+    );
+}
+
+/// ParserError [`ParseErrorKind::DefineTraitBadSignature`]
+/// Caused by: trait define with bad signature (missing trait name or definition)
+/// Outcome: block accepted
+#[test]
+fn test_define_trait_bad_signature() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-trait)",
+    );
+}
+
+/// ParserError [`ParseErrorKind::ImplTraitBadSignature`]
+/// Caused by: trait implementation with bad signature (missing trait identifier)
+/// Outcome: block accepted
+#[test]
+fn test_impl_trait_bad_signature() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(impl-trait)",
+    );
+}
+
+/// ParserError [`ParseErrorKind::TraitReferenceUnknown`]
+/// Caused by: referencing an undeclared trait
+/// Outcome: block accepted
+#[test]
+fn test_trait_reference_unknown() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(+ 1 <my-trait>)",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::Lexer`]
+/// Caused by: unknown symbol
+/// Outcome: block accepted
+#[test]
+fn test_lexer_unknown_symbol() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-data-var my-uint uint _)",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::ExpectedClosing`]
+/// Caused by: missing closing parenthesis
+/// Outcome: block accepted
+#[test]
+fn test_expected_closing() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::NoteToMatchThis`]
+/// Caused by: missing open parenthesis matching the close one
+/// Outcome: block accepted
+#[test]
+fn test_note_to_match_this() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "())",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::ExpectedWhitespace`]
+/// Caused by: missing space before expression
+/// Outcome: block accepted
+#[test]
+fn test_expected_white_space() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        //miss space between (get-one) and (ok u1)
+        contract_code: "(define-public (get-one)(ok u1))",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::UnexpectedToken`]
+/// Caused by: unexpected token in the expression (rightest paranthesis)
+/// Outcome: block accepted
+#[test]
+fn test_unexpected_token() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-public (get-one) (ok u1)) )",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::NameTooLong`]
+/// Caused by: identifier longer than [`MAX_STRING_LEN`]
+/// Outcome: block accepted
+#[test]
+fn test_name_too_long() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let name = "n".repeat(MAX_STRING_LEN + 1);
+            format!("(define-public ({name}) (ok u1))")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrorKind::InvalidPrincipalLiteral`]
+/// Caused by: valid principal chars but wrong format (due to the starting "AAA")
+/// Outcome: block accepted
+#[test]
+fn test_invalid_principal_literal() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::ExpectedContractIdentifier`]
+/// Caused by: missing name in contract identifier (nothing after the dot '.')
+/// Outcome: block accepted
+#[test]
+fn test_expected_contract_identifier() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.)",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::ExpectedTraitIdentifier`]
+/// Caused by: missing name in trait identifier (nothing after the dot '.')
+/// Outcome: block accepted
+#[test]
+fn test_expected_trait_identifier() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "(define-constant my-trait-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.contract.)",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::TupleColonExpectedv2`]
+/// Caused by: missing colon between field name and value in tuple definition
+/// Outcome: block accepted
+#[test]
+fn test_tuple_colon_expected_v2() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "{ a 1 }",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::TupleCommaExpectedv2`]
+/// Caused by: missing comma between fields in tuple definition
+/// Outcome: block accepted
+#[test]
+fn test_tuple_comma_expected_v2() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "{ a : 1  b : 2 }",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::TupleValueExpected`]
+/// Caused by: missing value for field in tuple definition
+/// Outcome: block accepted
+#[test]
+fn test_tuple_value_expected() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: "{ a : ",
+    );
+}
+
+/// ParserError: [`ParseErrorKind::ContractNameTooLong`]
+/// Caused by: contract name longer than [`MAX_CONTRACT_NAME_LEN`]
+/// Outcome: block accepted
+#[test]
+fn test_contract_name_too_long() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let name = "a".repeat(MAX_CONTRACT_NAME_LEN + 1);
+            format!("(define-constant my-contract-id 'ST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA.{name})")
+        },
+    );
+}
+
+/// ParserError: [`ParseErrorKind::IllegalASCIIString`]
+/// Caused by: string longer than [`MAX_VALUE_SIZE`]
+/// Outcome: block accepted
+#[test]
+fn test_illegal_ascii_string() {
+    contract_deploy_consensus_test!(
+        contract_name: "my-contract",
+        contract_code: &{
+            let string = "a".repeat(MAX_VALUE_SIZE as usize + 1);
+            format!("(define-constant my-str \"{string}\")")
+        },
+    );
 }

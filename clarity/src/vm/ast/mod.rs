@@ -49,7 +49,8 @@ pub fn parse(
     source_code: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<Vec<crate::vm::representations::SymbolicExpression>, crate::vm::errors::Error> {
+) -> Result<Vec<crate::vm::representations::SymbolicExpression>, crate::vm::errors::VmExecutionError>
+{
     let ast = build_ast(contract_identifier, source_code, &mut (), version, epoch)?;
     Ok(ast.expressions)
 }
@@ -241,7 +242,7 @@ mod test {
     use stacks_common::types::StacksEpochId;
 
     use crate::vm::ast::build_ast;
-    use crate::vm::ast::errors::ParseErrors;
+    use crate::vm::ast::errors::ParseErrorKind;
     use crate::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
     use crate::vm::costs::{LimitedCostTracker, *};
     use crate::vm::representations::depth_traverse;
@@ -321,7 +322,7 @@ mod test {
         )
         .expect_err("Contract should error in parsing");
 
-        let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+        let expected_err = ParseErrorKind::VaryExpressionStackDepthTooDeep;
         let expected_list_cost_state = UnitTestTracker {
             invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
             invocation_count: 1,
@@ -341,7 +342,7 @@ mod test {
         )
         .expect_err("Contract should error in parsing");
 
-        let expected_err = ParseErrors::VaryExpressionStackDepthTooDeep;
+        let expected_err = ParseErrorKind::VaryExpressionStackDepthTooDeep;
         let expected_list_cost_state = UnitTestTracker {
             invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
             invocation_count: 1,
@@ -383,7 +384,7 @@ mod test {
             )
             .expect_err("Contract should error in parsing");
 
-            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+            let expected_err = ParseErrorKind::ExpressionStackDepthTooDeep;
             let expected_list_cost_state = UnitTestTracker {
                 invoked_functions: vec![(ClarityCostFunction::AstParse, vec![500])],
                 invocation_count: 1,
@@ -403,7 +404,7 @@ mod test {
             )
             .expect_err("Contract should error in parsing");
 
-            let expected_err = ParseErrors::ExpressionStackDepthTooDeep;
+            let expected_err = ParseErrorKind::ExpressionStackDepthTooDeep;
             let expected_list_cost_state = UnitTestTracker {
                 invoked_functions: vec![(ClarityCostFunction::AstParse, vec![571])],
                 invocation_count: 1,
@@ -469,7 +470,7 @@ mod test {
         .unwrap_err();
 
         assert!(
-            matches!(*err.err, ParseErrors::CostBalanceExceeded(_, _)),
+            matches!(*err.err, ParseErrorKind::CostBalanceExceeded(_, _)),
             "Instead found: {err}"
         );
     }
@@ -499,7 +500,7 @@ mod test {
         .expect_err("Expected parse error, but found success!");
 
         let total = match *err.err {
-            ParseErrors::CostBalanceExceeded(total, _) => total,
+            ParseErrorKind::CostBalanceExceeded(total, _) => total,
             _ => panic!("Expected CostBalanceExceeded, but found: {err}"),
         };
 
@@ -531,7 +532,7 @@ mod test {
         .expect_err("Expected parse error, but found success!");
 
         let total = match *err.err {
-            ParseErrors::CostBalanceExceeded(total, _) => total,
+            ParseErrorKind::CostBalanceExceeded(total, _) => total,
             _ => panic!("Expected CostBalanceExceeded, but found: {err}"),
         };
 
@@ -558,7 +559,7 @@ mod test {
         .expect_err("Expected parse error, but found success!");
 
         assert!(
-            matches!(*err.err, ParseErrors::VaryExpressionStackDepthTooDeep),
+            matches!(*err.err, ParseErrorKind::VaryExpressionStackDepthTooDeep),
             "Instead found: {err}"
         );
     }
@@ -580,7 +581,7 @@ mod test {
         .expect_err("Expected parse error, but found success!");
 
         assert!(
-            matches!(*err.err, ParseErrors::IllegalASCIIString(_)),
+            matches!(*err.err, ParseErrorKind::IllegalASCIIString(_)),
             "Instead found: {err}"
         );
     }
