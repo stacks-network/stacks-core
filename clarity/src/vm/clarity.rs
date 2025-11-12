@@ -78,7 +78,6 @@ impl std::error::Error for ClarityError {
     }
 }
 
-#[cfg(any(test, feature = "testing"))]
 impl From<StaticCheckError> for ClarityError {
     fn from(e: StaticCheckError) -> Self {
         match *e.err {
@@ -258,7 +257,7 @@ pub trait TransactionConnection: ClarityConnection {
                     let cost_track = contract_analysis.take_contract_cost_tracker();
                     (cost_track, Ok((contract_ast, contract_analysis)))
                 }
-                Err(e) => (e.1, Err(ClarityError::StaticCheck(e.0))),
+                Err(e) => (e.1, Err(e.0.into())),
             }
         })
     }
