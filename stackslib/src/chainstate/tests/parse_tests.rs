@@ -15,13 +15,19 @@
 
 //! This module contains consensus tests related to Clarity Parse errors.
 
+use std::collections::HashMap;
+
 use clarity::vm::ast::errors::ParseErrors;
 use clarity::vm::ast::parser::v2::{MAX_CONTRACT_NAME_LEN, MAX_NESTING_DEPTH, MAX_STRING_LEN};
 use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::types::MAX_VALUE_SIZE;
 use clarity::vm::MAX_CALL_STACK_DEPTH;
 
-use crate::chainstate::tests::consensus::contract_deploy_consensus_test;
+use crate::chainstate::tests::consensus::{
+    clarity_versions_for_epoch, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
+    TestBlock, EPOCHS_TO_TEST,
+};
+use crate::core::BLOCK_LIMIT_MAINNET_21;
 
 /// Generates a coverage classification report for a specific [`ParseErrors`] variant.
 ///
@@ -52,7 +58,7 @@ fn variant_coverage_report(variant: ParseErrors) {
     _ = match variant {
         // Costs
         CostOverflow => Unreachable_ExpectLike,
-        CostBalanceExceeded(_, _) => Unreachable_Functionally, // due to epoch runtime epoch limits configuration.
+        CostBalanceExceeded(_, _) => Tested,
         MemoryBalanceExceeded(_, _) => Unreachable_NotUsed,
         CostComputationFailed(_) => Unreachable_ExpectLike,
         ExecutionTimeExpired => Unreachable_NotUsed,
@@ -456,4 +462,94 @@ fn test_illegal_ascii_string() {
             format!("(define-constant my-str \"{string}\")")
         },
     );
+}
+
+/// ParserError: [`ParseErrors::CostBalanceExceeded`]
+/// Caused by: exceeding runtime cost limit [`BLOCK_LIMIT_MAINNET_21`] during contract deploy parsing
+/// Outcome: block rejected
+/// Note: This cost error is remapped as [`crate::chainstate::stacks::Error::CostOverflowError`]
+#[test]
+fn test_cost_balance_exceeded() {
+    const RUNTIME_LIMIT: u64 = BLOCK_LIMIT_MAINNET_21.runtime as u64;
+    // Arbitrary parameters determined through empirical testing
+    const CONTRACT_FUNC_INVOCATIONS: u64 = 29_022;
+    const CALL_RUNTIME_COST: u64 = 249_996_284;
+    const CALLS_NEEDED: u64 = RUNTIME_LIMIT / CALL_RUNTIME_COST - 1;
+
+    let costly_contract_code = {
+        let mut code = String::from(
+            "(define-constant msg 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f)\n\
+             (define-constant sig 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40)\n\
+             (define-constant key 0xfffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0df)\n\
+             (define-read-only (costly-func)\n  (begin\n",
+        );
+        for _ in 0..CONTRACT_FUNC_INVOCATIONS {
+            code.push_str("    (secp256k1-verify msg sig key)\n");
+        }
+        code.push_str("    true))");
+        code
+    };
+
+    let large_contract_code = &{
+        let mut code = String::new();
+        for i in 0..50_000u64 {
+            code.push_str(&format!("(define-public (gen-fn-{i}) (ok {i}))\n", i = i));
+        }
+        code
+    };
+
+    let mut result = vec![];
+    for each_epoch in EPOCHS_TO_TEST {
+        for &each_clarity_ver in clarity_versions_for_epoch(*each_epoch) {
+            let mut nonce = 0;
+            let mut txs = vec![];
+
+            // Create a contract that will be costly to execute
+            txs.push(ConsensusUtils::new_deploy_tx(
+                nonce,
+                "costly-contract",
+                &costly_contract_code,
+                None,
+            ));
+
+            // Create contract calls that push the runtime cost to a considerably high value
+            while nonce < CALLS_NEEDED {
+                nonce += 1;
+                txs.push(ConsensusUtils::new_call_tx(
+                    nonce,
+                    "costly-contract",
+                    "costly-func",
+                ));
+            }
+
+            // Create a large contract that push the runtime cost close to the limit
+            nonce += 1;
+            txs.push(ConsensusUtils::new_deploy_tx(
+                nonce,
+                "runtime-close",
+                large_contract_code,
+                None,
+            ));
+
+            // Create a large contract that exceeds the runtime cost limit during parsing
+            // NOTE: this is the only relevant transaction to demonstrate the runtime cost to be exceeded during parsing.
+            //       the previous txs are just for test preparation.
+            nonce += 1;
+            txs.push(ConsensusUtils::new_deploy_tx(
+                nonce,
+                "runtime-exceeded",
+                large_contract_code,
+                Some(each_clarity_ver),
+            ));
+
+            let block = TestBlock { transactions: txs };
+
+            let epoch_blocks = HashMap::from([(*each_epoch, vec![block])]);
+
+            let each_result = ConsensusTest::new(function_name!(), vec![]).run(epoch_blocks);
+            result.extend(each_result);
+        }
+    }
+
+    insta::assert_ron_snapshot!(result);
 }

@@ -70,7 +70,7 @@ const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
 
 /// Returns the list of Clarity versions that can be used to deploy contracts in the given epoch.
-const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVersion] {
+pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVersion] {
     match epoch {
         StacksEpochId::Epoch10 => &[],
         StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => &[ClarityVersion::Clarity1],
@@ -1078,6 +1078,43 @@ impl ConsensusTest<'_> {
             .map_err(|e| e.to_string())?;
 
         Ok(clarity_tx.seal())
+    }
+}
+
+// Just a namespace for utilities for writing consensus tests
+pub struct ConsensusUtils;
+
+impl ConsensusUtils {
+    pub fn new_deploy_tx(
+        nonce: u64,
+        contract_name: &str,
+        contract_code: &str,
+        clarity_version: Option<ClarityVersion>,
+    ) -> StacksTransaction {
+        let deploy_tx = make_contract_publish_versioned(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            contract_code.len() as u64 * 100,
+            CHAIN_ID_TESTNET,
+            contract_name,
+            contract_code,
+            clarity_version,
+        );
+        StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap()
+    }
+
+    pub fn new_call_tx(nonce: u64, contract_name: &str, funct_name: &str) -> StacksTransaction {
+        let call_tx = make_contract_call(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            200,
+            CHAIN_ID_TESTNET,
+            &to_addr(&FAUCET_PRIV_KEY),
+            contract_name,
+            funct_name,
+            &[],
+        );
+        StacksTransaction::consensus_deserialize(&mut call_tx.as_slice()).unwrap()
     }
 }
 
