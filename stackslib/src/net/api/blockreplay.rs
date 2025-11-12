@@ -23,6 +23,7 @@ use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlo
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+use url::form_urlencoded;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -452,8 +453,15 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
 
         self.block_id = Some(block_id);
 
-        if let Some(profiler_match) = captures.name("profiler") {
-            self.profiler = profiler_match.as_str() == "1"
+        if let Some(query_string) = query {
+            for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
+                if key == "profiler" {
+                    if value == "1" {
+                        self.profiler = true;
+                    }
+                    break;
+                }
+            }
         }
 
         Ok(HttpRequestContents::new().query_string(query))
@@ -517,6 +525,23 @@ impl StacksHttpRequest {
             "GET".into(),
             format!("/v3/blocks/replay/{block_id}"),
             HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
+    }
+
+    pub fn new_block_replay_with_profiler(
+        host: PeerHost,
+        block_id: &StacksBlockId,
+        profiler: bool,
+    ) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            host,
+            "GET".into(),
+            format!("/v3/blocks/replay/{block_id}"),
+            HttpRequestContents::new().query_arg(
+                "profiler".into(),
+                if profiler { "1".into() } else { "0".into() },
+            ),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
