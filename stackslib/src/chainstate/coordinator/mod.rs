@@ -1732,6 +1732,16 @@ impl<
         Ok(None)
     }
 
+    /// A helper function for exposing the private process_new_pox_anchor_test function
+    #[cfg(test)]
+    pub fn process_new_pox_anchor_test(
+        &mut self,
+        block_id: BlockHeaderHash,
+        already_processed_burn_blocks: &mut HashSet<BurnchainHeaderHash>,
+    ) -> Result<Option<BlockHeaderHash>, Error> {
+        self.process_new_pox_anchor(block_id, already_processed_burn_blocks)
+    }
+
     /// Process a new PoX anchor block, possibly resulting in the PoX history being unwound and
     /// replayed through a different sequence of consensus hashes.  If the new anchor block causes
     /// the node to reach a prepare-phase that elects a network-affirmed anchor block that we don't
