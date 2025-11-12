@@ -54,7 +54,7 @@ use crate::net::tests::NakamotoBootPlan;
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
 /// Note that contract deploys MUST be done in each epoch >= 2.0.
-pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch32, StacksEpochId::Epoch33];
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch33];
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
@@ -1196,7 +1196,7 @@ fn test_successfully_deploy_and_call() {
 /// Example of using the `contract_deploy_consensus_test!` macro
 /// Deploys a contract to all epoch, for each Clarity version
 #[test]
-fn test_succesfully_deploy() {
+fn test_successfully_deploy() {
     contract_deploy_consensus_test!(
         contract_name: "foo_contract",
         contract_code: FOO_CONTRACT,

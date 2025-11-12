@@ -4,97 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "cac736d7c73e7314d8fc4a2991f3016ce87aa7e3eaa8917b4072581945bc4bab",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 4857,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 4857,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8310b5069b1b70e57f4776f22a4b1edfc7235ca10715e22581af022eaf37ffe5",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 4857,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 4857,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6278953d1952b210fa0a027aeb112d173fe488f53f87e314d3e8472b941f3edc",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(trait references can not be stored) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 4857,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 4857,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2a03479cbf3c5fea6e84c38015afd0d8d6d4fb932bf25f91b7572f78f18a978b",
+    marf_hash: "cd8720e68b3c6d5208c00c504136da3cfb59c140219baab0aa5feb8c8aec7f52",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "769ef7860f14daf9f057d31c0ce888462694fc5d95f87aa986673dbe24057f22",
+    marf_hash: "b2d0ef54424c740577f6ca74b19f13955cf4b88feac39e08f44f8cdb290bbe72",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0c711b319c6a3b6c3eeca9497bc2c856a70ee429dce82025a510d4764b417e4a",
+    marf_hash: "12c0ac015ba53d5444e9399eaabd21312153ea2618662fcc2096d0b4bba46652",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f8b094243995d9149d2238b45eed00980a611f6d764cd94d1e8d238e7daaef6d",
+    marf_hash: "4f862ecabe0e51b3fbb2698fbcdb3ae4e07bfaac73d4170ea5eab4b9feb3b9de",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(

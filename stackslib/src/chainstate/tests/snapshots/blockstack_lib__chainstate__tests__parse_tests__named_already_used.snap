@@ -4,97 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "74a324f1344306ab5deca85468ad64ad410740b83e64e2d453297d8002133e88",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(defining \'trait-1\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 5256,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 5256,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c02986b80c11ccff092522b81b188e2ee7b0a2ff1ef816209a361aaf83fa725b",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(defining \'trait-1\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 5256,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 5256,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "b4c54aab7bb5fb335d2df58557452f04eb4d303ee9d7ca24f2465a57f324bc12",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(defining \'trait-1\' conflicts with previous value) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 5256,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 5256,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "dfc2f662e88ee642983da12c62a4afb9f3473ceb990b4b1e33b21c42a7e3dac3",
+    marf_hash: "654695653289e7c41d8d086855642d388abed36c665a7a7ede9837fbece642b6",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "108774f602a9762431b6247a772755449818b0dbe2c895cf128bbc6248f93775",
+    marf_hash: "4ccf3412955e1286c33186cccb70bda7fe429a12024c79d16a5f6eb06ea91f13",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "305374802362ea4d5a3e12f2b0084086256d3a909d439d1be1f0b266f6b9b8ad",
+    marf_hash: "8dc7707fd841cce3f084091d65105e430c6d222efb952b863292225771f2a9ac",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b9a0c7886a2975f0c03ffa13f670a95ed5eea3bb2f24f69835a9f574288c101a",
+    marf_hash: "c683cd4d0bdd1ec423e7833295d1999b8ff43aec5e5457d3ba250f56412bbf1e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(

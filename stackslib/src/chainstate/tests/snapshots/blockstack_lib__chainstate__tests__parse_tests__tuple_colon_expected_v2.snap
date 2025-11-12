@@ -4,97 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "d24d8e0f69f6ac54831eeb7e091647e999cbc1479c1b0b81592b87fe2d5afc99",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(expected \':\' after key in tuple) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 270,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 270,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "f473466546e8afd0f3565921220ac78e0385f2e128cfdfcc5db88de2aee63683",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(expected \':\' after key in tuple) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 270,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 270,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "3639d67c5d5ed1886cb2e9161e3ac8bb286f6a2c822d139a977b45abfa4a17b0",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(expected \':\' after key in tuple) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 270,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 270,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "099a652b55749c757b02422ffc9e95e0f02e66ed0921fdb2be44766da2483f1b",
+    marf_hash: "e569f901812b2c7b7665b81e625f9056c04837611b9de26a091dfcc5794f49b1",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d03ddcabb9cacda14a778f06de68ea72995166739ddbf08ee59fcb0c0f3532e9",
+    marf_hash: "937bb49d6e979f54cd51cffbf45f7ca656ad427a0312ece28930e7b859ca74e3",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ea0f2be563d7d5f3c940f7fdadebde6166e63db9e2976a671c95503524c34f7c",
+    marf_hash: "771d21ca174720e4ef002e11d2a0eb65054d73f3202ec82c76b406c452b5a733",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2136429658e58dd1daa72e180b2ef681bcd830d38d13e5d0e3e3585b32b4effc",
+    marf_hash: "84547243b695ed3ebac90e4af76163e37366616eed0e835a59cc13ffb97bd03f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(

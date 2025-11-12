@@ -4,97 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "761d99d7caec93ccc37fa1b130b57fbb3a9bed921e4d3d1ea681e1a9883ccaea",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(expected contract identifier) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2133,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2133,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "2e78fcfd56446b403051192c2642ead711c4ed54240246a0d82b66c2dd42acad",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(expected contract identifier) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2133,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2133,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "d5e397c16fb5aa02ea62dbf6f9871e3e2571f0acd6e11e04e2159b544672fbfb",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(expected contract identifier) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 2133,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 2133,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7f663bb47199d69f0986f05781c9ad83d7e882fdc7e5717fafe4177bd32700c7",
+    marf_hash: "53da1116619bc555a33bc029eb0fe9ba4b6107d72d2fa58636c213cd81909b91",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f157d94eae9432477dbfe6f90d6f16609cffeb3f92ce8ea8d8b16cd44e5bccf4",
+    marf_hash: "95067c3a9bae0f53af92722c9b152f42895339a69c9c06bc201cc7f68a9659ad",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9c41eba701504de1eec17a6ed34098e3990278867b5125370d6df28cd389d7bb",
+    marf_hash: "e621107c3adf566a63b07552ee2bca86b5916b8d9dcbd3339306c7b128622b65",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5e360d6a14d893f83e7fa8ee9ae2080a1527aede9d832531269ec23ed3a9b8dd",
+    marf_hash: "4b76ae486ab5a4eeac428a8a4289e817635d21aceea34d186c178b8d95eb0462",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(

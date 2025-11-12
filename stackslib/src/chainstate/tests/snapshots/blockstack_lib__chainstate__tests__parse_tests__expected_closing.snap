@@ -4,97 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "74dede3e56ec3a3017817269d4089b3cfbdfcb99ffb2a63329fcad7c0f5a32d1",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
-        vm_error: "Some(expected closing \')\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 108,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 108,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8b545070c629f8bd6d5848c004f6d19a8eea35c0e0fddca7b3007b1356a0e1f8",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
-        vm_error: "Some(expected closing \')\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 108,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 108,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "3efcd52909d707341032967e4b116e8d0f2cf92479dbc6bab6bf60aa8ed441bb",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: my-contract-Epoch3_2-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
-        vm_error: "Some(expected closing \')\') [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 108,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 108,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "086be1fc5651c1b9384d71995ad6074e66f86614d0c1f211f652b988a36522d0",
+    marf_hash: "1af832147876a77e8b38ff8a1c611c063c00b72344c0c3c446a08ead5d0ee9c0",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -124,7 +34,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "9b1debcddbe398a4aca760c4c66c650aa72508d62c764202098f57db0e0ed2e6",
+    marf_hash: "f62365e1702be61fd6b9b6b2cd36a7faa5628cd166e88be1e368ca440d76f346",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -154,7 +64,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f2d08f43a6f639b209f8da6e93c1e906de89c82c8dad8fe157bbbe2de123298e",
+    marf_hash: "8b3fade9a51dfb75f9a4f8eff1948e01d1ef8bf7b4fc5d2f316e019b4d15ce58",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -184,7 +94,7 @@ expression: result
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8196c7bbf9d5624fdabc4674d5ad5c176d1450bbad6f5ae4b42daf3c9506fc0e",
+    marf_hash: "faf73e9dcfb93b29ee2d1b1fc1c7be2f2d9c013e9a3951df077349fc886f1878",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
