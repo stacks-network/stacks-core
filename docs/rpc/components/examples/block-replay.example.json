@@ -98,6 +98,8 @@
                     }
                 }
             },
+            "result_hex": "0x0703",
+            "post_condition_aborted": false,
             "stx_burned": 0,
             "tx_index": 0,
             "txid": "f14dd7dec56405fd7dac69c3080fb569fae4c49c591f9ad0e5cf5c797add9005"

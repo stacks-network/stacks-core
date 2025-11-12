@@ -16,7 +16,7 @@
 /// This file implements the cost functions from costs.clar in Rust.
 use super::cost_functions::{linear, logn, nlogn, CostValues};
 use super::ExecutionCost;
-use crate::vm::errors::{InterpreterResult, RuntimeErrorType};
+use crate::vm::errors::{InterpreterResult, RuntimeError};
 
 pub struct Costs1;
 
@@ -651,118 +651,118 @@ impl CostValues for Costs1 {
     }
 
     fn cost_buff_to_int_le(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_buff_to_uint_le(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_buff_to_int_be(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_buff_to_uint_be(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_is_standard(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_principal_destruct(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_principal_construct(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_string_to_int(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_string_to_uint(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_int_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_int_to_utf8(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_burn_block_info(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_stx_account(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_slice(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_to_consensus_buff(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_from_consensus_buff(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_stx_transfer_memo(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_replace_at(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_as_contract(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_bitwise_and(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_bitwise_or(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_bitwise_not(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_bitwise_left_shift(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_bitwise_right_shift(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_contract_hash(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_to_ascii(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_restrict_assets(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_as_contract_safe(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 
     fn cost_secp256r1verify(n: u64) -> InterpreterResult<ExecutionCost> {
-        Err(RuntimeErrorType::NotImplemented.into())
+        Err(RuntimeError::NotImplemented.into())
     }
 }

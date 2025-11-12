@@ -56,7 +56,9 @@ use stacks::chainstate::stacks::{
     StacksTransaction, TenureChangeCause, TenureChangePayload, TransactionPayload,
 };
 use stacks::codec::StacksMessageCodec;
-use stacks::config::{Config as NeonConfig, EventKeyType, EventObserverConfig};
+use stacks::config::{
+    Config as NeonConfig, EventKeyType, EventObserverConfig, DEFAULT_MAX_TENURE_BYTES,
+};
 use stacks::core::mempool::MemPoolWalkStrategy;
 use stacks::core::test_util::{
     insert_tx_in_mempool, make_big_read_count_contract, make_contract_call, make_contract_publish,
@@ -85,7 +87,6 @@ use stacks::util_lib::signed_structured_data::pox4::{
 };
 use stacks_common::bitvec::BitVec;
 use stacks_common::types::chainstate::TrieHash;
-use stacks_common::types::EpochList;
 use stacks_common::util::sleep_ms;
 use stacks_signer::chainstate::v1::SortitionsView;
 use stacks_signer::chainstate::ProposalEvalConfig;
@@ -127,7 +128,7 @@ use crate::run_loop::boot_nakamoto;
 use crate::tests::nakamoto_integrations::{
     boot_to_epoch_25, boot_to_epoch_3_reward_set, next_block_and, next_block_and_controller,
     next_block_and_process_new_stacks_block, setup_epoch_3_reward_set, wait_for,
-    NAKAMOTO_INTEGRATION_3_3_EPOCHS, POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
+    POX_4_DEFAULT_STACKER_BALANCE, POX_4_DEFAULT_STACKER_STX_AMT,
 };
 use crate::tests::neon_integrations::{
     get_account, get_chain_info, get_chain_info_opt, get_sortition_info, get_sortition_info_ch,
@@ -1931,17 +1932,15 @@ fn sip034_tenure_extend_proposal(allow: bool) {
         },
         |node_config| {
             // boot directly to epoch 3.3
-            let mut epoch_33 = EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS);
-            let epoch_30_height = epoch_33[StacksEpochId::Epoch30].start_height;
+            let epochs = node_config.burnchain.epochs.as_mut().unwrap();
+            let epoch_30_height = epochs[StacksEpochId::Epoch30].start_height;
 
-            epoch_33[StacksEpochId::Epoch30].end_height = epoch_30_height;
-            epoch_33[StacksEpochId::Epoch31].start_height = epoch_30_height;
-            epoch_33[StacksEpochId::Epoch31].end_height = epoch_30_height;
-            epoch_33[StacksEpochId::Epoch32].start_height = epoch_30_height;
-            epoch_33[StacksEpochId::Epoch32].end_height = epoch_30_height;
-            epoch_33[StacksEpochId::Epoch33].start_height = epoch_30_height;
-
-            node_config.burnchain.epochs = Some(epoch_33);
+            epochs[StacksEpochId::Epoch30].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch31].start_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch31].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch32].start_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch32].end_height = epoch_30_height;
+            epochs[StacksEpochId::Epoch33].start_height = epoch_30_height;
         },
         None,
         None,
@@ -2051,6 +2050,7 @@ fn sip034_tenure_extend_proposal(allow: bool) {
                 None,
                 None,
                 None,
+                u64::from(DEFAULT_MAX_TENURE_BYTES),
             )
             .expect("Failed to build Nakamoto block");
 
@@ -3122,6 +3122,7 @@ fn forked_tenure_testing(
         burn_header_timestamp: tip_sn.burn_header_timestamp,
         anchored_block_size: tip_b_block.serialize_to_vec().len() as u64,
         burn_view: Some(tip_b_block.header.consensus_hash),
+        total_tenure_size: 0,
     };
 
     let blocks = test_observer::get_mined_nakamoto_blocks();
@@ -3299,6 +3300,8 @@ fn bitcoind_forking_test() {
             epochs[StacksEpochId::Epoch31].start_height = 3_015;
             epochs[StacksEpochId::Epoch31].end_height = 3_055;
             epochs[StacksEpochId::Epoch32].start_height = 3_055;
+            epochs[StacksEpochId::Epoch32].end_height = 3_065;
+            epochs[StacksEpochId::Epoch33].start_height = 3_065;
         },
         None,
         None,
@@ -7874,6 +7877,8 @@ fn mock_sign_epoch_25() {
             epochs[StacksEpochId::Epoch31].start_height = 265;
             epochs[StacksEpochId::Epoch31].end_height = 285;
             epochs[StacksEpochId::Epoch32].start_height = 285;
+            epochs[StacksEpochId::Epoch32].end_height = 305;
+            epochs[StacksEpochId::Epoch33].start_height = 305;
         },
         None,
         None,
@@ -7994,6 +7999,8 @@ fn multiple_miners_mock_sign_epoch_25() {
             epochs[StacksEpochId::Epoch31].start_height = 265;
             epochs[StacksEpochId::Epoch31].end_height = 285;
             epochs[StacksEpochId::Epoch32].start_height = 285;
+            epochs[StacksEpochId::Epoch32].end_height = 305;
+            epochs[StacksEpochId::Epoch33].start_height = 305;
         },
         |_| {},
     );
@@ -17837,6 +17844,7 @@ fn reorging_signers_capitulate_to_nonreorging_signers_during_tenure_fork() {
         burn_header_timestamp: tip_sn.burn_header_timestamp,
         anchored_block_size: tenure_b_block.serialize_to_vec().len() as u64,
         burn_view: Some(tenure_b_block.header.consensus_hash),
+        total_tenure_size: 0,
     };
 
     // Block B was built atop block A
