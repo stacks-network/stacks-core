@@ -807,7 +807,7 @@ impl HeadersDB for CLIHeadersDB {
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
         eprintln!(
-            "Usage: {} {} [--costs] [contract-identifier] (program.clar) [vm-state.db]",
+            "Usage: {} {} [--costs] [--epoch E] [--clarity_version N] [contract-identifier] (program.clar) [vm-state.db]",
             invoked_by, args[0]
         );
         panic_test!();
@@ -1328,7 +1328,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if argv.len() != 1 {
                 eprintln!(
-                    "Usage: {} {} [--testnet] [--clarity_version N]",
+                    "Usage: {} {} [--testnet] [--epoch E] [--clarity_version N]",
                     invoked_by, args[0]
                 );
                 panic_test!();
@@ -1409,7 +1409,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
 
             if argv.len() != 1 {
-                eprintln!("Usage: {} {} [--epoch N] [--clarity_version N]", invoked_by, args[0]);
+                eprintln!(
+                    "Usage: {} {} [--epoch E] [--clarity_version N]",
+                    invoked_by, args[0]
+                );
                 eprintln!("   Examples:");
                 eprintln!("   echo \"(+ 1 2)\" | {} {}", invoked_by, args[0]);
                 eprintln!("   {} {} < input.clar", invoked_by, args[0]);
@@ -1623,7 +1626,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if argv.len() != 4 {
                 eprintln!(
-                    "Usage: {} {} [--costs] [index-block-hash] [contract-identifier] [--clarity_version N] [vm/clarity dir]",
+                    "Usage: {} {} [--costs] [--epoch E] [index-block-hash] [contract-identifier] [--clarity_version N] [vm/clarity dir]",
                     invoked_by, &argv[0]
                 );
                 panic_test!();
