@@ -240,7 +240,7 @@ fn test_stack_depth_too_deep_case_2_list_only_parsing() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: &{
-            // In parse v2, open parent '(' have a stack count of 1.
+            // In parse v2, open parenthesis '(' have a stack count of 1.
             let count = MAX_NESTING_DEPTH;
             let body_start = "(list ".repeat(count as usize);
             let body_end = ")".repeat(count as usize);
@@ -257,7 +257,7 @@ fn test_stack_depth_too_deep_case_3_list_only_checker() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: &{
-            // In parse v2, open parent '(' have a stack count of 1.
+            // In parse v2, open parenthesis '(' have a stack count of 1.
             let count = AST_CALL_STACK_DEPTH_BUFFER + MAX_CALL_STACK_DEPTH as u64;
             let body_start = "(list ".repeat(count as usize);
             let body_end = ")".repeat(count as usize);
