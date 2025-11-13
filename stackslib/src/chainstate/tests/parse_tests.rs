@@ -96,7 +96,7 @@ fn variant_coverage_report(variant: ParseErrorKind) {
         IllegalClarityName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant"),
         IllegalASCIIString(_) => Tested(vec![test_illegal_ascii_string]),
         IllegalContractName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant or Parser by MAX_CONTRACT_NAME_LEN returning `ContractNameTooLong` variant"),
-        NoteToMatchThis(_) => Tested(vec![test_note_to_match_this]),
+        NoteToMatchThis(_) => Unreachable_Functionally("It is reachable, but only visible in diagnostic mode as it comes as a later diagnostic error"),
         UnexpectedParserFailure => Unreachable_ExpectLike,
         InterpreterFailure => Unreachable_ExpectLike, // currently cause block rejection
 
@@ -412,17 +412,6 @@ fn test_expected_closing() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "(",
-    );
-}
-
-/// ParserError: [`ParseErrorKind::NoteToMatchThis`]
-/// Caused by: missing open parenthesis matching the close one
-/// Outcome: block accepted
-#[test]
-fn test_note_to_match_this() {
-    contract_deploy_consensus_test!(
-        contract_name: "my-contract",
-        contract_code: "())",
     );
 }
 
