@@ -111,7 +111,7 @@ pub struct RPCPoxInfoData {
     pub current_cycle: RPCPoxCurrentCycleInfo,
     pub next_cycle: RPCPoxNextCycleInfo,
     pub epochs: Vec<RPCPoxEpoch>,
-    pub current_epoch: u8,
+    pub current_epoch: StacksEpochId,
 
     // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
@@ -361,9 +361,9 @@ impl RPCPoxInfoData {
             .map(RPCPoxEpoch::from)
             .collect();
         let burn_height = burnchain_tip.block_height;
-        let current_epoch: u8 = epochs.iter().fold(0u8, |acc, epoch_data| {
+        let current_epoch = epochs.iter().fold(StacksEpochId::Epoch10, |acc, epoch_data| {
             if burn_height >= epoch_data.start_height {
-                epoch_data.network_epoch
+                epoch_data.epoch_id
             } else {
                 acc
             }

@@ -29,8 +29,8 @@ properties:
     minimum: 0
     description: The latest Bitcoin chain block height
   current_epoch:
-    type: integer
-    minimum: 0
+    type: string
+    pattern: "^Epoch[0-9]+(_[0-9]+)?$"
     description: The ID of the Stacks Epoch that the node is currently in.
   pox_activation_threshold_ustx:
     type: integer

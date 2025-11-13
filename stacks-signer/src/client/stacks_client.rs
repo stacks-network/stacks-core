@@ -274,31 +274,7 @@ impl StacksClient {
     pub fn get_node_epoch(&self) -> Result<StacksEpochId, ClientError> {
         debug!("StacksClient: Getting node epoch");
         let pox_info = self.get_pox_data()?;
-        let burn_block_height = self.get_burn_block_height()?;
-
-        let epoch_25 = pox_info
-            .epochs
-            .iter()
-            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch25)
-            .ok_or(ClientError::UnsupportedStacksFeature(
-                "/v2/pox must report epochs".into(),
-            ))?;
-
-        let epoch_30 = pox_info
-            .epochs
-            .iter()
-            .find(|epoch| epoch.epoch_id == StacksEpochId::Epoch30)
-            .ok_or(ClientError::UnsupportedStacksFeature(
-                "/v2/pox mut report epochs".into(),
-            ))?;
-
-        if burn_block_height < epoch_25.start_height {
-            Ok(StacksEpochId::Epoch24)
-        } else if burn_block_height < epoch_30.start_height {
-            Ok(StacksEpochId::Epoch25)
-        } else {
-            Ok(StacksEpochId::Epoch30)
-        }
+        Ok(pox_info.current_epoch)
     }
 
     /// Submit the block proposal to the stacks node. The block will be validated and returned via the HTTP endpoint for Block events.
@@ -551,12 +527,6 @@ impl StacksClient {
         }
         let pox_info_data = response.json::<RPCPoxInfoData>()?;
         Ok(pox_info_data)
-    }
-
-    /// Helper function to retrieve the burn tip height from the stacks node
-    fn get_burn_block_height(&self) -> Result<u64, ClientError> {
-        debug!("StacksClient: Getting burn block height");
-        self.get_peer_info().map(|info| info.burn_block_height)
     }
 
     /// Get the current reward cycle info from the stacks node
@@ -914,17 +884,17 @@ mod tests {
     #[test]
     fn core_info_call_for_burn_block_height_should_succeed() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_burn_block_height());
+        let h = spawn(move || mock.client.get_peer_info());
         let (response, peer_info) = build_get_peer_info_response(None, None);
         write_response(mock.server, response.as_bytes());
-        let burn_block_height = h.join().unwrap().expect("Failed to deserialize response");
+        let burn_block_height = h.join().unwrap().expect("Failed to deserialize response").burn_block_height;
         assert_eq!(burn_block_height, peer_info.burn_block_height);
     }
 
     #[test]
     fn core_info_call_for_burn_block_height_should_fail() {
         let mock = MockServerClient::new();
-        let h = spawn(move || mock.client.get_burn_block_height());
+        let h = spawn(move || mock.client.get_peer_info());
         write_response(
             mock.server,
             b"HTTP/1.1 200 OK\n\n4e99f99bc4a05437abb8c7d0c306618f45b203196498e2ebe287f10497124958",
