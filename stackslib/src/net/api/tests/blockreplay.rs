@@ -72,6 +72,43 @@ fn test_try_parse_request() {
     let (preamble, contents) = parsed_request.destruct();
 
     assert_eq!(&preamble, request.preamble());
+    assert_eq!(handler.profiler, false);
+}
+
+#[test]
+fn test_try_parse_request_with_profiler() {
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 33333);
+    let mut http = StacksHttp::new(addr.clone(), &ConnectionOptions::default());
+
+    let mut request = StacksHttpRequest::new_block_replay_with_profiler(
+        addr.into(),
+        &StacksBlockId([0x01; 32]),
+        true,
+    );
+
+    // add the authorization header
+    request.add_header("authorization".into(), "password".into());
+
+    let bytes = request.try_serialize().unwrap();
+
+    debug!("Request:\n{}\n", std::str::from_utf8(&bytes).unwrap());
+
+    let (parsed_preamble, offset) = http.read_preamble(&bytes).unwrap();
+
+    let mut handler =
+        blockreplay::RPCNakamotoBlockReplayRequestHandler::new(Some("password".into()));
+
+    let parsed_request = http
+        .handle_try_parse_request(
+            &mut handler,
+            &parsed_preamble.expect_request(),
+            &bytes[offset..],
+        )
+        .unwrap();
+
+    let (preamble, contents) = parsed_request.destruct();
+
+    assert_eq!(handler.profiler, true);
 }
 
 #[test]

@@ -15,6 +15,10 @@
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use perf_event::events::Hardware;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use perf_event::{Builder, Counter};
 use regex::{Captures, Regex};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
@@ -22,6 +26,7 @@ use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::serde_serializers::prefix_hex_codec;
+use url::form_urlencoded;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
@@ -43,6 +48,7 @@ use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 pub struct RPCNakamotoBlockReplayRequestHandler {
     pub block_id: Option<StacksBlockId>,
     pub auth: Option<String>,
+    pub profiler: bool,
 }
 
 impl RPCNakamotoBlockReplayRequestHandler {
@@ -50,6 +56,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
         Self {
             block_id: None,
             auth,
+            profiler: false,
         }
     }
 
@@ -160,6 +167,37 @@ impl RPCNakamotoBlockReplayRequestHandler {
         for (i, tx) in block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
+            let mut perf_event_cpu_instructions: Option<Counter> = None;
+            let mut perf_event_cpu_cycles: Option<Counter> = None;
+            let mut perf_event_cpu_ref_cycles: Option<Counter> = None;
+
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            if self.profiler {
+                if let Ok(mut perf_event_cpu_instructions_result) =
+                    Builder::new(Hardware::INSTRUCTIONS).build()
+                {
+                    if perf_event_cpu_instructions_result.enable().is_ok() {
+                        perf_event_cpu_instructions = Some(perf_event_cpu_instructions_result);
+                    }
+                }
+
+                if let Ok(mut perf_event_cpu_cycles_result) =
+                    Builder::new(Hardware::CPU_CYCLES).build()
+                {
+                    if perf_event_cpu_cycles_result.enable().is_ok() {
+                        perf_event_cpu_cycles = Some(perf_event_cpu_cycles_result);
+                    }
+                }
+
+                if let Ok(mut perf_event_cpu_ref_cycles_result) =
+                    Builder::new(Hardware::REF_CPU_CYCLES).build()
+                {
+                    if perf_event_cpu_ref_cycles_result.enable().is_ok() {
+                        perf_event_cpu_ref_cycles = Some(perf_event_cpu_ref_cycles_result);
+                    }
+                }
+            }
+
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,
                 tx,
@@ -167,9 +205,46 @@ impl RPCNakamotoBlockReplayRequestHandler {
                 &BlockLimitFunction::NO_LIMIT_HIT,
                 None,
             );
+
+            let mut cpu_instructions: Option<u64> = None;
+            let mut cpu_cycles: Option<u64> = None;
+            let mut cpu_ref_cycles: Option<u64> = None;
+
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            if self.profiler {
+                if let Some(mut perf_event_cpu_instructions) = perf_event_cpu_instructions {
+                    if perf_event_cpu_instructions.disable().is_ok() {
+                        if let Ok(value) = perf_event_cpu_instructions.read() {
+                            cpu_instructions = Some(value);
+                        }
+                    }
+                }
+
+                if let Some(mut perf_event_cpu_cycles) = perf_event_cpu_cycles {
+                    if perf_event_cpu_cycles.disable().is_ok() {
+                        if let Ok(value) = perf_event_cpu_cycles.read() {
+                            cpu_cycles = Some(value);
+                        }
+                    }
+                }
+
+                if let Some(mut perf_event_cpu_ref_cycles) = perf_event_cpu_ref_cycles {
+                    if perf_event_cpu_ref_cycles.disable().is_ok() {
+                        if let Ok(value) = perf_event_cpu_ref_cycles.read() {
+                            cpu_ref_cycles = Some(value);
+                        }
+                    }
+                }
+            }
+
             let err = match tx_result {
                 TransactionResult::Success(tx_result) => {
-                    txs_receipts.push(tx_result.receipt);
+                    txs_receipts.push((
+                        tx_result.receipt,
+                        cpu_instructions,
+                        cpu_cycles,
+                        cpu_ref_cycles,
+                    ));
                     Ok(())
                 }
                 _ => Err(format!("Problematic tx {i}")),
@@ -194,8 +269,13 @@ impl RPCNakamotoBlockReplayRequestHandler {
         let mut rpc_replayed_block =
             RPCReplayedBlock::from_block(block, block_fees, tenure_id, parent_block_id);
 
-        for receipt in &txs_receipts {
-            let transaction = RPCReplayedBlockTransaction::from_receipt(receipt);
+        for (receipt, cpu_instructions, cpu_cycles, cpu_ref_cycles) in &txs_receipts {
+            let transaction = RPCReplayedBlockTransaction::from_receipt(
+                receipt,
+                cpu_instructions,
+                cpu_cycles,
+                cpu_ref_cycles,
+            );
             rpc_replayed_block.transactions.push(transaction);
         }
 
@@ -231,10 +311,19 @@ pub struct RPCReplayedBlockTransaction {
     pub post_condition_aborted: bool,
     /// optional vm error
     pub vm_error: Option<String>,
+    /// profiling data based on linux perf_events
+    pub cpu_instructions: Option<u64>,
+    pub cpu_cycles: Option<u64>,
+    pub cpu_ref_cycles: Option<u64>,
 }
 
 impl RPCReplayedBlockTransaction {
-    pub fn from_receipt(receipt: &StacksTransactionReceipt) -> Self {
+    pub fn from_receipt(
+        receipt: &StacksTransactionReceipt,
+        cpu_instructions: &Option<u64>,
+        cpu_cycles: &Option<u64>,
+        cpu_ref_cycles: &Option<u64>,
+    ) -> Self {
         let events = receipt
             .events
             .iter()
@@ -269,6 +358,9 @@ impl RPCReplayedBlockTransaction {
             events,
             post_condition_aborted: receipt.post_condition_aborted,
             vm_error: receipt.vm_error.clone(),
+            cpu_instructions: cpu_instructions.clone(),
+            cpu_cycles: cpu_cycles.clone(),
+            cpu_ref_cycles: cpu_ref_cycles.clone(),
         }
     }
 }
@@ -382,6 +474,17 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
 
         self.block_id = Some(block_id);
 
+        if let Some(query_string) = query {
+            for (key, value) in form_urlencoded::parse(query_string.as_bytes()) {
+                if key == "profiler" {
+                    if value == "1" {
+                        self.profiler = true;
+                    }
+                    break;
+                }
+            }
+        }
+
         Ok(HttpRequestContents::new().query_string(query))
     }
 }
@@ -443,6 +546,23 @@ impl StacksHttpRequest {
             "GET".into(),
             format!("/v3/blocks/replay/{block_id}"),
             HttpRequestContents::new(),
+        )
+        .expect("FATAL: failed to construct request from infallible data")
+    }
+
+    pub fn new_block_replay_with_profiler(
+        host: PeerHost,
+        block_id: &StacksBlockId,
+        profiler: bool,
+    ) -> StacksHttpRequest {
+        StacksHttpRequest::new_for_peer(
+            host,
+            "GET".into(),
+            format!("/v3/blocks/replay/{block_id}"),
+            HttpRequestContents::new().query_arg(
+                "profiler".into(),
+                if profiler { "1".into() } else { "0".into() },
+            ),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
