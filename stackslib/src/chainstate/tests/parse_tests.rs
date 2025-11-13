@@ -207,7 +207,7 @@ fn test_cost_balance_exceeded() {
 
             let epoch_blocks = HashMap::from([(*each_epoch, vec![block])]);
 
-            let each_result = ConsensusTest::new(function_name!(), vec![]).run(epoch_blocks);
+            let each_result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
             result.extend(each_result);
         }
     }

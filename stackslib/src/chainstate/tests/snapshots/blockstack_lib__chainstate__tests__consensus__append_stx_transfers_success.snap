@@ -4,7 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "c56a8191ab95c754a08477d6fbe025a07902dc168afaa75f23f87585a885fe0d",
+    marf_hash: "1e57930a5701e492d802f1793af4627f7329ff418fc7c6358cca1e064365534f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
