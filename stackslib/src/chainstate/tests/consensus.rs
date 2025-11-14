@@ -18,9 +18,7 @@ use std::sync::LazyLock;
 use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
-use clarity::types::chainstate::{
-    BlockHeaderHash, StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash,
-};
+use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash};
 use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
 use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
@@ -35,9 +33,7 @@ use crate::burnchains::tests::TestBurnchainBlock;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
 use crate::chainstate::burn::operations::BlockstackOperationType;
-use crate::chainstate::coordinator::{get_next_recipients, OnChainRewardSetProvider};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
-use crate::chainstate::stacks::address::PoxAddress;
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
 use crate::chainstate::stacks::events::TransactionOrigin;
 use crate::chainstate::stacks::miner::BlockBuilder;
@@ -623,19 +619,21 @@ impl ConsensusChain<'_> {
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
         let burnchain = self.test_chainstate.config.burnchain.clone();
 
-        let mut sortdb = self.test_chainstate.sortdb.take().unwrap();
-        let mut stacks_node = self.test_chainstate.stacks_node.take().unwrap();
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(self.test_chainstate.sortdb_ref().conn())
+                .unwrap();
+        let parent_sortition_opt = SortitionDB::get_block_snapshot(
+            self.test_chainstate.sortdb_ref().conn(),
+            &tip.parent_sortition_id,
+        )
+        .unwrap();
 
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        let parent_sortition_opt =
-            SortitionDB::get_block_snapshot(sortdb.conn(), &tip.parent_sortition_id).unwrap();
         let mut burn_block = TestBurnchainBlock::new(&tip, 0);
 
-        let parent_block_opt = stacks_node
-            .anchored_blocks
-            .iter()
-            .find(|block| block.block_hash() == tip.canonical_stacks_tip_hash);
-        let last_key = stacks_node.get_last_key(&self.test_chainstate.miner);
+        let last_key = self
+            .test_chainstate
+            .stacks_node_ref()
+            .get_last_key(&self.test_chainstate.miner);
         let vrf_proof = self
             .test_chainstate
             .miner
@@ -650,11 +648,15 @@ impl ConsensusChain<'_> {
             tip.block_height.try_into().unwrap(),
         );
         let mut stacks_block = {
-            let genesis_header_info =
-                StacksChainState::get_genesis_header_info(stacks_node.chainstate.db()).unwrap();
-            let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+            let genesis_header_info = StacksChainState::get_genesis_header_info(
+                self.test_chainstate.stacks_node_ref().chainstate.db(),
+            )
+            .unwrap();
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(self.test_chainstate.sortdb_ref().conn())
+                    .unwrap();
             let parent_tip = StacksChainState::get_anchored_block_header_info(
-                stacks_node.chainstate.db(),
+                self.test_chainstate.stacks_node_ref().chainstate.db(),
                 &tip.canonical_stacks_tip_consensus_hash,
                 &tip.canonical_stacks_tip_hash,
             )
@@ -669,8 +671,16 @@ impl ConsensusChain<'_> {
                 &microblock_pubkeyhash,
             )
             .unwrap();
-            let burndb = sortdb.index_handle(&tip.sortition_id);
-            let (mut chainstate, _) = stacks_node.chainstate.reopen().unwrap();
+            let burndb = self
+                .test_chainstate
+                .sortdb_ref()
+                .index_handle(&tip.sortition_id);
+            let (mut chainstate, _) = self
+                .test_chainstate
+                .stacks_node_ref()
+                .chainstate
+                .reopen()
+                .unwrap();
             let mut miner_epoch_info = builder
                 .pre_epoch_begin(&mut chainstate, &burndb, true)
                 .unwrap();
@@ -704,81 +714,16 @@ impl ConsensusChain<'_> {
         };
         stacks_block.header.tx_merkle_root = tx_merkle_root;
 
-        let mut block_commit_op = stacks_node.make_tenure_commitment(
-            &sortdb,
+        let block_ops = self.test_chainstate.calculate_block_ops(
+            &tip,
             &mut burn_block,
-            &mut self.test_chainstate.miner,
+            &last_key,
             &stacks_block,
             vec![],
-            1000,
-            &last_key,
             parent_sortition_opt.as_ref(),
         );
 
-        // patch up block-commit -- these blocks all mine off of genesis
-        if stacks_block.header.parent_block == BlockHeaderHash([0u8; 32]) {
-            block_commit_op.parent_block_ptr = 0;
-            block_commit_op.parent_vtxindex = 0;
-        }
-
-        let leader_key_op =
-            stacks_node.add_key_register(&mut burn_block, &mut self.test_chainstate.miner);
-
-        // patch in reward set info
-        let recipients = get_next_recipients(
-            &tip,
-            &mut stacks_node.chainstate,
-            &mut sortdb,
-            &self.test_chainstate.config.burnchain,
-            &OnChainRewardSetProvider::new(),
-        )
-        .unwrap_or_else(|e| panic!("Failure fetching recipient set: {e:?}"));
-        block_commit_op.commit_outs = match recipients {
-            Some(info) => {
-                let mut recipients = info
-                    .recipients
-                    .into_iter()
-                    .map(|x| x.0)
-                    .collect::<Vec<PoxAddress>>();
-                if recipients.len() == 1 {
-                    recipients.push(PoxAddress::standard_burn_address(false));
-                }
-                recipients
-            }
-            None => {
-                if self
-                    .test_chainstate
-                    .config
-                    .burnchain
-                    .is_in_prepare_phase(burn_block.block_height)
-                {
-                    vec![PoxAddress::standard_burn_address(false)]
-                } else {
-                    vec![
-                        PoxAddress::standard_burn_address(false),
-                        PoxAddress::standard_burn_address(false),
-                    ]
-                }
-            }
-        };
-
-        // Put everything back
-        self.test_chainstate.stacks_node = Some(stacks_node);
-        self.test_chainstate.sortdb = Some(sortdb);
-
-        debug!(
-            "Block commit at height {} has {} recipients: {:?}",
-            block_commit_op.block_height,
-            block_commit_op.commit_outs.len(),
-            &block_commit_op.commit_outs
-        );
-        (
-            stacks_block,
-            vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_op),
-                BlockstackOperationType::LeaderBlockCommit(block_commit_op),
-            ],
-        )
+        (stacks_block, block_ops)
     }
 
     /// Constructs a Nakamoto block with the given [`TestBlock`] configuration.

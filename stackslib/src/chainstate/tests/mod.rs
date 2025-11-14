@@ -1216,6 +1216,89 @@ impl<'a> TestChainstate<'a> {
         )
     }
 
+    /// Calculate blockstack ops for the given stacks and burn blocks
+    pub fn calculate_block_ops(
+        &mut self,
+        sortition_tip: &BlockSnapshot,
+        burn_block: &mut TestBurnchainBlock,
+        last_key: &LeaderKeyRegisterOp,
+        stacks_block: &StacksBlock,
+        microblocks: Vec<StacksMicroblock>,
+        parent_block_snapshot_opt: Option<&BlockSnapshot>,
+    ) -> Vec<BlockstackOperationType> {
+        let mut sortdb = self.sortdb.take().unwrap();
+        let mut stacks_node = self.stacks_node.take().unwrap();
+
+        let mut block_commit_op = stacks_node.make_tenure_commitment(
+            &sortdb,
+            burn_block,
+            &mut self.miner,
+            stacks_block,
+            microblocks,
+            1000,
+            last_key,
+            parent_block_snapshot_opt,
+        );
+
+        // patch up block-commit -- these blocks all mine off of genesis
+        if stacks_block.header.parent_block == BlockHeaderHash([0u8; 32]) {
+            block_commit_op.parent_block_ptr = 0;
+            block_commit_op.parent_vtxindex = 0;
+        }
+
+        let leader_key_op = stacks_node.add_key_register(burn_block, &mut self.miner);
+
+        // patch in reward set info
+        let recipients = get_next_recipients(
+            &sortition_tip,
+            &mut stacks_node.chainstate,
+            &mut sortdb,
+            &self.config.burnchain,
+            &OnChainRewardSetProvider::new(),
+        )
+        .unwrap_or_else(|e| panic!("Failure fetching recipient set: {e:?}"));
+        block_commit_op.commit_outs = match recipients {
+            Some(info) => {
+                let mut recipients = info
+                    .recipients
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<PoxAddress>>();
+                if recipients.len() == 1 {
+                    recipients.push(PoxAddress::standard_burn_address(false));
+                }
+                recipients
+            }
+            None => {
+                if self
+                    .config
+                    .burnchain
+                    .is_in_prepare_phase(burn_block.block_height)
+                {
+                    vec![PoxAddress::standard_burn_address(false)]
+                } else {
+                    vec![
+                        PoxAddress::standard_burn_address(false),
+                        PoxAddress::standard_burn_address(false),
+                    ]
+                }
+            }
+        };
+        // Put everything back
+        self.stacks_node = Some(stacks_node);
+        self.sortdb = Some(sortdb);
+
+        debug!(
+            "Block commit at height {} has {} recipients: {:?}",
+            block_commit_op.block_height,
+            block_commit_op.commit_outs.len(),
+            &block_commit_op.commit_outs
+        );
+        vec![
+            BlockstackOperationType::LeaderKeyRegister(leader_key_op),
+            BlockstackOperationType::LeaderBlockCommit(block_commit_op),
+        ]
+    }
     /// Make a tenure, using `tenure_builder` to generate a Stacks block and a list of
     /// microblocks.
     pub fn make_tenure<F>(
@@ -1281,78 +1364,17 @@ impl<'a> TestChainstate<'a> {
             parent_microblock_header_opt.as_ref(),
         );
 
-        let mut block_commit_op = stacks_node.make_tenure_commitment(
-            &sortdb,
-            &mut burn_block,
-            &mut self.miner,
-            &stacks_block,
-            microblocks.clone(),
-            1000,
-            &last_key,
-            parent_sortition_opt.as_ref(),
-        );
-
-        // patch up block-commit -- these blocks all mine off of genesis
-        if stacks_block.header.parent_block == BlockHeaderHash([0u8; 32]) {
-            block_commit_op.parent_block_ptr = 0;
-            block_commit_op.parent_vtxindex = 0;
-        }
-
-        let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
-
-        // patch in reward set info
-        let recipients = get_next_recipients(
-            &tip,
-            &mut stacks_node.chainstate,
-            &mut sortdb,
-            &self.config.burnchain,
-            &OnChainRewardSetProvider::new(),
-        )
-        .unwrap_or_else(|e| panic!("Failure fetching recipient set: {e:?}"));
-        block_commit_op.commit_outs = match recipients {
-            Some(info) => {
-                let mut recipients = info
-                    .recipients
-                    .into_iter()
-                    .map(|x| x.0)
-                    .collect::<Vec<PoxAddress>>();
-                if recipients.len() == 1 {
-                    recipients.push(PoxAddress::standard_burn_address(false));
-                }
-                recipients
-            }
-            None => {
-                if self
-                    .config
-                    .burnchain
-                    .is_in_prepare_phase(burn_block.block_height)
-                {
-                    vec![PoxAddress::standard_burn_address(false)]
-                } else {
-                    vec![
-                        PoxAddress::standard_burn_address(false),
-                        PoxAddress::standard_burn_address(false),
-                    ]
-                }
-            }
-        };
-        test_debug!(
-            "Block commit at height {} has {} recipients: {:?}",
-            block_commit_op.block_height,
-            block_commit_op.commit_outs.len(),
-            &block_commit_op.commit_outs
-        );
-
         self.stacks_node = Some(stacks_node);
         self.sortdb = Some(sortdb);
-        (
-            vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_op),
-                BlockstackOperationType::LeaderBlockCommit(block_commit_op),
-            ],
-            stacks_block,
-            microblocks,
-        )
+        let block_ops = self.calculate_block_ops(
+            &tip,
+            &mut burn_block,
+            &last_key,
+            &stacks_block,
+            microblocks.clone(),
+            parent_sortition_opt.as_ref(),
+        );
+        (block_ops, stacks_block, microblocks)
     }
 
     pub fn get_burn_block_height(&self) -> u64 {
