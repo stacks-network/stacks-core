@@ -1696,7 +1696,7 @@ fn test_successfully_deploy() {
 }
 
 #[test]
-/// Test that the supertype list is accepted in >= Epoch 2.3,
+/// Test that the supertype list is accepted in >= Epoch 2.4,
 /// but is rejected in all earlier Epochs
 fn problematic_supertype_list() {
     contract_deploy_consensus_test!(
