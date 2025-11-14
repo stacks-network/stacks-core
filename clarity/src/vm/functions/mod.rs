@@ -35,7 +35,7 @@ macro_rules! switch_on_global_epoch {
             args: &[SymbolicExpression],
             env: &mut Environment,
             context: &LocalContext,
-        ) -> std::result::Result<Value, clarity_types::VmExecutionError> {
+        ) -> std::result::Result<Value, VmExecutionError> {
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")
