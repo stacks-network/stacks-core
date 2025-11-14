@@ -384,12 +384,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "base-x"
-version = "0.2.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cbbc9d0964165b47557570cce6c952866c2678457aca742aafc9fb771d30270"
-
-[[package]]
 name = "base16ct"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -590,7 +584,7 @@ name = "clarity"
 version = "0.0.1"
 dependencies = [
  "assert-json-diff 1.1.0",
- "clarity-types",
+ "clarity-types 0.0.1",
  "integer-sqrt",
  "lazy_static",
  "mutants",
@@ -610,13 +604,11 @@ dependencies = [
 [[package]]
 name = "clarity"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5#b3efa588571e168d2d154790e1c57d9e3e64adc5"
 dependencies = [
- "hashbrown 0.15.2",
+ "clarity-types 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "integer-sqrt",
  "lazy_static",
- "rand 0.8.5",
- "rand_chacha 0.3.1",
  "regex",
  "rstest",
  "rstest_reuse",
@@ -626,8 +618,7 @@ dependencies = [
  "serde_json",
  "serde_stacker",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
- "time 0.2.27",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
 ]
 
 [[package]]
@@ -644,6 +635,21 @@ dependencies = [
  "serde_json",
  "slog",
  "stacks-common 0.0.1",
+]
+
+[[package]]
+name = "clarity-types"
+version = "0.0.1"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5#b3efa588571e168d2d154790e1c57d9e3e64adc5"
+dependencies = [
+ "lazy_static",
+ "regex",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slog",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
 ]
 
 [[package]]
@@ -688,12 +694,6 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
-
-[[package]]
-name = "const_fn"
-version = "0.4.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f8a2ca5ac02d09563609681103aada9e1777d54fc57a5acd7a41404f9c93b6e"
 
 [[package]]
 name = "core-foundation"
@@ -784,10 +784,9 @@ dependencies = [
  "curve25519-dalek-derive",
  "digest 0.10.7",
  "fiat-crypto",
- "rustc_version 0.4.0",
+ "rustc_version",
  "serde",
  "subtle",
- "zeroize",
 ]
 
 [[package]]
@@ -869,12 +868,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "discard"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "212d0f5754cb6769937f4501cc0e67f4f4483c8d2c3e1e922ee9edbe4ab4c7c0"
-
-[[package]]
 name = "ecdsa"
 version = "0.16.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -895,8 +888,6 @@ version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
- "pkcs8",
- "serde",
  "signature",
 ]
 
@@ -908,11 +899,8 @@ checksum = "4a3daa8e81a3963a60642bcc1f90a670680bd4a77535faa384e9d1c79d620871"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
- "rand_core 0.6.4",
- "serde",
  "sha2 0.10.8",
  "subtle",
- "zeroize",
 ]
 
 [[package]]
@@ -1373,7 +1361,7 @@ dependencies = [
  "http 0.2.11",
  "httpdate",
  "mime",
- "sha1 0.10.6",
+ "sha1",
 ]
 
 [[package]]
@@ -1864,19 +1852,19 @@ dependencies = [
 [[package]]
 name = "libsigner"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5#b3efa588571e168d2d154790e1c57d9e3e64adc5"
 dependencies = [
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "hashbrown 0.15.2",
  "lazy_static",
  "libc",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "serde",
  "serde_json",
  "sha2 0.10.8",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "thiserror",
  "tiny_http",
 ]
@@ -1905,13 +1893,12 @@ dependencies = [
 [[package]]
 name = "libstackerdb"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5#b3efa588571e168d2d154790e1c57d9e3e64adc5"
 dependencies = [
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
- "secp256k1",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "serde",
  "sha2 0.10.8",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
 ]
 
 [[package]]
@@ -2368,11 +2355,11 @@ dependencies = [
 [[package]]
 name = "pox-locking"
 version = "2.4.0"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5#b3efa588571e168d2d154790e1c57d9e3e64adc5"
 dependencies = [
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
 ]
 
 [[package]]
@@ -2414,12 +2401,6 @@ dependencies = [
  "quote",
  "version_check",
 ]
-
-[[package]]
-name = "proc-macro-hack"
-version = "0.5.20+deprecated"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc375e1527247fe1a97d8b7156678dfe7c1af2fc075c9a4db3690ecd2a148068"
 
 [[package]]
 name = "proc-macro2"
@@ -2756,7 +2737,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "rstest_macros",
- "rustc_version 0.4.0",
+ "rustc_version",
 ]
 
 [[package]]
@@ -2768,7 +2749,7 @@ dependencies = [
  "cfg-if 1.0.0",
  "proc-macro2",
  "quote",
- "rustc_version 0.4.0",
+ "rustc_version",
  "syn 1.0.109",
  "unicode-ident",
 ]
@@ -2781,7 +2762,7 @@ checksum = "45f80dcc84beab3a327bbe161f77db25f336a1452428176787c8c79ac79d7073"
 dependencies = [
  "quote",
  "rand 0.8.5",
- "rustc_version 0.4.0",
+ "rustc_version",
  "syn 1.0.109",
 ]
 
@@ -2808,20 +2789,11 @@ checksum = "d626bb9dae77e28219937af045c257c28bfd3f69333c512553507f5f9798cb76"
 
 [[package]]
 name = "rustc_version"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
-dependencies = [
- "semver 0.9.0",
-]
-
-[[package]]
-name = "rustc_version"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfa0f585226d2e68097d4f95d113b15b83a82e819ab25717ec0590d9584ef366"
 dependencies = [
- "semver 1.0.21",
+ "semver",
 ]
 
 [[package]]
@@ -2979,24 +2951,9 @@ dependencies = [
 
 [[package]]
 name = "semver"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d7eb9ef2c18661902cc47e535f9bc51b78acd254da71d375c2f6720d9a40403"
-dependencies = [
- "semver-parser",
-]
-
-[[package]]
-name = "semver"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97ed7a9823b74f99c7742f5336af7be5ecd3eeafcb1507d1fa93347b1d589b0"
-
-[[package]]
-name = "semver-parser"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
@@ -3099,15 +3056,6 @@ dependencies = [
 
 [[package]]
 name = "sha1"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1da05c97445caa12d05e848c4a4fcbbea29e748ac28f7e80e9b010392063770"
-dependencies = [
- "sha1_smol",
-]
-
-[[package]]
-name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
@@ -3116,12 +3064,6 @@ dependencies = [
  "cpufeatures",
  "digest 0.10.7",
 ]
-
-[[package]]
-name = "sha1_smol"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -3222,7 +3164,7 @@ dependencies = [
  "serde",
  "serde_json",
  "slog",
- "time 0.3.41",
+ "time",
 ]
 
 [[package]]
@@ -3235,7 +3177,7 @@ dependencies = [
  "slog",
  "term",
  "thread_local",
- "time 0.3.41",
+ "time",
 ]
 
 [[package]]
@@ -3344,7 +3286,7 @@ dependencies = [
 [[package]]
 name = "stacks-common"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5#b3efa588571e168d2d154790e1c57d9e3e64adc5"
 dependencies = [
  "chrono",
  "curve25519-dalek",
@@ -3353,6 +3295,7 @@ dependencies = [
  "lazy_static",
  "libsecp256k1",
  "nix",
+ "p256",
  "rand 0.8.5",
  "ripemd",
  "rusqlite",
@@ -3364,7 +3307,7 @@ dependencies = [
  "sha3",
  "slog",
  "slog-term",
- "time 0.2.27",
+ "thiserror",
  "toml",
  "winapi 0.3.9",
 ]
@@ -3400,7 +3343,7 @@ dependencies = [
  "lazy_static",
  "libc",
  "libsigner 0.0.1",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "madhouse",
  "mockito",
  "mutants",
@@ -3417,12 +3360,12 @@ dependencies = [
  "serial_test",
  "slog",
  "stacks-common 0.0.1",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "stacks-inspect",
  "stacks-signer 0.0.1",
- "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stacks-signer 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "stackslib 0.0.1",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "stdext",
  "stx-genesis",
  "tempfile",
@@ -3472,26 +3415,25 @@ dependencies = [
 [[package]]
 name = "stacks-signer"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5#b3efa588571e168d2d154790e1c57d9e3e64adc5"
 dependencies = [
  "backoff",
  "clap",
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "hashbrown 0.15.2",
  "lazy_static",
- "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "libsigner 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "rand 0.8.5",
  "rand_core 0.6.4",
  "reqwest",
  "rusqlite",
- "secp256k1",
  "serde",
  "serde_json",
  "slog",
  "slog-term",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
- "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
+ "stackslib 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "thiserror",
  "toml",
  "tracing",
@@ -3536,7 +3478,7 @@ dependencies = [
  "stdext",
  "stx-genesis",
  "tempfile",
- "time 0.3.41",
+ "time",
  "toml",
  "url",
  "winapi 0.3.9",
@@ -3545,46 +3487,34 @@ dependencies = [
 [[package]]
 name = "stackslib"
 version = "0.0.1"
-source = "git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2#8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2"
+source = "git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5#b3efa588571e168d2d154790e1c57d9e3e64adc5"
 dependencies = [
  "chrono",
- "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "clarity 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "ed25519-dalek",
- "hashbrown 0.15.2",
  "lazy_static",
- "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "libstackerdb 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "mio 0.6.23",
  "nix",
  "percent-encoding",
- "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
+ "pox-locking 2.4.0 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
  "rand 0.8.5",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
  "regex",
  "ripemd",
  "rusqlite",
- "secp256k1",
  "serde",
  "serde_derive",
  "serde_json",
  "sha2 0.10.8",
  "siphasher",
  "slog",
- "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=8a79aaa7df0f13dfc5ab0d0d0bcb8201c90bcba2)",
- "tikv-jemallocator",
- "time 0.2.27",
+ "stacks-common 0.0.1 (git+https://github.com/stacks-network/stacks-core.git?rev=b3efa588571e168d2d154790e1c57d9e3e64adc5)",
+ "time",
  "toml",
  "url",
  "winapi 0.3.9",
-]
-
-[[package]]
-name = "standback"
-version = "0.2.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e113fb6f3de07a243d434a56ec6f186dfd51cb08448239fe7bcae73f87ff28ff"
-dependencies = [
- "version_check",
 ]
 
 [[package]]
@@ -3592,55 +3522,6 @@ name = "stdext"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6012f6ef4d674ce7021a8b0f5093f7e339f54d4ba04fc1f9c901659459b4f35b"
-
-[[package]]
-name = "stdweb"
-version = "0.4.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d022496b16281348b52d0e30ae99e01a73d737b2f45d38fed4edf79f9325a1d5"
-dependencies = [
- "discard",
- "rustc_version 0.2.3",
- "stdweb-derive",
- "stdweb-internal-macros",
- "stdweb-internal-runtime",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "stdweb-derive"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c87a60a40fccc84bef0652345bbbbbe20a605bf5d0ce81719fc476f5c03b50ef"
-dependencies = [
- "proc-macro2",
- "quote",
- "serde",
- "serde_derive",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "stdweb-internal-macros"
-version = "0.2.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58fa5ff6ad0d98d1ffa8cb115892b6e69d67799f6763e162a1c9db421dc22e11"
-dependencies = [
- "base-x",
- "proc-macro2",
- "quote",
- "serde",
- "serde_derive",
- "serde_json",
- "sha1 0.6.1",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "stdweb-internal-runtime"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "213701ba3370744dcd1a12960caa4843b3d68b4d1c0a5d575e0d65b2ee9d16c0"
 
 [[package]]
 name = "strsim"
@@ -3787,21 +3668,6 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.2.27"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4752a97f8eebd6854ff91f1c1824cd6160626ac4bd44287f7f4ea2035a02a242"
-dependencies = [
- "const_fn",
- "libc",
- "standback",
- "stdweb",
- "time-macros 0.1.1",
- "version_check",
- "winapi 0.3.9",
-]
-
-[[package]]
-name = "time"
 version = "0.3.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7619e19bc266e0f9c5e6686659d394bc57973859340060a69221e57dbc0c40"
@@ -3814,7 +3680,7 @@ dependencies = [
  "powerfmt",
  "serde",
  "time-core",
- "time-macros 0.2.22",
+ "time-macros",
 ]
 
 [[package]]
@@ -3825,35 +3691,12 @@ checksum = "c9e9a38711f559d9e3ce1cdb06dd7c5b8ea546bc90052da6d06bb76da74bb07c"
 
 [[package]]
 name = "time-macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "957e9c6e26f12cb6d0dd7fc776bb67a706312e7299aed74c8dd5b17ebb27e2f1"
-dependencies = [
- "proc-macro-hack",
- "time-macros-impl",
-]
-
-[[package]]
-name = "time-macros"
 version = "0.2.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3526739392ec93fd8b359c8e98514cb3e8e021beb4e5f597b00a0221f8ed8a49"
 dependencies = [
  "num-conv",
  "time-core",
-]
-
-[[package]]
-name = "time-macros-impl"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3c141a1b43194f3f56a1411225df8646c55781d5f26db825b3d98507eb482f"
-dependencies = [
- "proc-macro-hack",
- "proc-macro2",
- "quote",
- "standback",
- "syn 1.0.109",
 ]
 
 [[package]]
@@ -4043,7 +3886,7 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.8.5",
- "sha1 0.10.6",
+ "sha1",
  "thiserror",
  "url",
  "utf-8",

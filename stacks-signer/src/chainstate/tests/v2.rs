@@ -99,6 +99,7 @@ fn setup_test_environment(
         proposal_wait_for_parent_time: Duration::from_secs(0),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
         supports_sip034_tenure_extensions: false,
+        read_count_idle_timeout: Duration::from_secs(12000),
     };
 
     let stacks_client = StacksClient::new(

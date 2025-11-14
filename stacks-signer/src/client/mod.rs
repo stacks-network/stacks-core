@@ -440,6 +440,7 @@ pub(crate) mod tests {
             #[cfg(any(test, feature = "testing"))]
             supported_signer_protocol_version: SUPPORTED_SIGNER_PROTOCOL_VERSION,
             stackerdb_timeout: Duration::from_secs(DEFAULT_STACKERDB_TIMEOUT_SECS),
+            read_count_idle_timeout: config.read_count_idle_timeout,
         }
     }
 
