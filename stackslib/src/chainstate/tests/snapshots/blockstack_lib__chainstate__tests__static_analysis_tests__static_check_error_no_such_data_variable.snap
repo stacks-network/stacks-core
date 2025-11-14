@@ -1,0 +1,126 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "89a2466377702f837fc64c085df66eba661492eab616e4f4e20015d969b376a5",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-data-var-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2510,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2510,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "06606348669526e2db379d56574e1747a763b5a7ba9edfb793d3a21e6b9d80d3",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-data-var-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2510,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2510,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ac90adbb2e0441c9b4fb1e35263d4b55456e78fdecde8bcc01b37c56a8b37bd2",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-data-var-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2510,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2510,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bc174e4840108c03123e9e79d7cd9e12c732b31fcd0942abeb681a8bd5bcc6f8",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-such-data-var-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: use of unresolved persisted variable \'cursor\') [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 11,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2510,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 11,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2510,
+    ),
+  )),
+]
