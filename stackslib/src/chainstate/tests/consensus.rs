@@ -1792,7 +1792,7 @@ contract_deploy_consensus_test!(
 // Caused by: name is a reserved word
 // Outcome: block accepted.
 // Note: This error was added in Clarity 3. Clarity 1 and 2
-//       will trigger a [`StaticCheckErrorKind::NameAlreadyUsed`].
+//       will trigger a [`CheckErrorKind::NameAlreadyUsed`].
 contract_deploy_consensus_test!(
     static_check_error_reserved_word,
     contract_name: "reserved-word",
@@ -2350,6 +2350,15 @@ contract_deploy_consensus_test!(
         )",
         "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_21.read_count as usize + 1)
     ),
+);
+
+// CheckError: [`CheckErrorKind::NameAlreadyUsed`]
+// Caused by: name is already used by a standard clarity function.
+// Outcome: block rejected.
+contract_deploy_consensus_test!(
+    check_error_kind_name_already_used,
+    contract_name: "name-already-used",
+    contract_code: "(define-private (ft-get-supply) 1)",
 );
 
 // CheckErrorKind: [`CheckErrorKind::ValueTooLarge`]
