@@ -24,10 +24,9 @@ use clarity::types::chainstate::{
 use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
 use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
-use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityVersion, Value as ClarityValue, MAX_CALL_STACK_DEPTH};
+use clarity::vm::{ClarityVersion, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 
@@ -51,7 +50,7 @@ use crate::net::tests::NakamotoBootPlan;
 /// The epochs to test for consensus are the current and upcoming epochs.
 /// This constant must be changed when new epochs are introduced.
 /// Note that contract deploys MUST be done in each epoch >= 2.0.
-const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch32, StacksEpochId::Epoch33];
+pub const EPOCHS_TO_TEST: &[StacksEpochId] = &[StacksEpochId::Epoch33];
 
 pub const SK_1: &str = "a1289f6438855da7decf9b61b852c882c398cff1446b2a0f823538aa2ebef92e01";
 pub const SK_2: &str = "4ce9a8f7539ea93753a36405b16e8b57e15a552430410709c2b6d65dca5c02e201";
@@ -67,7 +66,7 @@ const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
 
 /// Returns the list of Clarity versions that can be used to deploy contracts in the given epoch.
-const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVersion] {
+pub const fn clarity_versions_for_epoch(epoch: StacksEpochId) -> &'static [ClarityVersion] {
     match epoch {
         StacksEpochId::Epoch10 => &[],
         StacksEpochId::Epoch20 | StacksEpochId::Epoch2_05 => &[ClarityVersion::Clarity1],
@@ -782,7 +781,7 @@ impl ConsensusTest<'_> {
 /// - Block counts per epoch are precomputed
 /// - Epoch order is finalized
 /// - Transaction sequencing is fully planned
-struct ContractConsensusTest<'a> {
+pub struct ContractConsensusTest<'a> {
     /// Factory for generating signed, nonce-managed transactions.
     tx_factory: TestTxFactory,
     /// Underlying chainstate used for block execution and consensus checks.
@@ -1246,7 +1245,7 @@ impl TestTxFactory {
     }
 }
 
-/// Generates a consensus test for executing a contract function across multiple Stacks epochs.
+/// Generates a consensus test body for executing a contract function across multiple Stacks epochs.
 ///
 /// This macro automates both contract deployment and function invocation across different
 /// epochs and Clarity versions.
@@ -1263,28 +1262,28 @@ impl TestTxFactory {
 ///
 /// # Arguments
 ///
-/// * `$name` — Name of the generated test function.
 /// * `contract_name` — The name of the contract.
 /// * `contract_code` — The Clarity source code for the contract.
 /// * `function_name` — The public function to call.
 /// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
-/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
+/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 3.0.
 /// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// contract_call_consensus_test!(
-///     my_test,
-///     contract_name: "my-contract",
-///     contract_code: "(define-public (get-message) (ok \"hello\"))",
-///     function_name: "get-message",
-///     function_args: &[],
-/// );
+/// #[test]
+/// fn test_my_contract_call_consensus() {
+///     contract_call_consensus_test!(
+///         contract_name: "my-contract",
+///         contract_code: "(define-public (get-message) (ok \"hello\"))",
+///         function_name: "get-message",
+///         function_args: &[],
+///     );
+/// }
 /// ```
 macro_rules! contract_call_consensus_test {
     (
-        $name:ident,
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         function_name: $function_name:expr,
@@ -1292,16 +1291,15 @@ macro_rules! contract_call_consensus_test {
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
     ) => {
-        #[test]
-        fn $name() {
-            // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-            let deploy_epochs = &StacksEpochId::ALL[1..];
+        {
+             // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
+            let deploy_epochs = &clarity::types::StacksEpochId::ALL[1..];
             $(let deploy_epochs = $deploy_epochs;)?
 
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
-            let call_epochs = EPOCHS_TO_TEST;
+            let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
             $(let call_epochs = $call_epochs;)?
-            let contract_test = ContractConsensusTest::new(
+            let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
                 function_name!(),
                 vec![],
                 deploy_epochs,
@@ -1316,8 +1314,9 @@ macro_rules! contract_call_consensus_test {
         }
     };
 }
+pub(crate) use contract_call_consensus_test;
 
-/// Generates a consensus test for contract deployment across multiple Stacks epochs.
+/// Generates a consensus test body for contract deployment across multiple Stacks epochs.
 ///
 /// This macro automates deploying a contract across different Stacks epochs and
 /// Clarity versions. It is primarily used for consensus-critical testing of contract
@@ -1332,7 +1331,6 @@ macro_rules! contract_call_consensus_test {
 ///
 /// # Arguments
 ///
-/// * `$name` — Name of the generated test function.
 /// * `contract_name` — Name of the contract being tested.
 /// * `contract_code` — The Clarity source code of the contract.
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
@@ -1340,34 +1338,33 @@ macro_rules! contract_call_consensus_test {
 /// # Example
 ///
 /// ```rust,ignore
-/// contract_deploy_consensus_test!(
-///     deploy_test,
-///     contract_name: "my-contract",
-///     contract_code: "(define-public (init) (ok true))",
-/// );
+/// #[test]
+/// fn test_my_contract_deploy_consensus() {
+///     contract_deploy_consensus_test!(
+///         deploy_test,
+///         contract_name: "my-contract",
+///         contract_code: "(define-public (init) (ok true))",
+///     );
+/// }
 /// ```
 macro_rules! contract_deploy_consensus_test {
     // Handle the case where deploy_epochs is not provided
     (
-        $name:ident,
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
     ) => {
         contract_deploy_consensus_test!(
-            $name,
             contract_name: $contract_name,
             contract_code: $contract_code,
-            deploy_epochs: EPOCHS_TO_TEST,
+            deploy_epochs: $crate::chainstate::tests::consensus::EPOCHS_TO_TEST,
         );
     };
     (
-        $name:ident,
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         deploy_epochs: $deploy_epochs:expr,
     ) => {
-        contract_call_consensus_test!(
-            $name,
+        $crate::chainstate::tests::consensus::contract_call_consensus_test!(
             contract_name: $contract_name,
             contract_code: $contract_code,
             function_name: "",   // No function calls, just deploys
@@ -1376,6 +1373,44 @@ macro_rules! contract_deploy_consensus_test {
             call_epochs: &[],    // No function calls, just deploys
         );
     };
+}
+pub(crate) use contract_deploy_consensus_test;
+
+// Just a namespace for utilities for writing consensus tests
+pub struct ConsensusUtils;
+
+impl ConsensusUtils {
+    pub fn new_deploy_tx(
+        nonce: u64,
+        contract_name: &str,
+        contract_code: &str,
+        clarity_version: Option<ClarityVersion>,
+    ) -> StacksTransaction {
+        let deploy_tx = make_contract_publish_versioned(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            contract_code.len() as u64 * 100,
+            CHAIN_ID_TESTNET,
+            contract_name,
+            contract_code,
+            clarity_version,
+        );
+        StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap()
+    }
+
+    pub fn new_call_tx(nonce: u64, contract_name: &str, funct_name: &str) -> StacksTransaction {
+        let call_tx = make_contract_call(
+            &FAUCET_PRIV_KEY,
+            nonce,
+            200,
+            CHAIN_ID_TESTNET,
+            &to_addr(&FAUCET_PRIV_KEY),
+            contract_name,
+            funct_name,
+            &[],
+        );
+        StacksTransaction::consensus_deserialize(&mut call_tx.as_slice()).unwrap()
+    }
 }
 
 #[test]
@@ -1439,299 +1474,25 @@ fn test_append_stx_transfers_success() {
     insta::assert_ron_snapshot!(result);
 }
 
-// Example of using the `contract_call_consensus_test!` macro
-// Deploys a contract to each epoch, for each Clarity version,
-// then calls a function in that contract and snapshots the results.
-contract_call_consensus_test!(
-    successfully_deploy_and_call,
-    contract_name: "foo_contract",
-    contract_code: FOO_CONTRACT,
-    function_name: "bar",
-    function_args: &[ClarityValue::UInt(1)],
-);
-
-// Example of using the `contract_deploy_consensus_test!` macro
-// Deploys a contract that exceeds the maximum allowed stack depth
-// and verifies that deployment fails with the expected error.
-contract_deploy_consensus_test!(
-    chainstate_error_expression_stack_depth_too_deep,
-    contract_name: "test-exceeds",
-    contract_code: &{
-        let exceeds_repeat_factor = AST_CALL_STACK_DEPTH_BUFFER + (MAX_CALL_STACK_DEPTH as u64);
-        let tx_exceeds_body_start = "{ a : ".repeat(exceeds_repeat_factor as usize);
-        let tx_exceeds_body_end = "} ".repeat(exceeds_repeat_factor as usize);
-        format!("{tx_exceeds_body_start}u1 {tx_exceeds_body_end}")
-    },
-);
-
-// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
-// Caused by: overflow when doing `pow` arithmetic operation
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_arithmetic_overflow_pow,
-    contract_name: "overflow-pow",
-    contract_code: &{
-    r#"
-(define-public (trigger-overflow-pow)
-  (ok (pow 2 128))
-)
-    "#
-    },
-    function_name: "trigger-overflow-pow",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
-// Caused by: overflow when doing `mul`` arithmetic operation
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_arithmetic_overflow_mul,
-    contract_name: "overflow-mul",
-    contract_code: &{
-        format!(
-    r#"
-(define-public (trigger-overflow-mul)
-  (ok (* u{} u2))
-)
-    "#, u128::MAX)
-    },
-    function_name: "trigger-overflow-mul",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
-// Caused by: overflow when doing `add` arithmetic operation
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_arithmetic_overflow_add,
-    contract_name: "overflow-add",
-    contract_code: &{
-        format!(
-    r#"
-(define-public (trigger-overflow-add)
-  (ok (+ u{} u1))
-)
-    "#, u128::MAX)
-    },
-    function_name: "trigger-overflow-add",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
-// Caused by: overflow when doing `add` arithmetic operation
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_arithmetic_overflow_to_int,
-    contract_name: "overflow-to-int",
-    contract_code: &{
-        format!(
-    r#"
-(define-public (overflow-to-int-large)
-  (ok (to-int u{}))
-)
-    "#, u128::MAX)
-    },
-    function_name: "overflow-to-int-large",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
-// Caused by: overflow when doing two successive fungible token
-// mints, but it ultimately calls the `add` arithmetic operation
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_ft_mint_overflow,
-    contract_name: "ft-mint-overflow",
-    contract_code: &{
-        format!(
-        r#"
-(define-fungible-token token)
-
-(define-public (trigger-ft-mint-overflow)
-  (begin
-    (try! (ft-mint? token u{} tx-sender))
-    (ft-mint? token u1 tx-sender)
-  )
-)
-"#, u128::MAX)},
-    function_name: "trigger-ft-mint-overflow",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::SupplyOverflow`]
-// Caused by: minting more than the declared `total-supply` (1_000_000),
-// triggering the cap check in `checked_increase_token_supply`.
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_ft_mint_supply_overflow,
-    contract_name: "ft-supply-overflow",
-    contract_code: &{
-        r#"
-(define-fungible-token token u1000000)
-(define-public (trigger-ft-supply-overflow)
-  (begin
-    (try! (ft-mint? token u500000 tx-sender))
-    (ft-mint? token u600000 tx-sender)
-  )
-)
-"#
-    },
-    function_name: "trigger-ft-supply-overflow",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::ArithmeticUnderflow`]
-// Caused by: `native_to_uint` conversion of a negative number.
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_to_uint_underflow,
-    contract_name: "to-uint-negative",
-    contract_code: &{
-        r#"
-(define-read-only (trigger-underflow)
-  (to-uint -10)
-)
-"#
-    },
-    function_name: "trigger-underflow",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::ArithmeticUnderflow`]
-// Caused by: subtraction.
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_sub_underflow,
-    contract_name: "sub-underflow",
-    contract_code: &{
-        r#"
-(define-read-only (trigger-underflow)
-  (- u10 u11)
-)
-"#
-    },
-    function_name: "trigger-underflow",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::DivisionByZero`]
-// Caused by: modulo.
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_division_by_zero_mod,
-    contract_name: "division-by-zero-mod",
-    contract_code: &{
-        r#"
-(define-read-only (trigger)
-  (mod 10 0)
-)
-"#
-    },
-    function_name: "trigger",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::DivisionByZero`]
-// Caused by: division.
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_division_by_zero,
-    contract_name: "division-by-zero",
-    contract_code: &{
-        r#"
-(define-read-only (trigger)
-  (/ 10 0)
-)
-"#
-    },
-    function_name: "trigger",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::Arithmetic(String)`]
-// Caused by: sqrt of a negative integer.
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_arithmetic_sqrti_neg,
-    contract_name: "sqrti-neg",
-    contract_code: &{
-        r#"
-(define-read-only (trigger)
-  (sqrti -1)
-)
-"#
-    },
-    function_name: "trigger",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::Arithmetic(String)`]
-// Caused by: log2 of a negative integer.
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_arithmetic_log2_neg,
-    contract_name: "log2-neg",
-    contract_code: &{
-        r#"
-(define-read-only (trigger)
-  (log2 -8)
-)
-"#
-    },
-    function_name: "trigger",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::Arithmetic(String)`]
-// Caused by: pow of too large a number
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_arithmetic_pow_large,
-    contract_name: "pow-large",
-    contract_code: &{
-        format!(
-        r#"
-(define-read-only (trigger)
-  (pow 2 {})
-)
-"#, u64::from(u32::MAX) + 1)
-    },
-    function_name: "trigger",
-    function_args: &[],
-);
-
-// RuntimeError: [`RuntimeError::Arithmetic(String)`]
-// Caused by: pow of negative number
-// Outcome: block accepted.
-contract_call_consensus_test!(
-    runtime_error_arithmetic_pow_neg,
-    contract_name: "pow-neg",
-    contract_code: &{
-        r#"
-(define-read-only (trigger)
-  (pow 2 (- 1))
-)
-"#
-    },
-    function_name: "trigger",
-    function_args: &[],
-);
-
-// Caused by: overflow when attempting to increment the liquid stx supply over u128 when initializing the chainstate
+/// Example of using the `contract_call_consensus_test!` macro
+/// Deploys a contract to each epoch, for each Clarity version,
+/// then calls a function in that contract and snapshots the results.
 #[test]
-#[should_panic(expected = "FATAL: liquid STX overflow")]
-fn runtime_error_arithmetic_overflows_based_on_liquid_supply() {
-    let privk1 = StacksPrivateKey::from_hex(SK_1).unwrap();
-    let principal1: PrincipalData = to_addr(&privk1).into();
+fn test_successfully_deploy_and_call() {
+    contract_call_consensus_test!(
+        contract_name: "foo_contract",
+        contract_code: FOO_CONTRACT,
+        function_name: "bar",
+        function_args: &[ClarityValue::UInt(1)],
+    );
+}
 
-    let privk2 = StacksPrivateKey::from_hex(SK_2).unwrap();
-    let principal2: PrincipalData = to_addr(&privk2).into();
-
-    let initial_balances = vec![(principal1, u128::MAX), (principal2, 1)];
-    // Just make sure we have a single block and epoch to pass initial checks
-    let mut num_blocks_per_epoch = HashMap::new();
-    num_blocks_per_epoch.insert(StacksEpochId::Epoch20, 1);
-
-    // The chain will fail to init since the stacks chainstate does not allow a liquid supply > MAX::u128
-    ConsensusChain::new(function_name!(), initial_balances, num_blocks_per_epoch);
+/// Example of using the `contract_deploy_consensus_test!` macro
+/// Deploys a contract to all epoch, for each Clarity version
+#[test]
+fn test_successfully_deploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "foo_contract",
+        contract_code: FOO_CONTRACT,
+    );
 }

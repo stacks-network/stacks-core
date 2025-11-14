@@ -26,7 +26,7 @@ use stacks::chainstate::stacks::StacksBlockHeader;
 use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::{Config, InitialBalance};
 use stacks::core::test_util::make_contract_call;
-use stacks::core::{self, EpochList, BURNCHAIN_TX_SEARCH_WINDOW};
+use stacks::core::{self, EpochList, BURNCHAIN_TX_SEARCH_WINDOW, STACKS_EPOCH_MAX};
 use stacks::util_lib::boot::boot_code_id;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, StacksAddress, StacksBlockId, VRFSeed,
@@ -79,6 +79,8 @@ fn advance_to_2_1(
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -580,6 +582,8 @@ fn transition_fixes_bitcoin_rigidity() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -1476,6 +1480,8 @@ fn transition_removes_pox_sunset() {
     epochs[StacksEpochId::Epoch2_05].start_height = 1;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_21;
     epochs[StacksEpochId::Epoch21].start_height = epoch_21;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.burnchain.epochs = Some(epochs);
 
@@ -1731,6 +1737,8 @@ fn transition_empty_blocks() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
 
     conf.node.mine_microblocks = false;
     conf.burnchain.max_rbf = 1000000;
@@ -2006,6 +2014,8 @@ fn test_sortition_divergence_pre_21() {
     epochs[StacksEpochId::Epoch2_05].start_height = 101;
     epochs[StacksEpochId::Epoch2_05].end_height = 241;
     epochs[StacksEpochId::Epoch21].start_height = 241;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
     conf_template.burnchain.epochs = Some(epochs);
 
     let privks: Vec<_> = (0..5).map(|_| StacksPrivateKey::random()).collect();
@@ -2438,6 +2448,8 @@ fn trait_invocation_cross_epoch() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -2703,6 +2715,8 @@ fn test_v1_unlock_height_with_current_stackers() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());
@@ -2956,6 +2970,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     epochs[StacksEpochId::Epoch2_05].start_height = epoch_2_05;
     epochs[StacksEpochId::Epoch2_05].end_height = epoch_2_1;
     epochs[StacksEpochId::Epoch21].start_height = epoch_2_1;
+    epochs[StacksEpochId::Epoch21].end_height = STACKS_EPOCH_MAX;
+    epochs.truncate_after(StacksEpochId::Epoch21);
     conf.burnchain.epochs = Some(epochs);
 
     let mut burnchain_config = Burnchain::regtest(&conf.get_burn_db_path());

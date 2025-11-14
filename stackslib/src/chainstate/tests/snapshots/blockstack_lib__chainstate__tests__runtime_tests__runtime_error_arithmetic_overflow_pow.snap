@@ -1,10 +1,10 @@
 ---
-source: stackslib/src/chainstate/tests/consensus.rs
+source: stackslib/src/chainstate/tests/runtime_tests.rs
 expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "cbbd0eaf71cc088920b1e7b606100eeb48a471921b3c51149817426cdf2d97b8",
+    marf_hash: "5ecea5d73b121f340d1441aacb4d06c39ac6d58a9b8e048bf674b06d3b573bdc",
     evaluated_epoch: Epoch20,
     transactions: [
       ExpectedTransactionOutput(
@@ -15,24 +15,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 742000,
+          runtime: 896000,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 742000,
+      runtime: 896000,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "99cc28a709f815112189ef4459be8ebc74610fdf3dc96b95434b5ee95e824834",
+    marf_hash: "728bbbc96601f63734e1a32d35aaf96e86d7c6b74e38edb9c5b67ce0eda0233d",
     evaluated_epoch: Epoch2_05,
     transactions: [
       ExpectedTransactionOutput(
@@ -43,24 +43,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 308173,
+          runtime: 310763,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 308173,
+      runtime: 310763,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e12e482ddb3d359b30bb708625895dcc5660300e3d00e36d6f418d36e6e3d6a9",
+    marf_hash: "bb95a172d63b1bb5e14be73a66d40f07068ad162c932db46ffff4b7334c9c828",
     evaluated_epoch: Epoch21,
     transactions: [
       ExpectedTransactionOutput(
@@ -71,24 +71,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4daf0320ac0fbe467a49e0c3e970312534368a112288735925be59207de39d7f",
+    marf_hash: "24acfcdbaafc381a3fd3492cc771f12519168e4de7d877e478b565f55265b4cd",
     evaluated_epoch: Epoch21,
     transactions: [
       ExpectedTransactionOutput(
@@ -99,24 +99,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a8adb1ab5b6e96b47ca300ea57a2bf9c2bbcfea0f744c59bbc42431be548c629",
+    marf_hash: "8444329d59edd70821fc3b7a12bf0c78c18e24987ef1de3b904e2acdc4fb9719",
     evaluated_epoch: Epoch22,
     transactions: [
       ExpectedTransactionOutput(
@@ -127,24 +127,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0a5ccdea5167a0be94674bde7a6f24aea7522e5e6e44f2487055e940bb284646",
+    marf_hash: "0f0e28ca12f1d78daf84c7167197aecb7a02ea7c1cc8f51ec1224d11b2e22702",
     evaluated_epoch: Epoch22,
     transactions: [
       ExpectedTransactionOutput(
@@ -155,24 +155,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3e4fd9c4812a42f32201a3b699a78b82ed599f199814e3c120fd44b2259ee269",
+    marf_hash: "4acec5d66886bea2793ae8772abf77447b712b8bdd79cef276765388402c618b",
     evaluated_epoch: Epoch23,
     transactions: [
       ExpectedTransactionOutput(
@@ -183,24 +183,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "83fee1714ce64cd7eee690dc299bd22c7f509a1315770bb95db29429e74cd388",
+    marf_hash: "b3111ba3a5d39399d5a84ddf66b31f48e7d60dd9580dc5937ce15a266a85d09f",
     evaluated_epoch: Epoch23,
     transactions: [
       ExpectedTransactionOutput(
@@ -211,24 +211,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "84f2b404634cd8ede2c49b80526492485e2a699b961dc982f108da568a5b29b5",
+    marf_hash: "dfe5e11d18cfa2784a36182d920c4751db644388d0b29dec14db4999c5bb4be1",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -239,24 +239,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "5d9568d8b2a07312d32213b37e56c61bf98ceff5d1ee0f944fb2b3a02d28f9b6",
+    marf_hash: "eccd645b58e8c05f3d023519b08c582d08c6b4a2b4ab3077416323eefca0d552",
     evaluated_epoch: Epoch24,
     transactions: [
       ExpectedTransactionOutput(
@@ -267,24 +267,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "00559b2401d0d3dbfc37d60878330847ec233250f6a6908a260b753cc50c5701",
+    marf_hash: "b456e45ccd45ff06bd4c8d7e98d886676af8d2138017a02b16d2073839dd1700",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -295,24 +295,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "671f1e2def9e424d746ebe54f1b7fc267f1ac078da51d55a3dbcb60d0a053ea1",
+    marf_hash: "3dd7458c2094e65ae157269248b396f4e0420eba56013093e764855f7bbd6e34",
     evaluated_epoch: Epoch25,
     transactions: [
       ExpectedTransactionOutput(
@@ -323,24 +323,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0ff98c22e489aef1221bad0810d2ff492095f19f038341dbaf11f74196844260",
+    marf_hash: "9950aeeb2fc7db7c3603a119b692ff808b424cb379a0c0ddadd601686ba8a431",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -351,24 +351,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6ffce64510936ddc50894aa82f571139731eb576c7579dcae7129759565a41f4",
+    marf_hash: "36be9849e0e3c093556f7c2b8ee5a0dc8160610e07aff370772df88db3e60548",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -379,24 +379,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "4cbaa85531073fc0a66cc437f2666d0bc6d144b60ee680582b5f59cbcd8905c8",
+    marf_hash: "f1e78cabec047e42237867eb4fb95871144dd7f146b9f4b7abb5b419ccd2f169",
     evaluated_epoch: Epoch30,
     transactions: [
       ExpectedTransactionOutput(
@@ -407,24 +407,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "460c28cfd2c48ff0946b244db5f7e292701350bdd4a022d701f4638827c548eb",
+    marf_hash: "e77b62f44b702a588cf13d2c3303ff0305afac82e19cc18dca8b54db3e7b576e",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -435,24 +435,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b23fe38d123accee87ffef0821f7665d855f0cc2340981fc09ef494613e9374f",
+    marf_hash: "87847d9fb7963f0328b8ec3e56ef02b6f87fc2cb63c0cb901fa9fafbcd802b86",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -463,24 +463,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "794caed8f503874158074c05c9c7d5b18107c2f9727bc68c46389f701f18e5b4",
+    marf_hash: "11318888026d65c2f7c51c416d258fc8fdb17b5abadea2487923b2a344feba03",
     evaluated_epoch: Epoch31,
     transactions: [
       ExpectedTransactionOutput(
@@ -491,24 +491,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "135c3085e59e9da2045f7fbd9be3ee6710f4680f566fb70aa80f1bcf87bb183f",
+    marf_hash: "89e241b0625b18425581ecf241457275ee4bedf422c4c3ca76cd813b72ceaf4d",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -519,24 +519,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "43a78cf7e875cc9e3cbcfcb23e32fe8262a41fdce8e1fe4c0e02c7d0baf44bee",
+    marf_hash: "43f6eeacfd0949c97c423856d86afe55233836824115f4a239214f9993723d1c",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -547,24 +547,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d655205659b77ce224e5643fb573a0ca83b820c9fcf04541e00ba3b5eed6f23f",
+    marf_hash: "a16770fa624a03ba023e9a78b72932d66b1ca557e082c02a3bfc4abac2ec1ade",
     evaluated_epoch: Epoch32,
     transactions: [
       ExpectedTransactionOutput(
@@ -575,654 +575,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a532420c5692a8d1cc858c46f12c267fdc789d426bb77eff3fa20e1e1a3701a2",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_0-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c4e480fc71c5988df41175c0f0f2702dc73a01225277a0974f8c8a8796661f49",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_05-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "63c5f12602f3e20e5394eff75e7d5180a318cc7222238a5e9ea22eab70fbcdf1",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_1-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "49b8012548e32af4101eaa9a7dfdc7e3fa778daf8f48fd68766d1bd84fa76dd4",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_1-Clarity2, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "61d85e9b04591659c3abdaca1ebd3faec997fd48bb6fc44b7678b5b74ab0c9f1",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_2-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a641746b5a8f7b2ff1ba9bec8a2f4aed2120ce7a9a7a9f364851a5371d2c1e8a",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_2-Clarity2, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "896de0ed426d768a4738f761dffa972c7ccfc30e6a61661898260a9e7c217b01",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_3-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "71077207dab63d68cc938bba17d292c5585a1610e89cd7acfe90a86d64bcdf91",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_3-Clarity2, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6ef72e19d307831f381756e739328b8db436b03110ddf586a62c49e962001834",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_4-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "eb7d8fa66050f0608a933b948eaaf0b3c8f649ccc2bd0375082f2e9c546579b1",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_4-Clarity2, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "6a9d802d6d0eaeb29978186664f929c80f39a0598a04b77ff83ff3cfddcd86ff",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_5-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "783a50fec536a3e439a592520b9af2cd80b168168c3b5990bb7542deeb3078a5",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch2_5-Clarity2, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "37ab5ea39f7613aea3dfd4607fa41d7ac49fc9f690dbf8310d34ffb813de19a0",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_0-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "7791be2299417b684b493345ed94a9039c3a0054246e3cb1daba570ba9b9f4fd",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_0-Clarity2, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8df7607f304754c569bc7743749ecf8985c6b3fe8abb573287c32c0255d8b662",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_0-Clarity3, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "27f5c9d31bfd94ee07595f40648da8a868f23ca01a91750c896ade1adee4858e",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_1-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "e73c00430797acb678a32466ebc5ea8d6c8c593a58af4100220a026224843982",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_1-Clarity2, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "fbef8ea971e5ca921eb01a205932ca33ef3e04b396847f116bc7301e61d3480f",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_1-Clarity3, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "cb117037f406b991e6ca121e367322a3e24540a5e0575f9bce01ddfcee0bb6f1",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_2-Clarity1, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "c6f5ce54a33a00ca6f9c8e572f752411d1bef052bc47284cfed0acf66c72a862",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_2-Clarity2, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "8e7405302a7c41d44a2ed288ae0bf79b7a967dcf56e4b6a31be811de7a290a4a",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: overflow-pow-Epoch3_2-Clarity3, function_name: trigger-overflow-pow, function_args: [[]])",
-        vm_error: "Some(ArithmeticOverflow) [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: false,
-          data: Optional(OptionalData(
-            data: None,
-          )),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 65,
-          read_count: 3,
-          runtime: 324,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 65,
-      read_count: 3,
-      runtime: 324,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "a7f2bb362b1d32066ed1fa388a9e6818cae6448141f5104f483ffa71ec60221b",
+    marf_hash: "a9245c4cab62d80640ccd4b4ed35512c4e928ec8357e208fed7746270c3eeaa2",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1233,24 +603,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "99bc4fa8586d9c77f2c7bcc95baf8e3150c6e5f02b866f2a393b1c5531fdb067",
+    marf_hash: "64a437ccd1f7c0d5ff14fcf9732c8738d707972d04e4fd6b85b20fb28208ba36",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1261,24 +631,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "0e695099cded599995cbc2b4836d2c98908c09b8209c760b4829382f2990aa3d",
+    marf_hash: "e1b553a414ff232507988a22292023e6a25d39653ffd6b046189407aed043152",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1289,24 +659,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "73b7184a93de3c3c19b964d2ddf45f3ff55998e2ba46ab899e9c7e31aabedfc3",
+    marf_hash: "a7a814eb35256f668cfb3c95a3a077d745c075e0c164e566c0ea3597b25eb31b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1317,24 +687,24 @@ expression: result
           data: Bool(true),
         )),
         cost: ExecutionCost(
-          write_length: 76,
+          write_length: 90,
           write_count: 2,
           read_length: 1,
           read_count: 1,
-          runtime: 10421,
+          runtime: 10953,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
-      write_length: 76,
+      write_length: 90,
       write_count: 2,
       read_length: 1,
       read_count: 1,
-      runtime: 10421,
+      runtime: 10953,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "710d883e2e8f93fab0594a40939ec0b2e92fc1f7bca378682496cdc84c173ceb",
+    marf_hash: "81c09244ca2816ddd42fb59b46d0bfed653ea1c91674062576f9d821afbc8a12",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1349,22 +719,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e77cdec7a4a629d3c9e7da43f27bbfc5bc278586e1eea17316e48aa5dbd11aa2",
+    marf_hash: "024c4872811fe62af4a700ec3875ddf8118f21d098a876bcf6fb401d4e75688c",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1379,22 +749,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "bece9bb26fbc07092be3bbde67f47e862cad6df6b5d79557769962720e2c9560",
+    marf_hash: "21222b2b4ae6eddb3f419b13f83524f91b02a8b886177d463f0b9459af7cf8eb",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1409,22 +779,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "606d8338ecef0213b05a19cb2dc7bf36525258646babf558da4b85176c0a2486",
+    marf_hash: "0142228e3fda96f2933656f56e4edcaec5478c854871ca23e043c6d36d563593",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1439,22 +809,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1ac3afba7d7d5cff4303296ce7bad946032c7cb25be34cb0c483f87267926aa4",
+    marf_hash: "35919d0edee113b33816475d9f1f9c8e1c5f148f0280e3bfdc5b7c8a2b414fcd",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1469,22 +839,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "38e37993c2f9828418cf257d6b7b974b2e40e68e8c73e2f60b151607b400f9cf",
+    marf_hash: "0587381992810580fab127a2382110d8116372b63b6a690e41a76db89213d4f6",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1499,22 +869,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "f4ab250dd79067b1f7160ce64250b3de9aae9fe8812cd2c0691921cbd4aa08ec",
+    marf_hash: "468dbafa013deace7aa3eb8699214a18d4683b000a3c71af15e011f9354c6ed8",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1529,22 +899,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e2c3cbf99818e5b6bc90fc2c64f09ea6c248601e254f40c1a94e834c0cf1f0f1",
+    marf_hash: "fd2f83a0bf813085e99dc146ef32340c61d95cdc43e951da83cc466e7bffca98",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1559,22 +929,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3a7778bf8f46ba95f08ab760bec23e1ef7a1bfa45d94506e8c57b540a26bb6ca",
+    marf_hash: "7c5a5e1d779da60e994f080e051d47e584e2d895b42f0c39f0ee85c96e04c561",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1589,22 +959,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "11bb97ca2090edd01300384266204e27faeca408cccc4b4ac60328dc5e2a81d0",
+    marf_hash: "1ee8bed9b71b9b68aff417b7806f15af8e30d49ef6529aa67d22585eba8c146d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1619,22 +989,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ec6acc294442399225c71a7c2c36c02b56e914d7d6cb9a678c88dd493aa80da2",
+    marf_hash: "1a91372c35c3005e6c952aa5371d842479681e2b2ef82b10a873119d9dc0a789",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1649,22 +1019,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "8bd75389ccca2254d8c5b00f88e978d72360eb692621312c6781fc77d9c17407",
+    marf_hash: "cc73f9491a80b6d211a0560d5f4b21027241dc4c591908268e03a59daa86598e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1679,22 +1049,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "e492431cc4b05ce44cb00e7425cc1f16d2a28349b0eb3a8c4e3827017286a69c",
+    marf_hash: "68ad72f20cbacdc2f677ac443c69f67f3ceca53d9dfde1e8764d1b90ed174cf6",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1709,22 +1079,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "898a776c64a7053e20a01b7d31adc60688bae2a6c7da44cfdf253026eadd5bd5",
+    marf_hash: "b4a1ccd310820ce1cbd1c17e898fe1ddd837db5c75be6eaec8b9689d1f5a478e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1739,22 +1109,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "3bbd3a81e133ef93a1d9d0a0c7839b3d8029c033e1d0c4e8b72b9beafe80bbd0",
+    marf_hash: "88c5c683e8f793e49ffcb3308279eb40fc4be799aec2a6dc3536be98a472f8b2",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1769,22 +1139,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d153cb4743393437abaa6b571222c00f90d9095d9a6a4e64ab67553b3a2a718c",
+    marf_hash: "81d700631c5d2c9be7ec2448748ec8b539d0bb5e8ad713ff39210a36c1e85e2c",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1799,22 +1169,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2f95c7bcca1cf23039957c2bb8d2bd69ac4960d31346f42fa91b59a15374cd26",
+    marf_hash: "485ee76363203bfdabcf7438e4b69c2c347d5e58b570227a3811b8f6295eb2e4",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1829,22 +1199,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "b13df49f178c03922682e0e5bbe2f5663bbe76711951ee11e99f53c3f6c1e9e5",
+    marf_hash: "023288e57a96837581ac41b8c3a927567e0582f587111a3e6ad99d17b96ffc8f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1859,22 +1229,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "edd4d2b9f305348b557ded5809caa2d8cff03cbed6a18c6bcdfbd92b88161015",
+    marf_hash: "73128566cad482af8b9bb4a986a1de7302dd30df2d3c3a0e92e562f0df10a10f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1889,22 +1259,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "a7139a3f99b56240e6a0b0b2683b3b12fc0e25f47b7aa41652e4b8ec7050099b",
+    marf_hash: "6da0a67dc0113dba10980bf3c9a0b667dc25d9473d905609102df99f689e318d",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1919,22 +1289,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "2d7e31c41489c2249972fc9e73e4bd9d441115e90a94feb6d5cf220d863bda82",
+    marf_hash: "4fdf4d949ff99e2017221146eeac3f040b07db6ffe25533070e37c5a0fd11f8c",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1949,22 +1319,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "6d2d4516fc0648dd3b45d614c64c303cf08fd34472583c6b037fedc70986dd63",
+    marf_hash: "eb52885b4db3175c267b4450b3e6b7c722efa1fe3c5c39170175866a3b9a8718",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -1979,22 +1349,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "d7a0a3f92dd06c30b4cb74be766780263d3d548a3d73e9a9c7511b134bae76d6",
+    marf_hash: "66235f49780ab2c35a63cae1a7d4dbf66466684e6e5c0c26b7a0cadad988813b",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -2009,22 +1379,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "ec167258a90ad4270c6ab57af5819bf267f6d752c6372ba11033460bec414aa1",
+    marf_hash: "ba566fb0cc4282f91018c22597d7f7bfda6adecded2ec7bab15a51db0cd78a7e",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -2039,22 +1409,22 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
   Success(ExpectedBlockOutput(
-    marf_hash: "1317b7b3d378098a8307a22517a9ba44951d2fbe0ab65339c9be5a114faa48fc",
+    marf_hash: "3406e13ab06972840ca1b6bf2dc199c3f8b0c23fceac0c12203354e161618d1f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(
@@ -2069,18 +1439,18 @@ expression: result
         cost: ExecutionCost(
           write_length: 0,
           write_count: 0,
-          read_length: 65,
+          read_length: 79,
           read_count: 3,
-          runtime: 324,
+          runtime: 338,
         ),
       ),
     ],
     total_block_cost: ExecutionCost(
       write_length: 0,
       write_count: 0,
-      read_length: 65,
+      read_length: 79,
       read_count: 3,
-      runtime: 324,
+      runtime: 338,
     ),
   )),
 ]

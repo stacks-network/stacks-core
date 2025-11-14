@@ -3992,7 +3992,7 @@ fn test_is_tx_problematic() {
                     expected_txids.push(contract_call_spends_too_much_tx.txid());
 
                     // for tenure_id == 4:
-                    // make a contract that, when called, will result in a CheckError at
+                    // make a contract that, when called, will result in a CheckErrorKind at
                     // runtime
                     let runtime_checkerror_trait =
                         "

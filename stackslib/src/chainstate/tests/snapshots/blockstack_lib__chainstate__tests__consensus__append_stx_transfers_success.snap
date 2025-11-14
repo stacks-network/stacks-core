@@ -4,65 +4,7 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "82d8f3918bafbdc48320936b9c949749539ecc30eb233ab25eefd56541c1b4c6",
-    evaluated_epoch: Epoch32,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
-        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-      ExpectedTransactionOutput(
-        tx: "TokenTransfer(from: ST000000000000000000002AMW42H, amount: 1000, memo: 00000000000000000000000000000000000000000000000000000000000000000000)",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 0,
-          write_count: 0,
-          read_length: 0,
-          read_count: 0,
-          runtime: 0,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 0,
-      write_count: 0,
-      read_length: 0,
-      read_count: 0,
-      runtime: 0,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
-    marf_hash: "9b89306b88a2f5c4918c42fbfc3ade6cf3835755e49c755734119a0ac28c995f",
+    marf_hash: "1e57930a5701e492d802f1793af4627f7329ff418fc7c6358cca1e064365534f",
     evaluated_epoch: Epoch33,
     transactions: [
       ExpectedTransactionOutput(

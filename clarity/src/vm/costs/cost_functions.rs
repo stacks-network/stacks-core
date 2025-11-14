@@ -14,8 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::VmExecutionError;
+
 use super::ExecutionCost;
-use crate::vm::errors::{InterpreterResult, RuntimeErrorType};
+use crate::vm::errors::{InterpreterResult, RuntimeError};
 
 define_named_enum!(ClarityCostFunction {
     AnalysisTypeAnnotate("cost_analysis_type_annotate"),
@@ -172,8 +174,8 @@ pub fn linear(n: u64, a: u64, b: u64) -> u64 {
 }
 pub fn logn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
     if n < 1 {
-        return Err(crate::vm::errors::Error::Runtime(
-            RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()),
+        return Err(VmExecutionError::Runtime(
+            RuntimeError::Arithmetic("log2 must be passed a positive integer".to_string()),
             Some(vec![]),
         ));
     }
@@ -192,8 +194,8 @@ pub fn nlogn(n: u64, a: u64, b: u64) -> InterpreterResult<u64> {
         //
         // Therefore, while `nlogn` has a runtime check for `n < 1` to guard against log2(0),
         // no Clarity contract can trigger this error at runtime.
-        return Err(crate::vm::errors::Error::Runtime(
-            RuntimeErrorType::Arithmetic("log2 must be passed a positive integer".to_string()),
+        return Err(VmExecutionError::Runtime(
+            RuntimeError::Arithmetic("log2 must be passed a positive integer".to_string()),
             Some(vec![]),
         ));
     }
@@ -503,7 +505,7 @@ impl ClarityCostFunction {
             ClarityCostFunction::RestrictAssets => C::cost_restrict_assets(n),
             ClarityCostFunction::AsContractSafe => C::cost_as_contract_safe(n),
             ClarityCostFunction::Secp256r1verify => C::cost_secp256r1verify(n),
-            ClarityCostFunction::Unimplemented => Err(RuntimeErrorType::NotImplemented.into()),
+            ClarityCostFunction::Unimplemented => Err(RuntimeError::NotImplemented.into()),
         }
     }
 }

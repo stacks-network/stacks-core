@@ -13,6 +13,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 pub mod consensus;
+mod parse_tests;
+
+mod runtime_tests;
 
 use std::fs;
 
@@ -203,8 +206,6 @@ impl<'a> TestChainstate<'a> {
         let epochs = config.epochs.clone().unwrap_or_else(|| {
             StacksEpoch::unit_test_pre_2_05(config.burnchain.first_block_height)
         });
-
-        StacksEpoch::validate_nakamoto_transition_schedule(&epochs, &config.burnchain);
 
         let mut sortdb = SortitionDB::connect(
             &config.burnchain.get_db_path(),

@@ -17,6 +17,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::str::FromStr;
 use std::sync::LazyLock;
 
 #[cfg(feature = "rusqlite")]
@@ -895,6 +896,28 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch31 => write!(f, "3.1"),
             StacksEpochId::Epoch32 => write!(f, "3.2"),
             StacksEpochId::Epoch33 => write!(f, "3.3"),
+        }
+    }
+}
+
+impl FromStr for StacksEpochId {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1.0" => Ok(StacksEpochId::Epoch10),
+            "2.0" => Ok(StacksEpochId::Epoch20),
+            "2.05" => Ok(StacksEpochId::Epoch2_05),
+            "2.1" => Ok(StacksEpochId::Epoch21),
+            "2.2" => Ok(StacksEpochId::Epoch22),
+            "2.3" => Ok(StacksEpochId::Epoch23),
+            "2.4" => Ok(StacksEpochId::Epoch24),
+            "2.5" => Ok(StacksEpochId::Epoch25),
+            "3.0" => Ok(StacksEpochId::Epoch30),
+            "3.1" => Ok(StacksEpochId::Epoch31),
+            "3.2" => Ok(StacksEpochId::Epoch32),
+            "3.3" => Ok(StacksEpochId::Epoch33),
+            _ => Err("Invalid epoch string"),
         }
     }
 }
