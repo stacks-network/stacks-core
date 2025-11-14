@@ -1030,7 +1030,7 @@ fn parse_clarity_version_flag(argv: &mut Vec<String>, epoch: StacksEpochId) -> C
         if let Some(s) = optarg {
             friendly_expect(
                 s.parse::<ClarityVersion>(),
-                &format!("Invalid clarity version: {}", s),
+                &format!("Invalid clarity version: {s}"),
             )
         } else {
             ClarityVersion::default_for_epoch(epoch)
