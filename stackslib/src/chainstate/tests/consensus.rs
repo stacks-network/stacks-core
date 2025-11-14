@@ -626,16 +626,7 @@ impl ConsensusChain<'_> {
         let mut sortdb = self.test_chainstate.sortdb.take().unwrap();
         let mut stacks_node = self.test_chainstate.stacks_node.take().unwrap();
 
-        let genesis_header_info =
-            StacksChainState::get_genesis_header_info(stacks_node.chainstate.db()).unwrap();
         let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-        let parent_tip = StacksChainState::get_anchored_block_header_info(
-            stacks_node.chainstate.db(),
-            &tip.consensus_hash,
-            &tip.winning_stacks_block_hash,
-        )
-        .unwrap()
-        .unwrap_or(genesis_header_info);
         let parent_sortition_opt =
             SortitionDB::get_block_snapshot(sortdb.conn(), &tip.parent_sortition_id).unwrap();
         let mut burn_block = TestBurnchainBlock::new(&tip, 0);
@@ -658,8 +649,6 @@ impl ConsensusChain<'_> {
             &mut self.test_chainstate.miner,
             tip.block_height.try_into().unwrap(),
         );
-
-        let mut invalid_marf = false;
         let mut stacks_block = {
             let genesis_header_info =
                 StacksChainState::get_genesis_header_info(stacks_node.chainstate.db()).unwrap();
@@ -694,9 +683,7 @@ impl ConsensusChain<'_> {
             // We attempt to mine each transaction to build the hash
             for tx in &test_block.transactions {
                 // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-                if builder.try_mine_tx(&mut epoch_tx, tx, None).is_err() {
-                    invalid_marf = true;
-                }
+                let _ = builder.try_mine_tx(&mut epoch_tx, tx, None);
             }
 
             let stacks_block = builder.mine_anchored_block(&mut epoch_tx);

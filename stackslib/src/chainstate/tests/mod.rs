@@ -1164,8 +1164,6 @@ impl<'a> TestChainstate<'a> {
         let microblock_privkey = self.miner.next_microblock_privkey();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.as_ref().unwrap().conn())
-            .unwrap();
         let burnchain = self.config.burnchain.clone();
         self.make_tenure(
             |ref mut miner,
