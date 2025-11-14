@@ -19,20 +19,90 @@ use std::collections::HashMap;
 
 use clarity::types::chainstate::StacksPrivateKey;
 use clarity::types::StacksEpochId;
-#[allow(unused_imports)]
 use clarity::vm::errors::RuntimeError;
 use clarity::vm::types::PrincipalData;
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, ConsensusChain, SK_1, SK_2,
+    contract_call_consensus_test, contract_deploy_consensus_test, ConsensusChain, SK_1, SK_2,
 };
+use crate::chainstate::tests::parse_tests;
 use crate::core::test_util::to_addr;
+
+/// Generates a coverage classification report for a specific [`RuntimeError`] variant.
+///
+/// This method exists purely for **documentation and tracking purposes**.
+/// It helps maintainers understand which error variants have been:
+///
+/// - ✅ **Tested** — verified through consensus tests.
+/// - ⚙️ **Ignored** — not tested on purpose. (e.g. parser v1 errors).
+/// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
+#[allow(dead_code)]
+fn variant_coverage_report(variant: RuntimeError) {
+    enum VariantCoverage {
+        // Cannot occur through valid execution. The string is to explain the reason.
+        Unreachable_Functionally(&'static str),
+        // Unexpected error, that should never happen
+        Unreachable_ExpectLike,
+        // Defined but never used
+        Unreachable_NotUsed,
+        // Not tested on purpose. The string is to explain the reason.
+        Ignored(&'static str),
+        // Covered by consensus tests. The func lists is for to link the variant with the related tests
+        Tested(Vec<fn()>),
+    }
+
+    use RuntimeError::*;
+    use VariantCoverage::*;
+
+    _ = match variant {
+        Arithmetic(_) => Tested(vec![
+            arithmetic_sqrti_neg,
+            arithmetic_log2_neg,
+            arithmetic_pow_large,
+            arithmetic_pow_neg,
+        ]),
+        ArithmeticOverflow => Tested(vec![
+            arithmetic_overflow_pow,
+            arithmetic_oveflow_mul,
+            arithmetic_overflow_add,
+            arithmetic_overflow_to_int,
+            ft_mint_overflow,
+        ]),
+        ArithmeticUnderflow => Tested(vec![to_uint_underflow, sub_underflow]),
+        SupplyOverflow(_, _) => Tested(vec![ft_mint_supply_overflow]),
+        SupplyUnderflow(_, _) => Unreachable_Functionally(
+            "Will fail balance checks first, returning insufficient balance",
+        ),
+        DivisionByZero => Tested(vec![division_by_zero_mod, division_by_zero]),
+        TypeParseFailure(_) => Tested(vec![
+            parse_tests::test_invalid_principal_literal,
+            principal_wrong_byte_length,
+        ]),
+        ASTError(_) => todo!(),
+        MaxStackDepthReached => todo!(),
+        MaxContextDepthReached => todo!(),
+        BadTypeConstruction => todo!(),
+        BadBlockHeight(_) => todo!(),
+        NoSuchToken => todo!(),
+        NotImplemented => todo!(),
+        NoCallerInContext => todo!(),
+        NoSenderInContext => todo!(),
+        BadNameValue(_, _) => todo!(),
+        UnknownBlockHeaderHash(_) => todo!(),
+        BadBlockHash(_) => todo!(),
+        UnwrapFailure => todo!(),
+        MetadataAlreadySet => todo!(),
+        DefunctPoxContract => todo!(),
+        PoxAlreadyLocked => todo!(),
+        BlockTimeNotAvailable => todo!(),
+    }
+}
 
 /// RuntimeError: [`RuntimeError::ArithmeticOverflow`]
 /// Caused by: overflow when doing `pow` arithmetic operation
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_arithmetic_overflow_pow() {
+fn arithmetic_overflow_pow() {
     contract_call_consensus_test!(
         contract_name: "overflow-pow",
         contract_code: &{
@@ -51,7 +121,7 @@ fn runtime_error_arithmetic_overflow_pow() {
 /// Caused by: overflow when doing `mul`` arithmetic operation
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_arithmetic_oveflow_mul() {
+fn arithmetic_oveflow_mul() {
     contract_call_consensus_test!(
         contract_name: "overflow-mul",
         contract_code: &{
@@ -71,7 +141,7 @@ fn runtime_error_arithmetic_oveflow_mul() {
 /// Caused by: overflow when doing `add` arithmetic operation
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_arithmetic_overflow_add() {
+fn arithmetic_overflow_add() {
     contract_call_consensus_test!(
         contract_name: "overflow-add",
         contract_code: &{
@@ -91,7 +161,7 @@ fn runtime_error_arithmetic_overflow_add() {
 /// Caused by: overflow when doing `add` arithmetic operation
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_arithmetic_overflow_to_int() {
+fn arithmetic_overflow_to_int() {
     contract_call_consensus_test!(
         contract_name: "overflow-to-int",
         contract_code: &{
@@ -112,7 +182,7 @@ fn runtime_error_arithmetic_overflow_to_int() {
 /// mints, but it ultimately calls the `add` arithmetic operation
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_ft_mint_overflow() {
+fn ft_mint_overflow() {
     contract_call_consensus_test!(
         contract_name: "ft-mint-overflow",
         contract_code: &{
@@ -137,7 +207,7 @@ fn runtime_error_ft_mint_overflow() {
 /// triggering the cap check in `checked_increase_token_supply`.
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_ft_mint_supply_overflow() {
+fn ft_mint_supply_overflow() {
     contract_call_consensus_test!(
         contract_name: "ft-supply-overflow",
         contract_code: &{
@@ -160,7 +230,7 @@ fn runtime_error_ft_mint_supply_overflow() {
 /// Caused by: `native_to_uint` conversion of a negative number.
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_to_uint_underflow() {
+fn to_uint_underflow() {
     contract_call_consensus_test!(
         contract_name: "to-uint-negative",
         contract_code: &{
@@ -179,7 +249,7 @@ fn runtime_error_to_uint_underflow() {
 /// Caused by: subtraction.
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_sub_underflow() {
+fn sub_underflow() {
     contract_call_consensus_test!(
         contract_name: "sub-underflow",
         contract_code: &{
@@ -198,7 +268,7 @@ fn runtime_error_sub_underflow() {
 /// Caused by: modulo.
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_division_by_zero_mod() {
+fn division_by_zero_mod() {
     contract_call_consensus_test!(
         contract_name: "division-by-zero-mod",
         contract_code: &{
@@ -217,7 +287,7 @@ fn runtime_error_division_by_zero_mod() {
 /// Caused by: division.
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_division_by_zero() {
+fn division_by_zero() {
     contract_call_consensus_test!(
         contract_name: "division-by-zero",
         contract_code: &{
@@ -232,11 +302,11 @@ fn runtime_error_division_by_zero() {
     );
 }
 
-/// RuntimeError: [`RuntimeError::Arithmetic(String)`]
+/// RuntimeError: [`RuntimeError::Arithmetic`]
 /// Caused by: sqrt of a negative integer.
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_arithmetic_sqrti_neg() {
+fn arithmetic_sqrti_neg() {
     contract_call_consensus_test!(
         contract_name: "sqrti-neg",
         contract_code: &{
@@ -251,11 +321,11 @@ fn runtime_error_arithmetic_sqrti_neg() {
     );
 }
 
-/// RuntimeError: [`RuntimeError::Arithmetic(String)`]
+/// RuntimeError: [`RuntimeError::Arithmetic`]
 /// Caused by: log2 of a negative integer.
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_arithmetic_log2_neg() {
+fn arithmetic_log2_neg() {
     contract_call_consensus_test!(
         contract_name: "log2-neg",
         contract_code: &{
@@ -270,11 +340,11 @@ fn runtime_error_arithmetic_log2_neg() {
     );
 }
 
-/// RuntimeError: [`RuntimeError::Arithmetic(String)`]
+/// RuntimeError: [`RuntimeError::Arithmetic`]
 /// Caused by: pow of too large a number
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_arithmetic_pow_large() {
+fn arithmetic_pow_large() {
     contract_call_consensus_test!(
         contract_name: "pow-large",
         contract_code: &{
@@ -290,11 +360,11 @@ fn runtime_error_arithmetic_pow_large() {
     );
 }
 
-/// RuntimeError: [`RuntimeError::Arithmetic(String)`]
+/// RuntimeError: [`RuntimeError::Arithmetic`]
 /// Caused by: pow of negative number
 /// Outcome: block accepted.
 #[test]
-fn runtime_error_arithmetic_pow_neg() {
+fn arithmetic_pow_neg() {
     contract_call_consensus_test!(
         contract_name: "pow-neg",
         contract_code: &{
@@ -309,10 +379,27 @@ fn runtime_error_arithmetic_pow_neg() {
     );
 }
 
+/// TypeParseFailure: [`RuntimeError::TypeParseFailure`]
+/// Caused by: invalid standard principal literal (wrong byte length)
+/// Outcome: block accepted.
+/// Note: Gets converted into [`clarity::vm::ast::errors::ParseErrorKind::InvalidPrincipalLiteral`]
+#[test]
+pub fn principal_wrong_byte_length() {
+    contract_deploy_consensus_test!(
+        contract_name: "wrong-byte-length",
+        contract_code: &{
+            r#"
+    ;; This literal decodes via c32 but has the wrong byte length
+    (define-constant my-principal 'S162RK3CHJPCSSK6BM757FW) 
+    "#
+        },
+    );
+}
+
 // Caused by: overflow when attempting to increment the liquid stx supply over u128 when initializing the chainstate
 #[test]
 #[should_panic(expected = "FATAL: liquid STX overflow")]
-fn runtime_error_arithmetic_overflows_based_on_liquid_supply() {
+fn arithmetic_overflows_based_on_liquid_supply() {
     let privk1 = StacksPrivateKey::from_hex(SK_1).unwrap();
     let principal1: PrincipalData = to_addr(&privk1).into();
 

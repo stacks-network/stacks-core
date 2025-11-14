@@ -27,6 +27,7 @@ use crate::chainstate::tests::consensus::{
     clarity_versions_for_epoch, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
     TestBlock, EPOCHS_TO_TEST,
 };
+use crate::chainstate::tests::runtime_tests;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 
 /// Generates a coverage classification report for a specific [`ParseErrorKind`] variant.
@@ -86,7 +87,7 @@ fn variant_coverage_report(variant: ParseErrorKind) {
         ExpectedWhitespace => Tested(vec![test_expected_white_space]),
         FailedParsingUIntValue(_) => Tested(vec![test_failed_parsing_uint_value]),
         IllegalTraitName(_) => Unreachable_Functionally("prevented by Lexer checks returning `Lexer` variant"),
-        InvalidPrincipalLiteral => Tested(vec![test_invalid_principal_literal]),
+        InvalidPrincipalLiteral => Tested(vec![test_invalid_principal_literal, runtime_tests::principal_wrong_byte_length]),
         InvalidBuffer => Unreachable_Functionally("prevented by both Lexer checks, and StacksTransaction::consensus_serialize with MAX_TRANSACTION_LEN (panic)"),
         NameTooLong(_) => Tested(vec![test_name_too_long]),
         UnexpectedToken(_) => Tested(vec![test_unexpected_token]),
@@ -455,8 +456,9 @@ fn test_name_too_long() {
 /// ParserError: [`ParseErrorKind::InvalidPrincipalLiteral`]
 /// Caused by: valid principal chars but wrong format (due to the starting "AAA")
 /// Outcome: block accepted
+/// Note: is converted from [`clarity::vm::errors::RuntimeError::TypeParseFailure`]
 #[test]
-fn test_invalid_principal_literal() {
+pub fn test_invalid_principal_literal() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",

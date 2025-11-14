@@ -2436,3 +2436,64 @@ fn increment_ustx_liquid_supply_overflow() {
 
     db.commit().unwrap();
 }
+
+#[test]
+fn checked_decrease_token_supply_underflow() {
+    use crate::vm::database::{MemoryBackingStore, StoreType};
+    use crate::vm::errors::{RuntimeError, VmExecutionError};
+
+    let mut store = MemoryBackingStore::new();
+    let mut db = store.as_clarity_db();
+    let contract_id = QualifiedContractIdentifier::transient();
+    let token_name = "token".to_string();
+
+    db.begin();
+
+    // Set initial supply to 1000
+    let key =
+        ClarityDatabase::make_key_for_trip(&contract_id, StoreType::CirculatingSupply, &token_name);
+    db.put_data(&key, &1000u128)
+        .expect("Failed to set initial token supply");
+
+    // Trust but verify.
+    let current_supply: u128 = db.get_data(&key).unwrap().unwrap();
+    assert_eq!(current_supply, 1000, "Initial supply should be 1000");
+
+    // Decrease by 500: should succeed
+    db.checked_decrease_token_supply(&contract_id, &token_name, 500)
+        .expect("Decreasing by 500 should succeed");
+
+    let new_supply: u128 = db.get_data(&key).unwrap().unwrap();
+    assert_eq!(new_supply, 500, "Supply should now be 500");
+
+    // Decrease by 0: should succeed (no change)
+    db.checked_decrease_token_supply(&contract_id, &token_name, 0)
+        .expect("Decreasing by 0 should succeed");
+    let supply_after_zero: u128 = db.get_data(&key).unwrap().unwrap();
+    assert_eq!(
+        supply_after_zero, 500,
+        "Supply should remain 500 after decreasing by 0"
+    );
+
+    // Attempt to decrease by 501; should trigger SupplyUnderflow
+    let err = db
+        .checked_decrease_token_supply(&contract_id, &token_name, 501)
+        .unwrap_err();
+
+    assert!(
+        matches!(
+            err,
+            VmExecutionError::Runtime(RuntimeError::SupplyUnderflow(500, 501), _)
+        ),
+        "Expected SupplyUnderflow(500, 501), got: {err:?}"
+    );
+
+    // Supply should remain unchanged after failed underflow
+    let final_supply: u128 = db.get_data(&key).unwrap().unwrap();
+    assert_eq!(
+        final_supply, 500,
+        "Supply should not change after underflow error"
+    );
+
+    db.commit().unwrap();
+}
