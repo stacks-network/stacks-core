@@ -55,7 +55,7 @@ use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBIndexed};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::test::{get_parent_tip, make_pox_4_lockup_chain_id};
+use crate::chainstate::stacks::boot::test::make_pox_4_lockup_chain_id;
 use crate::chainstate::stacks::db::{StacksChainState, *};
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
@@ -590,7 +590,7 @@ impl<'a> TestChainstate<'a> {
         if burn_block_height < target_height {
             self.advance_to_epoch_boundary(private_key, target_epoch);
             if target_epoch < StacksEpochId::Epoch30 {
-                self.mine_pre_nakamoto_tenure_with_txs(&[]);
+                let tip = self.mine_pre_nakamoto_tenure_with_txs(&[]);
             } else {
                 self.mine_nakamoto_tenure();
             }
@@ -1146,6 +1146,7 @@ impl<'a> TestChainstate<'a> {
         let (burn_ops, stacks_block, microblocks) = self.make_pre_nakamoto_tenure_with_txs(txs);
 
         let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
+
         self.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
         StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
@@ -1173,17 +1174,33 @@ impl<'a> TestChainstate<'a> {
              vrf_proof,
              ref parent_opt,
              ref parent_microblock_header_opt| {
-                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let genesis_header_info =
+                    StacksChainState::get_genesis_header_info(chainstate.db()).unwrap();
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+                let parent_tip = StacksChainState::get_anchored_block_header_info(
+                    chainstate.db(),
+                    &tip.canonical_stacks_tip_consensus_hash,
+                    &tip.canonical_stacks_tip_hash,
+                )
+                .unwrap()
+                .unwrap_or(genesis_header_info);
+
                 let coinbase_tx = make_coinbase(miner, tip.block_height.try_into().unwrap());
 
                 let mut block_txs = vec![coinbase_tx];
                 block_txs.extend_from_slice(txs);
 
+                let snapshot = sortdb
+                    .index_handle_at_tip()
+                    .get_block_snapshot(&parent_tip.burn_header_hash)
+                    .unwrap()
+                    .unwrap();
+
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                     &burnchain,
                     &parent_tip,
                     vrf_proof,
-                    tip.total_burn,
+                    snapshot.total_burn,
                     &microblock_pubkeyhash,
                 )
                 .unwrap();
@@ -1192,9 +1209,10 @@ impl<'a> TestChainstate<'a> {
                         block_builder,
                         chainstate,
                         &sortdb.index_handle(&tip.sortition_id),
-                        block_txs,
+                        block_txs.clone(),
                     )
                     .unwrap();
+                assert_eq!(anchored_block.txs.len(), block_txs.len());
                 (anchored_block, vec![])
             },
         )
@@ -1226,8 +1244,11 @@ impl<'a> TestChainstate<'a> {
         let mut burn_block = TestBurnchainBlock::new(&tip, 0);
         let mut stacks_node = self.stacks_node.take().unwrap();
 
-        let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
-        let parent_sortition_opt = parent_block_opt.as_ref().and_then(|parent_block| {
+        let parent_block_opt = stacks_node
+            .anchored_blocks
+            .iter()
+            .find(|block| block.block_hash() == tip.canonical_stacks_tip_hash);
+        let parent_sortition_opt = parent_block_opt.and_then(|parent_block| {
             let ic = sortdb.index_conn();
             SortitionDB::get_block_snapshot_for_winning_stacks_block(
                 &ic,
@@ -1238,7 +1259,7 @@ impl<'a> TestChainstate<'a> {
         });
 
         let parent_microblock_header_opt =
-            get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
+            get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt);
         let last_key = stacks_node.get_last_key(&self.miner);
 
         let network_id = self.config.network_id;
@@ -1258,7 +1279,7 @@ impl<'a> TestChainstate<'a> {
             &mut sortdb,
             &mut stacks_node.chainstate,
             &proof,
-            parent_block_opt.as_ref(),
+            parent_block_opt,
             parent_microblock_header_opt.as_ref(),
         );
 
