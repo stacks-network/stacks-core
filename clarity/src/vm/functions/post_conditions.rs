@@ -22,7 +22,7 @@ use crate::vm::contexts::AssetMap;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_arguments_at_least, CheckErrorKind, InterpreterResult, VmInternalError,
+    check_arguments_at_least, CheckErrorKind, VmExecutionError, VmInternalError,
 };
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::SymbolicExpression;
@@ -91,7 +91,7 @@ fn eval_allowance(
     allowance_expr: &SymbolicExpression,
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Allowance> {
+) -> Result<Allowance, VmExecutionError> {
     let list = allowance_expr
         .match_list()
         .ok_or(CheckErrorKind::NonFunctionApplication)?;
@@ -200,7 +200,7 @@ pub fn special_restrict_assets(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> Result<Value, VmExecutionError> {
     // (restrict-assets? asset-owner ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)
     // arg1 => asset owner to protect
     // arg2 => list of asset allowances
@@ -239,14 +239,15 @@ pub fn special_restrict_assets(
     env.global_context.begin();
 
     // Evaluate the body expressions inside a closure so `?` only exits the closure
-    let eval_result: InterpreterResult<Option<Value>> = (|| -> InterpreterResult<Option<Value>> {
-        let mut last_result = None;
-        for expr in body_exprs {
-            let result = eval(expr, env, context)?;
-            last_result.replace(result);
-        }
-        Ok(last_result)
-    })();
+    let eval_result: Result<Option<Value>, VmExecutionError> =
+        (|| -> Result<Option<Value>, VmExecutionError> {
+            let mut last_result = None;
+            for expr in body_exprs {
+                let result = eval(expr, env, context)?;
+                last_result.replace(result);
+            }
+            Ok(last_result)
+        })();
 
     let asset_maps = env.global_context.get_readonly_asset_map()?;
 
@@ -289,7 +290,7 @@ pub fn special_as_contract(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> Result<Value, VmExecutionError> {
     // (as-contract? ((with-stx|with-ft|with-nft|with-stacking)*) expr-body1 expr-body2 ... expr-body-last)
     // arg1 => list of asset allowances
     // arg2..n => body
@@ -333,7 +334,7 @@ pub fn special_as_contract(
         nested_env.global_context.begin();
 
         // Evaluate the body expressions inside a closure so `?` only exits the closure
-        let eval_result: InterpreterResult<Option<Value>> = (|| -> InterpreterResult<Option<Value>> {
+        let eval_result: Result<Option<Value>, VmExecutionError> = (|| -> Result<Option<Value>, VmExecutionError> {
             let mut last_result = None;
             for expr in body_exprs {
                 let result = eval(expr, &mut nested_env, context)?;
@@ -387,7 +388,7 @@ fn check_allowances(
     owner: &PrincipalData,
     allowances: Vec<Allowance>,
     assets: &AssetMap,
-) -> InterpreterResult<Option<u128>> {
+) -> Result<Option<u128>, VmExecutionError> {
     let mut earliest_violation: Option<u128> = None;
     let mut record_violation = |candidate: u128| {
         if earliest_violation.is_none_or(|current| candidate < current) {
@@ -553,6 +554,6 @@ pub fn special_allowance(
     _args: &[SymbolicExpression],
     _env: &mut Environment,
     _context: &LocalContext,
-) -> InterpreterResult<Value> {
+) -> Result<Value, VmExecutionError> {
     Err(CheckErrorKind::AllowanceExprNotAllowed.into())
 }
