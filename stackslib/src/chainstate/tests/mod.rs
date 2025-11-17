@@ -57,7 +57,7 @@ use crate::chainstate::nakamoto::tests::get_account;
 use crate::chainstate::nakamoto::tests::node::{get_nakamoto_parent, TestStacker};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState, StacksDBIndexed};
 use crate::chainstate::stacks::address::PoxAddress;
-use crate::chainstate::stacks::boot::test::{get_parent_tip, make_pox_4_lockup_chain_id};
+use crate::chainstate::stacks::boot::test::make_pox_4_lockup_chain_id;
 use crate::chainstate::stacks::db::{StacksChainState, *};
 use crate::chainstate::stacks::tests::*;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksMicroblockHeader, *};
@@ -1148,6 +1148,7 @@ impl<'a> TestChainstate<'a> {
         let (burn_ops, stacks_block, microblocks) = self.make_pre_nakamoto_tenure_with_txs(txs);
 
         let (_, _, consensus_hash) = self.next_burnchain_block(burn_ops);
+
         self.process_stacks_epoch_at_tip(&stacks_block, &microblocks);
 
         StacksBlockId::new(&consensus_hash, &stacks_block.block_hash())
@@ -1165,8 +1166,6 @@ impl<'a> TestChainstate<'a> {
         let microblock_privkey = self.miner.next_microblock_privkey();
         let microblock_pubkeyhash =
             Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
-        let tip = SortitionDB::get_canonical_burn_chain_tip(self.sortdb.as_ref().unwrap().conn())
-            .unwrap();
         let burnchain = self.config.burnchain.clone();
         self.make_tenure(
             |ref mut miner,
@@ -1175,17 +1174,33 @@ impl<'a> TestChainstate<'a> {
              vrf_proof,
              ref parent_opt,
              ref parent_microblock_header_opt| {
-                let parent_tip = get_parent_tip(parent_opt, chainstate, sortdb);
+                let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+                let parent_tip = StacksChainState::get_anchored_block_header_info(
+                    chainstate.db(),
+                    &tip.canonical_stacks_tip_consensus_hash,
+                    &tip.canonical_stacks_tip_hash,
+                )
+                .unwrap()
+                .unwrap_or_else(|| {
+                    StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
+                });
+
                 let coinbase_tx = make_coinbase(miner, tip.block_height.try_into().unwrap());
 
                 let mut block_txs = vec![coinbase_tx];
                 block_txs.extend_from_slice(txs);
 
+                let snapshot = sortdb
+                    .index_handle_at_tip()
+                    .get_block_snapshot(&parent_tip.burn_header_hash)
+                    .unwrap()
+                    .unwrap();
+
                 let block_builder = StacksBlockBuilder::make_regtest_block_builder(
                     &burnchain,
                     &parent_tip,
                     vrf_proof,
-                    tip.total_burn,
+                    snapshot.total_burn,
                     &microblock_pubkeyhash,
                 )
                 .unwrap();
@@ -1194,85 +1209,37 @@ impl<'a> TestChainstate<'a> {
                         block_builder,
                         chainstate,
                         &sortdb.index_handle(&tip.sortition_id),
-                        block_txs,
+                        block_txs.clone(),
                     )
                     .unwrap();
+                assert_eq!(anchored_block.txs.len(), block_txs.len());
                 (anchored_block, vec![])
             },
         )
     }
 
-    /// Make a tenure, using `tenure_builder` to generate a Stacks block and a list of
-    /// microblocks.
-    pub fn make_tenure<F>(
+    /// Calculate blockstack ops for the given stacks and burn blocks
+    pub fn calculate_block_ops(
         &mut self,
-        mut tenure_builder: F,
-    ) -> (
-        Vec<BlockstackOperationType>,
-        StacksBlock,
-        Vec<StacksMicroblock>,
-    )
-    where
-        F: FnMut(
-            &mut TestMiner,
-            &mut SortitionDB,
-            &mut StacksChainState,
-            &VRFProof,
-            Option<&StacksBlock>,
-            Option<&StacksMicroblockHeader>,
-        ) -> (StacksBlock, Vec<StacksMicroblock>),
-    {
+        sortition_tip: &BlockSnapshot,
+        burn_block: &mut TestBurnchainBlock,
+        last_key: &LeaderKeyRegisterOp,
+        stacks_block: &StacksBlock,
+        microblocks: Vec<StacksMicroblock>,
+        parent_block_snapshot_opt: Option<&BlockSnapshot>,
+    ) -> Vec<BlockstackOperationType> {
         let mut sortdb = self.sortdb.take().unwrap();
-        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
-
-        let mut burn_block = TestBurnchainBlock::new(&tip, 0);
         let mut stacks_node = self.stacks_node.take().unwrap();
-
-        let parent_block_opt = stacks_node.get_last_anchored_block(&self.miner);
-        let parent_sortition_opt = parent_block_opt.as_ref().and_then(|parent_block| {
-            let ic = sortdb.index_conn();
-            SortitionDB::get_block_snapshot_for_winning_stacks_block(
-                &ic,
-                &tip.sortition_id,
-                &parent_block.block_hash(),
-            )
-            .unwrap()
-        });
-
-        let parent_microblock_header_opt =
-            get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt.as_ref());
-        let last_key = stacks_node.get_last_key(&self.miner);
-
-        let network_id = self.config.network_id;
-        let chainstate_path = get_chainstate_path_str(&self.config.test_name);
-        let burn_block_height = burn_block.block_height;
-
-        let proof = self
-            .miner
-            .make_proof(
-                &last_key.public_key,
-                &burn_block.parent_snapshot.sortition_hash,
-            )
-            .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", last_key.public_key));
-
-        let (stacks_block, microblocks) = tenure_builder(
-            &mut self.miner,
-            &mut sortdb,
-            &mut stacks_node.chainstate,
-            &proof,
-            parent_block_opt.as_ref(),
-            parent_microblock_header_opt.as_ref(),
-        );
 
         let mut block_commit_op = stacks_node.make_tenure_commitment(
             &sortdb,
-            &mut burn_block,
+            burn_block,
             &mut self.miner,
-            &stacks_block,
-            microblocks.clone(),
+            stacks_block,
+            microblocks,
             1000,
-            &last_key,
-            parent_sortition_opt.as_ref(),
+            last_key,
+            parent_block_snapshot_opt,
         );
 
         // patch up block-commit -- these blocks all mine off of genesis
@@ -1281,11 +1248,11 @@ impl<'a> TestChainstate<'a> {
             block_commit_op.parent_vtxindex = 0;
         }
 
-        let leader_key_op = stacks_node.add_key_register(&mut burn_block, &mut self.miner);
+        let leader_key_op = stacks_node.add_key_register(burn_block, &mut self.miner);
 
         // patch in reward set info
         let recipients = get_next_recipients(
-            &tip,
+            &sortition_tip,
             &mut stacks_node.chainstate,
             &mut sortdb,
             &self.config.burnchain,
@@ -1319,23 +1286,97 @@ impl<'a> TestChainstate<'a> {
                 }
             }
         };
-        test_debug!(
+        // Put everything back
+        self.stacks_node = Some(stacks_node);
+        self.sortdb = Some(sortdb);
+
+        debug!(
             "Block commit at height {} has {} recipients: {:?}",
             block_commit_op.block_height,
             block_commit_op.commit_outs.len(),
             &block_commit_op.commit_outs
         );
+        vec![
+            BlockstackOperationType::LeaderKeyRegister(leader_key_op),
+            BlockstackOperationType::LeaderBlockCommit(block_commit_op),
+        ]
+    }
+    /// Make a tenure, using `tenure_builder` to generate a Stacks block and a list of
+    /// microblocks.
+    pub fn make_tenure<F>(
+        &mut self,
+        mut tenure_builder: F,
+    ) -> (
+        Vec<BlockstackOperationType>,
+        StacksBlock,
+        Vec<StacksMicroblock>,
+    )
+    where
+        F: FnMut(
+            &mut TestMiner,
+            &mut SortitionDB,
+            &mut StacksChainState,
+            &VRFProof,
+            Option<&StacksBlock>,
+            Option<&StacksMicroblockHeader>,
+        ) -> (StacksBlock, Vec<StacksMicroblock>),
+    {
+        let mut sortdb = self.sortdb.take().unwrap();
+        let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
+
+        let mut burn_block = TestBurnchainBlock::new(&tip, 0);
+        let mut stacks_node = self.stacks_node.take().unwrap();
+
+        let parent_block_opt = stacks_node
+            .anchored_blocks
+            .iter()
+            .find(|block| block.block_hash() == tip.canonical_stacks_tip_hash);
+        let parent_sortition_opt = parent_block_opt.and_then(|parent_block| {
+            let ic = sortdb.index_conn();
+            SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                &ic,
+                &tip.sortition_id,
+                &parent_block.block_hash(),
+            )
+            .unwrap()
+        });
+
+        let parent_microblock_header_opt =
+            get_last_microblock_header(&stacks_node, &self.miner, parent_block_opt);
+        let last_key = stacks_node.get_last_key(&self.miner);
+
+        let network_id = self.config.network_id;
+        let chainstate_path = get_chainstate_path_str(&self.config.test_name);
+        let burn_block_height = burn_block.block_height;
+
+        let proof = self
+            .miner
+            .make_proof(
+                &last_key.public_key,
+                &burn_block.parent_snapshot.sortition_hash,
+            )
+            .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", last_key.public_key));
+
+        let (stacks_block, microblocks) = tenure_builder(
+            &mut self.miner,
+            &mut sortdb,
+            &mut stacks_node.chainstate,
+            &proof,
+            parent_block_opt,
+            parent_microblock_header_opt.as_ref(),
+        );
 
         self.stacks_node = Some(stacks_node);
         self.sortdb = Some(sortdb);
-        (
-            vec![
-                BlockstackOperationType::LeaderKeyRegister(leader_key_op),
-                BlockstackOperationType::LeaderBlockCommit(block_commit_op),
-            ],
-            stacks_block,
-            microblocks,
-        )
+        let block_ops = self.calculate_block_ops(
+            &tip,
+            &mut burn_block,
+            &last_key,
+            &stacks_block,
+            microblocks.clone(),
+            parent_sortition_opt.as_ref(),
+        );
+        (block_ops, stacks_block, microblocks)
     }
 
     pub fn get_burn_block_height(&self) -> u64 {
