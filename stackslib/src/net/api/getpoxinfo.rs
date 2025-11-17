@@ -361,13 +361,15 @@ impl RPCPoxInfoData {
             .map(RPCPoxEpoch::from)
             .collect();
         let burn_height = burnchain_tip.block_height;
-        let current_epoch = epochs.iter().fold(StacksEpochId::Epoch10, |acc, epoch_data| {
-            if burn_height >= epoch_data.start_height {
-                epoch_data.epoch_id
-            } else {
-                acc
-            }
-        });
+        let current_epoch = epochs
+            .iter()
+            .fold(StacksEpochId::Epoch10, |acc, epoch_data| {
+                if burn_height >= epoch_data.start_height {
+                    epoch_data.epoch_id
+                } else {
+                    acc
+                }
+            });
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),

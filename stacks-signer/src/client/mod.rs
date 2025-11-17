@@ -302,7 +302,7 @@ pub(crate) mod tests {
                     network_epoch: 0,
                 },
             ],
-            current_epoch:StacksEpochId::Epoch30,
+            current_epoch: StacksEpochId::Epoch30,
             reward_cycle_length: thread_rng().next_u64(),
             rejection_votes_left_required: None,
             next_reward_cycle_in: thread_rng().next_u64(),

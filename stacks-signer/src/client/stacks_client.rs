@@ -887,7 +887,11 @@ mod tests {
         let h = spawn(move || mock.client.get_peer_info());
         let (response, peer_info) = build_get_peer_info_response(None, None);
         write_response(mock.server, response.as_bytes());
-        let burn_block_height = h.join().unwrap().expect("Failed to deserialize response").burn_block_height;
+        let burn_block_height = h
+            .join()
+            .unwrap()
+            .expect("Failed to deserialize response")
+            .burn_block_height;
         assert_eq!(burn_block_height, peer_info.burn_block_height);
     }
 
