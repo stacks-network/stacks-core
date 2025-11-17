@@ -15,9 +15,9 @@
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
 use perf_event::events::Hardware;
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
 use perf_event::{Builder, Counter};
 use regex::{Captures, Regex};
 use stacks_common::codec::StacksMessageCodec;
@@ -167,11 +167,14 @@ impl RPCNakamotoBlockReplayRequestHandler {
         for (i, tx) in block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
+            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
             let mut perf_event_cpu_instructions: Option<Counter> = None;
+            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
             let mut perf_event_cpu_cycles: Option<Counter> = None;
+            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
             let mut perf_event_cpu_ref_cycles: Option<Counter> = None;
 
-            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
             if self.profiler {
                 if let Ok(mut perf_event_cpu_instructions_result) =
                     Builder::new(Hardware::INSTRUCTIONS).build()
@@ -206,11 +209,22 @@ impl RPCNakamotoBlockReplayRequestHandler {
                 None,
             );
 
+            #[cfg(feature = "profiler")]
             let mut cpu_instructions: Option<u64> = None;
-            let mut cpu_cycles: Option<u64> = None;
-            let mut cpu_ref_cycles: Option<u64> = None;
+            #[cfg(not(feature = "profiler"))]
+            let cpu_instructions: Option<u64> = None;
 
-            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            #[cfg(feature = "profiler")]
+            let mut cpu_cycles: Option<u64> = None;
+            #[cfg(not(feature = "profiler"))]
+            let cpu_cycles: Option<u64> = None;
+
+            #[cfg(feature = "profiler")]
+            let mut cpu_ref_cycles: Option<u64> = None;
+            #[cfg(not(feature = "profiler"))]
+            let cpu_ref_cycles: Option<u64> = None;
+
+            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
             if self.profiler {
                 if let Some(mut perf_event_cpu_instructions) = perf_event_cpu_instructions {
                     if perf_event_cpu_instructions.disable().is_ok() {
