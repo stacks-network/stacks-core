@@ -1,0 +1,126 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "a896487ef5f6e69107c5ce347e3909e53679508f53ff12dec695ae166b11898c",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-name-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expected a name argument to this function) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 15,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 15,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "272c6f3dbf41a7cac354ccab90e3d6369081cf0183f40881ce442079d2e38dfb",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-name-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expected a name argument to this function) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 15,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 15,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "b60b964620c2a7a8a10fa3578b3082a78489894892d684a20d846f0af04042bc",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-name-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expected a name argument to this function) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 15,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 15,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1222,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3f2933005a9713bacfa2a520f6cdc7d40ad57c154c80aab50246a133e3b3eb61",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: expected-name-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: match on a optional type uses the following syntax: (match input some-name if-some-expression if-none-expression). Caused by: expected a name argument to this function) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 15,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1222,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 15,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1222,
+    ),
+  )),
+]

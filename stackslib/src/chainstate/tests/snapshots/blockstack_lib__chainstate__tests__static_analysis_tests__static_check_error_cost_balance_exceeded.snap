@@ -1,0 +1,10 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Failure("Invalid Stacks block a58fcb42e51e055d3c11754df7c62976f69a02e9e4ffd7c83033fa7f670f229b: CostOverflowError(ExecutionCost { write_length: 0, write_count: 0, read_length: 0, read_count: 0, runtime: 0 }, ExecutionCost { write_length: 75013, write_count: 1, read_length: 1020001, read_count: 15001, runtime: 135183501 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })"),
+  Failure("Invalid Stacks block 0b0d94606ac3b7adb14e1ae8dd5efb49504774555b3984eced1ab733da004fac: CostOverflowError(ExecutionCost { write_length: 0, write_count: 0, read_length: 0, read_count: 0, runtime: 0 }, ExecutionCost { write_length: 75013, write_count: 1, read_length: 1020001, read_count: 15001, runtime: 135168502 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })"),
+  Failure("Invalid Stacks block 99c326760a910f67d9695673b15cce43602a161b31362d9e2ef388ab444306e2: CostOverflowError(ExecutionCost { write_length: 0, write_count: 0, read_length: 0, read_count: 0, runtime: 0 }, ExecutionCost { write_length: 75013, write_count: 1, read_length: 1020001, read_count: 15001, runtime: 135168502 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })"),
+  Failure("Invalid Stacks block 92bd5f026210bd6c018ac4761cd4fb3d3968dec0fbda129673338933512b78bc: CostOverflowError(ExecutionCost { write_length: 0, write_count: 0, read_length: 0, read_count: 0, runtime: 0 }, ExecutionCost { write_length: 75013, write_count: 1, read_length: 1020001, read_count: 15001, runtime: 135168502 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })"),
+]
