@@ -53,7 +53,7 @@ use stackslib::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use stackslib::clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
 };
-use stackslib::clarity::vm::errors::{InterpreterResult, RuntimeError, VmExecutionError};
+use stackslib::clarity::vm::errors::{RuntimeError, VmExecutionError};
 use stackslib::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use stackslib::clarity::vm::{
     ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
@@ -897,7 +897,7 @@ fn install_boot_code<C: ClarityStorage>(
                 None,
                 None,
                 |env| {
-                    let res: InterpreterResult<_> =
+                    let res: Result<_, VmExecutionError> =
                         Ok(env.global_context.database.set_clarity_epoch_version(epoch));
                     res
                 },

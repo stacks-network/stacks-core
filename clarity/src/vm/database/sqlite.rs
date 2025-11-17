@@ -26,9 +26,7 @@ use super::{
     NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
 use crate::vm::analysis::{AnalysisDatabase, CheckErrorKind};
-use crate::vm::errors::{
-    IncomparableError, InterpreterResult as Result, RuntimeError, VmInternalError,
-};
+use crate::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::types::QualifiedContractIdentifier;
 
 const SQL_FAIL_MESSAGE: &str = "PANIC: SQL Failure in Smart Contract VM.";
@@ -37,7 +35,7 @@ pub struct SqliteConnection {
     conn: Connection,
 }
 
-fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
+fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<(), VmExecutionError> {
     let params = params![key, value];
     match conn.execute("REPLACE INTO data_table (key, value) VALUES (?, ?)", params) {
         Ok(_) => Ok(()),
@@ -48,7 +46,7 @@ fn sqlite_put(conn: &Connection, key: &str, value: &str) -> Result<()> {
     }
 }
 
-fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
+fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>, VmExecutionError> {
     trace!("sqlite_get {key}");
     let params = params![key];
     let res = match conn
@@ -70,14 +68,14 @@ fn sqlite_get(conn: &Connection, key: &str) -> Result<Option<String>> {
     res
 }
 
-fn sqlite_has_entry(conn: &Connection, key: &str) -> Result<bool> {
+fn sqlite_has_entry(conn: &Connection, key: &str) -> Result<bool, VmExecutionError> {
     Ok(sqlite_get(conn, key)?.is_some())
 }
 
 pub fn sqlite_get_contract_hash(
     store: &mut dyn ClarityBackingStore,
     contract: &QualifiedContractIdentifier,
-) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
     let key = make_contract_hash_key(contract);
     let contract_commitment = store
         .get_data(&key)?
@@ -97,7 +95,7 @@ pub fn sqlite_insert_metadata(
     contract: &QualifiedContractIdentifier,
     key: &str,
     value: &str,
-) -> Result<()> {
+) -> Result<(), VmExecutionError> {
     let bhh = store.get_open_chain_tip();
     SqliteConnection::insert_metadata(
         store.get_side_store(),
@@ -112,7 +110,7 @@ pub fn sqlite_get_metadata(
     store: &mut dyn ClarityBackingStore,
     contract: &QualifiedContractIdentifier,
     key: &str,
-) -> Result<Option<String>> {
+) -> Result<Option<String>, VmExecutionError> {
     let (bhh, _) = store.get_contract_hash(contract)?;
     SqliteConnection::get_metadata(store.get_side_store(), &bhh, &contract.to_string(), key)
 }
@@ -122,7 +120,7 @@ pub fn sqlite_get_metadata_manual(
     at_height: u32,
     contract: &QualifiedContractIdentifier,
     key: &str,
-) -> Result<Option<String>> {
+) -> Result<Option<String>, VmExecutionError> {
     let bhh = store.get_block_at_height(at_height).ok_or_else(|| {
         warn!("Unknown block height when manually querying metadata"; "block_height" => at_height);
         RuntimeError::BadBlockHeight(at_height.to_string())
@@ -131,11 +129,11 @@ pub fn sqlite_get_metadata_manual(
 }
 
 impl SqliteConnection {
-    pub fn put(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    pub fn put(conn: &Connection, key: &str, value: &str) -> Result<(), VmExecutionError> {
         sqlite_put(conn, key, value)
     }
 
-    pub fn get(conn: &Connection, key: &str) -> Result<Option<String>> {
+    pub fn get(conn: &Connection, key: &str) -> Result<Option<String>, VmExecutionError> {
         sqlite_get(conn, key)
     }
 
@@ -145,7 +143,7 @@ impl SqliteConnection {
         contract_hash: &str,
         key: &str,
         value: &str,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let key = format!("clr-meta::{contract_hash}::{key}");
         let params = params![bhh, key, value];
 
@@ -163,7 +161,7 @@ impl SqliteConnection {
         conn: &Connection,
         from: &StacksBlockId,
         to: &StacksBlockId,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let params = params![to, from];
         if let Err(e) = conn.execute(
             "UPDATE metadata_table SET blockhash = ? WHERE blockhash = ?",
@@ -175,7 +173,7 @@ impl SqliteConnection {
         Ok(())
     }
 
-    pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) -> Result<()> {
+    pub fn drop_metadata(conn: &Connection, from: &StacksBlockId) -> Result<(), VmExecutionError> {
         if let Err(e) = conn.execute(
             "DELETE FROM metadata_table WHERE blockhash = ?",
             params![from],
@@ -191,7 +189,7 @@ impl SqliteConnection {
         bhh: &StacksBlockId,
         contract_hash: &str,
         key: &str,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         let key = format!("clr-meta::{contract_hash}::{key}");
         let params = params![bhh, key];
 
@@ -211,13 +209,13 @@ impl SqliteConnection {
         }
     }
 
-    pub fn has_entry(conn: &Connection, key: &str) -> Result<bool> {
+    pub fn has_entry(conn: &Connection, key: &str) -> Result<bool, VmExecutionError> {
         sqlite_has_entry(conn, key)
     }
 }
 
 impl SqliteConnection {
-    pub fn initialize_conn(conn: &Connection) -> Result<()> {
+    pub fn initialize_conn(conn: &Connection) -> Result<(), VmExecutionError> {
         conn.query_row("PRAGMA journal_mode = WAL;", NO_PARAMS, |_row| Ok(()))
             .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
@@ -247,13 +245,13 @@ impl SqliteConnection {
         Ok(())
     }
 
-    pub fn memory() -> Result<Connection> {
+    pub fn memory() -> Result<Connection, VmExecutionError> {
         let contract_db = SqliteConnection::inner_open(":memory:")?;
         SqliteConnection::initialize_conn(&contract_db)?;
         Ok(contract_db)
     }
 
-    pub fn check_schema(conn: &Connection) -> Result<()> {
+    pub fn check_schema(conn: &Connection) -> Result<(), VmExecutionError> {
         let sql = "SELECT sql FROM sqlite_master WHERE name=?";
         let _: String = conn
             .query_row(sql, params!["data_table"], |row| row.get(0))
@@ -267,7 +265,7 @@ impl SqliteConnection {
         Ok(())
     }
 
-    fn inner_open(filename: &str) -> Result<Connection> {
+    fn inner_open(filename: &str) -> Result<Connection, VmExecutionError> {
         let conn = Connection::open(filename)
             .map_err(|x| VmInternalError::SqliteError(IncomparableError { err: x }))?;
 
@@ -310,26 +308,29 @@ impl MemoryBackingStore {
 }
 
 impl ClarityBackingStore for MemoryBackingStore {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError> {
         Err(RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0)).into())
     }
 
-    fn get_data(&mut self, key: &str) -> Result<Option<String>> {
+    fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
         SqliteConnection::get(self.get_side_store(), key)
     }
 
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>> {
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>, VmExecutionError> {
         SqliteConnection::get(self.get_side_store(), hash.to_string().as_str())
     }
 
-    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         Ok(SqliteConnection::get(self.get_side_store(), key)?.map(|x| (x, vec![])))
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>> {
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         self.get_data_with_proof(&hash.to_string())
     }
 
@@ -361,7 +362,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         None
     }
 
-    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
         for (key, value) in items.into_iter() {
             SqliteConnection::put(self.get_side_store(), &key, &value)?;
         }
@@ -371,7 +372,7 @@ impl ClarityBackingStore for MemoryBackingStore {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
         sqlite_get_contract_hash(self, contract)
     }
 
@@ -380,7 +381,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         sqlite_insert_metadata(self, contract, key, value)
     }
 
@@ -388,7 +389,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata(self, contract, key)
     }
 
@@ -397,7 +398,7 @@ impl ClarityBackingStore for MemoryBackingStore {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }
