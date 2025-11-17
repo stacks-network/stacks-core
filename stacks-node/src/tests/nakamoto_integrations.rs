@@ -48,7 +48,7 @@ use stacks::chainstate::burn::operations::{
 use stacks::chainstate::coordinator::comm::CoordinatorChannels;
 use stacks::chainstate::coordinator::OnChainRewardSetProvider;
 use stacks::chainstate::nakamoto::coordinator::{load_nakamoto_reward_set, TEST_COORDINATOR_STALL};
-use stacks::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use stacks::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use stacks::chainstate::nakamoto::shadow::shadow_chainstate_repair;
 use stacks::chainstate::nakamoto::test_signers::TestSigners;
 use stacks::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
@@ -142,172 +142,94 @@ pub static POX_4_DEFAULT_STACKER_STX_AMT: u128 = 99_000_000_000_000;
 use clarity::vm::database::STXBalance;
 use stacks::chainstate::stacks::boot::SIP_031_NAME;
 use stacks::clarity_vm::clarity::SIP_031_INITIAL_MINT;
+use stacks::config::DEFAULT_MAX_TENURE_BYTES;
 
 use crate::clarity::vm::clarity::ClarityConnection;
 
 lazy_static! {
-    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 11] = [
+    pub static ref NAKAMOTO_INTEGRATION_EPOCHS: [StacksEpoch; 12] = [
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch10,
             start_height: 0,
             end_height: 0,
-            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_10,
             network_epoch: PEER_VERSION_EPOCH_1_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_05
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_3
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 201,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_4
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 201,
             end_height: 231,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_5
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch30,
             start_height: 231,
             end_height: 241,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_0
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch31,
             start_height: 241,
             end_height: 251,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_1
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch32,
             start_height: 251,
-            end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_2
-        },
-    ];
-    pub static ref NAKAMOTO_INTEGRATION_3_3_EPOCHS: [StacksEpoch; 12] = [
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch10,
-            start_height: 0,
-            end_height: 0,
-            block_limit: BLOCK_LIMIT_MAINNET_10.clone(),
-            network_epoch: PEER_VERSION_EPOCH_1_0
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch20,
-            start_height: 0,
-            end_height: 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_0
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch2_05,
-            start_height: 1,
-            end_height: 2,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_05
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch21,
-            start_height: 2,
-            end_height: 3,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_1
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch22,
-            start_height: 3,
-            end_height: 4,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_2
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch23,
-            start_height: 4,
-            end_height: 5,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_3
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch24,
-            start_height: 5,
-            end_height: 201,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_4
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch25,
-            start_height: 201,
-            end_height: 231,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_2_5
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch30,
-            start_height: 231,
-            end_height: 232,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_0
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch31,
-            start_height: 232,
-            end_height: 233,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
-            network_epoch: PEER_VERSION_EPOCH_3_1
-        },
-        StacksEpoch {
-            epoch_id: StacksEpochId::Epoch32,
-            start_height: 233,
-            end_height: 234,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            end_height: 252,
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch33,
-            start_height: 234,
+            start_height: 252,
             end_height: STACKS_EPOCH_MAX,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_3_2
         },
     ];
@@ -1443,6 +1365,8 @@ pub fn setup_epoch_3_reward_set(
           "epoch_3_start_height" => {epoch_3_start_height},
     );
     for (stacker_sk, signer_sk) in stacker_sks.iter().zip(signer_sks.iter()) {
+        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(stacker_sk));
+        let nonce = get_account(&http_origin, &address).nonce;
         let pox_addr = PoxAddress::from_legacy(
             AddressHashMode::SerializeP2PKH,
             tests::to_addr(stacker_sk).bytes().clone(),
@@ -1465,7 +1389,7 @@ pub fn setup_epoch_3_reward_set(
         let signer_pk = StacksPublicKey::from_private(signer_sk);
         let stacking_tx = make_contract_call(
             stacker_sk,
-            0,
+            nonce,
             1000,
             naka_conf.burnchain.chain_id,
             &StacksAddress::burn_address(false),
@@ -1508,12 +1432,15 @@ pub fn boot_to_epoch_3_reward_set_calculation_boundary(
         num_stacking_cycles,
     );
 
-    let epochs = naka_conf.burnchain.epochs.clone().unwrap();
-    let epoch_3 = &epochs[StacksEpochId::Epoch30];
+    let epoch_3_start_height = naka_conf
+        .burnchain
+        .epochs
+        .as_ref()
+        .map(|epochs| epochs[StacksEpochId::Epoch30].start_height)
+        .unwrap();
     let reward_cycle_len = naka_conf.get_burnchain().pox_constants.reward_cycle_length as u64;
     let prepare_phase_len = naka_conf.get_burnchain().pox_constants.prepare_length as u64;
 
-    let epoch_3_start_height = epoch_3.start_height;
     assert!(
         epoch_3_start_height > 0,
         "Epoch 3.0 start height must be greater than 0"
@@ -3228,10 +3155,12 @@ fn block_proposal_api_endpoint() {
     let tenure_change = None;
     let coinbase = None;
 
-    let tenure_cause = tenure_change.and_then(|tx: &StacksTransaction| match &tx.payload {
-        TransactionPayload::TenureChange(tc) => Some(tc.cause),
-        _ => None,
-    });
+    let tenure_cause = tenure_change
+        .and_then(|tx: &StacksTransaction| match &tx.payload {
+            TransactionPayload::TenureChange(tc) => Some(MinerTenureInfoCause::from(tc.cause)),
+            _ => Some(MinerTenureInfoCause::NoTenureChange),
+        })
+        .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
     // Apply miner signature
     let sign = |p: &NakamotoBlockProposal| {
@@ -3253,6 +3182,8 @@ fn block_proposal_api_endpoint() {
             1,
             None,
             None,
+            None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )
         .expect("Failed to build Nakamoto block");
 
@@ -6837,6 +6768,7 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
             reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+            supports_sip034_tenure_extensions: false,
         };
         let mut sortitions_view =
             SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
@@ -6972,6 +6904,7 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
             reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+            supports_sip034_tenure_extensions: false,
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
             .unwrap()
@@ -7051,6 +6984,7 @@ fn signer_chainstate() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
+        supports_sip034_tenure_extensions: false,
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();
     sortitions_view
@@ -7543,6 +7477,9 @@ fn continue_tenure_extend() {
                             panic!("Expected other transactions to happen after tenure extend");
                         }
                         tenure_block_founds.push(parsed);
+                    }
+                    _ => {
+                        panic!("Unexpected tenure-extend cause {:?}", &payload.cause);
                     }
                 };
             }
@@ -11142,7 +11079,7 @@ fn test_tenure_extend_from_flashblocks() {
             let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
 
             if let TransactionPayload::TenureChange(payload) = &parsed.payload {
-                if payload.cause == TenureChangeCause::Extended {
+                if payload.cause.is_eq(&TenureChangeCause::Extended) {
                     has_extend = true;
                 }
             }
@@ -11662,6 +11599,7 @@ fn large_mempool_base(strategy: MemPoolWalkStrategy, set_fee: impl Fn() -> u64) 
 
     let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
     naka_conf.miner.mempool_walk_strategy = strategy;
+    naka_conf.miner.nakamoto_attempt_time_ms = 10_000;
 
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
@@ -12919,7 +12857,7 @@ fn miner_constructs_replay_block() {
     let tx_bytes = hex_bytes(&raw_tx[2..]).unwrap();
     let parsed = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).unwrap();
     let tenure_change = parsed.try_as_tenure_change().unwrap();
-    assert_eq!(tenure_change.cause, TenureChangeCause::BlockFound);
+    assert!(tenure_change.cause.is_eq(&TenureChangeCause::BlockFound));
 
     info!("Verifying next block contains the expected replay txs...");
     let block: StacksBlockEvent =
@@ -14236,10 +14174,6 @@ fn test_epoch_3_3_activation() {
     naka_conf.node.pox_sync_sample_secs = 180;
     naka_conf.burnchain.max_rbf = 10_000_000;
 
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
-
     let sender_signer_sk = Secp256k1PrivateKey::random();
     let sender_signer_addr = tests::to_addr(&sender_signer_sk);
     let mut signers = TestSigners::new(vec![sender_signer_sk.clone()]);
@@ -15079,10 +15013,6 @@ fn check_block_time_keyword() {
         100000,
     );
 
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
-
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -15361,10 +15291,6 @@ fn check_with_stacking_allowances_delegate_stx() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -15761,10 +15687,6 @@ fn check_with_stacking_allowances_stack_stx() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
 
     // Default stacker used for bootstrapping
     let stacker_sk = setup_stacker(&mut naka_conf);
@@ -16355,10 +16277,6 @@ fn check_restrict_assets_rollback() {
         PrincipalData::from(sender_signer_addr.clone()).to_string(),
         100000,
     );
-
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
 
     let stacker_sk = setup_stacker(&mut naka_conf);
 
@@ -17077,10 +16995,6 @@ fn check_as_contract_rollback() {
         100000,
     );
 
-    // Add epoch 3.3 to the configuration because it is not yet added to the
-    // default epoch list for integration tests.
-    naka_conf.burnchain.epochs = Some(EpochList::new(&*NAKAMOTO_INTEGRATION_3_3_EPOCHS));
-
     let stacker_sk = setup_stacker(&mut naka_conf);
 
     test_observer::spawn();
@@ -17779,6 +17693,585 @@ fn check_as_contract_rollback() {
         get_account(&http_origin, &sender_addr).balance,
         "incorrect sender balance"
     );
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Tests that the tenure size limit is correctly accounted.
+/// Deploys 10 (big) contracts (each 512K)
+/// The block limit is 2MB, the tenure limit is 3MB
+/// One block will contain 3 of the deployed contracts (the block size will be reached at it)
+/// The following one will contain 2 of the deployed contract (tenure size limit will be reached)
+fn smaller_tenure_size_for_miner() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let mut senders: Vec<(Secp256k1PrivateKey, StacksAddress)> = vec![];
+
+    // number of deploys to submit in the test
+    let num_deploys = 10;
+
+    for _ in 0..num_deploys {
+        let sender_sk = Secp256k1PrivateKey::random();
+        let sender_addr = tests::to_addr(&sender_sk);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_addr.clone()).to_string(),
+            10000000000000,
+        );
+
+        senders.push((sender_sk, sender_addr));
+    }
+
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+
+    naka_conf.miner.max_tenure_bytes = 3 * 1024 * 1024; // 3MB
+    naka_conf.miner.log_skipped_transactions = true;
+
+    naka_conf.add_initial_balance(
+        PrincipalData::from(signer_addr.clone()).to_string(),
+        10000000000000,
+    );
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register(
+        &mut naka_conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    let mut long_comment = String::from(";; ");
+    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    let contract = format!(
+        r#"
+        {long_comment}
+        (define-public (test-fn)
+          (ok "Hello, world!")
+        )
+     "#
+    );
+
+    let deploy_fee = 524504;
+
+    test_observer::clear();
+
+    for deploy in 0..num_deploys {
+        info!("Submitting deploy {deploy}");
+        let contract_name = format!("test-{deploy}");
+
+        let contract_tx = make_contract_publish(
+            &senders[deploy].0,
+            0,
+            deploy_fee,
+            naka_conf.burnchain.chain_id,
+            &contract_name,
+            &contract,
+        );
+
+        submit_tx(&http_origin, &contract_tx);
+    }
+
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
+        if !nakamoto_block_events.is_empty() {
+            let nakamoto_block_event = nakamoto_block_events.last().unwrap();
+            let mut skipped_transactions = 0;
+            for tx_event in &nakamoto_block_event.tx_events {
+                match tx_event {
+                    TransactionEvent::Skipped(reason) => {
+                        if reason.error == "Too much data in tenure" {
+                            skipped_transactions += 1;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            // assume 2 blocks, the first one with 3 transactions the second with 2
+            // that means we will have 5 skipped transactions at the end
+            if skipped_transactions == 5 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .unwrap();
+
+    // wait for signers
+    wait_for(30, || Ok(test_observer::get_blocks().len() >= 3))
+        .expect("Timed out waiting for signers");
+
+    let blocks = test_observer::get_blocks();
+
+    assert_eq!(
+        blocks.len(),
+        3,
+        "Should have successfully mined three blocks, but got {}",
+        blocks.len()
+    );
+
+    let mut deployed_contracts = 0;
+    for deploy in 0..num_deploys {
+        if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+            deployed_contracts += 1;
+        }
+    }
+
+    assert_eq!(
+        deployed_contracts, 5,
+        "Should have successfully deployed 5 contracts, but got {}",
+        deployed_contracts
+    );
+
+    // ensure no tenure extend
+    for block in &blocks {
+        let txs = test_observer::parse_transactions(block);
+        let has_tenure_extend = txs.iter().any(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tenure_change) => tenure_change.cause.is_extended(),
+            _ => false,
+        });
+
+        assert!(!has_tenure_extend, "Unexpected tenure extend transaction");
+    }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Tests that the tenure size limit is correctly accounted.
+/// Deploys 10 (big) contracts (each 512K)
+/// The block limit is 2MB, the tenure limit is 3MB
+/// One block will contain 3 of the deployed contracts (the block size will be reached at it)
+/// The following one will contain 2 of the deployed contract (tenure size limit will be reached)
+/// Start a new tenure to process the remaining transactions.
+fn smaller_tenure_size_for_miner_on_two_tenures() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let mut senders: Vec<(Secp256k1PrivateKey, StacksAddress)> = vec![];
+
+    // number of deploys to submit in the test
+    let num_deploys = 10;
+
+    for _ in 0..num_deploys {
+        let sender_sk = Secp256k1PrivateKey::random();
+        let sender_addr = tests::to_addr(&sender_sk);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_addr.clone()).to_string(),
+            10000000000000,
+        );
+
+        senders.push((sender_sk, sender_addr));
+    }
+
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+
+    naka_conf.miner.max_tenure_bytes = 3 * 1024 * 1024; // 3MB
+    naka_conf.miner.log_skipped_transactions = true;
+
+    naka_conf.add_initial_balance(
+        PrincipalData::from(signer_addr.clone()).to_string(),
+        10000000000000,
+    );
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register(
+        &mut naka_conf,
+        &[
+            EventKeyType::AnyEvent,
+            EventKeyType::MinedBlocks,
+            EventKeyType::MemPoolTransactions,
+        ],
+    );
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    let mut long_comment = String::from(";; ");
+    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    let contract = format!(
+        r#"
+        {long_comment}
+        (define-public (test-fn)
+          (ok "Hello, world!")
+        )
+     "#
+    );
+
+    let deploy_fee = 524504;
+
+    test_observer::clear();
+
+    for deploy in 0..num_deploys {
+        info!("Submitting deploy {deploy}");
+        let contract_name = format!("test-{deploy}");
+
+        let contract_tx = make_contract_publish(
+            &senders[deploy].0,
+            0,
+            deploy_fee,
+            naka_conf.burnchain.chain_id,
+            &contract_name,
+            &contract,
+        );
+
+        submit_tx(&http_origin, &contract_tx);
+    }
+
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
+        if !nakamoto_block_events.is_empty() {
+            let nakamoto_block_event = nakamoto_block_events.last().unwrap();
+            let mut skipped_transactions = 0;
+            for tx_event in &nakamoto_block_event.tx_events {
+                match tx_event {
+                    TransactionEvent::Skipped(reason) => {
+                        if reason.error == "Too much data in tenure" {
+                            skipped_transactions += 1;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            // assume 2 blocks, the first one with 3 transactions the second with 2
+            // that means we will have 5 skipped transactions at the end
+            if skipped_transactions == 5 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .unwrap();
+
+    // wait for signers
+    wait_for(30, || Ok(test_observer::get_blocks().len() >= 3))
+        .expect("Timed out waiting for signers");
+
+    // start the second tenure and wait till no more transactions are skipped
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let nakamoto_block_events = test_observer::get_mined_nakamoto_blocks();
+        if !nakamoto_block_events.is_empty() {
+            let nakamoto_block_event = nakamoto_block_events.last().unwrap();
+            let mut skipped_transactions = 0;
+            for tx_event in &nakamoto_block_event.tx_events {
+                match tx_event {
+                    TransactionEvent::Skipped(reason) => {
+                        if reason.error == "Too much data in tenure" {
+                            skipped_transactions += 1;
+                        }
+                    }
+                    _ => (),
+                }
+            }
+            if skipped_transactions == 0 {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .unwrap();
+
+    // wait for signers
+    wait_for(30, || Ok(test_observer::get_blocks().len() >= 6))
+        .expect("Timed out waiting for signers");
+
+    let blocks = test_observer::get_blocks();
+
+    assert_eq!(
+        blocks.len(),
+        6,
+        "Should have successfully mined six blocks, but got {}",
+        blocks.len()
+    );
+
+    let mut deployed_contracts = 0;
+    for deploy in 0..num_deploys {
+        if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+            deployed_contracts += 1;
+        }
+    }
+
+    assert_eq!(
+        deployed_contracts, 10,
+        "Should have successfully deployes 10 contracts, but got {}",
+        deployed_contracts
+    );
+
+    // ensure no tenure extend
+    for block in &blocks {
+        let txs = test_observer::parse_transactions(block);
+        let has_tenure_extend = txs.iter().any(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tenure_change) => tenure_change.cause.is_extended(),
+            _ => false,
+        });
+
+        assert!(!has_tenure_extend, "Unexpected tenure extend transaction");
+    }
+
+    coord_channel
+        .lock()
+        .expect("Mutex poisoned")
+        .stop_chains_coordinator();
+    run_loop_stopper.store(false, Ordering::SeqCst);
+
+    run_loop_thread.join().unwrap();
+}
+
+#[test]
+#[ignore]
+/// Tests that the tenure size limit is correctly reset on tenure extend.
+/// Deploys 10 (big) contracts (each 512K)
+/// The block limit is 2MB, the tenure limit is 3MB
+/// One block will contain 3 of the deployed contracts (the block size will be reached at it)
+/// The following ones will contain the others as tenure extend is constantly triggered
+fn smaller_tenure_size_for_miner_with_tenure_extend() {
+    if env::var("BITCOIND_TEST") != Ok("1".into()) {
+        return;
+    }
+
+    let (mut naka_conf, _miner_account) = naka_neon_integration_conf(None);
+
+    let http_origin = format!("http://{}", &naka_conf.node.rpc_bind);
+
+    let mut senders: Vec<(Secp256k1PrivateKey, StacksAddress)> = vec![];
+
+    // number of deploys to submit in the test
+    let num_deploys = 10;
+
+    for _ in 0..num_deploys {
+        let sender_sk = Secp256k1PrivateKey::random();
+        let sender_addr = tests::to_addr(&sender_sk);
+        naka_conf.add_initial_balance(
+            PrincipalData::from(sender_addr.clone()).to_string(),
+            10000000000000,
+        );
+
+        senders.push((sender_sk, sender_addr));
+    }
+
+    let signer_sk = Secp256k1PrivateKey::random();
+    let signer_addr = tests::to_addr(&signer_sk);
+
+    naka_conf.miner.max_tenure_bytes = 3 * 1024 * 1024; // 3MB
+    naka_conf.miner.log_skipped_transactions = true;
+    // quickly tenure extend
+    naka_conf.miner.tenure_timeout = Duration::from_secs(1);
+    naka_conf.miner.tenure_extend_cost_threshold = 2;
+
+    naka_conf.add_initial_balance(
+        PrincipalData::from(signer_addr.clone()).to_string(),
+        10000000000000,
+    );
+    let mut signers = TestSigners::new(vec![signer_sk.clone()]);
+
+    let stacker_sk = setup_stacker(&mut naka_conf);
+
+    test_observer::spawn();
+    test_observer::register(
+        &mut naka_conf,
+        &[EventKeyType::AnyEvent, EventKeyType::MinedBlocks],
+    );
+
+    let mut btcd_controller = BitcoinCoreController::from_stx_config(&naka_conf);
+    btcd_controller
+        .start_bitcoind()
+        .expect("Failed starting bitcoind");
+    let mut btc_regtest_controller = BitcoinRegtestController::new(naka_conf.clone(), None);
+    btc_regtest_controller.bootstrap_chain(201);
+
+    let mut run_loop = boot_nakamoto::BootRunLoop::new(naka_conf.clone()).unwrap();
+    let run_loop_stopper = run_loop.get_termination_switch();
+    let Counters {
+        blocks_processed, ..
+    } = run_loop.counters();
+    let counters = run_loop.counters();
+
+    let coord_channel = run_loop.coordinator_channels();
+
+    let run_loop_thread = thread::Builder::new()
+        .name("run_loop".into())
+        .spawn(move || run_loop.start(None, 0))
+        .unwrap();
+    wait_for_runloop(&blocks_processed);
+
+    boot_to_epoch_3(
+        &naka_conf,
+        &blocks_processed,
+        &[stacker_sk.clone()],
+        &[signer_sk],
+        &mut Some(&mut signers),
+        &mut btc_regtest_controller,
+    );
+
+    info!("Bootstrapped to Epoch-3.0 boundary, starting nakamoto miner");
+
+    info!("Nakamoto miner started...");
+    blind_signer(&naka_conf, &signers, &counters);
+
+    let mut long_comment = String::from(";; ");
+    long_comment.extend(std::iter::repeat('x').take(524_288 - long_comment.len()));
+    let contract = format!(
+        r#"
+        {long_comment}
+        (define-public (test-fn)
+          (ok "Hello, world!")
+        )
+     "#
+    );
+
+    let deploy_fee = 524504;
+
+    test_observer::clear();
+
+    for deploy in 0..num_deploys {
+        info!("Submitting deploy {deploy}");
+        let contract_name = format!("test-{deploy}");
+
+        let contract_tx = make_contract_publish(
+            &senders[deploy].0,
+            0,
+            deploy_fee,
+            naka_conf.burnchain.chain_id,
+            &contract_name,
+            &contract,
+        );
+
+        submit_tx(&http_origin, &contract_tx);
+    }
+
+    next_block_and(&mut btc_regtest_controller, 60, || {
+        let mut deployed_contracts = 0;
+        for deploy in 0..num_deploys {
+            if get_account(&http_origin, &senders[deploy].1).nonce == 1 {
+                deployed_contracts += 1;
+            }
+        }
+        Ok(deployed_contracts == 10)
+    })
+    .unwrap();
+
+    let blocks = test_observer::get_blocks();
+
+    assert_eq!(
+        blocks.len(),
+        5,
+        "Should have successfully mined five blocks, but got {}",
+        blocks.len()
+    );
+
+    // ensure tenure extend is present in the last 3 blocks
+    for (block_index, block) in blocks.iter().enumerate() {
+        let txs = test_observer::parse_transactions(block);
+        let has_tenure_extend = txs.iter().any(|tx| match &tx.payload {
+            TransactionPayload::TenureChange(tenure_change) => tenure_change.cause.is_extended(),
+            _ => false,
+        });
+
+        if block_index > 1 {
+            assert!(has_tenure_extend, "Expected tenure extend transaction");
+        } else {
+            assert!(!has_tenure_extend, "Unexpected tenure extend transaction");
+        }
+    }
 
     coord_channel
         .lock()

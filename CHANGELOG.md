@@ -5,11 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to the versioning scheme outlined in the [README.md](README.md).
 
-## Unreleased
+## [Unreleased]
+
+### Added
+
+- Fixed an issue where `event.committed` was always equal to `true` in the block replay RPC endpoint
+- Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
+- Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
+
+## [3.3.0.0.1]
+
+- Add indexes to `nakamoto_block_headers` to fix a performance regression. Node may take a few minutes to restart during the upgrade while the new indexes are created.
+
+## [3.3.0.0.0]
+
+### Added
+
+- Added support for new Clarity 4 builtin, `secp256r1-verify?` (not activated until epoch 3.3)
+- New `block_proposal_validation_timeout_secs` configuration option in the connection options section, allowing to set the maximum duration a node will spend validating a proposed block.
+- Activation height selected and set for epoch 3.3 at Bitcoin block 923,222
 
 ### Changed
 
 - Renamed Clarity 4's new `block-time` to `stacks-block-time`
+- Improve cost-tracking for type-checking function arguments in epoch 3.3 (see [#6425](https://github.com/stacks-network/stacks-core/issues/6425))
+- Replaced `libsecp256k1` with `k256` and `p256` from RustCrypto and removed separate Wasm implementations.
+- Added limits in the type-checker for the number of parameters in functions (maximum 256), and the number of methods in traits (maximum 256). These limits are enforced starting in Epoch 3.3.
 
 ## [3.2.0.0.2]
 

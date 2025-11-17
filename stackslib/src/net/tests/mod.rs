@@ -25,7 +25,7 @@ pub mod relay;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use clarity::types::EpochList;
+use clarity::types::{EpochList, StacksEpochId};
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use libstackerdb::StackerDBChunkData;
@@ -74,13 +74,14 @@ use crate::net::{
 use crate::util_lib::boot::boot_code_id;
 
 /// One step of a simulated Nakamoto node's bootup procedure.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum NakamotoBootStep {
     Block(Vec<StacksTransaction>),
     TenureExtend(Vec<StacksTransaction>),
+    TenureCause(Vec<StacksTransaction>, TenureChangeCause),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub enum NakamotoBootTenure {
     Sortition(Vec<NakamotoBootStep>),
     NoSortition(Vec<NakamotoBootStep>),
@@ -102,6 +103,12 @@ pub struct NakamotoBootPlan {
     pub network_id: u32,
     pub txindex: bool,
     pub epochs: Option<EpochList<ExecutionCost>>,
+    /// Additional transactions to include in the tip block
+    pub tip_transactions: Vec<StacksTransaction>,
+    /// Additional tenures to include at the end of the boot plan
+    pub extra_tenures: Vec<NakamotoBootTenure>,
+    /// Do not fail if a transaction returns error (by default the BootPlan will stop on tx failure)
+    pub ignore_transaction_errors: bool,
 }
 
 impl NakamotoBootPlan {
@@ -121,7 +128,10 @@ impl NakamotoBootPlan {
             malleablized_blocks: true,
             network_id: default_config.network_id,
             txindex: false,
+            extra_tenures: vec![],
             epochs: None,
+            tip_transactions: vec![],
+            ignore_transaction_errors: false,
         }
     }
 
@@ -176,6 +186,13 @@ impl NakamotoBootPlan {
         chainstate_config.test_stackers = Some(self.test_stackers.clone());
         chainstate_config.burnchain.pox_constants = self.pox_constants.clone();
 
+        if let Some(epochs) = chainstate_config.epochs.as_ref() {
+            StacksEpoch::validate_nakamoto_transition_schedule(
+                epochs,
+                &chainstate_config.burnchain,
+            );
+        }
+
         chainstate_config
     }
 
@@ -221,6 +238,16 @@ impl NakamotoBootPlan {
         self
     }
 
+    pub fn with_tip_transactions(mut self, tip_transactions: Vec<StacksTransaction>) -> Self {
+        self.tip_transactions = tip_transactions;
+        self
+    }
+
+    pub fn with_ignore_transaction_errors(mut self, ignore_transaction_errors: bool) -> Self {
+        self.ignore_transaction_errors = ignore_transaction_errors;
+        self
+    }
+
     pub fn with_test_stackers(mut self, test_stackers: Vec<TestStacker>) -> Self {
         self.test_stackers = test_stackers;
         self
@@ -243,6 +270,11 @@ impl NakamotoBootPlan {
 
     pub fn with_txindex(mut self, txindex: bool) -> Self {
         self.txindex = txindex;
+        self
+    }
+
+    pub fn with_boot_tenures(mut self, boot_tenures: Vec<NakamotoBootTenure>) -> Self {
+        self.extra_tenures = boot_tenures;
         self
     }
 
@@ -270,6 +302,7 @@ impl NakamotoBootPlan {
             let boot_step_txs = match boot_step {
                 NakamotoBootStep::TenureExtend(txs) => txs.clone(),
                 NakamotoBootStep::Block(txs) => txs.clone(),
+                NakamotoBootStep::TenureCause(txs, ..) => txs.clone(),
             };
             let planned_txs: Vec<_> = block
                 .txs
@@ -400,17 +433,19 @@ impl NakamotoBootPlan {
         }
     }
 
-    /// Make a chainstate and transition it into the Nakamoto epoch.
+    /// Make a chainstate capable of transitioning into the Nakamoto epoch.
     /// The node needs to be stacking; otherwise, Nakamoto won't activate.
-    pub fn boot_nakamoto_chainstate(
+    pub fn to_chainstate(
         self,
         observer: Option<&TestEventObserver>,
+        current_block: Option<u64>,
     ) -> TestChainstate<'_> {
-        let chainstate_config = self.build_nakamoto_chainstate_config();
+        let mut chainstate_config = self.build_nakamoto_chainstate_config();
+        if let Some(current_block) = current_block {
+            chainstate_config.current_block = current_block;
+        }
         let mut chain = TestChainstate::new_with_observer(chainstate_config, observer);
         chain.mine_malleablized_blocks = self.malleablized_blocks;
-        let mut chain_nonce = 0;
-        chain.advance_to_nakamoto_epoch(&self.private_key, &mut chain_nonce);
         chain
     }
 
@@ -449,18 +484,13 @@ impl NakamotoBootPlan {
             other_peers.push(other_peer);
         }
 
-        let mut peer_nonce = 0;
-        let mut other_peer_nonces = vec![0; other_peers.len()];
-
         // Advance primary peer and other peers to Nakamoto epoch
         peer.chain
-            .advance_to_nakamoto_epoch(&self.private_key, &mut peer_nonce);
-        for (other_peer, other_peer_nonce) in
-            other_peers.iter_mut().zip(other_peer_nonces.iter_mut())
-        {
+            .advance_to_epoch_boundary(&self.private_key, StacksEpochId::Epoch30);
+        for other_peer in &mut other_peers {
             other_peer
                 .chain
-                .advance_to_nakamoto_epoch(&self.private_key, other_peer_nonce);
+                .advance_to_epoch_boundary(&self.private_key, StacksEpochId::Epoch30);
         }
 
         (peer, other_peers)
@@ -468,12 +498,15 @@ impl NakamotoBootPlan {
 
     pub fn boot_into_nakamoto_peers(
         self,
-        boot_plan: Vec<NakamotoBootTenure>,
+        mut boot_plan: Vec<NakamotoBootTenure>,
         observer: Option<&TestEventObserver>,
     ) -> (TestPeer<'_>, Vec<TestPeer<'_>>) {
         let test_signers = self.test_signers.clone();
         let pox_constants = self.pox_constants.clone();
         let test_stackers = self.test_stackers.clone();
+        let ignore_transaction_errors = self.ignore_transaction_errors;
+
+        boot_plan.extend(self.extra_tenures.clone());
 
         let (mut peer, mut other_peers) = self.boot_nakamoto_peers(observer);
         if boot_plan.is_empty() {
@@ -551,6 +584,24 @@ impl NakamotoBootPlan {
                                         num_expected_transactions += 1 + transactions.len();
                                     }
                                     debug!("\n\nExtend current tenure in empty tenure {} (blocks so far: {}, blocks_since_last_tenure = {}, steps so far: {})\n\n", &next_consensus_hash, blocks_so_far.len(), blocks_since_last_tenure, i);
+                                }
+                                NakamotoBootStep::TenureCause(transactions, tenure_cause) => {
+                                    assert!(!transactions.is_empty());
+                                    if let Some(last_block) = last_block_opt {
+                                        let tenure_extension = tenure_change.extend_with_cause(
+                                            next_consensus_hash.clone(),
+                                            last_block.clone(),
+                                            blocks_since_last_tenure,
+                                            *tenure_cause,
+                                        );
+                                        let tenure_extension_tx =
+                                            miner.make_nakamoto_tenure_change(tenure_extension);
+
+                                        txs.push(tenure_extension_tx);
+                                        txs.extend_from_slice(&transactions[..]);
+                                        num_expected_transactions += 1 + transactions.len();
+                                    }
+                                    debug!("\n\nExtend-with-cause {:?} current tenure in empty tenure {} (blocks so far: {}, blocks_since_last_tenure = {}, steps so far: {})\n\n", tenure_cause, &next_consensus_hash, blocks_so_far.len(), blocks_since_last_tenure, i);
                                 }
                                 NakamotoBootStep::Block(transactions) => {
                                     assert!(!transactions.is_empty());
@@ -652,6 +703,24 @@ impl NakamotoBootPlan {
                                         num_expected_transactions += 1 + transactions.len();
                                     }
                                     debug!("\n\nExtend current tenure {} (blocks so far: {}, steps so far: {})\n\n", &consensus_hash, blocks_so_far.len(), i);
+                                }
+                                NakamotoBootStep::TenureCause(transactions, tenure_cause) => {
+                                    assert!(!transactions.is_empty());
+                                    if let Some(last_block) = last_block_opt {
+                                        let tenure_extension = tenure_change.extend_with_cause(
+                                            consensus_hash.clone(),
+                                            last_block.clone(),
+                                            blocks_since_last_tenure,
+                                            *tenure_cause,
+                                        );
+                                        let tenure_extension_tx =
+                                            miner.make_nakamoto_tenure_change(tenure_extension);
+
+                                        txs.push(tenure_extension_tx);
+                                        txs.extend_from_slice(&transactions[..]);
+                                        num_expected_transactions += 1 + transactions.len();
+                                    }
+                                    debug!("\n\nExtend-with-cause {:?} current tenure {} (blocks so far: {}, steps so far: {})\n\n", tenure_cause, &consensus_hash, blocks_so_far.len(), i);
                                 }
                                 NakamotoBootStep::Block(transactions) => {
                                     assert!(!transactions.is_empty());
@@ -785,14 +854,15 @@ impl NakamotoBootPlan {
                     for (receipt, tx) in stacks_receipts.iter().zip(block.txs.iter()) {
                         // transactions processed in the same order
                         assert_eq!(receipt.transaction.txid(), tx.txid());
-                        // no CheckErrors
-                        assert!(
-                            receipt.vm_error.is_none(),
-                            "Receipt had a CheckErrors: {:?}",
-                            &receipt
-                        );
-                        // transaction was not aborted post-hoc
-                        assert!(!receipt.post_condition_aborted);
+                        // no CheckErrorKind
+                        if !ignore_transaction_errors {
+                            assert!(
+                                receipt.vm_error.is_none(),
+                                "Receipt had a CheckErrorKind: {receipt:?}"
+                            );
+                            // transaction was not aborted post-hoc
+                            assert!(!receipt.post_condition_aborted);
+                        }
                     }
                 }
             }

@@ -20,11 +20,12 @@ use stacks_common::address::{
 use stacks_common::types::chainstate::StacksAddress;
 use stacks_common::util::hash;
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
+use stacks_common::util::secp256r1::secp256r1_verify;
 
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
-    check_argument_count, CheckErrors, InterpreterError, InterpreterResult as Result,
+    check_argument_count, CheckErrorKind, InterpreterResult as Result, VmInternalError,
 };
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{BuffData, SequenceData, TypeSignature, Value};
@@ -37,7 +38,7 @@ macro_rules! native_hash_func {
                 Value::Int(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::UInt(value) => Ok(value.to_le_bytes().to_vec()),
                 Value::Sequence(SequenceData::Buffer(value)) => Ok(value.data),
-                _ => Err(CheckErrors::UnionTypeValueError(
+                _ => Err(CheckErrorKind::UnionTypeValueError(
                     vec![
                         TypeSignature::IntType,
                         TypeSignature::UIntType,
@@ -67,7 +68,7 @@ fn pubkey_to_address_v1(pub_key: Secp256k1PublicKey) -> Result<StacksAddress> {
         1,
         &vec![pub_key],
     )
-    .ok_or_else(|| InterpreterError::Expect("Failed to create address from pubkey".into()).into())
+    .ok_or_else(|| VmInternalError::Expect("Failed to create address from pubkey".into()).into())
 }
 
 // Note: Clarity1 had a bug in how the address is computed (issues/2619).
@@ -84,7 +85,7 @@ fn pubkey_to_address_v2(pub_key: Secp256k1PublicKey, is_mainnet: bool) -> Result
         1,
         &vec![pub_key],
     )
-    .ok_or_else(|| InterpreterError::Expect("Failed to create address from pubkey".into()).into())
+    .ok_or_else(|| VmInternalError::Expect("Failed to create address from pubkey".into()).into())
 }
 
 pub fn special_principal_of(
@@ -102,7 +103,7 @@ pub fn special_principal_of(
     let pub_key = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_33),
                     Box::new(param0),
                 )
@@ -111,7 +112,7 @@ pub fn special_principal_of(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(param0),
             )
@@ -129,7 +130,7 @@ pub fn special_principal_of(
         };
         let principal = addr.into();
         Ok(Value::okay(Value::Principal(principal))
-            .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?)
+            .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?)
     } else {
         Ok(Value::err_uint(1))
     }
@@ -150,7 +151,7 @@ pub fn special_secp256k1_recover(
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_32),
                     Box::new(param0),
                 )
@@ -159,7 +160,7 @@ pub fn special_secp256k1_recover(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(param0),
             )
@@ -171,7 +172,7 @@ pub fn special_secp256k1_recover(
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
                     Box::new(param1),
                 )
@@ -183,7 +184,7 @@ pub fn special_secp256k1_recover(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
                 Box::new(param1),
             )
@@ -191,12 +192,14 @@ pub fn special_secp256k1_recover(
         }
     };
 
-    match secp256k1_recover(message, signature).map_err(|_| CheckErrors::InvalidSecp65k1Signature) {
+    match secp256k1_recover(message, signature)
+        .map_err(|_| CheckErrorKind::InvalidSecp65k1Signature)
+    {
         Ok(pubkey) => Ok(Value::okay(
             Value::buff_from(pubkey.to_vec())
-                .map_err(|_| InterpreterError::Expect("Failed to construct buff".into()))?,
+                .map_err(|_| VmInternalError::Expect("Failed to construct buff".into()))?,
         )
-        .map_err(|_| InterpreterError::Expect("Failed to construct ok".into()))?),
+        .map_err(|_| VmInternalError::Expect("Failed to construct ok".into()))?),
         _ => Ok(Value::err_uint(1)),
     }
 }
@@ -216,7 +219,7 @@ pub fn special_secp256k1_verify(
     let message = match param0 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 32 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_32),
                     Box::new(param0),
                 )
@@ -225,7 +228,7 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_32),
                 Box::new(param0),
             )
@@ -237,7 +240,7 @@ pub fn special_secp256k1_verify(
     let signature = match param1 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() > 65 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_65),
                     Box::new(param1),
                 )
@@ -252,7 +255,7 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_65),
                 Box::new(param1),
             )
@@ -264,7 +267,7 @@ pub fn special_secp256k1_verify(
     let pubkey = match param2 {
         Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
             if data.len() != 33 {
-                return Err(CheckErrors::TypeValueError(
+                return Err(CheckErrorKind::TypeValueError(
                     Box::new(TypeSignature::BUFFER_33),
                     Box::new(param2),
                 )
@@ -273,7 +276,7 @@ pub fn special_secp256k1_verify(
             data
         }
         _ => {
-            return Err(CheckErrors::TypeValueError(
+            return Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::BUFFER_33),
                 Box::new(param2),
             )
@@ -283,5 +286,96 @@ pub fn special_secp256k1_verify(
 
     Ok(Value::Bool(
         secp256k1_verify(message, signature, pubkey).is_ok(),
+    ))
+}
+
+pub fn special_secp256r1_verify(
+    args: &[SymbolicExpression],
+    env: &mut Environment,
+    context: &LocalContext,
+) -> Result<Value> {
+    // (secp256r1-verify message-hash signature public-key)
+    // message-hash: (buff 32), signature: (buff 64), public-key: (buff 33)
+    check_argument_count(3, args)?;
+
+    runtime_cost(ClarityCostFunction::Secp256r1verify, env, 0)?;
+
+    let arg0 = args
+        .first()
+        .ok_or(CheckErrorKind::IncorrectArgumentCount(0, 3))?;
+    let message_value = eval(arg0, env, context)?;
+    let message = match message_value {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 32 {
+                return Err(CheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_32),
+                    Box::new(message_value),
+                )
+                .into());
+            }
+            data
+        }
+        _ => {
+            return Err(CheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_32),
+                Box::new(message_value),
+            )
+            .into())
+        }
+    };
+
+    let arg1 = args
+        .get(1)
+        .ok_or(CheckErrorKind::IncorrectArgumentCount(1, 3))?;
+    let signature_value = eval(arg1, env, context)?;
+    let signature = match signature_value {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() > 64 {
+                return Err(CheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_64),
+                    Box::new(signature_value),
+                )
+                .into());
+            }
+            if data.len() != 64 {
+                return Ok(Value::Bool(false));
+            }
+            data
+        }
+        _ => {
+            return Err(CheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_64),
+                Box::new(signature_value),
+            )
+            .into())
+        }
+    };
+
+    let arg2 = args
+        .get(2)
+        .ok_or(CheckErrorKind::IncorrectArgumentCount(2, 3))?;
+    let pubkey_value = eval(arg2, env, context)?;
+    let pubkey = match pubkey_value {
+        Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
+            if data.len() != 33 {
+                return Err(CheckErrorKind::TypeValueError(
+                    Box::new(TypeSignature::BUFFER_33),
+                    Box::new(pubkey_value),
+                )
+                .into());
+            }
+            data
+        }
+        _ => {
+            return Err(CheckErrorKind::TypeValueError(
+                Box::new(TypeSignature::BUFFER_33),
+                Box::new(pubkey_value),
+            )
+            .into())
+        }
+    };
+
+    Ok(Value::Bool(
+        secp256r1_verify(message, signature, pubkey).is_ok(),
     ))
 }

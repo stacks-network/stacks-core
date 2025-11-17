@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::mem;
 
 use clarity::vm::ast::ast_check_size;
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::types::{QualifiedContractIdentifier, StacksAddressExtensions};
 use clarity::vm::ClarityVersion;
 use rand::prelude::*;
@@ -997,7 +997,6 @@ impl Relayer {
             &block.header.block_hash()
         );
 
-        let config = chainstate.config();
         let tip = block_sn.sortition_id;
 
         let reward_info = match load_nakamoto_reward_set(
@@ -1039,17 +1038,13 @@ impl Relayer {
             return Err(chainstate_error::NoRegisteredSigners(reward_cycle));
         };
 
-        let (headers_conn, staging_db_tx) = chainstate.headers_conn_and_staging_tx_begin()?;
         let accepted = NakamotoChainState::accept_block(
-            &config,
+            chainstate,
             block,
             sort_handle,
-            &staging_db_tx,
-            headers_conn,
             &reward_set,
             obtained_method,
         )?;
-        staging_db_tx.commit()?;
 
         if accepted {
             info!("{}", &accept_msg);
@@ -1058,10 +1053,10 @@ impl Relayer {
                     return Err(chainstate_error::NetError(net_error::CoordinatorClosed));
                 }
             }
-            return Ok(BlockAcceptResponse::Accepted);
+            Ok(BlockAcceptResponse::Accepted)
         } else {
-            info!("{}", &reject_msg);
-            return Ok(BlockAcceptResponse::AlreadyStored);
+            info!("{reject_msg}");
+            Ok(BlockAcceptResponse::AlreadyStored)
         }
     }
 
@@ -1806,8 +1801,8 @@ impl Relayer {
             match ast_res {
                 Ok(_) => {}
                 Err(parse_error) => match *parse_error.err {
-                    ParseErrors::ExpressionStackDepthTooDeep
-                    | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                    ParseErrorKind::ExpressionStackDepthTooDeep
+                    | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
                         // don't include this block
                         info!("Transaction {} is problematic and will not be included, relayed, or built upon", &tx.txid());
                         return Err(Error::ClarityError(parse_error.into()));

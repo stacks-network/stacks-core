@@ -569,6 +569,8 @@ pub struct MemPoolWalkSettings {
     /// further non-boot contract calls and instead consider only boot contract calls
     /// and STX transfers.
     pub contract_cost_limit_percentage: Option<u8>,
+    /// Enable logging of skipped transactions (disabled by default, generally used for tests)
+    pub log_skipped_transactions: bool,
 }
 
 impl Default for MemPoolWalkSettings {
@@ -583,6 +585,7 @@ impl Default for MemPoolWalkSettings {
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
             contract_cost_limit_percentage: None,
+            log_skipped_transactions: false,
         }
     }
 }
@@ -598,6 +601,7 @@ impl MemPoolWalkSettings {
             filter_origins: HashSet::new(),
             tenure_cost_limit_per_block_percentage: None,
             contract_cost_limit_percentage: None,
+            log_skipped_transactions: false,
         }
     }
 }
@@ -1905,7 +1909,10 @@ impl MemPoolDB {
                                 output_events.push(tx_event);
                             }
                             TransactionEvent::Skipped(_) => {
-                                // don't push `Skipped` events to the observer
+                                // don't push `Skipped` events to the observer by default
+                                if settings.log_skipped_transactions {
+                                    output_events.push(tx_event);
+                                }
                             }
                             _ => {
                                 output_events.push(tx_event);

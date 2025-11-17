@@ -315,7 +315,7 @@ mod test {
 
     #[test]
     fn test_connection_pipe_oneshot() {
-        let tests = vec![
+        let tests = [
             // .0: the list of vecs to send to the writer
             // .1: the number of bytes to read each time
             // .2: the expected Result<num-bytes-total, error-encountered>

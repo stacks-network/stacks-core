@@ -1107,12 +1107,7 @@ fn replay_block_nakamoto(
     };
 
     // find commit and sortition burns if this is a tenure-start block
-    let Ok(new_tenure) = block.is_wellformed_tenure_start_block() else {
-        return Err(ChainstateError::InvalidStacksBlock(
-            "Invalid Nakamoto block: invalid tenure change tx(s)".into(),
-        ));
-    };
-
+    let new_tenure = block.is_wellformed_tenure_start_block()?;
     let (commit_burn, sortition_burn) = if new_tenure {
         // find block-commit to get commit-burn
         let block_commit = SortitionDB::get_block_commit(

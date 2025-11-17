@@ -21,15 +21,17 @@ use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlo
 use stacks_common::types::net::PeerHost;
 use stacks_common::util::hash::Sha512Trunc256Sum;
 use stacks_common::util::secp256k1::MessageSignature;
+use stacks_common::util::serde_serializers::prefix_hex_codec;
 
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoChainState};
 use crate::chainstate::stacks::db::StacksChainState;
 use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOrigin};
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::net::http::{
     parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
     HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
@@ -105,10 +107,12 @@ impl RPCNakamotoBlockReplayRequestHandler {
             .txs
             .iter()
             .find(|tx| matches!(tx.payload, TransactionPayload::Coinbase(..)));
-        let tenure_cause = tenure_change.and_then(|tx| match &tx.payload {
-            TransactionPayload::TenureChange(tc) => Some(tc.cause),
-            _ => None,
-        });
+        let tenure_cause = tenure_change
+            .and_then(|tx| match &tx.payload {
+                TransactionPayload::TenureChange(tc) => Some(tc.into()),
+                _ => None,
+            })
+            .unwrap_or(MinerTenureInfoCause::NoTenureChange);
 
         let parent_stacks_header_opt =
             match NakamotoChainState::get_block_header(chainstate.db(), &parent_block_id) {
@@ -131,6 +135,8 @@ impl RPCNakamotoBlockReplayRequestHandler {
             block.header.pox_treatment.len(),
             None,
             None,
+            Some(block.header.timestamp),
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         ) {
             Ok(builder) => builder,
             Err(e) => return Err(e),
@@ -212,12 +218,19 @@ pub struct RPCReplayedBlockTransaction {
     pub hex: String,
     /// result of transaction execution (clarity value)
     pub result: Value,
+    /// result of the transaction execution (hex string)
+    #[serde(with = "prefix_hex_codec")]
+    pub result_hex: Value,
     /// amount of burned stx
     pub stx_burned: u128,
     /// execution cost infos
     pub execution_cost: ExecutionCost,
     /// generated events
     pub events: Vec<serde_json::Value>,
+    /// Whether the tx was aborted by a post-condition
+    pub post_condition_aborted: bool,
+    /// optional vm error
+    pub vm_error: Option<String>,
 }
 
 impl RPCReplayedBlockTransaction {
@@ -228,7 +241,11 @@ impl RPCReplayedBlockTransaction {
             .enumerate()
             .map(|(event_index, event)| {
                 event
-                    .json_serialize(event_index, &receipt.transaction.txid(), true)
+                    .json_serialize(
+                        event_index,
+                        &receipt.transaction.txid(),
+                        !receipt.post_condition_aborted,
+                    )
                     .unwrap()
             })
             .collect();
@@ -246,9 +263,12 @@ impl RPCReplayedBlockTransaction {
             data: transaction_data,
             hex: receipt.transaction.serialize_to_dbstring(),
             result: receipt.result.clone(),
+            result_hex: receipt.result.clone(),
             stx_burned: receipt.stx_burned,
             execution_cost: receipt.execution_cost.clone(),
             events,
+            post_condition_aborted: receipt.post_condition_aborted,
+            vm_error: receipt.vm_error.clone(),
         }
     }
 }

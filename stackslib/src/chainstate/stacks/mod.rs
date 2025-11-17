@@ -19,7 +19,7 @@ use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
-use clarity::vm::errors::Error as clarity_interpreter_error;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
@@ -43,7 +43,7 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use crate::chainstate::stacks::index::Error as marf_error;
-use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::clarity_vm::clarity::ClarityError;
 use crate::net::Error as net_error;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
@@ -99,7 +99,7 @@ pub enum Error {
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
     CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
-    ClarityError(clarity_error),
+    ClarityError(ClarityError),
     DBError(db_error),
     NetError(net_error),
     CodecError(codec_error),
@@ -120,6 +120,7 @@ pub enum Error {
     /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
     InvalidChildOfNakomotoBlock,
     NoRegisteredSigners(u64),
+    TenureTooBigError,
 }
 
 impl From<marf_error> for Error {
@@ -128,8 +129,8 @@ impl From<marf_error> for Error {
     }
 }
 
-impl From<clarity_error> for Error {
-    fn from(e: clarity_error) -> Error {
+impl From<ClarityError> for Error {
+    fn from(e: ClarityError) -> Error {
         Error::ClarityError(e)
     }
 }
@@ -222,6 +223,7 @@ impl fmt::Display for Error {
             Error::NotInSameFork => {
                 write!(f, "The supplied block identifiers are not in the same fork")
             }
+            Error::TenureTooBigError => write!(f, "Too much data in tenure"),
         }
     }
 }
@@ -268,6 +270,7 @@ impl error::Error for Error {
             Error::ExpectedTenureChange => None,
             Error::NoRegisteredSigners(_) => None,
             Error::NotInSameFork => None,
+            Error::TenureTooBigError => None,
         }
     }
 }
@@ -314,6 +317,7 @@ impl Error {
             Error::ExpectedTenureChange => "ExpectedTenureChange",
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
             Error::NotInSameFork => "NotInSameFork",
+            Error::TenureTooBigError => "TenureTooBigError",
         }
     }
 
@@ -342,9 +346,9 @@ impl From<db_error> for Error {
     }
 }
 
-impl From<clarity_interpreter_error> for Error {
-    fn from(e: clarity_interpreter_error) -> Error {
-        Error::ClarityError(clarity_error::Interpreter(e))
+impl From<VmExecutionError> for Error {
+    fn from(e: VmExecutionError) -> Error {
+        Error::ClarityError(ClarityError::Interpreter(e))
     }
 }
 
@@ -687,13 +691,22 @@ impl_byte_array_serde!(TokenTransferMemo);
 
 /// Cause of change in mining tenure
 /// Depending on cause, tenure can be ended or extended
+/// NB: `PartialEq` is _not_ implemented for this enum in order to ensure that callers use the
+/// instance methods to ascertain what kind of tenure change this is.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum TenureChangeCause {
     /// A valid winning block-commit
     BlockFound = 0,
-    /// The next burnchain block is taking too long, so extend the runtime budget
+    /// The next burnchain block is taking too long, so extend the runtime budget.
+    /// This extends all dimensions
     Extended = 1,
+    /// NEW in SIP-034: extend specific dimensions
+    ExtendedRuntime = 2,
+    ExtendedReadCount = 3,
+    ExtendedReadLength = 4,
+    ExtendedWriteCount = 5,
+    ExtendedWriteLength = 6,
 }
 
 impl TryFrom<u8> for TenureChangeCause {
@@ -703,6 +716,11 @@ impl TryFrom<u8> for TenureChangeCause {
         match num {
             0 => Ok(Self::BlockFound),
             1 => Ok(Self::Extended),
+            2 => Ok(Self::ExtendedRuntime),
+            3 => Ok(Self::ExtendedReadCount),
+            4 => Ok(Self::ExtendedReadLength),
+            5 => Ok(Self::ExtendedWriteCount),
+            6 => Ok(Self::ExtendedWriteLength),
             _ => Err(()),
         }
     }
@@ -714,12 +732,59 @@ impl TenureChangeCause {
         match self {
             Self::BlockFound => true,
             Self::Extended => false,
+            Self::ExtendedRuntime => false,
+            Self::ExtendedReadCount => false,
+            Self::ExtendedReadLength => false,
+            Self::ExtendedWriteCount => false,
+            Self::ExtendedWriteLength => false,
         }
     }
 
     /// Convert to u8 representation
     pub fn as_u8(&self) -> u8 {
         *self as u8
+    }
+
+    /// Does this tenure change cause represent the start of a new tenure?
+    pub fn is_new_tenure(&self) -> bool {
+        match self {
+            Self::BlockFound => true,
+            Self::Extended => false,
+            Self::ExtendedRuntime => false,
+            Self::ExtendedReadCount => false,
+            Self::ExtendedReadLength => false,
+            Self::ExtendedWriteCount => false,
+            Self::ExtendedWriteLength => false,
+        }
+    }
+
+    /// Explicit equality check, so as to avoid any accidental incomplete equality checks with the
+    /// new SIP-034 tenure change cause variants
+    pub fn is_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (TenureChangeCause::BlockFound, TenureChangeCause::BlockFound) => true,
+            (TenureChangeCause::Extended, TenureChangeCause::Extended) => true,
+            (TenureChangeCause::ExtendedRuntime, TenureChangeCause::ExtendedRuntime) => true,
+            (TenureChangeCause::ExtendedReadCount, TenureChangeCause::ExtendedReadCount) => true,
+            (TenureChangeCause::ExtendedReadLength, TenureChangeCause::ExtendedReadLength) => true,
+            (TenureChangeCause::ExtendedWriteCount, TenureChangeCause::ExtendedWriteCount) => true,
+            (TenureChangeCause::ExtendedWriteLength, TenureChangeCause::ExtendedWriteLength) => {
+                true
+            }
+            (_, _) => false,
+        }
+    }
+
+    pub fn is_extended(&self) -> bool {
+        match self {
+            TenureChangeCause::BlockFound => false,
+            TenureChangeCause::Extended => true,
+            TenureChangeCause::ExtendedRuntime => true,
+            TenureChangeCause::ExtendedReadCount => true,
+            TenureChangeCause::ExtendedReadLength => true,
+            TenureChangeCause::ExtendedWriteCount => true,
+            TenureChangeCause::ExtendedWriteLength => true,
+        }
     }
 }
 
@@ -734,7 +799,7 @@ pub enum TenureChangeError {
 }
 
 /// A transaction from Stackers to signal new mining tenure
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TenureChangePayload {
     /// Consensus hash of this tenure.  Corresponds to the sortition in which the miner of this
     /// block was chosen.  It may be the case that this miner's tenure gets _extended_ across
@@ -776,6 +841,20 @@ impl TenureChangePayload {
     }
 }
 
+/// NB This explicit implementation is needed because PartialEq is deliberately _not_ implemented
+/// for TenureChangeCause
+impl PartialEq for TenureChangePayload {
+    fn eq(&self, other: &Self) -> bool {
+        self.tenure_consensus_hash == other.tenure_consensus_hash
+            && self.prev_tenure_consensus_hash == other.prev_tenure_consensus_hash
+            && self.burn_view_consensus_hash == other.burn_view_consensus_hash
+            && self.previous_tenure_end == other.previous_tenure_end
+            && self.previous_tenure_blocks == other.previous_tenure_blocks
+            && self.cause.is_eq(&other.cause)
+            && self.pubkey_hash == other.pubkey_hash
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TransactionPayload {
     TokenTransfer(PrincipalData, u64, TokenTransferMemo),
@@ -809,7 +888,12 @@ impl TransactionPayload {
             }
             TransactionPayload::TenureChange(payload) => match payload.cause {
                 TenureChangeCause::BlockFound => "TenureChange(BlockFound)",
-                TenureChangeCause::Extended => "TenureChange(Extension)",
+                TenureChangeCause::Extended => "TenureChange(ExtendAll)",
+                TenureChangeCause::ExtendedRuntime => "TenureChange(ExtendRuntime)",
+                TenureChangeCause::ExtendedReadCount => "TenureChange(ExtendReadCount)",
+                TenureChangeCause::ExtendedReadLength => "TenureChange(ExtendReadLength)",
+                TenureChangeCause::ExtendedWriteCount => "TenureChange(ExtendWriteCount)",
+                TenureChangeCause::ExtendedWriteLength => "TenureChange(ExtendWriteLength)",
             },
         }
     }

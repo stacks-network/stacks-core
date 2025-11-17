@@ -18,6 +18,7 @@ use std::collections::VecDeque;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Instant;
 
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::CHAIN_ID_TESTNET;
@@ -27,16 +28,18 @@ use clarity::vm::types::StandardPrincipalData;
 use postblock_proposal::{NakamotoBlockProposal, ValidateRejectCode};
 use stacks_common::types::chainstate::ConsensusHash;
 use stacks_common::types::StacksEpochId;
+use stacks_common::util::sleep_ms;
 
 use super::TestRPC;
 use crate::burnchains::Txid;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::NakamotoChainState;
 use crate::chainstate::stacks::db::StacksChainState;
-use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction};
+use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::test::make_codec_test_nakamoto_block;
 use crate::chainstate::stacks::{StacksMicroblock, StacksTransaction};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::mempool::{MemPoolDropReason, MemPoolEventDispatcher, ProposalCallbackReceiver};
 use crate::core::test_util::{
     make_big_read_count_contract, make_contract_call, make_contract_publish,
@@ -272,6 +275,8 @@ fn test_try_make_response() {
             8,
             None,
             None,
+            None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )
         .unwrap();
 
@@ -284,7 +289,11 @@ fn test_try_make_response() {
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
-                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
@@ -318,6 +327,10 @@ fn test_try_make_response() {
         chain_id: 0x80000000,
         replay_txs: None,
     };
+
+    // deliberately delay by more than 1 second so that the timestamp of the endpoint differs from
+    // the timestamp of the block
+    sleep_ms(2000);
 
     let mut request = StacksHttpRequest::new_for_peer(
         rpc_test.peer_1.to_peer_host(),
@@ -500,6 +513,186 @@ fn test_try_make_response() {
     }
 }
 
+#[test]
+#[ignore]
+fn test_block_proposal_validation_timeout() {
+    let test_observer = TestEventObserver::new();
+    let mut rpc_test = TestRPC::setup_nakamoto(function_name!(), &test_observer);
+
+    rpc_test
+        .peer_1
+        .network
+        .connection_opts
+        .block_proposal_validation_timeout_secs = 0;
+    rpc_test
+        .peer_2
+        .network
+        .connection_opts
+        .block_proposal_validation_timeout_secs = 0;
+
+    let (stacks_tip_ch, stacks_tip_bhh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
+        rpc_test.peer_1.chain.sortdb.as_ref().unwrap().conn(),
+    )
+    .unwrap();
+    let stacks_tip = StacksBlockId::new(&stacks_tip_ch, &stacks_tip_bhh);
+
+    let miner_privk = &rpc_test.peer_1.chain.miner.nakamoto_miner_key();
+    let contract_code = "(define-public (ping) (ok u0))";
+
+    let deploy_tx_bytes = make_contract_publish(
+        miner_privk,
+        36,
+        1000,
+        CHAIN_ID_TESTNET,
+        "timeout-contract",
+        contract_code,
+    );
+    let deploy_tx =
+        StacksTransaction::consensus_deserialize(&mut deploy_tx_bytes.as_slice()).unwrap();
+
+    let call_tx_bytes = make_contract_call(
+        miner_privk,
+        37,
+        1000,
+        CHAIN_ID_TESTNET,
+        &to_addr(miner_privk),
+        "timeout-contract",
+        "ping",
+        &[],
+    );
+    let call_tx = StacksTransaction::consensus_deserialize(&mut call_tx_bytes.as_slice()).unwrap();
+
+    let mut slow_block = {
+        let chainstate = rpc_test.peer_1.chainstate();
+        let parent_stacks_header =
+            NakamotoChainState::get_block_header(chainstate.db(), &stacks_tip)
+                .unwrap()
+                .unwrap();
+
+        let mut builder = NakamotoBlockBuilder::new(
+            &parent_stacks_header,
+            &parent_stacks_header.consensus_hash,
+            26000,
+            None,
+            None,
+            8,
+            None,
+            None,
+            None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
+        )
+        .unwrap();
+
+        rpc_test
+            .peer_1
+            .with_db_state(
+                |sort_db: &mut SortitionDB,
+                 chainstate: &mut StacksChainState,
+                 _: &mut Relayer,
+                 _: &mut MemPoolDB| {
+                    let burn_dbconn = sort_db.index_handle_at_tip();
+                    let mut miner_tenure_info = builder
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
+                        .unwrap();
+                    let burn_chain_height = miner_tenure_info.burn_tip_height;
+                    let mut tenure_tx = builder
+                        .tenure_begin(&burn_dbconn, &mut miner_tenure_info)
+                        .unwrap();
+                    let tx_result = builder.try_mine_tx_with_len(
+                        &mut tenure_tx,
+                        &deploy_tx,
+                        deploy_tx.tx_len(),
+                        &BlockLimitFunction::NO_LIMIT_HIT,
+                        None,
+                    );
+                    assert!(matches!(tx_result, TransactionResult::Success(_)));
+                    let tx_result = builder.try_mine_tx_with_len(
+                        &mut tenure_tx,
+                        &call_tx,
+                        call_tx.tx_len(),
+                        &BlockLimitFunction::NO_LIMIT_HIT,
+                        None,
+                    );
+                    assert!(matches!(tx_result, TransactionResult::Success(_)));
+                    let block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
+                    Ok(block)
+                },
+            )
+            .unwrap()
+    };
+
+    slow_block.header.timestamp += 1;
+    rpc_test
+        .peer_1
+        .chain
+        .miner
+        .sign_nakamoto_block(&mut slow_block);
+
+    let proposal = NakamotoBlockProposal {
+        block: slow_block,
+        chain_id: CHAIN_ID_TESTNET,
+        replay_txs: None,
+    };
+
+    let mut request = StacksHttpRequest::new_for_peer(
+        rpc_test.peer_1.to_peer_host(),
+        "POST".into(),
+        "/v3/block_proposal".into(),
+        HttpRequestContents::new().payload_json(serde_json::to_value(proposal).unwrap()),
+    )
+    .expect("failed to construct request");
+    request.add_header("authorization".into(), "password".into());
+
+    let observer = ProposalTestObserver::new();
+    let proposal_observer = Arc::clone(&observer.proposal_observer);
+
+    let wait_for = |peer_1: &mut TestPeer, peer_2: &mut TestPeer| {
+        !peer_1.network.is_proposal_thread_running() && !peer_2.network.is_proposal_thread_running()
+    };
+
+    let responses = rpc_test.run_with_observer(vec![request], Some(&observer), wait_for);
+
+    assert_eq!(responses.len(), 1);
+    assert_eq!(responses[0].preamble().status_code, 202);
+
+    let start = Instant::now();
+    loop {
+        {
+            let observer_guard = proposal_observer.lock().unwrap();
+            if observer_guard.results.lock().unwrap().len() >= 1 {
+                break;
+            }
+        }
+        assert!(
+            start.elapsed().as_secs() < 60,
+            "Timed out waiting for proposal result"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    let observer_guard = proposal_observer.lock().unwrap();
+    let mut results = observer_guard.results.lock().unwrap();
+    let result = results.remove(0);
+    drop(results);
+    drop(observer_guard);
+
+    match result {
+        Ok(_) => panic!("expected timeout to reject block"),
+        Err(postblock_proposal::BlockValidateReject {
+            reason_code,
+            reason,
+            ..
+        }) => {
+            assert_eq!(reason_code, ValidateRejectCode::BadTransaction);
+            info!("Transaction failed validation: {reason}");
+        }
+    }
+}
+
 #[warn(unused)]
 fn replay_validation_test(
     setup_fn: impl FnOnce(&mut TestRPC) -> (VecDeque<StacksTransaction>, Vec<StacksTransaction>),
@@ -533,6 +726,8 @@ fn replay_validation_test(
             8,
             None,
             None,
+            None,
+            u64::from(DEFAULT_MAX_TENURE_BYTES),
         )
         .unwrap();
 
@@ -545,7 +740,11 @@ fn replay_validation_test(
                  _: &mut MemPoolDB| {
                     let burn_dbconn = sort_db.index_handle_at_tip();
                     let mut miner_tenure_info = builder
-                        .load_tenure_info(chainstate, &burn_dbconn, None)
+                        .load_tenure_info(
+                            chainstate,
+                            &burn_dbconn,
+                            MinerTenureInfoCause::NoTenureChange,
+                        )
                         .unwrap();
                     let burn_chain_height = miner_tenure_info.burn_tip_height;
                     let mut tenure_tx = builder
