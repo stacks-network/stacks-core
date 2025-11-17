@@ -13,6 +13,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 - Added `result_hex` and `post_condition_aborted` to the block replay RPC endpoint
 - Added `--epoch <epoch_number>` flag to `clarity-cli` commands to specify the epoch context for evaluation.
 
+### Fixed
+
+- Added the missing receipt for the `costs-4` contract which was deployed on epoch 3.3 activation. This effects users of the event feed from the node, e.g. the Hiro API. Users of this event feed may want to revert their chain back to before the 3.3 activation, then run it again to receive this previously missing event.
+
 ## [3.3.0.0.1]
 
 - Add indexes to `nakamoto_block_headers` to fix a performance regression. Node may take a few minutes to restart during the upgrade while the new indexes are created.
