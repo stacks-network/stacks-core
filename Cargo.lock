@@ -600,7 +600,6 @@ dependencies = [
  "integer-sqrt",
  "lazy_static",
  "mutants",
- "perf-event2",
  "proptest",
  "regex",
  "rstest",

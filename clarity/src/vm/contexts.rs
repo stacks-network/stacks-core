@@ -214,11 +214,6 @@ pub enum ExecutionTimeTracker {
     },
 }
 
-pub trait NativeFunctionsProfiler {
-    fn start(&mut self, identifier: &FunctionIdentifier, args: &Vec<Value>);
-    fn end(&mut self);
-}
-
 /** GlobalContext represents the outermost context for a single transaction's
      execution. It tracks an asset changes that occurred during the
      processing of the transaction, whether or not the current context is read_only,
@@ -238,17 +233,6 @@ pub struct GlobalContext<'a, 'hooks> {
     pub chain_id: u32,
     pub eval_hooks: Option<Vec<&'hooks mut dyn EvalHook>>,
     pub execution_time_tracker: ExecutionTimeTracker,
-}
-
-impl<'a, 'hooks> GlobalContext<'a, 'hooks> {
-    pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
-        if let Some(mut hooks) = self.eval_hooks.take() {
-            hooks.push(hook);
-            self.eval_hooks = Some(hooks);
-        } else {
-            self.eval_hooks = Some(vec![hook]);
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -868,7 +852,12 @@ impl<'a, 'hooks> OwnedEnvironment<'a, 'hooks> {
     }
 
     pub fn add_eval_hook(&mut self, hook: &'hooks mut dyn EvalHook) {
-        self.context.add_eval_hook(hook);
+        if let Some(mut hooks) = self.context.eval_hooks.take() {
+            hooks.push(hook);
+            self.context.eval_hooks = Some(hooks);
+        } else {
+            self.context.eval_hooks = Some(vec![hook]);
+        }
     }
 }
 
