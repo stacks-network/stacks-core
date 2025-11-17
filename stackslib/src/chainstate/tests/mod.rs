@@ -592,7 +592,7 @@ impl<'a> TestChainstate<'a> {
         if burn_block_height < target_height {
             self.advance_to_epoch_boundary(private_key, target_epoch);
             if target_epoch < StacksEpochId::Epoch30 {
-                let tip = self.mine_pre_nakamoto_tenure_with_txs(&[]);
+                self.mine_pre_nakamoto_tenure_with_txs(&[]);
             } else {
                 self.mine_nakamoto_tenure();
             }
@@ -1174,8 +1174,6 @@ impl<'a> TestChainstate<'a> {
              vrf_proof,
              ref parent_opt,
              ref parent_microblock_header_opt| {
-                let genesis_header_info =
-                    StacksChainState::get_genesis_header_info(chainstate.db()).unwrap();
                 let tip = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn()).unwrap();
                 let parent_tip = StacksChainState::get_anchored_block_header_info(
                     chainstate.db(),
@@ -1183,7 +1181,9 @@ impl<'a> TestChainstate<'a> {
                     &tip.canonical_stacks_tip_hash,
                 )
                 .unwrap()
-                .unwrap_or(genesis_header_info);
+                .unwrap_or_else(|| {
+                    StacksChainState::get_genesis_header_info(chainstate.db()).unwrap()
+                });
 
                 let coinbase_tx = make_coinbase(miner, tip.block_height.try_into().unwrap());
 
