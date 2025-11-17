@@ -19,7 +19,7 @@
 
 use std::convert::TryFrom;
 
-use clarity_types::errors::{EarlyReturnError, InterpreterResult, VmExecutionError};
+use clarity_types::errors::{EarlyReturnError, VmExecutionError};
 use clarity_types::types::{
     AssetIdentifier, PrincipalData, QualifiedContractIdentifier, StandardPrincipalData,
 };
@@ -1655,7 +1655,7 @@ fn execute_with_assets_for_version(
     program: &str,
     version: ClarityVersion,
     sender: StandardPrincipalData,
-) -> (InterpreterResult<Option<Value>>, Option<AssetMap>) {
+) -> (Result<Option<Value>, VmExecutionError>, Option<AssetMap>) {
     let mut assets: Option<AssetMap> = None;
 
     let result = execute_and_check_versioned(program, version, sender, |g| {

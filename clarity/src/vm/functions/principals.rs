@@ -8,7 +8,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, check_arguments_at_most, CheckErrorKind,
-    InterpreterResult as Result, VmInternalError,
+    VmExecutionError, VmInternalError,
 };
 use crate::vm::representations::{
     SymbolicExpression, CONTRACT_MAX_NAME_LENGTH, CONTRACT_MIN_NAME_LENGTH,
@@ -52,7 +52,7 @@ pub fn special_is_standard(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::IsStandard, env, 0)?;
     let owner = eval(&args[0], env, context)?;
@@ -79,7 +79,7 @@ fn create_principal_destruct_tuple(
     version: u8,
     hash_bytes: &[u8; 20],
     name_opt: Option<ContractName>,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     Ok(Value::Tuple(
         TupleData::from_data(vec![
             (
@@ -109,7 +109,9 @@ fn create_principal_destruct_tuple(
 ///
 /// The response is an error Response, where the `err` value is a tuple `{error_code, parse_tuple}`.
 /// `error_int` is of type `UInt`, `parse_tuple` is None.
-fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) -> Result<Value> {
+fn create_principal_true_error_response(
+    error_int: PrincipalConstructErrorCode,
+) -> Result<Value, VmExecutionError> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
             ("error_code".into(), Value::UInt(error_int as u128)),
@@ -130,7 +132,7 @@ fn create_principal_true_error_response(error_int: PrincipalConstructErrorCode) 
 fn create_principal_value_error_response(
     error_int: PrincipalConstructErrorCode,
     value: Value,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     Value::error(Value::Tuple(
         TupleData::from_data(vec![
             ("error_code".into(), Value::UInt(error_int as u128)),
@@ -152,7 +154,7 @@ pub fn special_principal_destruct(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
     runtime_cost(ClarityCostFunction::PrincipalDestruct, env, 0)?;
 
@@ -191,7 +193,7 @@ pub fn special_principal_construct(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(2, args)?;
     check_arguments_at_most(3, args)?;
     runtime_cost(ClarityCostFunction::PrincipalConstruct, env, 0)?;
