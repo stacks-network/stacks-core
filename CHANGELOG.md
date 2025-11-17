@@ -15,7 +15,7 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 ### Fixed
 
-- Added the missing receipt for the `costs-4` contract which was deployed on epoch 3.3 activation. This effects users of the event feed from the node, e.g. the Hiro API. Users of this event feed may want to revert their chain back to before the 3.3 activation, then run it again to receive this previously missing event.
+- Correctly produce the receipt for the `costs-4` contract, which was deployed on epoch 3.3 activation. Users who consume node events and want to fill in the missing receipt (e.g. the Hiro API) will need to revert their chainstate to before the 3.3 activation and then resume sync to receive the previously missing event.
 
 ## [3.3.0.0.1]
 
