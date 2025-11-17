@@ -50,7 +50,7 @@ use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use crate::clarity::vm::errors::{InterpreterResult, RuntimeError, VmExecutionError};
+use crate::clarity::vm::errors::{RuntimeError, VmExecutionError};
 use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
@@ -914,7 +914,7 @@ fn install_boot_code<C: ClarityStorage>(
                 None,
                 None,
                 |env| {
-                    let res: InterpreterResult<_> =
+                    let res: Result<_, VmExecutionError> =
                         Ok(env.global_context.database.set_clarity_epoch_version(epoch));
                     res
                 },
