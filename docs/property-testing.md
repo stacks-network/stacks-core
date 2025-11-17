@@ -79,7 +79,7 @@ pub fn check_make_reward_set(
 
 This test essentially just takes the raw PoX entries, computes the PoX stacking threshold, and then feeds that data into `make_reward_set`. Afterwards, it checks that each PoX entry has the expected number of slots (i.e., the sum of all of that address's entries floor-divided by the threshold). The one "proptest hack" in this function is the way total liquid ustx is computed. Rather than allowing total liquid ustx to be a free argument and then just "prop assuming" that it is greater than the sum of the reward set entries, we make total liquid ustx a derived variable. The reason to do this is that it makes input generation easier if it doesn't have to worry too much about generating invalid data.
 
-Now, the part of the test that becomes more complex (and proptest-specific) is the actual input generation. We need strategies for generating the inputs to that function. For `PoxConstants`, we're really only interesting in the number of slots, so we can just generate uints and construct `PoxConstants` from that. Similarly, `unstacked_ustx` is just a `u128`. However, we do have to write a strategy for the reward set entries themselves.
+Now, the part of the test that becomes more complex (and proptest-specific) is the actual input generation. We need strategies for generating the inputs to that function. For `PoxConstants`, we're really only interested in the number of slots, so we can just generate uints and construct `PoxConstants` from that. Similarly, `unstacked_ustx` is just a `u128`. However, we do have to write a strategy for the reward set entries themselves.
 
 To write a strategy for `RawRewardSetEntry`, we'll start by writing a strategy for `PoxAddress`:
 
