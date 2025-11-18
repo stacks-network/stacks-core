@@ -685,7 +685,7 @@ impl<'a> ClarityDatabase<'a> {
             .insert_metadata(contract_identifier, key, data)
             .map_err(|e| e.into())
     }
-    
+
     fn insert_metadata<T: ClaritySerializable>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
