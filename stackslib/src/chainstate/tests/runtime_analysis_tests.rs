@@ -32,7 +32,7 @@ use crate::core::BLOCK_LIMIT_MAINNET_21;
 //   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
 // Outcome: block rejected.
 #[test]
-fn check_error_cost_balance_exceeded() {
+fn check_error_cost_balance_exceeded_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "cost-balance-exceeded",
         contract_code: &format!("
@@ -48,7 +48,7 @@ fn check_error_cost_balance_exceeded() {
 // Caused by: name is already used by a standard clarity function.
 // Outcome: block rejected.
 #[test]
-fn check_error_kind_name_already_used() {
+fn check_error_kind_name_already_used_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "name-already-used",
         contract_code: "(define-private (ft-get-supply) 1)",
@@ -60,7 +60,7 @@ fn check_error_kind_name_already_used() {
 //   at runtime when `Value::some` detects the oversized payload.
 // Outcome: block accepted.
 #[test]
-fn check_error_kind_value_too_large() {
+fn check_error_kind_value_too_large_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "value-too-large",
         contract_code: r#"
@@ -108,7 +108,7 @@ fn check_error_kind_value_too_large() {
 //   The runtime wraps stored entries in an optional, pushing the depth past the limit.
 // Outcome: block accepted.
 #[test]
-fn check_error_kind_type_signature_too_deep() {
+fn check_error_kind_type_signature_too_deep_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "type-depth-runtime",
         contract_code: &{
