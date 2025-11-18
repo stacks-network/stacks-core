@@ -207,8 +207,6 @@ pub enum EarlyReturnError {
     AssertionFailed(Box<Value>),
 }
 
-pub type InterpreterResult<R> = Result<R, VmExecutionError>;
-
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {
         false

@@ -3,8 +3,20 @@ source: stackslib/src/chainstate/tests/parse_tests.rs
 expression: result
 ---
 [
-  Failure("Invalid Stacks block 6da94a301c807241a1693938f5ba0fdca8ce8728870b94542a627edf3ae53de9: CostOverflowError(ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 4948255138 }, ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 5004355279 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })"),
-  Failure("Invalid Stacks block eb87eaa8b1c7ada1bd79d9a1cef70e9a2d9ecad64ce496acb5563a53076c9f10: CostOverflowError(ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 4948255138 }, ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 5004355279 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })"),
-  Failure("Invalid Stacks block f3f134a271cff7f040e979c42819732db63065bba5700b5e3289465befa67bc7: CostOverflowError(ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 4948255138 }, ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 5004355279 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })"),
-  Failure("Invalid Stacks block a1ad938c6a3d38090388874f098773fe6e06e2c5021d3ee785369991af6f8c18: CostOverflowError(ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 4948255138 }, ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 5004355279 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })"),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 3bd4519cb89a7151a1602f4e0d171b106ab80197c17a978ad0fefc79ad01fa70: CostOverflowError(ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 4948255138 }, ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 5004355279 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block e066275ee8f37230b8496164b13071d5e1015e59405451337fb01e0ecf88e92e: CostOverflowError(ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 4948255138 }, ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 5004355279 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 2894132b57566ba9e28fdd55b4b57c85fcd470ac6a8839d93eea957fa1d7445a: CostOverflowError(ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 4948255138 }, ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 5004355279 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block b08f0b5cd9d192252bbd9f7804bae1b2e7582ebb6fdec867d0cb64e258a2547e: CostOverflowError(ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 4948255138 }, ExecutionCost { write_length: 3589069, write_count: 4, read_length: 19309683, read_count: 59, runtime: 5004355279 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
 ]
