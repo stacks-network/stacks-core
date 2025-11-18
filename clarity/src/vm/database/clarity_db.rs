@@ -2540,3 +2540,36 @@ fn checked_decrease_token_supply_underflow() {
 
     db.commit().unwrap();
 }
+
+#[test]
+fn trigger_no_such_token_rust() {
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::errors::{RuntimeError, VmExecutionError};
+    // Set up a memory backing store and Clarity database
+    let mut store = MemoryBackingStore::default();
+    let mut db = store.as_clarity_db();
+
+    db.begin();
+    // Define a fake contract identifier
+    let contract_id = QualifiedContractIdentifier::transient();
+
+    // Simulate querying a non-existent NFT
+    let asset_id = Value::Bool(false); // this token does not exist
+    let asset_name = "test-nft";
+
+    // Call get_nft_owner directly
+    let err = db
+        .get_nft_owner(
+            &contract_id,
+            asset_name,
+            &asset_id,
+            &TypeSignature::BoolType,
+        )
+        .unwrap_err();
+
+    // Assert that it produces NoSuchToken
+    assert!(
+        matches!(err, VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)),
+        "Expected NoSuchToken. Got: {err}"
+    );
+}

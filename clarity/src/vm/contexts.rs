@@ -1954,6 +1954,14 @@ impl<'a> LocalContext<'a> {
 
     pub fn extend(&'a self) -> Result<LocalContext<'a>, VmExecutionError> {
         if self.depth >= MAX_CONTEXT_DEPTH {
+            // `MaxContextDepthReached` in this function is **unreachable** in normal Clarity execution because:
+            // - Every function call in Clarity increments both the call stack depth and the local context depth.
+            // - The VM enforces `MAX_CALL_STACK_DEPTH` (currently 64) **before** `MAX_CONTEXT_DEPTH` (256).
+            // - This means no contract can create more than 64 nested function calls, preventing context depth from reaching 256.
+            // - Nested expressions (`let`, `begin`, `if`, etc.) increment context depth, but the Clarity parser enforces
+            //   `ExpressionStackDepthTooDeep` long before MAX_CONTEXT_DEPTH nested contexts can be written.
+            // - As a result, `MaxContextDepthReached` can only occur in artificial Rust-level tests calling `LocalContext::extend()`,
+            //   not in deployed contract execution.
             Err(RuntimeError::MaxContextDepthReached.into())
         } else {
             Ok(LocalContext {
@@ -2363,9 +2371,33 @@ mod test {
         let program = ""; // empty program triggers parsed.is_empty()
         let err = env.eval_read_only(&contract_id, program).unwrap_err();
 
-        assert!(matches!(
+        assert!(
+            matches!(
             err,
-            VmExecutionError::Runtime(RuntimeError::TypeParseFailure(msg), _) if msg.contains("Expected a program of at least length 1")), "Expected a type parse failure");
+            VmExecutionError::Runtime(RuntimeError::TypeParseFailure(msg), _) if msg.contains("Expected a program of at least length 1")),
+            "Expected a type parse failure"
+        );
     }
 
+    #[test]
+    fn max_context_depth_exceeded() {
+        let root = LocalContext {
+            function_context: None,
+            parent: None,
+            callable_contracts: HashMap::new(),
+            variables: HashMap::new(),
+            depth: MAX_CONTEXT_DEPTH - 1,
+        };
+        // We should be able to extend once successfully.
+        let result = root.extend().unwrap();
+        // We are now at the MAX_CONTEXT_DEPTH and should fail.
+        let result_2 = result.extend();
+        assert!(matches!(
+            result_2,
+            Err(VmExecutionError::Runtime(
+                RuntimeError::MaxContextDepthReached,
+                _
+            ))
+        ));
+    }
 }

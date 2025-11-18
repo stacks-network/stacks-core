@@ -181,6 +181,7 @@ fn test_cost_balance_exceeded() {
                     nonce,
                     "costly-contract",
                     "costly-func",
+                    &[],
                 ));
             }
 

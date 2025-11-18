@@ -1596,7 +1596,12 @@ impl ConsensusUtils {
         StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap()
     }
 
-    pub fn new_call_tx(nonce: u64, contract_name: &str, funct_name: &str) -> StacksTransaction {
+    pub fn new_call_tx(
+        nonce: u64,
+        contract_name: &str,
+        funct_name: &str,
+        funct_args: &[ClarityValue],
+    ) -> StacksTransaction {
         let call_tx = make_contract_call(
             &FAUCET_PRIV_KEY,
             nonce,
@@ -1605,7 +1610,7 @@ impl ConsensusUtils {
             &to_addr(&FAUCET_PRIV_KEY),
             contract_name,
             funct_name,
-            &[],
+            funct_args,
         );
         StacksTransaction::consensus_deserialize(&mut call_tx.as_slice()).unwrap()
     }
