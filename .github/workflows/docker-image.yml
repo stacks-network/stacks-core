@@ -167,7 +167,7 @@ jobs:
             ## Setup Docker for the builds
             - name: Docker setup
               id: docker_setup
-              uses: wileyj/actions/docker@chore/update_docker_comp
+              uses: stacks-network/actions/docker@main
               with:
                   registry: ${{ env.docker_registry }}
                   username: ${{ github.actor }}
