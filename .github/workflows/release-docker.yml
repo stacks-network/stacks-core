@@ -1,29 +1,15 @@
 ## Github workflow to create release docker images
+##   - uses binary archives produced by the ./release-build.yml workflow
 
-name:
-    Docker Release Images
-
-    # node_tag: 4.0.0.0.4
-    # node_docker_tag: 4.0.0.0.4
-    # signer_tag: signer-4.0.0.0.4.0
-    # signer_docker_tag: 4.0.0.0.4.0
-    # release_type: stacks-core
+name: Docker Release Images
 
 on:
     workflow_call:
         inputs:
-            # node_tag:
-            #     description: "Node Release Tag"
-            #     required: true
-            #     type: string
             node_tag:
                 description: "Node Docker Release Tag"
                 required: true
                 type: string
-            # signer_tag:
-            #     description: "Signer Release Tag"
-            #     required: true
-            #     type: string
             signer_tag:
                 description: "Signer Docker Release Tag"
                 required: true
@@ -85,15 +71,13 @@ jobs:
                     # stacks-signer
                     var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
                     var_docker_tag=${{ inputs.signer_tag }} # use the input signer_tag if this is the stacks-signer build
-                    # var_artifact_pattern="${{ github.sha }}-stacks-signer-linux-$var_build_arch*"
                   else
                     # stacks-core
                     var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
                     var_docker_tag=${{ inputs.node_tag }} # use the input node_tag if this is the stacks-node build
-                    # var_artifact_pattern="${{ github.sha }}-${{ inputs.release_type }}-linux-$var_build_arch*"
                   fi
 
-                  ## Add vars to github env for later steps
+                  # Add vars to github env for later steps
                   echo "docker_images=${var_images}" >> $GITHUB_ENV
                   echo "docker_tag=${var_docker_tag}" >> $GITHUB_ENV
                   echo "artifact_pattern=${var_artifact_pattern}" >> $GITHUB_ENV
@@ -109,9 +93,6 @@ jobs:
                     # is a release candidate
                     var_docker_tag_rc=true
                   fi
-                  # if [[ "${docker_tag}" =~ -rc[0-9]*$ ]]; then
-                  #   var_docker_tag="${docker_tag}"
-                  # fi
                   echo "var_docker_tag_rc: ${var_docker_tag_rc}"
                   echo "docker_tag_rc=${var_docker_tag_rc}" >> "$GITHUB_ENV"
 
@@ -126,7 +107,7 @@ jobs:
             ## Setup Docker for the builds
             - name: Docker setup
               id: docker_setup
-              uses: wileyj/actions/docker@chore/update_docker_comp
+              uses: stacks-network/actions/docker@main
               with:
                   registry: ${{ env.docker_registry }} # set the registry to ghcr (default is docker.io)
                   username: ${{ github.actor }}
@@ -151,20 +132,20 @@ jobs:
                       org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
                       org.opencontainers.image.version=${{ env.docker_tag }}
                   tags: |
-                      ## debian tags ##
+                      # debian tags #
                       #  latest tag
                       type=raw,value=latest,enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
                       #  latest-debian tag
                       type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
                       #  version tag
                       type=raw,value=${{ env.docker_tag }},enable=${{ env.docker_tag != '' && matrix.dist == 'debian'}}
-                      #  version=dist tag
+                      #  version-dist tag
                       type=raw,value=${{ env.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && matrix.dist == 'debian' }}
-                      ##
-                      ## alpine tags ##
+                      #
+                      # alpine tags #
                       #   latest-alpine tag
                       type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'alpine' }}
-                      #  version tag
+                      #  version-dist tag
                       type=raw,value=${{ env.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && matrix.dist == 'alpine' }}
 
             ## Build docker image for release
@@ -179,7 +160,7 @@ jobs:
                   platforms: ${{ env.docker_platforms }}
                   tags: ${{ steps.docker_metadata.outputs.tags }}
                   labels: ${{ steps.docker_metadata.outputs.labels }}
-                  annotations: ${{ steps.docker_metadata.outputs.annotations }} # Note: annotations are required for multi-architecture images
+                  annotations: ${{ steps.docker_metadata.outputs.annotations }} # Note: annotations are used for multi-architecture ghcr images
                   push: ${{ env.DOCKER_PUSH }}
 
             ## Generate docker image attestation(s)

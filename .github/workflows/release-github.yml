@@ -5,18 +5,10 @@ name: Github Release
 on:
     workflow_call:
         inputs:
-            # node_tag:
-            #     description: "Node Release Tag"
-            #     required: true
-            #     type: string
             node_tag:
                 description: "Node Docker Release Tag"
                 required: true
                 type: string
-            # signer_tag:
-            #     description: "Signer Release Tag"
-            #     required: true
-            #     type: string
             signer_tag:
                 description: "Signer Docker Release Tag"
                 required: true
@@ -25,10 +17,6 @@ on:
                 description: "True if it is a node release"
                 required: true
                 type: string
-            # is_signer_release:
-            #     description: "True if it is a signer release"
-            #     required: true
-            #     type: string
 
 concurrency:
     group: release-github-${{ github.head_ref || github.ref }}
@@ -88,10 +76,7 @@ jobs:
         ## Creates the node docker image
         uses: ./.github/workflows/release-docker.yml
         with:
-            # node_tag and node_docker_tag should be identical with the version tag, i.e. 3.3.0.0.0
-            # node_tag: ${{ inputs.node_tag }} # node_tag contains only the version, i.e. 3.3.0.0.0
             node_tag: ${{ inputs.node_tag }} # node_tag will contains the 5 char node version, i.e. 3.3.0.0.0
-            # signer_tag: ${{ inputs.signer_tag }} # signer_tag contains only the version, i.e. 3.3.0.0.0.1
             signer_tag: ${{ inputs.signer_tag }} # signer_tag contains 6 char signer version, i.e. 3.3.0.0.0.1
             release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core
 
@@ -114,8 +99,7 @@ jobs:
             ## Creates releases
             - name: Create Release
               id: check
-              uses: wileyj/actions/stacks-core/release/create-releases@chore/update_docker_comp
-              # uses: stacks-network/actions/stacks-core/release/create-releases@main
+              uses: stacks-network/actions/stacks-core/release/create-releases@main
               with:
                   node_tag: ${{ inputs.node_tag }} # name used for release (use the version by itself
                   signer_tag: signer-${{ inputs.signer_tag }} # name used for release (prefix with 'signer-')

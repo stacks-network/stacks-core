@@ -35,7 +35,7 @@ jobs:
             id-token: write
             attestations: write
         strategy:
-            ## Run a maximum of 10 builds concurrently, using the matrix defined in inputs.arch
+            ## Run a maximum of 10 builds concurrently
             max-parallel: 10
             matrix:
                 arch:
@@ -47,30 +47,25 @@ jobs:
                     - x86-64
                     - arm64
                 os:
-                    - ubuntu-latest # update to large for more cpu cores NOTE: need to update excludes below if a different runner is used
-                    - macos-latest # update to large for more cpu cores. NOTE: need to update excludes below if a different runner is used
+                    - ubuntu-latest
+                    - macos-latest-large
                 exclude:
-                    ############################################
-                    # exclude linux-musl on macos
+                    ## exclude linux-musl on macos
                     - arch: linux-musl
-                      os: macos-latest
-                      # os: macos-latest-large
-                    # exclude linux-glibc on macos
+                      os: macos-latest-large
+                    ## exclude linux-glibc on macos
                     - arch: linux-glibc
-                      os: macos-latest
-                      # os: macos-latest-large
-                    ############################################
-                    # excludes macos on ubuntu
+                      os: macos-latest-large
+                    ## excludes macos on ubuntu
                     - arch: macos
                       os: ubuntu-latest
-                    # excludes windows on macos
+                    ## excludes windows on macos
                     - arch: windows
-                      os: macos-latest
-                      # os: macos-latest-large
-                    # excludes windows-arm64
+                      os: macos-latest-large
+                    ## excludes windows-arm64
                     - arch: windows
                       cpu: arm64
-                    # excludes macos-x64
+                    ## excludes macos-x64
                     - arch: macos
                       cpu: x86-64
         steps:
@@ -88,7 +83,8 @@ jobs:
               run: |
                   case ${{ matrix.cpu }} in
                     x86-64*)
-                      ARCHIVE_NAME="$(echo "${{ matrix.cpu }}" | sed -e 's|86-||g')" # if matrix.cpu ever changes to a different x86 version, this will set the archive naming appropriately to `*-x64`
+                      # if matrix.cpu ever changes to a different x86 version, this will set the archive naming appropriately to `*-x64`
+                      ARCHIVE_NAME="$(echo "${{ matrix.cpu }}" | sed -e 's|86-||g')"
                       # set the CPU to build for. if the matrix defines x86-64, default to -v3, else use what's defined in the matrix
                       case ${{ matrix.cpu }} in
                         x86-64)
