@@ -1,0 +1,143 @@
+## Github workflow to create a github release and upload binary artifacts
+
+name: Github Release
+
+on:
+    workflow_call:
+        inputs:
+            # node_tag:
+            #     description: "Node Release Tag"
+            #     required: true
+            #     type: string
+            node_tag:
+                description: "Node Docker Release Tag"
+                required: true
+                type: string
+            # signer_tag:
+            #     description: "Signer Release Tag"
+            #     required: true
+            #     type: string
+            signer_tag:
+                description: "Signer Docker Release Tag"
+                required: true
+                type: string
+            is_node_release:
+                description: "True if it is a node release"
+                required: true
+                type: string
+            # is_signer_release:
+            #     description: "True if it is a signer release"
+            #     required: true
+            #     type: string
+
+concurrency:
+    group: release-github-${{ github.head_ref || github.ref }}
+    ## Always cancel duplicate jobs
+    cancel-in-progress: true
+
+run-name: ${{ inputs.node_tag || inputs.signer_tag }}
+
+jobs:
+    ## Build arch dependent binaries from source
+    ##
+    ## Runs when the following is true:
+    ##  - either node or signer tag is provided
+    andon-cord:
+        if: |
+            inputs.node_tag != '' ||
+            inputs.signer_tag != ''
+        name: Andon Cord
+        runs-on: ubuntu-latest
+        environment: "Build Release"
+        steps:
+            - name: Check Approval
+              id: check
+              run: |
+                  exit 0
+
+    build-binaries:
+        if: |
+            inputs.node_tag != '' ||
+            inputs.signer_tag != ''
+        name: Build Binaries
+        needs:
+            - andon-cord
+        uses: ./.github/workflows/release-build.yml
+        with:
+            node_tag: ${{ inputs.node_tag }} # used to conditionally run step in release-build.yml
+            signer_tag: ${{ inputs.signer_tag }} # used to conditionally run step in release-build.yml
+
+    docker-images:
+        if: |
+            inputs.node_tag != '' ||
+            inputs.signer_tag != ''
+        name: Build Docker Images
+        needs:
+            - andon-cord
+            - build-binaries
+        strategy:
+            fail-fast: false
+            ## Build a maximum of 2 images concurrently based on matrix.dist
+            max-parallel: 2
+            matrix:
+                type:
+                    - stacks-core
+                    - stacks-signer
+                exclude:
+                    - type: ${{ inputs.is_node_release == 'false' && 'stacks-core' }} # exclude stacks-core if node release is false
+        ## Creates the node docker image
+        uses: ./.github/workflows/release-docker.yml
+        with:
+            # node_tag and node_docker_tag should be identical with the version tag, i.e. 3.3.0.0.0
+            # node_tag: ${{ inputs.node_tag }} # node_tag contains only the version, i.e. 3.3.0.0.0
+            node_tag: ${{ inputs.node_tag }} # node_tag will contains the 5 char node version, i.e. 3.3.0.0.0
+            # signer_tag: ${{ inputs.signer_tag }} # signer_tag contains only the version, i.e. 3.3.0.0.0.1
+            signer_tag: ${{ inputs.signer_tag }} # signer_tag contains 6 char signer version, i.e. 3.3.0.0.0.1
+            release_type: ${{ matrix.type }} # one of stacks-signer or stacks-core
+
+    ####
+    # ## Runs when the following is true:
+    # ##  - either node or signer tag is provided
+    create-release:
+        if: |
+            inputs.node_tag != '' ||
+            inputs.signer_tag != ''
+        name: Create Release
+        runs-on: ubuntu-latest
+        needs:
+            - andon-cord
+            - build-binaries
+            - docker-images
+        permissions:
+            contents: write
+        steps:
+            ## Creates releases
+            - name: Create Release
+              id: check
+              uses: wileyj/actions/stacks-core/release/create-releases@chore/update_docker_comp
+              # uses: stacks-network/actions/stacks-core/release/create-releases@main
+              with:
+                  node_tag: ${{ inputs.node_tag }} # name used for release (use the version by itself
+                  signer_tag: signer-${{ inputs.signer_tag }} # name used for release (prefix with 'signer-')
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    # ## Create the downstream PR for the release branch to master and develop
+    create-pr:
+        if: |
+            inputs.node_tag != '' ||
+            inputs.signer_tag != ''
+        name: Create Downstream PR (${{ github.ref_name }})
+        runs-on: ubuntu-latest
+        needs:
+            - andon-cord
+            - build-binaries
+            - create-release
+            - docker-images
+        permissions:
+            pull-requests: write
+        steps:
+            - name: Open Downstream PR
+              id: create-pr
+              uses: stacks-network/actions/stacks-core/release/downstream-pr@main
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}

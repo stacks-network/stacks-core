@@ -1,0 +1,217 @@
+## Github workflow to create release docker images
+
+name:
+    Docker Release Images
+
+    # node_tag: 4.0.0.0.4
+    # node_docker_tag: 4.0.0.0.4
+    # signer_tag: signer-4.0.0.0.4.0
+    # signer_docker_tag: 4.0.0.0.4.0
+    # release_type: stacks-core
+
+on:
+    workflow_call:
+        inputs:
+            # node_tag:
+            #     description: "Node Release Tag"
+            #     required: true
+            #     type: string
+            node_tag:
+                description: "Node Docker Release Tag"
+                required: true
+                type: string
+            # signer_tag:
+            #     description: "Signer Release Tag"
+            #     required: true
+            #     type: string
+            signer_tag:
+                description: "Signer Docker Release Tag"
+                required: true
+                type: string
+            release_type:
+                description: "Release type (one of stacks-core, stacks-signer"
+                required: true
+                type: string
+concurrency:
+    group: ${{ inputs.release_type }}-${{ github.head_ref || github.ref }}
+    ## Always cancel duplicate jobs
+    cancel-in-progress: true
+
+run-name: ${{ inputs.node_tag || inputs.signer_tag }}
+
+env:
+    docker_platforms: "linux/arm64, linux/amd64"
+    docker_registry: ghcr.io
+    provenance: false
+jobs:
+    release-images:
+        if: |
+            ( inputs.release_type == 'stacks-core' || inputs.release_type == 'stacks-signer') &&
+            ( inputs.signer_tag != '' || inputs.node_tag != '' )
+        name: Docker Image (${{ inputs.release_type }}, ${{ matrix.dist }})
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write
+            attestations: write
+            packages: write
+        strategy:
+            fail-fast: false
+            ## Build a maximum of 2 images concurrently based on matrix.dist
+            max-parallel: 2
+            matrix:
+                dist:
+                    - alpine
+                    - debian
+        steps:
+            - name: Set Local Vars
+              id: set_vars
+              shell: bash
+              run: |
+                  var_dockerfile_name="Dockerfile.release"
+                  if [ "${{ inputs.release_type }}" == "stacks-signer" ]; then
+                    var_dockerfile_name="Dockerfile.release.signer"
+                  fi
+                  if [ "${{ matrix.dist }}" == "alpine" ]; then
+                    var_build_arch=musl
+                  else
+                    var_build_arch=glibc
+                  fi
+                  echo "var_build_arch: ${var_build_arch}"
+
+                  # set a default docker image: registry/repo/release_type
+                  var_default_image="${{ env.docker_registry }}/${{ github.repository_owner }}/${{ inputs.release_type }}"
+                  var_artifact_pattern="${{ github.sha }}-${{ inputs.release_type }}-linux-${var_build_arch}*"
+                  if [ "${{ inputs.release_type }}" == "stacks-signer" ]; then
+                    # stacks-signer
+                    var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
+                    var_docker_tag=${{ inputs.signer_tag }} # use the input signer_tag if this is the stacks-signer build
+                    # var_artifact_pattern="${{ github.sha }}-stacks-signer-linux-$var_build_arch*"
+                  else
+                    # stacks-core
+                    var_images="${var_default_image}" # use default, set in conditional to allow for individual changes based on release type
+                    var_docker_tag=${{ inputs.node_tag }} # use the input node_tag if this is the stacks-node build
+                    # var_artifact_pattern="${{ github.sha }}-${{ inputs.release_type }}-linux-$var_build_arch*"
+                  fi
+
+                  ## Add vars to github env for later steps
+                  echo "docker_images=${var_images}" >> $GITHUB_ENV
+                  echo "docker_tag=${var_docker_tag}" >> $GITHUB_ENV
+                  echo "artifact_pattern=${var_artifact_pattern}" >> $GITHUB_ENV
+                  echo "build_arch=${var_build_arch}" >> "$GITHUB_ENV"
+                  echo "dockerfile_name=${var_dockerfile_name}" >> "$GITHUB_ENV"
+
+            - name: Set Docker Tag RC Flag
+              id: docker_tag_rc_flag
+              shell: bash
+              run: |
+                  var_docker_tag_rc=false
+                  if [[ "${docker_tag}" =~ -rc[0-9]*$ ]]; then
+                    # is a release candidate
+                    var_docker_tag_rc=true
+                  fi
+                  # if [[ "${docker_tag}" =~ -rc[0-9]*$ ]]; then
+                  #   var_docker_tag="${docker_tag}"
+                  # fi
+                  echo "var_docker_tag_rc: ${var_docker_tag_rc}"
+                  echo "docker_tag_rc=${var_docker_tag_rc}" >> "$GITHUB_ENV"
+
+            - name: Download Artifacts
+              id: download_artifacts
+              uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+              with:
+                  pattern: ${{ env.artifact_pattern }}
+                  path: /tmp/release
+                  merge-multiple: true
+
+            ## Setup Docker for the builds
+            - name: Docker setup
+              id: docker_setup
+              uses: wileyj/actions/docker@chore/update_docker_comp
+              with:
+                  registry: ${{ env.docker_registry }} # set the registry to ghcr (default is docker.io)
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            ## Checkout the code
+            - name: Checkout the latest code
+              id: git_checkout
+              uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+              with:
+                  ref: ${{ env.BRANCH_NAME }}
+                  sparse-checkout: |
+                      .github
+
+            - name: Docker Metadata ( ${{matrix.dist}} )
+              id: docker_metadata
+              uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 #v5.9.0
+              with:
+                  images: |
+                      ${{ env.docker_images }}
+                  labels: |
+                      org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
+                      org.opencontainers.image.version=${{ env.docker_tag }}
+                  tags: |
+                      ## debian tags ##
+                      #  latest tag
+                      type=raw,value=latest,enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
+                      #  latest-debian tag
+                      type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
+                      #  version tag
+                      type=raw,value=${{ env.docker_tag }},enable=${{ env.docker_tag != '' && matrix.dist == 'debian'}}
+                      #  version=dist tag
+                      type=raw,value=${{ env.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && matrix.dist == 'debian' }}
+                      ##
+                      ## alpine tags ##
+                      #   latest-alpine tag
+                      type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'alpine' }}
+                      #  version tag
+                      type=raw,value=${{ env.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && matrix.dist == 'alpine' }}
+
+            ## Build docker image for release
+            - name: Build and Push ( ${{matrix.dist}} )
+              id: docker_build
+              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+              with:
+                  sbom: false
+                  provenance: ${{ env.provenance }}
+                  context: /tmp
+                  file: ./.github/actions/dockerfiles/${{ matrix.dist }}/${{ env.dockerfile_name}}
+                  platforms: ${{ env.docker_platforms }}
+                  tags: ${{ steps.docker_metadata.outputs.tags }}
+                  labels: ${{ steps.docker_metadata.outputs.labels }}
+                  annotations: ${{ steps.docker_metadata.outputs.annotations }} # Note: annotations are required for multi-architecture images
+                  push: ${{ env.DOCKER_PUSH }}
+
+            ## Generate docker image attestation(s)
+            - name: Attest Image (${{ github.event.repository.name }})
+              id: attest_image
+              uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+              with:
+                  subject-name: ${{ env.docker_registry }}/${{ github.repository_owner }}/${{ inputs.release_type }}
+                  subject-digest: ${{ steps.docker_build.outputs.digest }}
+                  push-to-registry: ${{ env.DOCKER_PUSH }}
+
+            ## Sign the images with GitHub OIDC Token
+            ##   - https://github.blog/security/supply-chain-security/safeguard-container-signing-capability-actions/
+            ##   - annotations show as null per https://github.com/sigstore/cosign/pull/4508 until a future release (or tagging this specific commit)
+            - name: Install Cosign
+              id: cosign_install
+              uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+            - name: Sign the images with OIDC Token
+              id: cosign_artifact
+              shell: bash
+              env:
+                  DIGEST: ${{ steps.docker_build.outputs.digest }}
+                  TAGS: ${{ steps.docker_metadata.outputs.tags }}
+              run: |
+                  images=""
+                  for tag in ${TAGS}; do
+                    images+="${tag}@${DIGEST} "
+                  done
+                  cosign sign \
+                      -a "repo=${{ github.repository }}" \
+                      -a "ref=${{ github.sha }}" \
+                      -a "dist=${{ matrix.dist }}" \
+                      --yes \
+                  ${images}

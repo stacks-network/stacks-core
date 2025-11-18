@@ -1,0 +1,18 @@
+FROM alpine AS builder
+
+ARG TARGETPLATFORM
+ENV ARCHIVE_ROOT="/release"
+
+# upload the release artifacts downloaded to /tmp/release to /release in the build stage
+COPY ./release/ $ARCHIVE_ROOT
+
+RUN case ${TARGETPLATFORM} in \
+    linux/amd64*) ARCHIVE=${ARCHIVE_ROOT}/linux-musl-x64.zip ;; \
+    linux/arm64*) ARCHIVE=${ARCHIVE_ROOT}/linux-musl-arm64.zip ;; \
+    *) exit 1 ;; \
+    esac \
+    && unzip "$ARCHIVE" "stacks-node" -d /out
+
+FROM alpine
+COPY --from=builder /out/* /bin/
+CMD ["/bin/stacks-node run --config /signer-config.toml"]
