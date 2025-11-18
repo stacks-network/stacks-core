@@ -20,8 +20,7 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-use analysis::CommonCheckErrorKind;
-pub use analysis::{CheckErrorKind, StaticCheckError};
+pub use analysis::{CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind};
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
@@ -207,8 +206,6 @@ pub enum EarlyReturnError {
     /// The `Box<Value>` holds the value provided as the second argument to `asserts!`.
     AssertionFailed(Box<Value>),
 }
-
-pub type InterpreterResult<R> = Result<R, VmExecutionError>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {

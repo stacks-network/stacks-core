@@ -1516,6 +1516,31 @@ impl StacksChainState {
         return Ok(None);
     }
 
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    /// A helper function for exposing store_staging_block
+    pub fn store_staging_block_test(
+        tx: &mut DBTx<'_>,
+        blocks_path: &str,
+        consensus_hash: &ConsensusHash,
+        block: &StacksBlock,
+        parent_consensus_hash: &ConsensusHash,
+        commit_burn: u64,
+        sortition_burn: u64,
+        download_time: u64,
+    ) -> Result<(), Error> {
+        Self::store_staging_block(
+            tx,
+            blocks_path,
+            consensus_hash,
+            block,
+            parent_consensus_hash,
+            commit_burn,
+            sortition_burn,
+            download_time,
+        )
+    }
+
     /// Store a preprocessed block, queuing it up for subsequent processing.
     /// The caller should at least verify that the block is attached to some fork in the burn
     /// chain.
@@ -3102,7 +3127,6 @@ impl StacksChainState {
                 return Err(e.into());
             }
         };
-
         // burn chain tip that selected this commit's block
         let burn_chain_tip = db_handle
             .get_block_snapshot(&block_commit.burn_header_hash)?

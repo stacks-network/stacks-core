@@ -896,6 +896,12 @@ impl<'a> Parser<'a> {
                                 match Value::string_ascii_from_bytes(val.clone().into_bytes()) {
                                     Ok(s) => PreSymbolicExpression::atom_value(s),
                                     Err(_) => {
+                                        // Protect against console flooding and process hanging while running tests,
+                                        // using a purely arbitrary max chars limit.
+                                        // NOTE: A better place for this would be the enum itself, but then we need to write a custom Debug implementation
+                                        #[cfg(any(test, feature = "testing"))]
+                                        let val = ellipse_string_for_test(val, 128);
+
                                         self.add_diagnostic(
                                             ParseErrorKind::IllegalASCIIString(val.clone()),
                                             token.span.clone(),
@@ -1129,6 +1135,25 @@ pub fn parse_collect_diagnostics(
         })
         .collect();
     (stmts, diagnostics, parser.success)
+}
+
+/// Test helper function to shorten big strings while running tests
+///
+/// This prevents both:
+///   - Console flooding with multi-megabyte output during test runs.
+///   - Potential test process blocking or hanging due to stdout buffering limits.
+///
+/// In case a the input `string` need to be shortned based on `max_chars`,
+/// the resulting string will be ellipsed showing the original character count.
+#[cfg(any(test, feature = "testing"))]
+fn ellipse_string_for_test(string: &str, max_chars: usize) -> String {
+    let char_count = string.chars().count();
+    if char_count <= max_chars {
+        string.into()
+    } else {
+        let shortened: String = string.chars().take(max_chars).collect();
+        format!("{shortened}...[{char_count}]")
+    }
 }
 
 #[cfg(test)]
