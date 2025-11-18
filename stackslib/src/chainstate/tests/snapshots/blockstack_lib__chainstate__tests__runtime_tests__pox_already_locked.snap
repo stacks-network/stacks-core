@@ -1,0 +1,113 @@
+---
+source: stackslib/src/chainstate/tests/runtime_tests.rs
+expression: results
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "642e043aa6b243611e80807200235c97ae71a623191208c3ace69b94689453b2",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Tuple(TupleData(
+            type_signature: TupleTypeSignature(
+              type_map: {
+                ClarityName("lock-amount"): UIntType,
+                ClarityName("signer-key"): SequenceType(BufferType(BufferLength(33))),
+                ClarityName("stacker"): PrincipalType,
+                ClarityName("unlock-burn-height"): UIntType,
+              },
+            ),
+            data_map: {
+              ClarityName("lock-amount"): UInt(1000000000000000000),
+              ClarityName("signer-key"): Sequence(Buffer(BuffData(
+                data: [
+                  2,
+                  179,
+                  123,
+                  127,
+                  21,
+                  83,
+                  250,
+                  23,
+                  254,
+                  10,
+                  215,
+                  28,
+                  87,
+                  83,
+                  143,
+                  74,
+                  147,
+                  191,
+                  173,
+                  166,
+                  50,
+                  148,
+                  124,
+                  4,
+                  225,
+                  202,
+                  111,
+                  205,
+                  173,
+                  101,
+                  232,
+                  16,
+                  109,
+                ],
+              ))),
+              ClarityName("stacker"): Principal(Standard(StandardPrincipalData(26, (249, 66, 135, 76, 229, 37, 232, 127, 33, 187, 232, 193, 33, 177, 47, 172, 131, 29, 2, 244)))),
+              ClarityName("unlock-burn-height"): UInt(56),
+            },
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 838,
+          write_count: 6,
+          read_length: 77538,
+          read_count: 23,
+          runtime: 710119,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 838,
+      write_count: 6,
+      read_length: 77538,
+      read_count: 23,
+      runtime: 710119,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f96b63012a3b6e5139ecfce3dbcb6ffaeb0aaba3a227d837437e427d33589fad",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST000000000000000000002AMW42H, contract_name: pox-4, function_name: stack-stx, function_args: [[UInt(1000000000000000000), Tuple(TupleData { type_signature: TupleTypeSignature { \"hashbytes\": (buff 20), \"version\": (buff 1),}, data_map: {ClarityName(\"hashbytes\"): Sequence(Buffer(f942874ce525e87f21bbe8c121b12fac831d02f4)), ClarityName(\"version\"): Sequence(Buffer(00))} }), UInt(48), UInt(1), Optional(OptionalData { data: Some(Sequence(Buffer(0c275bdb023a1f8de3d1c99e821268f36e16cbf82d8747f19abee8bd454459ca34aca028eff0ad9ddb6b742ef5b065f2db0b40d93f63b82cde2024cb00ac67cb01))) }), Sequence(Buffer(02b37b7f1553fa17fe0ad71c57538f4a93bfada632947c04e1ca6fcdad65e8106d)), UInt(340282366920938463463374607431768211455), UInt(1)]])",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Int(3),
+        )),
+        cost: ExecutionCost(
+          write_length: 1,
+          write_count: 1,
+          read_length: 77312,
+          read_count: 13,
+          runtime: 103100,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 1,
+      write_count: 1,
+      read_length: 77312,
+      read_count: 13,
+      runtime: 103100,
+    ),
+  )),
+]

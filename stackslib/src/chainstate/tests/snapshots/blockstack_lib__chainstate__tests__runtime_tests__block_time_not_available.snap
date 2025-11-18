@@ -1,0 +1,64 @@
+---
+source: stackslib/src/chainstate/tests/runtime_tests.rs
+expression: results
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "a7212422cafe4a67b76d1335aff27ce0db836917bd2684220088726991b63458",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: no-block-time-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 183,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 14992,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 183,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 14992,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "cd3ab88e7fa2b164bcbcdfd22425e0dbc309293dac7b9ac9bfaa720aac45bd6f",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: no-block-time-Epoch3_3-Clarity4, function_name: trigger, function_args: [[UInt(1)]])",
+        vm_error: "Some(BlockTimeNotAvailable) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 165,
+          read_count: 6,
+          runtime: 9012,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 165,
+      read_count: 6,
+      runtime: 9012,
+    ),
+  )),
+]

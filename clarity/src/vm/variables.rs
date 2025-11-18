@@ -155,7 +155,7 @@ mod test {
     use crate::vm::costs::LimitedCostTracker;
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::{CallStack, ClarityVersion, ContractContext};
-    
+
     #[test]
     fn trigger_no_caller_in_context() {
         let mut call_stack = CallStack::new();
