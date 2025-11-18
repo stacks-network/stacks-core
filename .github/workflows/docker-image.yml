@@ -11,7 +11,7 @@ env:
     docker_platforms: "linux/amd64,linux/arm64"
     docker_registry: "ghcr.io"
     # set a default command to build. we'll define specific build config options later per arch.
-    CMD: "cargo build --features monitoring_prom,slog_json --profile release-lite --workspace"
+    CMD: "cargo build --features monitoring_prom,slog_json --profile release --workspace"
     # do not generate provenance from the docker build step, instead attest the image specifically
     provenance: false
     # ensure these env vars have no values since they will be explicitly set later
@@ -130,7 +130,7 @@ jobs:
               shell: bash
               run: |
                   # compress all binaries in the target directory for any architecture
-                  file -0 ./target/${{env.TARGET}}/release-lite/* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{env.ZIPFILE_NAME}}.zip -@
+                  file -0 ./target/${{env.TARGET}}/release/* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{env.ZIPFILE_NAME}}.zip -@
 
             ## Upload the binary archive using the commit sha as the key
             - name: Upload Artifact
