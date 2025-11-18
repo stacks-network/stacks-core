@@ -72,9 +72,7 @@ use crate::vm::costs::{
 };
 // publish the non-generic StacksEpoch form for use throughout module
 pub use crate::vm::database::clarity_db::StacksEpoch;
-use crate::vm::errors::{
-    CheckErrorKind, InterpreterResult as Result, RuntimeError, VmExecutionError, VmInternalError,
-};
+use crate::vm::errors::{CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use crate::vm::events::StacksTransactionEvent;
 use crate::vm::functions::define::DefineResult;
 pub use crate::vm::functions::stx_transfer_consolidated;
@@ -162,7 +160,11 @@ pub trait EvalHook {
     fn did_complete(&mut self, _result: core::result::Result<&mut ExecutionResult, String>);
 }
 
-fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) -> Result<Value> {
+fn lookup_variable(
+    name: &str,
+    context: &LocalContext,
+    env: &mut Environment,
+) -> Result<Value, VmExecutionError> {
     if name.starts_with(char::is_numeric) || name.starts_with('\'') {
         Err(
             VmInternalError::BadSymbolicRepresentation(format!("Unexpected variable name: {name}"))
@@ -197,7 +199,10 @@ fn lookup_variable(name: &str, context: &LocalContext, env: &mut Environment) ->
     }
 }
 
-pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType> {
+pub fn lookup_function(
+    name: &str,
+    env: &mut Environment,
+) -> Result<CallableType, VmExecutionError> {
     runtime_cost(ClarityCostFunction::LookupFunction, env, 0)?;
 
     if let Some(result) =
@@ -213,7 +218,7 @@ pub fn lookup_function(name: &str, env: &mut Environment) -> Result<CallableType
     }
 }
 
-fn add_stack_trace(result: &mut Result<Value>, env: &Environment) {
+fn add_stack_trace(result: &mut Result<Value, VmExecutionError>, env: &Environment) {
     if let Err(VmExecutionError::Runtime(_, ref mut stack_trace)) = result {
         if stack_trace.is_none() {
             stack_trace.replace(env.call_stack.make_stack_trace());
@@ -226,7 +231,7 @@ pub fn apply(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     let identifier = function.get_identifier();
     // Aaron: in non-debug executions, we shouldn't track a full call-stack.
     //        only enough to do recursion detection.
@@ -301,7 +306,9 @@ pub fn apply(
     }
 }
 
-fn check_max_execution_time_expired(global_context: &GlobalContext) -> Result<()> {
+fn check_max_execution_time_expired(
+    global_context: &GlobalContext,
+) -> Result<(), VmExecutionError> {
     match global_context.execution_time_tracker {
         ExecutionTimeTracker::NoTracking => Ok(()),
         ExecutionTimeTracker::MaxTime {
@@ -321,7 +328,7 @@ pub fn eval(
     exp: &SymbolicExpression,
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     use crate::vm::representations::SymbolicExpressionType::{
         Atom, AtomValue, Field, List, LiteralValue, TraitReference,
     };
@@ -380,7 +387,7 @@ pub fn eval_all(
     contract_context: &mut ContractContext,
     global_context: &mut GlobalContext,
     sponsor: Option<PrincipalData>,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>, VmExecutionError> {
     let mut last_executed = None;
     let context = LocalContext::new();
     let mut total_memory_use = 0;
@@ -492,7 +499,10 @@ pub fn eval_all(
 /// This method executes the program in Epoch 2.0 *and* Epoch 2.05 and asserts
 /// that the result is the same before returning the result
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_on_network(program: &str, use_mainnet: bool) -> Result<Option<Value>> {
+pub fn execute_on_network(
+    program: &str,
+    use_mainnet: bool,
+) -> Result<Option<Value>, VmExecutionError> {
     let epoch_200_result = execute_with_parameters(
         program,
         ClarityVersion::Clarity2,
@@ -524,10 +534,10 @@ pub fn execute_with_parameters_and_call_in_global_context<F, G>(
     sender: clarity_types::types::StandardPrincipalData,
     mut before_function: F,
     mut after_function: G,
-) -> Result<Option<Value>>
+) -> Result<Option<Value>, VmExecutionError>
 where
-    F: FnMut(&mut GlobalContext) -> Result<()>,
-    G: FnMut(&mut GlobalContext) -> Result<()>,
+    F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
+    G: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
 {
     use crate::vm::database::MemoryBackingStore;
     use crate::vm::tests::test_only_mainnet_to_chain_id;
@@ -561,7 +571,7 @@ pub fn execute_with_parameters(
     clarity_version: ClarityVersion,
     epoch: StacksEpochId,
     use_mainnet: bool,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>, VmExecutionError> {
     execute_with_parameters_and_call_in_global_context(
         program,
         clarity_version,
@@ -575,13 +585,16 @@ pub fn execute_with_parameters(
 
 /// Execute for test with `version`, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_against_version(program: &str, version: ClarityVersion) -> Result<Option<Value>> {
+pub fn execute_against_version(
+    program: &str,
+    version: ClarityVersion,
+) -> Result<Option<Value>, VmExecutionError> {
     execute_with_parameters(program, version, StacksEpochId::Epoch20, false)
 }
 
 /// Execute for test in Clarity1, Epoch20, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute(program: &str) -> Result<Option<Value>> {
+pub fn execute(program: &str) -> Result<Option<Value>, VmExecutionError> {
     execute_with_parameters(
         program,
         ClarityVersion::Clarity1,
@@ -595,7 +608,7 @@ pub fn execute(program: &str) -> Result<Option<Value>> {
 pub fn execute_with_limited_execution_time(
     program: &str,
     max_execution_time: std::time::Duration,
-) -> Result<Option<Value>> {
+) -> Result<Option<Value>, VmExecutionError> {
     execute_with_parameters_and_call_in_global_context(
         program,
         ClarityVersion::Clarity1,
@@ -612,7 +625,7 @@ pub fn execute_with_limited_execution_time(
 
 /// Execute for test in Clarity2, Epoch21, testnet.
 #[cfg(any(test, feature = "testing"))]
-pub fn execute_v2(program: &str) -> Result<Option<Value>> {
+pub fn execute_v2(program: &str) -> Result<Option<Value>, VmExecutionError> {
     execute_with_parameters(
         program,
         ClarityVersion::Clarity2,

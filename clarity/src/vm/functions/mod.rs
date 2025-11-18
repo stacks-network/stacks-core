@@ -22,7 +22,7 @@ use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
     check_argument_count, check_arguments_at_least, CheckErrorKind, EarlyReturnError,
-    InterpreterResult as Result, SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
+    SyntaxBindingError, SyntaxBindingErrorType, VmExecutionError,
 };
 pub use crate::vm::functions::assets::stx_transfer_consolidated;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
@@ -36,7 +36,7 @@ macro_rules! switch_on_global_epoch {
             args: &[SymbolicExpression],
             env: &mut Environment,
             context: &LocalContext,
-        ) -> Result<Value> {
+        ) -> std::result::Result<Value, VmExecutionError> {
             match env.epoch() {
                 StacksEpochId::Epoch10 => {
                     panic!("Executing Clarity method during Epoch 1.0, before Clarity")
@@ -599,7 +599,7 @@ pub fn lookup_reserved_functions(name: &str, version: &ClarityVersion) -> Option
     }
 }
 
-fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
+fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value, VmExecutionError> {
     // TODO: this currently uses the derived equality checks of Value,
     //   however, that's probably not how we want to implement equality
     //   checks on the ::ListTypes
@@ -624,7 +624,7 @@ fn native_eq(args: Vec<Value>, env: &mut Environment) -> Result<Value> {
     }
 }
 
-fn native_begin(mut args: Vec<Value>) -> Result<Value> {
+fn native_begin(mut args: Vec<Value>) -> Result<Value, VmExecutionError> {
     match args.pop() {
         Some(v) => Ok(v),
         None => Err(CheckErrorKind::RequiresAtLeastArguments(1, 0).into()),
@@ -635,7 +635,7 @@ fn special_print(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     let arg = args.first().ok_or_else(|| {
         VmInternalError::BadSymbolicRepresentation("Print should have an argument".into())
     })?;
@@ -655,7 +655,7 @@ fn special_if(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(3, args)?;
 
     runtime_cost(ClarityCostFunction::If, env, 0)?;
@@ -681,7 +681,7 @@ fn special_asserts(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::Asserts, env, 0)?;
@@ -746,7 +746,7 @@ pub fn parse_eval_bindings(
     binding_error_type: SyntaxBindingErrorType,
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Vec<(ClarityName, Value)>> {
+) -> Result<Vec<(ClarityName, Value)>, VmExecutionError> {
     let mut result = Vec::with_capacity(bindings.len());
     handle_binding_list(bindings, binding_error_type, |var_name, var_sexp| {
         eval(var_sexp, env, context).map(|value| result.push((var_name.clone(), value)))
@@ -759,7 +759,7 @@ fn special_let(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (let ((x 1) (y 2)) (+ x y)) -> 3
     // arg0 => binding list
     // arg1..n => body
@@ -812,7 +812,7 @@ fn special_as_contract(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (as-contract (..))
     // arg0 => body
     check_argument_count(1, args)?;
@@ -839,7 +839,7 @@ fn special_contract_of(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (contract-of (..))
     // arg0 => trait
     check_argument_count(1, args)?;

@@ -22,8 +22,8 @@ use crate::vm::callables::DefineType;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::{constants as cost_constants, runtime_cost, CostTracker, MemoryConsumer};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrorKind, InterpreterResult as Result,
-    RuntimeError, VmInternalError,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, RuntimeError, VmExecutionError,
+    VmInternalError,
 };
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::{
@@ -61,7 +61,7 @@ pub fn special_contract_call(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_arguments_at_least(2, args)?;
 
     // the second part of the contract_call cost (i.e., the load contract cost)
@@ -230,7 +230,7 @@ pub fn special_fetch_variable_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     _context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
@@ -261,7 +261,7 @@ pub fn special_fetch_variable_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     _context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
 
     let var_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
@@ -294,7 +294,7 @@ pub fn special_set_variable_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
         return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
@@ -334,7 +334,7 @@ pub fn special_set_variable_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
         return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
@@ -375,7 +375,7 @@ pub fn special_fetch_entry_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
@@ -408,7 +408,7 @@ pub fn special_fetch_entry_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     let map_name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
@@ -443,7 +443,7 @@ pub fn special_at_block(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(2, args)?;
 
     runtime_cost(ClarityCostFunction::AtBlock, env, 0)?;
@@ -476,7 +476,7 @@ pub fn special_set_entry_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
         return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
@@ -519,7 +519,7 @@ pub fn special_set_entry_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
         return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
@@ -562,7 +562,7 @@ pub fn special_insert_entry_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
         return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
@@ -606,7 +606,7 @@ pub fn special_insert_entry_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
         return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
@@ -649,7 +649,7 @@ pub fn special_delete_entry_v200(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
         return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
@@ -689,7 +689,7 @@ pub fn special_delete_entry_v205(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     if env.global_context.is_read_only() {
         return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
     }
@@ -748,7 +748,7 @@ pub fn special_get_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (get-block-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
@@ -900,7 +900,7 @@ pub fn special_get_burn_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     runtime_cost(ClarityCostFunction::GetBurnBlockInfo, env, 0)?;
 
     check_argument_count(2, args)?;
@@ -1001,7 +1001,7 @@ pub fn special_get_stacks_block_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (get-stacks-block-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
@@ -1083,7 +1083,7 @@ pub fn special_get_tenure_info(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     // (get-tenure-info? property-name block-height-uint)
     runtime_cost(ClarityCostFunction::BlockInfo, env, 0)?;
 
@@ -1181,7 +1181,7 @@ pub fn special_contract_hash(
     args: &[SymbolicExpression],
     env: &mut Environment,
     context: &LocalContext,
-) -> Result<Value> {
+) -> Result<Value, VmExecutionError> {
     check_argument_count(1, args)?;
     let contract_expr = args
         .first()
