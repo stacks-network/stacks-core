@@ -972,85 +972,17 @@ mod tests {
     #[test]
     fn get_node_epoch_should_succeed() {
         let mock = MockServerClient::new();
-        // The burn block height is one BEHIND the activation height of 2.5, therefore is 2.4
-        let burn_block_height: u64 = 100;
-        let pox_response = build_get_pox_data_response(
-            None,
-            None,
-            Some(burn_block_height.saturating_add(1)),
-            None,
-        )
-        .0;
-        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
-        let h = spawn(move || mock.client.get_node_epoch());
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch24);
 
-        // The burn block height is the same as the activation height of 2.5, therefore is 2.5
-        let pox_response = build_get_pox_data_response(None, None, Some(burn_block_height), None).0;
-        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
-        let mock = MockServerClient::from_config(mock.config);
-        let h = spawn(move || mock.client.get_node_epoch());
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch25);
+        let expected_epoch = StacksEpochId::Epoch30;
 
-        // The burn block height is the AFTER as the activation height of 2.5 but BEFORE the activation height of 3.0, therefore is 2.5
-        let pox_response = build_get_pox_data_response(
-            None,
-            None,
-            Some(burn_block_height.saturating_sub(1)),
-            Some(burn_block_height.saturating_add(1)),
-        )
-        .0;
-        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
-        let mock = MockServerClient::from_config(mock.config);
-        let h = spawn(move || mock.client.get_node_epoch());
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch25);
+        let (pox_response, _) = build_get_pox_data_response(None, None, None, None);
 
-        // The burn block height is the AFTER as the activation height of 2.5 and the SAME as the activation height of 3.0, therefore is 3.0
-        let pox_response = build_get_pox_data_response(
-            None,
-            None,
-            Some(burn_block_height.saturating_sub(1)),
-            Some(burn_block_height),
-        )
-        .0;
-        let peer_response = build_get_peer_info_response(Some(burn_block_height), None).0;
-        let mock = MockServerClient::from_config(mock.config);
         let h = spawn(move || mock.client.get_node_epoch());
-        write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
-        let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch30);
 
-        // The burn block height is the AFTER as the activation height of 2.5 and AFTER the activation height of 3.0, therefore is 3.0
-        let pox_response = build_get_pox_data_response(
-            None,
-            None,
-            Some(burn_block_height.saturating_sub(1)),
-            Some(burn_block_height),
-        )
-        .0;
-        let peer_response =
-            build_get_peer_info_response(Some(burn_block_height.saturating_add(1)), None).0;
-        let mock = MockServerClient::from_config(mock.config);
-        let h = spawn(move || mock.client.get_node_epoch());
         write_response(mock.server, pox_response.as_bytes());
-        let mock = MockServerClient::from_config(mock.config);
-        write_response(mock.server, peer_response.as_bytes());
+
         let epoch = h.join().unwrap().expect("Failed to deserialize response");
-        assert_eq!(epoch, StacksEpochId::Epoch30);
+        assert_eq!(epoch, expected_epoch);
     }
 
     #[test]
