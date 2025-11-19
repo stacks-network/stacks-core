@@ -21,8 +21,10 @@ use clarity::vm::types::MAX_TYPE_DEPTH;
 use clarity::vm::Value as ClarityValue;
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, contract_deploy_consensus_test,
+    contract_call_consensus_test, contract_deploy_consensus_test, SetupContract, EPOCHS_TO_TEST,
+    FAUCET_PRIV_KEY,
 };
+use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 
 /// CheckError: [`CheckErrorKind::CostBalanceExceeded`]
@@ -162,16 +164,16 @@ fn check_error_kind_type_value_error_cdeploy() {
 
 // pub enum CheckErrorKind {
 //     CostOverflow, // Unreachable: should exceed u64
-//     CostBalanceExceeded(ExecutionCost, ExecutionCost), [`check_error_cost_balance_exceeded`]
+//     CostBalanceExceeded(ExecutionCost, ExecutionCost), [`check_error_cost_balance_exceeded_cdeploy`]
 //     MemoryBalanceExceeded(u64, u64),
 //     CostComputationFailed(String), // Unreachable
 //     ExecutionTimeExpired,
-//     ValueTooLarge, [`check_error_kind_value_too_large`]
-//     ValueOutOfBounds,
-//     TypeSignatureTooDeep, [`check_error_kind_type_signature_too_deep`]
-//     ExpectedName,
+//     ValueTooLarge, [`check_error_kind_value_too_large_cdeploy`]
+//     ValueOutOfBounds,  // Unreachable: validated before reaching the runtime error
+//     TypeSignatureTooDeep, [`check_error_kind_type_signature_too_deep_cdeploy`]
+//     ExpectedName,  // Unreachable: every place in the runtime where ExpectedName is raised comes from a direct call to SymbolicExpression::match_atom() on the original AST node and the type checker runs the same structure check during analysis.
 //     SupertypeTooLarge,
-//     Expects(String),
+//     Expects(String),  // unreachable
 //     BadMatchOptionSyntax(Box<CheckErrorKind>),
 //     BadMatchResponseSyntax(Box<CheckErrorKind>),
 //     BadMatchInput(Box<TypeSignature>),
@@ -215,7 +217,7 @@ fn check_error_kind_type_value_error_cdeploy() {
 //     GetBlockInfoExpectPropertyName,
 //     GetStacksBlockInfoExpectPropertyName,
 //     GetTenureInfoExpectPropertyName,
-//     NameAlreadyUsed(String),
+//     NameAlreadyUsed(String), [`check_error_kind_name_already_used_cdeploy`]
 //     NonFunctionApplication,
 //     ExpectedListApplication,
 //     ExpectedSequence(Box<TypeSignature>),
@@ -225,11 +227,11 @@ fn check_error_kind_type_value_error_cdeploy() {
 //     UndefinedVariable(String),
 //     RequiresAtLeastArguments(usize, usize),
 //     RequiresAtMostArguments(usize, usize),
-//     IncorrectArgumentCount(usize, usize),
+//     IncorrectArgumentCount(usize, usize), [`check_error_kind_incorrect_argument_count_ccall`]
 //     TooManyFunctionParameters(usize, usize),
 //     TraitReferenceUnknown(String),
 //     TraitMethodUnknown(String, String),
-//     ExpectedTraitIdentifier,
+//     ExpectedTraitIdentifier, // Unreachable: callable trait values always carry their trait id after sanitization
 //     BadTraitImplementation(String, String),
 //     DefineTraitBadSignature,
 //     DefineTraitDuplicateMethod(String),
@@ -261,5 +263,61 @@ fn check_error_kind_type_value_error_ccall() {
         contract_code: "(define-public (trigger-error (x uint)) (ok true))",
         function_name: "trigger-error",
         function_args: &[ClarityValue::Bool(true)],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::IncorrectArgumentCount`]
+/// Caused by: passing the wrong number of arguments to a function.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_incorrect_argument_count_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error (x uint)) (ok true))",
+        function_name: "trigger-error",
+        function_args: &[ClarityValue::Bool(true), ClarityValue::Bool(true)],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ContractCallExpectName`]
+/// Caused by: the trait reference is stored as a constant, so the runtime never
+///     binds it in `LocalContext::callable_contracts` and `special_contract_call`
+///     cannot resolve the callee.
+/// Outcome: block accepted.
+/// Note: This test only works for Clarity 2 and later.
+///     Clarity 1 will not be able to upload contract-3.
+#[test]
+fn check_error_kind_contract_call_expect_name_ccall() {
+    let contract_1 = SetupContract::new(
+        "contract-1",
+        "(define-trait simple-trait (
+            (ping () (response bool uint))))",
+    );
+
+    let contract_2 = SetupContract::new(
+        "contract-2",
+        "(impl-trait .contract-1.simple-trait)
+         (define-public (ping)
+            (ok true))",
+    );
+
+    contract_call_consensus_test!(
+        contract_name: "contract-3",
+        contract_code: &format!(
+            "
+    (use-trait simple-trait .contract-1.simple-trait)
+
+    ;; Trait reference stored as a constant.
+    (define-constant default-target '{}.contract-2)
+
+    (define-public (trigger-error)
+        (contract-call? default-target ping))",
+        to_addr(&FAUCET_PRIV_KEY),
+    ),
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: EPOCHS_TO_TEST,
+        call_epochs: EPOCHS_TO_TEST,
+        setup_contracts: &[contract_1, contract_2],
     );
 }

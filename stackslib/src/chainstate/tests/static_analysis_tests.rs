@@ -27,8 +27,8 @@ use clarity::vm::types::MAX_TYPE_DEPTH;
 
 use crate::chainstate::stacks::StacksTransaction;
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_deploy_consensus_test, ConsensusTest, TestBlock,
-    EPOCHS_TO_TEST, FAUCET_PRIV_KEY,
+    clarity_versions_for_epoch, contract_deploy_consensus_test, ConsensusTest, SetupContract,
+    TestBlock, EPOCHS_TO_TEST, FAUCET_PRIV_KEY,
 };
 use crate::core::test_util::make_contract_publish_versioned;
 use crate::core::BLOCK_LIMIT_MAINNET_21;

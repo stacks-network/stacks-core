@@ -816,6 +816,7 @@ pub enum CheckErrorKind {
     /// The first `String` wraps the trait name, and the second wraps the method name.
     TraitMethodUnknown(String, String),
     /// Expected a trait identifier (e.g., `.trait-name`) but found an invalid token.
+    /// Unreachable: callable trait values always carry their trait id after sanitization
     ExpectedTraitIdentifier,
     /// Invalid implementation of a trait method.
     /// The first `String` wraps the trait name, and the second wraps the method name.
