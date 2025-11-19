@@ -27,7 +27,7 @@ use crate::chainstate::tests::consensus::{
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 
-/// CheckError: [`CheckErrorKind::CostBalanceExceeded`]
+/// CheckErrorKind: [`CheckErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding the cost analysis budget during contract initialization.
 ///   The contract repeatedly performs `var-get` lookups on a data variable,
 ///   forcing the type checker to fetch the variable enough times to exceed
@@ -46,7 +46,8 @@ fn check_error_cost_balance_exceeded_cdeploy() {
         ),
     );
 }
-/// CheckError: [`CheckErrorKind::NameAlreadyUsed`]
+
+/// CheckErrorKind: [`CheckErrorKind::NameAlreadyUsed`]
 /// Caused by: name is already used by a standard clarity function.
 /// Outcome: block rejected.
 #[test]
@@ -56,6 +57,7 @@ fn check_error_kind_name_already_used_cdeploy() {
         contract_code: "(define-private (ft-get-supply) 1)",
     );
 }
+
 /// CheckErrorKind: [`CheckErrorKind::ValueTooLarge`]
 /// Caused by: `(as-max-len? …)` wraps a buffer whose serialized size plus the optional wrapper
 ///   exceeds `MAX_VALUE_SIZE`. Static analysis allows this construction, but initialization fails
@@ -162,6 +164,44 @@ fn check_error_kind_type_value_error_cdeploy() {
     );
 }
 
+/// CheckErrorKind: [`CheckErrorKind::ContractCallExpectName`]
+/// Caused by: the trait reference is stored as a constant, so the runtime never
+///     binds it in `LocalContext::callable_contracts` and `special_contract_call`
+///     cannot resolve the callee.
+/// Outcome: block accepted.
+/// Note: This test only works for Clarity 2 and later.
+///     Clarity 1 will not be able to upload contract-3.
+#[test]
+fn check_error_kind_contract_call_expect_name_cdeploy() {
+    let contract_1 = SetupContract::new(
+        "contract-1",
+        "(define-trait simple-trait (
+            (ping () (response bool uint))))",
+    );
+
+    let contract_2 = SetupContract::new(
+        "contract-2",
+        "(impl-trait .contract-1.simple-trait)
+         (define-public (ping)
+            (ok true))",
+    );
+
+    contract_deploy_consensus_test!(
+        contract_name: "contract-3",
+        contract_code: &format!(
+            "
+    (use-trait simple-trait .contract-1.simple-trait)
+
+    ;; Evaluated during initialization; runtime cannot resolve the callable.
+    (define-constant default-target '{}.contract-2)
+
+    (contract-call? default-target ping)",
+        to_addr(&FAUCET_PRIV_KEY),
+    ),
+        setup_contracts: &[contract_1, contract_2],
+    );
+}
+
 // pub enum CheckErrorKind {
 //     CostOverflow, // Unreachable: should exceed u64
 //     CostBalanceExceeded(ExecutionCost, ExecutionCost), [`check_error_cost_balance_exceeded_cdeploy`]
@@ -211,7 +251,7 @@ fn check_error_kind_type_value_error_cdeploy() {
 //     NoSuchPublicFunction(String, String),
 //     PublicFunctionNotReadOnly(String, String),
 //     ContractAlreadyExists(String),
-//     ContractCallExpectName,
+//     ContractCallExpectName, [`check_error_kind_contract_call_expect_name_cdeploy`]
 //     NoSuchBurnBlockInfoProperty(String),
 //     NoSuchStacksBlockInfoProperty(String),
 //     GetBlockInfoExpectPropertyName,
@@ -223,7 +263,7 @@ fn check_error_kind_type_value_error_cdeploy() {
 //     ExpectedSequence(Box<TypeSignature>),
 //     BadLetSyntax,
 //     BadSyntaxBinding(SyntaxBindingError),
-//     UndefinedFunction(String),
+//     UndefinedFunction(String),  // Unreachable? Wasn't able to trigger this error during contract initialization.
 //     UndefinedVariable(String),
 //     RequiresAtLeastArguments(usize, usize),
 //     RequiresAtMostArguments(usize, usize),
@@ -319,5 +359,38 @@ fn check_error_kind_contract_call_expect_name_ccall() {
         deploy_epochs: EPOCHS_TO_TEST,
         call_epochs: EPOCHS_TO_TEST,
         setup_contracts: &[contract_1, contract_2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::NameAlreadyUsed`]
+/// Caused by: a `let` binding attempts to shadow the reserved keyword `stacks-block-height`.
+///     The analyzer accepts the contract, but binding happens only when the public
+///     function executes, so the runtime raises `NameAlreadyUsed`.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_name_already_used_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "name-already-used",
+        contract_code: "
+        (define-public (trigger-error)
+            (let ((ft-get-supply u0))
+                (ok ft-get-supply)))",
+        function_name: "trigger-error",
+        function_args: &[],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::UndefinedFunction`]
+/// Caused by: invoking a public function name that is not defined in the contract.
+/// Outcome: block accepted (transaction aborts with the runtime error).
+#[test]
+fn check_error_kind_undefined_function_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "undef-fn-call",
+        contract_code: "
+        (define-public (noop)
+            (ok true))",
+        function_name: "missing-func",
+        function_args: &[],
     );
 }

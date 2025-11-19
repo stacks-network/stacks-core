@@ -352,6 +352,17 @@ fn static_check_error_unknown_type_name() {
     );
 }
 
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::PublicFunctionMustReturnResponse`]
+/// Caused by: defining a public function that does not return a response (ok or err).
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_public_function_must_return_response() {
+    contract_deploy_consensus_test!(
+        contract_name: "non-response",
+        contract_code: "(define-public (non-response) true)",
+    );
+}
+
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::UnionTypeError`]
 /// Caused by:
 /// Outcome: block accepted.
@@ -1260,7 +1271,7 @@ fn error_invalid_stacks_transaction_duplicate_contract() {
 //     DefineFunctionBadSignature, [`static_check_error_define_function_bad_signature`]
 //     BadFunctionName, [`static_check_error_bad_function_name`]
 //     BadMapTypeDefinition, [`static_check_error_bad_map_type_definition`]
-//     PublicFunctionMustReturnResponse(Box<TypeSignature>),
+//     PublicFunctionMustReturnResponse(Box<TypeSignature>), [`static_check_error_public_function_must_return_response`]
 //     DefineVariableBadSignature, [`static_check_error_define_variable_bad_signature`]
 //     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`static_check_error_return_types_must_match`]
 //     NoSuchContract(String), [`static_check_error_no_such_contract`]
