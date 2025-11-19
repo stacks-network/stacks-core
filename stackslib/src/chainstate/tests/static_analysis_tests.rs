@@ -1140,71 +1140,19 @@ fn static_check_error_get_tenure_info_expect_property_name() {
 // Outcome: block accepted.
 #[test]
 fn static_check_error_bad_trait_implementation() {
-    let contract_name = "contract-name";
-    let contract_defining_trait = "(define-trait trait-1 (
-        (get-1 ((list 10 uint)) (response uint uint))))";
-    let impl_contract = format!(
-        "(impl-trait .{}.trait-1)
-    (define-public (get-1 (x (list 5 uint))) (ok u1))",
-        contract_name
+    let setup_contract = SetupContract::new(
+        "trait-contract",
+        "(define-trait trait-1 ((get-1 ((list 10 uint)) (response uint uint))))",
     );
 
-    let mut nonce = 0;
-
-    let tx_fee = (contract_defining_trait.len() * 100) as u64;
-    let mut epochs_blocks: HashMap<StacksEpochId, Vec<TestBlock>> = HashMap::new();
-    let deploy_tx = make_contract_publish_versioned(
-        &FAUCET_PRIV_KEY,
-        nonce,
-        tx_fee,
-        CHAIN_ID_TESTNET,
-        &contract_name,
-        &contract_defining_trait,
-        None,
+    contract_deploy_consensus_test!(
+        contract_name: "contract-name",
+        contract_code: &format!("
+            (impl-trait .trait-contract.trait-1)
+            (define-public (get-1 (x (list 5 uint))) (ok u1))",
+        ),
+        setup_contracts: &[setup_contract],
     );
-    nonce += 1;
-    epochs_blocks
-        .entry(*EPOCHS_TO_TEST.first().unwrap())
-        .or_insert(vec![])
-        .push(TestBlock {
-            transactions: vec![
-                StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap(),
-            ],
-        });
-
-    for epoch in EPOCHS_TO_TEST {
-        for version in clarity_versions_for_epoch(*epoch) {
-            let epoch_name = format!("Epoch{}", epoch.to_string().replace(".", "_"));
-            let name = format!(
-                "{contract_name}-{epoch_name}-{}",
-                version.to_string().replace(" ", "")
-            );
-            let deploy_tx = make_contract_publish_versioned(
-                &FAUCET_PRIV_KEY,
-                nonce,
-                tx_fee,
-                CHAIN_ID_TESTNET,
-                &name,
-                &impl_contract,
-                Some(*version),
-            );
-            nonce += 1;
-
-            let deploy_tx =
-                StacksTransaction::consensus_deserialize(&mut deploy_tx.as_slice()).unwrap();
-
-            let entry = epochs_blocks
-                .entry(*epoch)
-                .or_insert(vec![])
-                .push(TestBlock {
-                    transactions: vec![deploy_tx],
-                });
-        }
-    }
-
-    let result = ConsensusTest::new(function_name!(), vec![], epochs_blocks).run();
-
-    insta::assert_ron_snapshot!(result);
 }
 
 // Error: [`Error::InvalidStacksTransaction("Duplicate contract")`]
