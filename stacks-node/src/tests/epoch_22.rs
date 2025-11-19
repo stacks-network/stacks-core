@@ -195,7 +195,7 @@ fn disable_pox() {
     let pox_addr_tuple_1 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
-        CURRENT_TESTING_EPOCH,
+        StacksEpochId::latest(),
         false,
     )
     .unwrap()
@@ -204,7 +204,7 @@ fn disable_pox() {
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
-        CURRENT_TESTING_EPOCH,
+        StacksEpochId::latest(),
         false,
     )
     .unwrap()
@@ -256,7 +256,7 @@ fn disable_pox() {
     let pox_addr_tuple_2 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
-        CURRENT_TESTING_EPOCH,
+        StacksEpochId::latest(),
         false,
     )
     .unwrap()
@@ -725,7 +725,7 @@ fn pox_2_unlock_all() {
     let pox_addr_tuple_1 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
-        CURRENT_TESTING_EPOCH,
+        StacksEpochId::latest(),
         false,
     )
     .unwrap()
@@ -734,7 +734,7 @@ fn pox_2_unlock_all() {
     let pox_addr_tuple_3 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_3}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
-        CURRENT_TESTING_EPOCH,
+        StacksEpochId::latest(),
         false,
     )
     .unwrap()
@@ -787,7 +787,7 @@ fn pox_2_unlock_all() {
     let pox_addr_tuple_2 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
-        CURRENT_TESTING_EPOCH,
+        StacksEpochId::latest(),
         false,
     )
     .unwrap()

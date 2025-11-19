@@ -92,8 +92,8 @@ use crate::neon_node::RelayerThread;
 use crate::operations::BurnchainOpSigner;
 use crate::stacks_common::types::PrivateKey;
 use crate::syncctl::PoxSyncWatchdogComms;
+use crate::tests::gen_random_port;
 use crate::tests::nakamoto_integrations::{get_key_for_cycle, wait_for};
-use crate::tests::{gen_random_port, CURRENT_TESTING_EPOCH};
 use crate::{neon, BitcoinRegtestController, BurnchainController, Config, ConfigFile, Keychain};
 
 fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAddress) {
@@ -2370,7 +2370,7 @@ fn stx_delegate_btc_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity2,
-                CURRENT_TESTING_EPOCH,
+                StacksEpochId::latest(),
                 false,
             )
             .unwrap()
@@ -5360,7 +5360,7 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
-                CURRENT_TESTING_EPOCH,
+                StacksEpochId::latest(),
                 false,
             )
             .unwrap()
@@ -5474,7 +5474,7 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_2_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
-                CURRENT_TESTING_EPOCH,
+                StacksEpochId::latest(),
                 false,
             )
             .unwrap()
@@ -5500,7 +5500,7 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_2_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
-                CURRENT_TESTING_EPOCH,
+                StacksEpochId::latest(),
                 false,
             )
             .unwrap()
