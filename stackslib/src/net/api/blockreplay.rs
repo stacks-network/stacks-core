@@ -44,6 +44,107 @@ use crate::net::http::{
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 
+#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
+struct BlockReplayProfiler {
+    perf_event_cpu_instructions: Option<perf_event::Counter>,
+    perf_event_cpu_cycles: Option<perf_event::Counter>,
+    perf_event_cpu_ref_cycles: Option<perf_event::Counter>,
+}
+
+#[cfg(not(all(feature = "profiler", target_os = "linux", target_arch = "x86_64")))]
+struct BlockReplayProfiler();
+
+#[derive(Default)]
+struct BlockReplayProfilerResult {
+    cpu_instructions: Option<u64>,
+    cpu_cycles: Option<u64>,
+    cpu_ref_cycles: Option<u64>,
+}
+
+#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
+impl BlockReplayProfiler {
+    fn new() -> Self {
+        let mut perf_event_cpu_instructions: Option<Counter> = None;
+        let mut perf_event_cpu_cycles: Option<Counter> = None;
+        let mut perf_event_cpu_ref_cycles: Option<Counter> = None;
+
+        if let Ok(mut perf_event_cpu_instructions_result) =
+            Builder::new(Hardware::INSTRUCTIONS).build()
+        {
+            if perf_event_cpu_instructions_result.enable().is_ok() {
+                perf_event_cpu_instructions = Some(perf_event_cpu_instructions_result);
+            }
+        }
+
+        if let Ok(mut perf_event_cpu_cycles_result) = Builder::new(Hardware::CPU_CYCLES).build() {
+            if perf_event_cpu_cycles_result.enable().is_ok() {
+                perf_event_cpu_cycles = Some(perf_event_cpu_cycles_result);
+            }
+        }
+
+        if let Ok(mut perf_event_cpu_ref_cycles_result) =
+            Builder::new(Hardware::REF_CPU_CYCLES).build()
+        {
+            if perf_event_cpu_ref_cycles_result.enable().is_ok() {
+                perf_event_cpu_ref_cycles = Some(perf_event_cpu_ref_cycles_result);
+            }
+        }
+
+        Self {
+            perf_event_cpu_instructions,
+            perf_event_cpu_cycles,
+            perf_event_cpu_ref_cycles,
+        }
+    }
+
+    fn collect(self) -> BlockReplayProfilerResult {
+        let mut cpu_instructions: Option<u64> = None;
+        let mut cpu_cycles: Option<u64> = None;
+        let mut cpu_ref_cycles: Option<u64> = None;
+
+        if let Some(mut perf_event_cpu_instructions) = self.perf_event_cpu_instructions {
+            if perf_event_cpu_instructions.disable().is_ok() {
+                if let Ok(value) = perf_event_cpu_instructions.read() {
+                    cpu_instructions = Some(value);
+                }
+            }
+        }
+
+        if let Some(mut perf_event_cpu_cycles) = self.perf_event_cpu_cycles {
+            if perf_event_cpu_cycles.disable().is_ok() {
+                if let Ok(value) = perf_event_cpu_cycles.read() {
+                    cpu_cycles = Some(value);
+                }
+            }
+        }
+
+        if let Some(mut perf_event_cpu_ref_cycles) = self.perf_event_cpu_ref_cycles {
+            if perf_event_cpu_ref_cycles.disable().is_ok() {
+                if let Ok(value) = perf_event_cpu_ref_cycles.read() {
+                    cpu_ref_cycles = Some(value);
+                }
+            }
+        }
+
+        BlockReplayProfilerResult {
+            cpu_instructions,
+            cpu_cycles,
+            cpu_ref_cycles,
+        }
+    }
+}
+
+#[cfg(not(all(feature = "profiler", target_os = "linux", target_arch = "x86_64")))]
+impl BlockReplayProfiler {
+    fn new() -> Self {
+        warn!("BlockReplay Profiler is not available in this build.");
+        Self {}
+    }
+    fn collect(self) -> BlockReplayProfilerResult {
+        BlockReplayProfilerResult::default()
+    }
+}
+
 #[derive(Clone)]
 pub struct RPCNakamotoBlockReplayRequestHandler {
     pub block_id: Option<StacksBlockId>,
@@ -167,38 +268,11 @@ impl RPCNakamotoBlockReplayRequestHandler {
         for (i, tx) in block.txs.iter().enumerate() {
             let tx_len = tx.tx_len();
 
-            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
-            let mut perf_event_cpu_instructions: Option<Counter> = None;
-            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
-            let mut perf_event_cpu_cycles: Option<Counter> = None;
-            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
-            let mut perf_event_cpu_ref_cycles: Option<Counter> = None;
+            let mut profiler: Option<BlockReplayProfiler> = None;
+            let mut profiler_result = BlockReplayProfilerResult::default();
 
-            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
             if self.profiler {
-                if let Ok(mut perf_event_cpu_instructions_result) =
-                    Builder::new(Hardware::INSTRUCTIONS).build()
-                {
-                    if perf_event_cpu_instructions_result.enable().is_ok() {
-                        perf_event_cpu_instructions = Some(perf_event_cpu_instructions_result);
-                    }
-                }
-
-                if let Ok(mut perf_event_cpu_cycles_result) =
-                    Builder::new(Hardware::CPU_CYCLES).build()
-                {
-                    if perf_event_cpu_cycles_result.enable().is_ok() {
-                        perf_event_cpu_cycles = Some(perf_event_cpu_cycles_result);
-                    }
-                }
-
-                if let Ok(mut perf_event_cpu_ref_cycles_result) =
-                    Builder::new(Hardware::REF_CPU_CYCLES).build()
-                {
-                    if perf_event_cpu_ref_cycles_result.enable().is_ok() {
-                        perf_event_cpu_ref_cycles = Some(perf_event_cpu_ref_cycles_result);
-                    }
-                }
+                profiler = Some(BlockReplayProfiler::new());
             }
 
             let tx_result = builder.try_mine_tx_with_len(
@@ -209,55 +283,17 @@ impl RPCNakamotoBlockReplayRequestHandler {
                 None,
             );
 
-            #[cfg(feature = "profiler")]
-            let mut cpu_instructions: Option<u64> = None;
-            #[cfg(not(feature = "profiler"))]
-            let cpu_instructions: Option<u64> = None;
-
-            #[cfg(feature = "profiler")]
-            let mut cpu_cycles: Option<u64> = None;
-            #[cfg(not(feature = "profiler"))]
-            let cpu_cycles: Option<u64> = None;
-
-            #[cfg(feature = "profiler")]
-            let mut cpu_ref_cycles: Option<u64> = None;
-            #[cfg(not(feature = "profiler"))]
-            let cpu_ref_cycles: Option<u64> = None;
-
-            #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
-            if self.profiler {
-                if let Some(mut perf_event_cpu_instructions) = perf_event_cpu_instructions {
-                    if perf_event_cpu_instructions.disable().is_ok() {
-                        if let Ok(value) = perf_event_cpu_instructions.read() {
-                            cpu_instructions = Some(value);
-                        }
-                    }
-                }
-
-                if let Some(mut perf_event_cpu_cycles) = perf_event_cpu_cycles {
-                    if perf_event_cpu_cycles.disable().is_ok() {
-                        if let Ok(value) = perf_event_cpu_cycles.read() {
-                            cpu_cycles = Some(value);
-                        }
-                    }
-                }
-
-                if let Some(mut perf_event_cpu_ref_cycles) = perf_event_cpu_ref_cycles {
-                    if perf_event_cpu_ref_cycles.disable().is_ok() {
-                        if let Ok(value) = perf_event_cpu_ref_cycles.read() {
-                            cpu_ref_cycles = Some(value);
-                        }
-                    }
-                }
+            if let Some(profiler) = profiler {
+                profiler_result = profiler.collect();
             }
 
             let err = match tx_result {
                 TransactionResult::Success(tx_result) => {
                     txs_receipts.push((
                         tx_result.receipt,
-                        cpu_instructions,
-                        cpu_cycles,
-                        cpu_ref_cycles,
+                        profiler_result.cpu_instructions,
+                        profiler_result.cpu_cycles,
+                        profiler_result.cpu_ref_cycles,
                     ));
                     Ok(())
                 }

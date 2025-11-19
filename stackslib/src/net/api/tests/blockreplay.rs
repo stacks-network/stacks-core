@@ -147,8 +147,11 @@ fn test_try_make_response() {
     let mut requests = vec![];
 
     // query existing, non-empty Nakamoto block
-    let mut request =
-        StacksHttpRequest::new_block_replay_with_profiler(addr.clone().into(), &rpc_test.canonical_tip, true);
+    let mut request = StacksHttpRequest::new_block_replay_with_profiler(
+        addr.clone().into(),
+        &rpc_test.canonical_tip,
+        true,
+    );
     // add the authorization header
     request.add_header("authorization".into(), "password".into());
     requests.push(request);
