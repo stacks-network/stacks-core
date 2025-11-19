@@ -54,7 +54,7 @@ jobs:
               run: |
                   case ${{ matrix.cpu }} in
                     x86-64*)
-                      ARCHIVE_NAME="$(echo "${{matrix.cpu}}" | sed -e 's|86-||g')" # if matrix.cpu ever changes to a different x86 version, this will set the archive naming appropriately.
+                      ARCHIVE_NAME="$(echo "${{ matrix.cpu }}" | sed -e 's|86-||g')" # if matrix.cpu ever changes to a different x86 version, this will set the archive naming appropriately.
                       # set the CPU to build for. if the matrix defines x86-64, default to -v3, else use what's defined in the matrix
                       case ${{ matrix.cpu }} in
                         x86-64)
@@ -70,7 +70,7 @@ jobs:
                       ;;
                     arm64)
                       # install dependencies for the arm64 architecture, and set the rust target for the build step
-                      ARCHIVE_NAME=${{matrix.cpu}}
+                      ARCHIVE_NAME=${{ matrix.cpu }}
                       sudo apt-get update && sudo apt-get install -y git gcc-aarch64-linux-gnu libclang-dev llvm || exit 1
                       TARGET="aarch64-unknown-linux-gnu"
                       ;;
@@ -85,7 +85,7 @@ jobs:
                   fi
                   echo "TARGET=${TARGET}" >> "$GITHUB_ENV"
                   echo "TARGET_CPU=${TARGET_CPU}" >> "$GITHUB_ENV"
-                  echo "ZIPFILE_NAME=${{matrix.arch}}-${ARCHIVE_NAME}" >> "$GITHUB_ENV"
+                  echo "ZIPFILE_NAME=${{ matrix.arch }}-${ARCHIVE_NAME}" >> "$GITHUB_ENV"
 
             ## Install rust toolchain for the target being built
             - name: Setup Rust Toolchain
@@ -104,22 +104,22 @@ jobs:
                   #
                   # for each target, we will also echo the command being run so it's easier to see in the logs what command was run
                   #
-                  case "${{env.TARGET}}" in
+                  case "${{ env.TARGET }}" in
                     # linux glibc aarch64
                     aarch64-unknown-linux-gnu)
                       LINKER=aarch64-linux-gnu-gcc
                       echo "$CMD --target $TARGET --config \"target.${TARGET}.linker=\\\"${LINKER}\\\"\" "
-                      ${{env.CMD}} --target $TARGET --config "target.${{env.TARGET}}.linker=\"${LINKER}\"" || exit 1
+                      ${{ env.CMD }} --target $TARGET --config "target.${{ env.TARGET }}.linker=\"${LINKER}\"" || exit 1
                       ;;
                     # linux glibc x64
                     x86_64-unknown-linux-gnu)
                       # use the default linker
                       echo "$CMD --target $TARGET --config build.rustflags=\"\\\"-C target-cpu=${TARGET_CPU}\\\"\" "
-                      ${{env.CMD}} --target $TARGET --config build.rustflags="\"-C target-cpu=${TARGET_CPU}\"" || exit 1
+                      ${{ env.CMD }} --target $TARGET --config build.rustflags="\"-C target-cpu=${TARGET_CPU}\"" || exit 1
                       ;;
                     *)
                       echo "No matrix match for build target ($TARGET). using defaults"
-                      ${{env.CMD}} || exit 1
+                      ${{ env.CMD }} || exit 1
                       ;;
                   esac
                   exit 0
@@ -130,14 +130,14 @@ jobs:
               shell: bash
               run: |
                   # compress all binaries in the target directory for any architecture
-                  file -0 ./target/${{env.TARGET}}/release/* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{env.ZIPFILE_NAME}}.zip -@
+                  file -0 ./target/${{ env.TARGET }}/release/* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{ env.ZIPFILE_NAME }}.zip -@
 
             ## Upload the binary archive using the commit sha as the key
             - name: Upload Artifact
               id: upload_artifact
               uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
               with:
-                  name: ${{github.sha}}-${{ env.ZIPFILE_NAME }}
+                  name: ${{ github.sha }}-${{ env.ZIPFILE_NAME }}
                   path: ${{ env.ZIPFILE_NAME }}.zip
 
             ## Attest the binary archive
@@ -186,7 +186,7 @@ jobs:
               id: download_artifacts
               uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
               with:
-                  pattern: ${{github.sha}}-* # linux-glibc variants are the only artifacts produced, download for both architectures (Dockerfile will choose specific architecture arhive)
+                  pattern: ${{ github.sha }}-* # linux-glibc variants are the only artifacts produced, download for both architectures (Dockerfile will choose specific architecture arhive)
                   path: /tmp/release
                   merge-multiple: true
 

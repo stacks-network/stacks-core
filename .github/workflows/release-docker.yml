@@ -122,7 +122,7 @@ jobs:
                   sparse-checkout: |
                       .github
 
-            - name: Docker Metadata ( ${{matrix.dist}} )
+            - name: Docker Metadata ( ${{ matrix.dist }} )
               id: docker_metadata
               uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 #v5.9.0
               with:
@@ -156,7 +156,7 @@ jobs:
                   sbom: false
                   provenance: ${{ env.provenance }}
                   context: /tmp
-                  file: ./.github/actions/dockerfiles/${{ matrix.dist }}/${{ env.dockerfile_name}}
+                  file: ./.github/actions/dockerfiles/${{ matrix.dist }}/${{ env.dockerfile_name }}
                   platforms: ${{ env.docker_platforms }}
                   tags: ${{ steps.docker_metadata.outputs.tags }}
                   labels: ${{ steps.docker_metadata.outputs.labels }}

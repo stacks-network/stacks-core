@@ -171,7 +171,7 @@ jobs:
                   if [ "${{ inputs.node_tag }}" == '' ]; then
                     BINS="--bin stacks-signer"
                   fi
-                  case "${{ env.TARGET  }}" in
+                  case "${{ env.TARGET }}" in
                     # linux glibc aarch64
                     aarch64-unknown-linux-gnu)
                       LINKER=aarch64-linux-gnu-gcc
@@ -274,9 +274,9 @@ jobs:
               run: |
                   # since the archives are named generically and identically for both stacks-core and stacks-signer:
                   #   - remove the stacks-core zipfile and recreate for the signer
-                  [ -e "${{ env.ZIPFILE_NAME}}.zip" ] && rm -f "${{env.ZIPFILE_NAME}}.zip"
+                  [ -e "${{ env.ZIPFILE_NAME }}.zip" ] && rm -f "${{ env.ZIPFILE_NAME }}.zip"
                   # compress all binaries in the target directory for any architecture
-                  file -0 ./target/${{env.TARGET}}/release/stacks-signer* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{ env.ZIPFILE_NAME}}.zip -@
+                  file -0 ./target/${{ env.TARGET }}/release/stacks-signer* | sed -nE 's/\x0:\s*(ELF|PE32+|Mach).*//p' | zip --junk-paths ${{ env.ZIPFILE_NAME }}.zip -@
 
             ## Upload the binary archive using the commit sha as the key
             - name: Upload Artifact (stacks-signer)
