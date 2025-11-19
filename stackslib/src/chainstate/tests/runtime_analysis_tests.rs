@@ -25,12 +25,12 @@ use crate::chainstate::tests::consensus::{
 };
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 
-// CheckError: [`CheckErrorKind::CostBalanceExceeded`]
-// Caused by: exceeding the cost analysis budget during contract initialization.
-//   The contract repeatedly performs `var-get` lookups on a data variable,
-//   forcing the type checker to fetch the variable enough times to exceed
-//   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
-// Outcome: block rejected.
+/// CheckError: [`CheckErrorKind::CostBalanceExceeded`]
+/// Caused by: exceeding the cost analysis budget during contract initialization.
+///   The contract repeatedly performs `var-get` lookups on a data variable,
+///   forcing the type checker to fetch the variable enough times to exceed
+///   the read-count limit in [`BLOCK_LIMIT_MAINNET_21`].
+/// Outcome: block rejected.
 #[test]
 fn check_error_cost_balance_exceeded_cdeploy() {
     contract_deploy_consensus_test!(
@@ -44,9 +44,9 @@ fn check_error_cost_balance_exceeded_cdeploy() {
         ),
     );
 }
-// CheckError: [`CheckErrorKind::NameAlreadyUsed`]
-// Caused by: name is already used by a standard clarity function.
-// Outcome: block rejected.
+/// CheckError: [`CheckErrorKind::NameAlreadyUsed`]
+/// Caused by: name is already used by a standard clarity function.
+/// Outcome: block rejected.
 #[test]
 fn check_error_kind_name_already_used_cdeploy() {
     contract_deploy_consensus_test!(
@@ -54,11 +54,11 @@ fn check_error_kind_name_already_used_cdeploy() {
         contract_code: "(define-private (ft-get-supply) 1)",
     );
 }
-// CheckErrorKind: [`CheckErrorKind::ValueTooLarge`]
-// Caused by: `(as-max-len? …)` wraps a buffer whose serialized size plus the optional wrapper
-//   exceeds `MAX_VALUE_SIZE`. Static analysis allows this construction, but initialization fails
-//   at runtime when `Value::some` detects the oversized payload.
-// Outcome: block accepted.
+/// CheckErrorKind: [`CheckErrorKind::ValueTooLarge`]
+/// Caused by: `(as-max-len? …)` wraps a buffer whose serialized size plus the optional wrapper
+///   exceeds `MAX_VALUE_SIZE`. Static analysis allows this construction, but initialization fails
+///   at runtime when `Value::some` detects the oversized payload.
+/// Outcome: block accepted.
 #[test]
 fn check_error_kind_value_too_large_cdeploy() {
     contract_deploy_consensus_test!(
@@ -103,10 +103,10 @@ fn check_error_kind_value_too_large_cdeploy() {
     );
 }
 
-// CheckErrorKind: [`CheckErrorKind::TypeSignatureTooDeep`]
-// Caused by: inserting into a map whose value type already has depth `MAX_TYPE_DEPTH`.
-//   The runtime wraps stored entries in an optional, pushing the depth past the limit.
-// Outcome: block accepted.
+/// CheckErrorKind: [`CheckErrorKind::TypeSignatureTooDeep`]
+/// Caused by: inserting into a map whose value type already has depth `MAX_TYPE_DEPTH`.
+///   The runtime wraps stored entries in an optional, pushing the depth past the limit.
+/// Outcome: block accepted.
 #[test]
 fn check_error_kind_type_signature_too_deep_cdeploy() {
     contract_deploy_consensus_test!(
@@ -145,9 +145,9 @@ fn check_error_kind_type_signature_too_deep_cdeploy() {
     );
 }
 
-// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
-// Caused by: passing a value of the wrong type to a function.
-// Outcome: block accepted.
+/// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
+/// Caused by: passing a value of the wrong type to a function.
+/// Outcome: block accepted.
 #[test]
 fn check_error_kind_type_value_error_cdeploy() {
     contract_deploy_consensus_test!(
@@ -251,9 +251,9 @@ fn check_error_kind_type_value_error_cdeploy() {
 //     TooManyAllowances(usize, usize),
 // }
 
-// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
-// Caused by: passing a value of the wrong type to a function.
-// Outcome: block accepted.
+/// CheckErrorKind: [`CheckErrorKind::TypeValueError`]
+/// Caused by: passing a value of the wrong type to a function.
+/// Outcome: block accepted.
 #[test]
 fn check_error_kind_type_value_error_ccall() {
     contract_call_consensus_test!(

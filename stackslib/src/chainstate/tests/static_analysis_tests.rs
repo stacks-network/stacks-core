@@ -247,9 +247,9 @@ fn static_check_error_return_types_must_match() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeError`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeError`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_type_error() {
     contract_deploy_consensus_test!(
@@ -258,9 +258,9 @@ fn static_check_error_type_error() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineVariableBadSignature`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineVariableBadSignature`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_define_variable_bad_signature() {
     contract_deploy_consensus_test!(
@@ -269,9 +269,9 @@ fn static_check_error_define_variable_bad_signature() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::InvalidTypeDescription`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::InvalidTypeDescription`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_invalid_type_description() {
     contract_deploy_consensus_test!(
@@ -280,9 +280,9 @@ fn static_check_error_invalid_type_description() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeSignatureTooDeep`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeSignatureTooDeep`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_type_signature_too_deep() {
     contract_deploy_consensus_test!(
@@ -303,9 +303,9 @@ fn static_check_error_type_signature_too_deep() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::SupertypeTooLarge`]
-// Caused by:
-// Outcome: block rejected.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::SupertypeTooLarge`]
+/// Caused by:
+/// Outcome: block rejected.
 #[test]
 fn static_check_error_supertype_too_large() {
     contract_deploy_consensus_test!(
@@ -319,9 +319,9 @@ fn static_check_error_supertype_too_large() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ConstructedListTooLarge`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ConstructedListTooLarge`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_constructed_list_too_large() {
     contract_deploy_consensus_test!(
@@ -336,12 +336,12 @@ fn static_check_error_constructed_list_too_large() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownTypeName`]
-// Caused by:
-// Outcome: block accepted.
-// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
-//       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
-//       this error.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownTypeName`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
+///       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
+///       this error.
 #[test]
 fn static_check_error_unknown_type_name() {
     contract_deploy_consensus_test!(
@@ -352,9 +352,9 @@ fn static_check_error_unknown_type_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::UnionTypeError`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnionTypeError`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_union_type_error() {
     contract_deploy_consensus_test!(
@@ -363,9 +363,9 @@ fn static_check_error_union_type_error() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::UndefinedVariable`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::UndefinedVariable`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_undefined_variable() {
     contract_deploy_consensus_test!(
@@ -374,9 +374,9 @@ fn static_check_error_undefined_variable() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapTypeDefinition`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapTypeDefinition`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_map_type_definition() {
     contract_deploy_consensus_test!(
@@ -385,9 +385,9 @@ fn static_check_error_bad_map_type_definition() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineType`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineType`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_could_not_determine_type() {
     contract_deploy_consensus_test!(
@@ -396,9 +396,9 @@ fn static_check_error_could_not_determine_type() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedSequence`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedSequence`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_sequence() {
     contract_deploy_consensus_test!(
@@ -407,12 +407,12 @@ fn static_check_error_expected_sequence() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineSerializationType`]
-// Caused by:
-// Outcome: block accepted.
-// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
-//       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
-//       this error.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineSerializationType`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
+///       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
+///       this error.
 #[test]
 fn static_check_error_could_not_determine_serialization_type() {
     contract_deploy_consensus_test!(
@@ -425,9 +425,9 @@ fn static_check_error_could_not_determine_serialization_type() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::UncheckedIntermediaryResponses`]
-// Caused by: Intermediate `(ok ...)` expressions inside a `begin` block that are not unwrapped.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::UncheckedIntermediaryResponses`]
+/// Caused by: Intermediate `(ok ...)` expressions inside a `begin` block that are not unwrapped.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_unchecked_intermediary_responses() {
     contract_deploy_consensus_test!(
@@ -440,9 +440,9 @@ fn static_check_error_unchecked_intermediary_responses() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchFT`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchFT`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_ft() {
     contract_deploy_consensus_test!(
@@ -451,9 +451,9 @@ fn static_check_error_no_such_ft() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchNFT`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchNFT`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_nft() {
     contract_deploy_consensus_test!(
@@ -462,9 +462,9 @@ fn static_check_error_no_such_nft() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineNFTBadSignature`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineNFTBadSignature`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_define_nft_bad_signature() {
     contract_deploy_consensus_test!(
@@ -473,9 +473,9 @@ fn static_check_error_define_nft_bad_signature() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTokenName`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTokenName`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_token_name() {
     contract_deploy_consensus_test!(
@@ -484,9 +484,9 @@ fn static_check_error_bad_token_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::EmptyTuplesNotAllowed`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::EmptyTuplesNotAllowed`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_empty_tuples_not_allowed() {
     contract_deploy_consensus_test!(
@@ -497,9 +497,9 @@ fn static_check_error_empty_tuples_not_allowed() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchDataVariable`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchDataVariable`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_data_variable() {
     contract_deploy_consensus_test!(
@@ -510,9 +510,9 @@ fn static_check_error_no_such_data_variable() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NonFunctionApplication`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NonFunctionApplication`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_non_function_application() {
     contract_deploy_consensus_test!(
@@ -521,9 +521,9 @@ fn static_check_error_non_function_application() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedListApplication`]
-// Caused by: calling append with lhs that is not a list.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedListApplication`]
+/// Caused by: calling append with lhs that is not a list.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_list_application() {
     contract_deploy_consensus_test!(
@@ -532,9 +532,9 @@ fn static_check_error_expected_list_application() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchContract`]
-// Caused by: calling contract-call? with a non-existent contract name.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchContract`]
+/// Caused by: calling contract-call? with a non-existent contract name.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_contract() {
     contract_deploy_consensus_test!(
@@ -543,9 +543,9 @@ fn static_check_error_no_such_contract() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ContractCallExpectName`]
-// Caused by: calling contract-call? without a contract function name.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ContractCallExpectName`]
+/// Caused by: calling contract-call? without a contract function name.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_contract_call_expect_name() {
     contract_deploy_consensus_test!(
@@ -554,10 +554,10 @@ fn static_check_error_contract_call_expect_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedCallableType`]
-// Caused by: passing a non-callable constant as the contract principal in `contract-call?`.
-// Outcome: block accepted.
-// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TraitReferenceUnknown`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedCallableType`]
+/// Caused by: passing a non-callable constant as the contract principal in `contract-call?`.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TraitReferenceUnknown`].
 #[test]
 fn static_check_error_expected_callable_type() {
     contract_deploy_consensus_test!(
@@ -569,9 +569,9 @@ fn static_check_error_expected_callable_type() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchPublicFunction`]
-// Caused by: calling a non-existent public or read-only function on a contract literal.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchPublicFunction`]
+/// Caused by: calling a non-existent public or read-only function on a contract literal.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_public_function() {
     contract_deploy_consensus_test!(
@@ -581,9 +581,9 @@ fn static_check_error_no_such_public_function() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::DefaultTypesMustMatch`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefaultTypesMustMatch`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_default_types_must_match() {
     contract_deploy_consensus_test!(
@@ -594,9 +594,9 @@ fn static_check_error_default_types_must_match() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::IfArmsMustMatch`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::IfArmsMustMatch`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_if_arms_must_match() {
     contract_deploy_consensus_test!(
@@ -605,9 +605,9 @@ fn static_check_error_if_arms_must_match() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::IllegalOrUnknownFunctionApplication`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::IllegalOrUnknownFunctionApplication`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_illegal_or_unknown_function_application() {
     contract_deploy_consensus_test!(
@@ -616,9 +616,9 @@ fn static_check_error_illegal_or_unknown_function_application() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownFunction`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownFunction`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_unknown_function() {
     contract_deploy_consensus_test!(
@@ -627,9 +627,9 @@ fn static_check_error_unknown_function() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::IncorrectArgumentCount`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::IncorrectArgumentCount`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_incorrect_argument_count() {
     contract_deploy_consensus_test!(
@@ -638,9 +638,9 @@ fn static_check_error_incorrect_argument_count() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadLetSyntax`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadLetSyntax`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_let_syntax() {
     contract_deploy_consensus_test!(
@@ -649,9 +649,9 @@ fn static_check_error_bad_let_syntax() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadSyntaxBinding`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadSyntaxBinding`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_syntax_binding() {
     contract_deploy_consensus_test!(
@@ -660,9 +660,9 @@ fn static_check_error_bad_syntax_binding() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedOptionalOrResponseType`]
-// Caused by: expected an optional or response type, but got a value
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedOptionalOrResponseType`]
+/// Caused by: expected an optional or response type, but got a value
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_optional_or_response_type() {
     contract_deploy_consensus_test!(
@@ -671,9 +671,9 @@ fn static_check_error_expected_optional_or_response_type() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitBadSignature`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitBadSignature`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_define_trait_bad_signature() {
     contract_deploy_consensus_test!(
@@ -682,10 +682,10 @@ fn static_check_error_define_trait_bad_signature() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitDuplicateMethod`]
-// Caused by: trait definition contains duplicate method names
-// Outcome: block accepted.
-// Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitDuplicateMethod`]
+/// Caused by: trait definition contains duplicate method names
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
 #[test]
 fn static_check_error_define_trait_duplicate_method() {
     contract_deploy_consensus_test!(
@@ -698,9 +698,9 @@ fn static_check_error_define_trait_duplicate_method() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::UnexpectedTraitOrFieldReference`]
-// Caused by: unexpected use of trait reference or field
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnexpectedTraitOrFieldReference`]
+/// Caused by: unexpected use of trait reference or field
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_unexpected_trait_or_field_reference() {
     contract_deploy_consensus_test!(
@@ -709,10 +709,10 @@ fn static_check_error_unexpected_trait_or_field_reference() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::IncompatibleTrait`]
-// Caused by: pass a trait to a trait parameter which is not compatible.
-// Outcome: block accepted.
-// Note: Added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TypeError`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::IncompatibleTrait`]
+/// Caused by: pass a trait to a trait parameter which is not compatible.
+/// Outcome: block accepted.
+/// Note: Added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TypeError`].
 #[test]
 fn static_check_error_incompatible_trait() {
     contract_deploy_consensus_test!(
@@ -731,9 +731,9 @@ fn static_check_error_incompatible_trait() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitTooManyMethods`]
-// Caused by: a trait has too many methods.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitTooManyMethods`]
+/// Caused by: a trait has too many methods.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_trait_too_many_methods() {
     contract_deploy_consensus_test!(
@@ -748,9 +748,9 @@ fn static_check_error_trait_too_many_methods() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyFunctionParameters`]
-// Caused by: a function has too many parameters.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyFunctionParameters`]
+/// Caused by: a function has too many parameters.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_too_many_function_parameters() {
     contract_deploy_consensus_test!(
@@ -765,11 +765,11 @@ fn static_check_error_too_many_function_parameters() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ReservedWord`]
-// Caused by: name is a reserved word
-// Outcome: block accepted.
-// Note: This error was added in Clarity 3. Clarity 1 and 2
-//       will trigger a [`CheckErrorKind::NameAlreadyUsed`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ReservedWord`]
+/// Caused by: name is a reserved word
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1 and 2
+///       will trigger a [`CheckErrorKind::NameAlreadyUsed`].
 #[test]
 fn static_check_error_reserved_word() {
     contract_deploy_consensus_test!(
@@ -778,9 +778,9 @@ fn static_check_error_reserved_word() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchBlockInfoProperty`]
-// Caused by: referenced an unknown property of a burn block
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchBlockInfoProperty`]
+/// Caused by: referenced an unknown property of a burn block
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_block_info_property() {
     contract_deploy_consensus_test!(
@@ -789,11 +789,11 @@ fn static_check_error_no_such_block_info_property() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchStacksBlockInfoProperty`]
-// Caused by: referenced an unknown property of a stacks block
-// Outcome: block accepted.
-// Note: This error was added in Clarity 3. Clarity 1, and 2
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchStacksBlockInfoProperty`]
+/// Caused by: referenced an unknown property of a stacks block
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1, and 2
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_stacks_block_info_property() {
     contract_deploy_consensus_test!(
@@ -802,11 +802,11 @@ fn static_check_error_no_such_stacks_block_info_property() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchTenureInfoProperty`]
-// Caused by: referenced an unknown property of a tenure
-// Outcome: block accepted.
-// Note: This error was added in Clarity 3. Clarity 1, and 2
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchTenureInfoProperty`]
+/// Caused by: referenced an unknown property of a tenure
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1, and 2
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_tenure_info_property() {
     contract_deploy_consensus_test!(
@@ -815,9 +815,9 @@ fn static_check_error_no_such_tenure_info_property() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitReferenceUnknown`]
-// Caused by: referenced trait is unknown
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitReferenceUnknown`]
+/// Caused by: referenced trait is unknown
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_trait_reference_unknown() {
     contract_deploy_consensus_test!(
@@ -826,9 +826,9 @@ fn static_check_error_trait_reference_unknown() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ContractOfExpectsTrait`]
-// Caused by: calling `contract-of` with a non-trait argument.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ContractOfExpectsTrait`]
+/// Caused by: calling `contract-of` with a non-trait argument.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_contract_of_expects_trait() {
     contract_deploy_consensus_test!(
@@ -837,9 +837,9 @@ fn static_check_error_contract_of_expects_trait() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitMethodUnknown`]
-// Caused by: defining a method that is not declared in the trait
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitMethodUnknown`]
+/// Caused by: defining a method that is not declared in the trait
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_trait_method_unknown() {
     contract_deploy_consensus_test!(
@@ -852,9 +852,9 @@ fn static_check_error_trait_method_unknown() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::WriteAttemptedInReadOnly`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::WriteAttemptedInReadOnly`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_write_attempted_in_read_only() {
     contract_deploy_consensus_test!(
@@ -866,9 +866,9 @@ fn static_check_error_write_attempted_in_read_only() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::AtBlockClosureMustBeReadOnly`]
-// Caused by: `at-block` closure must be read-only but contains write operations.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::AtBlockClosureMustBeReadOnly`]
+/// Caused by: `at-block` closure must be read-only but contains write operations.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_at_block_closure_must_be_read_only() {
     contract_deploy_consensus_test!(
@@ -881,11 +881,11 @@ fn static_check_error_at_block_closure_must_be_read_only() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::AllowanceExprNotAllowed`]
-// Caused by: using an allowance expression outside of `restrict-assets?` or `as-contract?`.
-// Outcome: block accepted.
-// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::AllowanceExprNotAllowed`]
+/// Caused by: using an allowance expression outside of `restrict-assets?` or `as-contract?`.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_allowance_expr_not_allowed() {
     contract_deploy_consensus_test!(
@@ -894,11 +894,11 @@ fn static_check_error_allowance_expr_not_allowed() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedListOfAllowances`]
-// Caused by: post-condition expects a list of asset allowances but received invalid input.
-// Outcome: block accepted.
-// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedListOfAllowances`]
+/// Caused by: post-condition expects a list of asset allowances but received invalid input.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_expected_list_of_allowances() {
     contract_deploy_consensus_test!(
@@ -907,11 +907,11 @@ fn static_check_error_expected_list_of_allowances() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedAllowanceExpr`]
-// Caused by: allowance list contains a non-allowance expression.
-// Outcome: block accepted.
-// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedAllowanceExpr`]
+/// Caused by: allowance list contains a non-allowance expression.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_expected_allowance_expr() {
     contract_deploy_consensus_test!(
@@ -920,11 +920,11 @@ fn static_check_error_expected_allowance_expr() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::WithAllAllowanceNotAllowed`]
-// Caused by:
-// Outcome: block accepted.
-// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::WithAllAllowanceNotAllowed`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_all_allowance_not_allowed() {
     contract_deploy_consensus_test!(
@@ -933,11 +933,11 @@ fn static_check_error_with_all_allowance_not_allowed() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::WithAllAllowanceNotAlone`]
-// Caused by:
-// Outcome: block accepted.
-// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::WithAllAllowanceNotAlone`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_all_allowance_not_alone() {
     contract_deploy_consensus_test!(
@@ -946,11 +946,11 @@ fn static_check_error_with_all_allowance_not_alone() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::WithNftExpectedListOfIdentifiers`]
-// Caused by: the third argument to `with-nft` is not a list of identifiers.
-// Outcome: block accepted.
-// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::WithNftExpectedListOfIdentifiers`]
+/// Caused by: the third argument to `with-nft` is not a list of identifiers.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_with_nft_expected_list_of_identifiers() {
     contract_deploy_consensus_test!(
@@ -959,11 +959,11 @@ fn static_check_error_with_nft_expected_list_of_identifiers() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::MaxIdentifierLengthExceeded`]
-// Caused by:
-// Outcome: block accepted.
-// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::MaxIdentifierLengthExceeded`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_max_identifier_length_exceeded() {
     contract_deploy_consensus_test!(
@@ -977,11 +977,11 @@ fn static_check_error_max_identifier_length_exceeded() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyAllowances`]
-// Caused by:
-// Outcome: block accepted.
-// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyAllowances`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_too_many_allowances() {
     contract_deploy_consensus_test!(
@@ -995,9 +995,9 @@ fn static_check_error_too_many_allowances() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTupleConstruction`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTupleConstruction`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_tuple_construction() {
     contract_deploy_consensus_test!(
@@ -1006,9 +1006,9 @@ fn static_check_error_bad_tuple_construction() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedTuple`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedTuple`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_tuple() {
     contract_deploy_consensus_test!(
@@ -1017,9 +1017,9 @@ fn static_check_error_expected_tuple() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchTupleField`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchTupleField`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_tuple_field() {
     contract_deploy_consensus_test!(
@@ -1028,9 +1028,9 @@ fn static_check_error_no_such_tuple_field() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchMap`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchMap`]
+/// Caused by:
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_no_such_map() {
     contract_deploy_consensus_test!(
@@ -1039,9 +1039,9 @@ fn static_check_error_no_such_map() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadFunctionName`]
-// Caused by: defining a function whose signature does not start with an atom name.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadFunctionName`]
+/// Caused by: defining a function whose signature does not start with an atom name.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_function_name() {
     contract_deploy_consensus_test!(
@@ -1050,9 +1050,9 @@ fn static_check_error_bad_function_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineFunctionBadSignature`]
-// Caused by: defining a function with an empty signature list.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineFunctionBadSignature`]
+/// Caused by: defining a function with an empty signature list.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_define_function_bad_signature() {
     contract_deploy_consensus_test!(
@@ -1061,9 +1061,9 @@ fn static_check_error_define_function_bad_signature() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTupleFieldName`]
-// Caused by: using `(get ...)` with a tuple field argument that is not an atom.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTupleFieldName`]
+/// Caused by: using `(get ...)` with a tuple field argument that is not an atom.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_tuple_field_name() {
     contract_deploy_consensus_test!(
@@ -1072,9 +1072,9 @@ fn static_check_error_bad_tuple_field_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapName`]
-// Caused by: passing a literal instead of a map identifier to `map-get?`.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapName`]
+/// Caused by: passing a literal instead of a map identifier to `map-get?`.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_map_name() {
     contract_deploy_consensus_test!(
@@ -1083,11 +1083,11 @@ fn static_check_error_bad_map_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBlockInfoExpectPropertyName`]
-// Caused by: calling `get-block-info` with a non-atom property argument.
-// Outcome: block accepted.
-// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
-//       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBlockInfoExpectPropertyName`]
+/// Caused by: calling `get-block-info` with a non-atom property argument.
+/// Outcome: block accepted.
+/// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1096,11 +1096,11 @@ fn static_check_error_get_block_info_expect_property_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName`]
-// Caused by: calling `get-burn-block-info` with a non-atom property argument.
-// Outcome: block accepted.
-// Note: This error was added in Clarity 2. Clarity 1 will trigger
-//       a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::GetBurnBlockInfoExpectPropertyName`]
+/// Caused by: calling `get-burn-block-info` with a non-atom property argument.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 2. Clarity 1 will trigger
+///       a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_burn_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1109,11 +1109,11 @@ fn static_check_error_get_burn_block_info_expect_property_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName`]
-// Caused by: calling `get-stacks-block-info` with a non-atom property argument.
-// Outcome: block accepted.
-// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
-//       a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::GetStacksBlockInfoExpectPropertyName`]
+/// Caused by: calling `get-stacks-block-info` with a non-atom property argument.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
+///       a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_stacks_block_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1122,11 +1122,11 @@ fn static_check_error_get_stacks_block_info_expect_property_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::GetTenureInfoExpectPropertyName`]
-// Caused by: calling `get-tenure-info` with a non-atom property argument.
-// Outcome: block accepted.
-// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
-//       a [`StaticCheckErrorKind::UnknownFunction`].
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::GetTenureInfoExpectPropertyName`]
+/// Caused by: calling `get-tenure-info` with a non-atom property argument.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
+///       a [`StaticCheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_get_tenure_info_expect_property_name() {
     contract_deploy_consensus_test!(
@@ -1135,9 +1135,9 @@ fn static_check_error_get_tenure_info_expect_property_name() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTraitImplementation`]
-// Caused by: trying to implement a trait with a bad implementation.
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTraitImplementation`]
+/// Caused by: trying to implement a trait with a bad implementation.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_trait_implementation() {
     let setup_contract = SetupContract::new(
@@ -1155,9 +1155,9 @@ fn static_check_error_bad_trait_implementation() {
     );
 }
 
-// Error: [`Error::InvalidStacksTransaction("Duplicate contract")`]
-// Caused by: trying to deploy a contract that already exists.
-// Outcome: block rejected.
+/// Error: [`Error::InvalidStacksTransaction("Duplicate contract")`]
+/// Caused by: trying to deploy a contract that already exists.
+/// Outcome: block rejected.
 #[test]
 fn error_invalid_stacks_transaction_duplicate_contract() {
     let contract_code = "(define-constant buff-0 0x00)";
