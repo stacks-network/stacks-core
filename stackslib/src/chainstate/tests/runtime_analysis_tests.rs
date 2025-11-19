@@ -17,7 +17,7 @@
 
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
-use clarity::vm::types::MAX_TYPE_DEPTH;
+use clarity::vm::types::{QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::Value as ClarityValue;
 
 use crate::chainstate::tests::consensus::{
@@ -245,7 +245,7 @@ fn check_error_kind_contract_call_expect_name_cdeploy() {
 //     DefineFunctionBadSignature,
 //     BadFunctionName,
 //     PublicFunctionMustReturnResponse(Box<TypeSignature>),
-//     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>),
+//     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`check_error_kind_return_types_must_match_ccall`]
 //     CircularReference(Vec<String>),
 //     NoSuchContract(String),
 //     NoSuchPublicFunction(String, String),
@@ -392,5 +392,38 @@ fn check_error_kind_undefined_function_ccall() {
             (ok true))",
         function_name: "missing-func",
         function_args: &[],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ReturnTypesMustMatch`]
+/// Caused by: dynamic dispatch through a trait argument returns a value whose type does not
+///     conform to the trait specification.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_return_types_must_match_ccall() {
+    let trait_contract = SetupContract::new(
+        "trait-contract",
+        "(define-trait simple-trait (
+            (get-1 (uint) (response uint uint))))",
+    );
+
+    let target_contract =
+        SetupContract::new("target-contract", "(define-public (get-1 (x uint)) (ok 1))");
+
+    let target_identifier = QualifiedContractIdentifier::parse(&format!(
+        "{}.target-contract",
+        to_addr(&FAUCET_PRIV_KEY)
+    ))
+    .unwrap();
+
+    contract_call_consensus_test!(
+        contract_name: "dispatching-contract",
+        contract_code: "
+        (use-trait simple-trait .trait-contract.simple-trait)
+        (define-public (wrapped-get-1 (contract <simple-trait>))
+            (contract-call? contract get-1 u0))",
+        function_name: "wrapped-get-1",
+        function_args: &[ClarityValue::from(target_identifier)],
+        setup_contracts: &[trait_contract, target_contract],
     );
 }
