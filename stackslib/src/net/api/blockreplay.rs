@@ -15,10 +15,6 @@
 
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
-#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
-use perf_event::events::Hardware;
-#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
-use perf_event::{Builder, Counter};
 use regex::{Captures, Regex};
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
@@ -64,26 +60,28 @@ struct BlockReplayProfilerResult {
 #[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
 impl BlockReplayProfiler {
     fn new() -> Self {
-        let mut perf_event_cpu_instructions: Option<Counter> = None;
-        let mut perf_event_cpu_cycles: Option<Counter> = None;
-        let mut perf_event_cpu_ref_cycles: Option<Counter> = None;
+        let mut perf_event_cpu_instructions: Option<perf_event::Counter> = None;
+        let mut perf_event_cpu_cycles: Option<perf_event::Counter> = None;
+        let mut perf_event_cpu_ref_cycles: Option<perf_event::Counter> = None;
 
         if let Ok(mut perf_event_cpu_instructions_result) =
-            Builder::new(Hardware::INSTRUCTIONS).build()
+            perf_event::Builder::new(perf_event::events::Hardware::INSTRUCTIONS).build()
         {
             if perf_event_cpu_instructions_result.enable().is_ok() {
                 perf_event_cpu_instructions = Some(perf_event_cpu_instructions_result);
             }
         }
 
-        if let Ok(mut perf_event_cpu_cycles_result) = Builder::new(Hardware::CPU_CYCLES).build() {
+        if let Ok(mut perf_event_cpu_cycles_result) =
+            perf_event::Builder::new(perf_event::events::Hardware::CPU_CYCLES).build()
+        {
             if perf_event_cpu_cycles_result.enable().is_ok() {
                 perf_event_cpu_cycles = Some(perf_event_cpu_cycles_result);
             }
         }
 
         if let Ok(mut perf_event_cpu_ref_cycles_result) =
-            Builder::new(Hardware::REF_CPU_CYCLES).build()
+            perf_event::Builder::new(perf_event::events::Hardware::REF_CPU_CYCLES).build()
         {
             if perf_event_cpu_ref_cycles_result.enable().is_ok() {
                 perf_event_cpu_ref_cycles = Some(perf_event_cpu_ref_cycles_result);
