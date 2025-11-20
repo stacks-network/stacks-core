@@ -686,25 +686,6 @@ impl<'a> ClarityDatabase<'a> {
             .map_err(|e| e.into())
     }
 
-    /// Set a metadata entry if it hasn't already been set, yielding
-    ///  a runtime error if it was. This should only be called by post-nakamoto
-    ///  contexts.
-    pub fn try_set_metadata(
-        &mut self,
-        contract_identifier: &QualifiedContractIdentifier,
-        key: &str,
-        data: &str,
-    ) -> Result<(), VmExecutionError> {
-        if self.store.has_metadata_entry(contract_identifier, key) {
-            Err(VmExecutionError::Runtime(
-                RuntimeError::MetadataAlreadySet,
-                None,
-            ))
-        } else {
-            Ok(self.store.insert_metadata(contract_identifier, key, data)?)
-        }
-    }
-
     fn insert_metadata<T: ClaritySerializable>(
         &mut self,
         contract_identifier: &QualifiedContractIdentifier,
