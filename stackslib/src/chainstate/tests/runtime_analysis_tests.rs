@@ -15,14 +15,16 @@
 
 //! This module contains consensus tests related to Clarity CheckErrorKind errors that happens during contract initialization and execution.
 
+use std::collections::HashMap;
+
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::{QualifiedContractIdentifier, MAX_TYPE_DEPTH};
 use clarity::vm::Value as ClarityValue;
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, contract_deploy_consensus_test, SetupContract, EPOCHS_TO_TEST,
-    FAUCET_PRIV_KEY,
+    contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
+    SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_PRIV_KEY,
 };
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
@@ -247,7 +249,7 @@ fn check_error_kind_contract_call_expect_name_cdeploy() {
 //     PublicFunctionMustReturnResponse(Box<TypeSignature>),
 //     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`check_error_kind_return_types_must_match_ccall`]
 //     CircularReference(Vec<String>),
-//     NoSuchContract(String),
+//     NoSuchContract(String), [`check_error_kind_no_such_contract_ccall`]
 //     NoSuchPublicFunction(String, String),
 //     PublicFunctionNotReadOnly(String, String),
 //     ContractAlreadyExists(String),
@@ -426,4 +428,33 @@ fn check_error_kind_return_types_must_match_ccall() {
         function_args: &[ClarityValue::from(target_identifier)],
         setup_contracts: &[trait_contract, target_contract],
     );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::NoSuchContract`]
+/// Caused by: calling a contract that does not exist.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_no_such_contract_ccall() {
+    let mut nonce = 0;
+
+    let mut epochs_blocks = HashMap::new();
+
+    for epoch in EPOCHS_TO_TEST {
+        let call_tx = ConsensusUtils::new_call_tx(
+            nonce,
+            "non-existent-contract",
+            "this-function-does-not-exist",
+        );
+        epochs_blocks
+            .entry(*epoch)
+            .or_insert(vec![])
+            .push(TestBlock {
+                transactions: vec![call_tx],
+            });
+
+        nonce += 1;
+    }
+
+    let result = ConsensusTest::new(function_name!(), vec![], epochs_blocks).run();
+    insta::assert_ron_snapshot!(result);
 }
