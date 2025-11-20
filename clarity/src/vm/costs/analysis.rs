@@ -1,6 +1,6 @@
-// Static cost analysis for Clarity expressions
+// Static cost analysis for Clarity contracts
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use clarity_types::types::{CharType, SequenceData, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
@@ -48,7 +48,7 @@ pub enum CostExprNode {
     FieldIdentifier(TraitIdentifier),
     TraitReference(ClarityName),
     // User function arguments
-    UserArgument(ClarityName, ClarityName), // (argument_name, argument_type)
+    UserArgument(ClarityName, SymbolicExpressionType), // (argument_name, argument_type)
     // User-defined functions
     UserFunction(ClarityName),
 }
@@ -94,7 +94,7 @@ impl StaticCost {
 #[derive(Debug, Clone)]
 pub struct UserArgumentsContext {
     /// Map from argument name to argument type
-    pub arguments: HashMap<ClarityName, ClarityName>,
+    pub arguments: HashMap<ClarityName, SymbolicExpressionType>,
 }
 
 impl UserArgumentsContext {
@@ -104,7 +104,7 @@ impl UserArgumentsContext {
         }
     }
 
-    pub fn add_argument(&mut self, name: ClarityName, arg_type: ClarityName) {
+    pub fn add_argument(&mut self, name: ClarityName, arg_type: SymbolicExpressionType) {
         self.arguments.insert(name, arg_type);
     }
 
@@ -112,7 +112,7 @@ impl UserArgumentsContext {
         self.arguments.contains_key(name)
     }
 
-    pub fn get_argument_type(&self, name: &ClarityName) -> Option<&ClarityName> {
+    pub fn get_argument_type(&self, name: &ClarityName) -> Option<&SymbolicExpressionType> {
         self.arguments.get(name)
     }
 }
@@ -203,7 +203,8 @@ fn make_ast(
     Ok(ast)
 }
 
-/// somewhat of a passthrough since we don't have to build the whole context we can jsut return the cost of the single expression
+/// somewhat of a passthrough since we don't have to build the whole context we
+/// can jsut return the cost of the single expression
 fn static_cost_native(
     source: &str,
     cost_map: &HashMap<String, Option<StaticCost>>,
@@ -221,18 +222,159 @@ fn static_cost_native(
     Ok(summing_cost.into())
 }
 
+type MinMaxTraitCount = (u64, u64);
+type TraitCount = HashMap<String, MinMaxTraitCount>;
+
+// // "<trait-name>" -> "trait-name"
+// // ClarityName can't contain
+// fn strip_trait_surrounding_brackets(name: &ClarityName) -> ClarityName {
+//     let stripped = name
+//         .as_str()
+//         .strip_prefix("<")
+//         .and_then(|name| name.strip_suffix(">"));
+//     if let Some(name) = stripped {
+//         ClarityName::from(name)
+//     } else {
+//         name.clone()
+//     }
+// }
+fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Option<TraitCount> {
+    let mut trait_counts = HashMap::new();
+    let mut trait_names = HashMap::new();
+    // walk tree
+    for (name, cost_analysis_node) in costs.iter() {
+        get_trait_count_from_node(
+            cost_analysis_node,
+            &mut trait_counts,
+            &mut trait_names,
+            name.clone(),
+            1,
+        );
+        // trait_counts.extend(counts);
+    }
+    Some(trait_counts)
+}
+fn get_trait_count_from_node(
+    cost_analysis_node: &CostAnalysisNode,
+    mut trait_counts: &mut TraitCount,
+    mut trait_names: &mut HashMap<ClarityName, String>,
+    containing_fn_name: String,
+    multiplier: u64,
+) -> TraitCount {
+    match &cost_analysis_node.expr {
+        CostExprNode::UserArgument(arg_name, arg_type) => match arg_type {
+            SymbolicExpressionType::TraitReference(name, _) => {
+                trait_names.insert(arg_name.clone(), name.clone().to_string());
+                trait_counts.entry(name.to_string()).or_insert((0, 0));
+            }
+            _ => {}
+        },
+        CostExprNode::NativeFunction(native_function) => {
+            println!("native function: {:?}", native_function);
+            match native_function {
+                // if map, filter, or fold, we need to check if traits are called
+                NativeFunctions::Map | NativeFunctions::Filter | NativeFunctions::Fold => {
+                    println!("map: {:?}", cost_analysis_node.children);
+                    let list_to_traverse = cost_analysis_node.children[1].clone();
+                    let multiplier = match list_to_traverse.expr {
+                        CostExprNode::UserArgument(_, arg_type) => match arg_type {
+                            SymbolicExpressionType::List(list) => {
+                                if list[0].match_atom().unwrap().as_str() == "list" {
+                                    match list[1].clone().expr {
+                                        SymbolicExpressionType::LiteralValue(value) => {
+                                            match value {
+                                                Value::Int(value) => value as u64,
+                                                _ => 1,
+                                            }
+                                        }
+                                        _ => 1,
+                                    }
+                                } else {
+                                    1
+                                }
+                            }
+                            _ => 1,
+                        },
+                        _ => 1,
+                    };
+                    println!("multiplier: {:?}", multiplier);
+                    cost_analysis_node.children.iter().for_each(|child| {
+                        get_trait_count_from_node(
+                            child,
+                            &mut trait_counts,
+                            &mut trait_names,
+                            containing_fn_name.clone(),
+                            multiplier,
+                        );
+                    });
+                }
+                _ => {}
+            }
+        }
+        CostExprNode::AtomValue(atom_value) => {
+            println!("atom value: {:?}", atom_value);
+            // do nothing
+        }
+        CostExprNode::Atom(atom) => {
+            println!("atom: {:?}", atom);
+            if trait_names.get(atom).is_some() {
+                trait_counts
+                    .entry(containing_fn_name.clone())
+                    .and_modify(|(min, max)| {
+                        *min += 1;
+                        *max += multiplier;
+                    })
+                    .or_insert((1, multiplier));
+            }
+            // do nothing
+        }
+        CostExprNode::FieldIdentifier(field_identifier) => {
+            println!("field identifier: {:?}", field_identifier);
+            // do nothing
+        }
+        CostExprNode::TraitReference(trait_name) => {
+            println!("trait_name: {:?}", trait_name);
+            trait_counts
+                .entry(trait_name.to_string())
+                .and_modify(|(min, max)| {
+                    *min += 1;
+                    *max += multiplier;
+                })
+                .or_insert((1, multiplier));
+        }
+        CostExprNode::UserFunction(user_function) => {
+            println!("user function: {:?}", user_function);
+            cost_analysis_node.children.iter().for_each(|child| {
+                get_trait_count_from_node(
+                    child,
+                    &mut trait_counts,
+                    &mut trait_names,
+                    containing_fn_name.clone(),
+                    multiplier,
+                );
+            });
+        }
+    }
+    trait_counts.clone()
+}
+
 pub fn static_cost_from_ast(
     contract_ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
-) -> Result<HashMap<String, StaticCost>, String> {
+) -> Result<HashMap<String, (StaticCost, Option<TraitCount>)>, String> {
     let cost_trees = static_cost_tree_from_ast(contract_ast, clarity_version)?;
 
-    Ok(cost_trees
+    let trait_count = get_trait_count(&cost_trees);
+    let costs: HashMap<String, StaticCost> = cost_trees
         .into_iter()
         .map(|(name, cost_analysis_node)| {
             let summing_cost = calculate_total_cost_with_branching(&cost_analysis_node);
             (name, summing_cost.into())
         })
+        .collect();
+    Ok(costs
+        .into_iter()
+        .map(|(name, cost)| (name, (cost, trait_count.clone())))
         .collect())
 }
 
@@ -288,7 +430,11 @@ pub fn static_cost(
     let epoch = env.global_context.epoch_id;
     let ast = make_ast(&contract_source, epoch, clarity_version)?;
 
-    static_cost_from_ast(&ast, clarity_version)
+    let costs = static_cost_from_ast(&ast, clarity_version)?;
+    Ok(costs
+        .into_iter()
+        .map(|(name, (cost, _trait_count))| (name, cost))
+        .collect())
 }
 
 /// same idea as `static_cost` but returns the root of the cost analysis tree for each function
@@ -447,23 +593,31 @@ fn build_function_definition_cost_analysis_tree(
                     .match_atom()
                     .ok_or("Expected atom for argument name")?;
 
-                let arg_type = match &arg_list[1].expr {
-                    SymbolicExpressionType::Atom(type_name) => type_name.clone(),
-                    SymbolicExpressionType::AtomValue(value) => {
-                        ClarityName::from(value.to_string().as_str())
-                    }
-                    SymbolicExpressionType::LiteralValue(value) => {
-                        ClarityName::from(value.to_string().as_str())
-                    }
-                    _ => return Err("Argument type must be an atom or atom value".to_string()),
-                };
+                let arg_type = arg_list[1].clone();
+                // let arg_type = match &arg_list[1].expr {
+                //     SymbolicExpressionType::Atom(type_name) => type_name.clone(),
+                //     SymbolicExpressionType::AtomValue(value) => {
+                //         ClarityName::from(value.to_string().as_str())
+                //     }
+                //     SymbolicExpressionType::LiteralValue(value) => {
+                //         ClarityName::from(value.to_string().as_str())
+                //     }
+                //     SymbolicExpressionType::TraitReference(trait_name, _trait_definition) => {
+                //         trait_name.clone()
+                //     }
+                //     SymbolicExpressionType::List(_) => ClarityName::from("list"),
+                //     _ => {
+                //         println!("arg: {:?}", arg_list[1].expr);
+                //         return Err("Argument type must be an atom or atom value".to_string());
+                //     }
+                // };
 
                 // Add to function's user arguments context
-                function_user_args.add_argument(arg_name.clone(), arg_type.clone());
+                function_user_args.add_argument(arg_name.clone(), arg_type.clone().expr);
 
                 // Create UserArgument node
                 children.push(CostAnalysisNode::leaf(
-                    CostExprNode::UserArgument(arg_name.clone(), arg_type),
+                    CostExprNode::UserArgument(arg_name.clone(), arg_type.clone().expr),
                     StaticCost::ZERO,
                 ));
             }
@@ -757,6 +911,7 @@ fn get_cost_function_for_native(
         InsertEntry => Some(Costs3::cost_set_entry),
         DeleteEntry => Some(Costs3::cost_set_entry),
         StxBurn => Some(Costs3::cost_stx_transfer),
+        Secp256r1Verify => Some(Costs3::cost_secp256r1verify),
         RestrictAssets => None,        // TODO: add cost function
         AllowanceWithStx => None,      // TODO: add cost function
         AllowanceWithFt => None,       // TODO: add cost function
@@ -871,7 +1026,11 @@ mod tests {
     ) -> Result<HashMap<String, StaticCost>, String> {
         let epoch = StacksEpochId::latest();
         let ast = make_ast(source, epoch, clarity_version)?;
-        static_cost_from_ast(&ast, clarity_version)
+        let costs = static_cost_from_ast(&ast, clarity_version)?;
+        Ok(costs
+            .into_iter()
+            .map(|(name, (cost, _trait_count))| (name, cost))
+            .collect())
     }
 
     fn build_test_ast(src: &str) -> crate::vm::ast::ContractAST {
@@ -1081,7 +1240,7 @@ mod tests {
         assert!(matches!(user_arg_x.expr, CostExprNode::UserArgument(_, _)));
         if let CostExprNode::UserArgument(arg_name, arg_type) = &user_arg_x.expr {
             assert_eq!(arg_name.as_str(), "x");
-            assert_eq!(arg_type.as_str(), "uint");
+            assert!(matches!(arg_type, SymbolicExpressionType::Atom(_)));
         }
 
         // Second child should be UserArgument for (y u64)
@@ -1089,7 +1248,7 @@ mod tests {
         assert!(matches!(user_arg_y.expr, CostExprNode::UserArgument(_, _)));
         if let CostExprNode::UserArgument(arg_name, arg_type) = &user_arg_y.expr {
             assert_eq!(arg_name.as_str(), "y");
-            assert_eq!(arg_type.as_str(), "uint");
+            assert!(matches!(arg_type, SymbolicExpressionType::Atom(_)));
         }
 
         // Third child should be the function body (+ x y)
@@ -1108,11 +1267,11 @@ mod tests {
 
         if let CostExprNode::UserArgument(name, arg_type) = &arg_x_ref.expr {
             assert_eq!(name.as_str(), "x");
-            assert_eq!(arg_type.as_str(), "uint");
+            assert!(matches!(arg_type, SymbolicExpressionType::Atom(_)));
         }
         if let CostExprNode::UserArgument(name, arg_type) = &arg_y_ref.expr {
             assert_eq!(name.as_str(), "y");
-            assert_eq!(arg_type.as_str(), "uint");
+            assert!(matches!(arg_type, SymbolicExpressionType::Atom(_)));
         }
     }
 

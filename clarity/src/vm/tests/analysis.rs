@@ -59,9 +59,53 @@ fn test_simple_trait_implementation_costs(
     println!("static_cost: {:?}", static_cost);
 
     let key = static_cost.keys().nth(1).unwrap();
-    let cost = static_cost.get(key).unwrap();
+    let (cost, _trait_count) = static_cost.get(key).unwrap();
     assert!(dynamic_cost.runtime >= cost.min.runtime);
     assert!(dynamic_cost.runtime <= cost.max.runtime);
+}
+
+#[rstest]
+fn test_trait_counting() {
+    // map, fold, filter over traits counting
+    let src = r#"(define-trait trait-name (
+    (send (uint principal) (response uint uint))
+))
+(define-public (something (trait <trait-name>) (addresses (list 10 principal)))
+    (map (send u500 trait) addresses)
+)
+(define-private (send (amount uint) (trait <trait-name>) (addr principal)) (trait true))
+"#;
+    let contract_id = QualifiedContractIdentifier::local("trait-counting").unwrap();
+    let ast = crate::vm::ast::build_ast(
+        &contract_id,
+        src,
+        &mut (),
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch32,
+    )
+    .unwrap();
+    let static_cost = static_cost_from_ast(&ast, &ClarityVersion::Clarity3)
+        .unwrap()
+        .clone();
+    // trait count for 'something' function should be minimum 1 maximum 10
+    println!("static_cost: {:?}", static_cost);
+    //trait count for send should be 1
+    println!("trait_count: {:?}", static_cost.get("something").unwrap());
+    println!("trait_count: {:?}", static_cost.get("send").unwrap());
+    assert_eq!(
+        static_cost
+            .get("send")
+            .unwrap()
+            .1
+            .clone()
+            .unwrap()
+            .get("trait-name")
+            .unwrap()
+            .0,
+        1
+    );
+    // assert_eq!(trait_count.get("trait-name").unwrap().0, 1);
+    // assert_eq!(trait_count.get("trait-name").unwrap().1, 1);
 }
 
 #[rstest]
@@ -113,7 +157,9 @@ fn test_complex_trait_implementation_costs(
             );
 
             let key = static_cost.keys().nth(1).unwrap();
-            let cost = static_cost.get(key).unwrap();
+            let (cost, _trait_count) = static_cost.get(key).unwrap();
+            println!("dynamic_cost: {:?}", dynamic_cost);
+            println!("cost: {:?}", cost);
             assert!(dynamic_cost.runtime >= cost.min.runtime);
             assert!(dynamic_cost.runtime <= cost.max.runtime);
         }
@@ -183,9 +229,11 @@ fn test_dependent_function_calls() {
     .unwrap();
     let function_map = static_cost_from_ast(&ast, &ClarityVersion::Clarity3).unwrap();
 
-    let add_one_cost = function_map.get("add-one").unwrap();
-    let somefunc_cost = function_map.get("somefunc").unwrap();
+    let (add_one_cost, _) = function_map.get("add-one").unwrap();
+    let (somefunc_cost, _) = function_map.get("somefunc").unwrap();
 
+    println!("add_one_cost: {:?}", add_one_cost);
+    println!("add_one_cost: {:?}", somefunc_cost);
     assert!(add_one_cost.min.runtime >= somefunc_cost.min.runtime);
     assert!(add_one_cost.max.runtime >= somefunc_cost.max.runtime);
 }
