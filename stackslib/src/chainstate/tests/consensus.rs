@@ -1048,7 +1048,12 @@ impl ContractConsensusTest<'_> {
             call_epochs.iter().all(|e| e >= min_deploy_epoch),
             "All call epochs must be >= the minimum deploy epoch"
         );
-
+        assert!(
+            setup_contracts
+                .iter()
+                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() >= *min_deploy_epoch),
+            "All setup contracts must have a deploy epoch >= the minimum deploy epoch"
+        );
         // Build epoch_blocks map based on deploy and call epochs
         let mut num_blocks_per_epoch: HashMap<StacksEpochId, u64> = HashMap::new();
         let mut contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>> =
@@ -1173,27 +1178,30 @@ impl ContractConsensusTest<'_> {
     }
 
     /// Deploys prerequisite contracts scheduled for the given epoch.
-    fn deploy_setup_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
+    /// Panics if the deployment fails.
+    fn deploy_setup_contracts(&mut self, epoch: StacksEpochId) {
         let Some(contracts) = self.setup_contracts_per_epoch.get(&epoch).cloned() else {
-            return vec![];
+            return;
         };
 
         let is_naka_block = epoch.uses_nakamoto_blocks();
-        contracts
-            .into_iter()
-            .map(|contract| {
-                self.chain.consume_pre_naka_prepare_phase();
-                self.append_tx_block(
-                    &TestTxSpec::ContractDeploy {
-                        sender: &FAUCET_PRIV_KEY,
-                        name: &contract.name,
-                        code: &contract.code,
-                        clarity_version: contract.clarity_version,
-                    },
-                    is_naka_block,
-                )
-            })
-            .collect()
+        contracts.into_iter().for_each(|contract| {
+            self.chain.consume_pre_naka_prepare_phase();
+            let result = self.append_tx_block(
+                &TestTxSpec::ContractDeploy {
+                    sender: &FAUCET_PRIV_KEY,
+                    name: &contract.name,
+                    code: &contract.code,
+                    clarity_version: contract.clarity_version,
+                },
+                is_naka_block,
+            );
+            assert!(
+                matches!(result, ExpectedResult::Success(_)),
+                "Expected success for setup contract {}: {result:?}",
+                contract.name,
+            );
+        });
     }
 
     /// Deploys all contract versions scheduled for the given epoch.
@@ -1313,7 +1321,9 @@ impl ContractConsensusTest<'_> {
                 .test_chainstate
                 .advance_into_epoch(&private_key, epoch);
 
-            results.extend(self.deploy_setup_contracts(epoch));
+            // Differently from the deploy_contracts and call_contracts functions, setup contracts are expected to succeed.
+            // Their receipt is not relevant to the test.
+            self.deploy_setup_contracts(epoch);
             results.extend(self.deploy_contracts(epoch));
             results.extend(self.call_contracts(epoch));
         }
