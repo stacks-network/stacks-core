@@ -50,7 +50,7 @@ use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use crate::clarity::vm::database::{
     BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
 };
-use crate::clarity::vm::errors::{InterpreterResult, RuntimeError, VmExecutionError};
+use crate::clarity::vm::errors::{RuntimeError, VmExecutionError};
 use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::clarity::vm::{
     analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
@@ -115,7 +115,7 @@ where command is one of:
   eval_at_chaintip   like `eval`, but does not advance to a new block.
   eval_at_block      like `eval_at_chaintip`, but accepts a index-block-hash to evaluate at,
                      must be passed eval string via stdin.
-  eval_raw           to typecheck and evaluate an expression without a contract or database context.
+  eval_raw           to typecheck and evaluate an expression without a contract or database context from stdin.
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
   generate_address   to generate a random Stacks public address for testing purposes.
@@ -807,7 +807,7 @@ impl HeadersDB for CLIHeadersDB {
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
         eprintln!(
-            "Usage: {} {} [--costs] [contract-identifier] (program.clar) [vm-state.db]",
+            "Usage: {} {} [--costs] [--epoch E] [--clarity_version N] [contract-identifier] (program.clar) [vm-state.db]",
             invoked_by, args[0]
         );
         panic_test!();
@@ -914,7 +914,7 @@ fn install_boot_code<C: ClarityStorage>(
                 None,
                 None,
                 |env| {
-                    let res: InterpreterResult<_> =
+                    let res: Result<_, VmExecutionError> =
                         Ok(env.global_context.database.set_clarity_epoch_version(epoch));
                     res
                 },
@@ -1030,7 +1030,7 @@ fn parse_clarity_version_flag(argv: &mut Vec<String>, epoch: StacksEpochId) -> C
         if let Some(s) = optarg {
             friendly_expect(
                 s.parse::<ClarityVersion>(),
-                &format!("Invalid clarity version: {}", s),
+                &format!("Invalid clarity version: {s}"),
             )
         } else {
             ClarityVersion::default_for_epoch(epoch)
@@ -1167,6 +1167,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             }
         }
         "generate_address" => {
+            if args.len() != 1 {
+                eprintln!("Usage: {} {}", invoked_by, args[0]);
+                panic_test!();
+            }
             // random 20 bytes
             let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
             // version = 22
@@ -1321,6 +1325,15 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let epoch = parse_epoch_flag(&mut argv);
             let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
             let mainnet = !matches!(consume_arg(&mut argv, &["--testnet"], false), Ok(Some(_)));
+
+            if argv.len() != 1 {
+                eprintln!(
+                    "Usage: {} {} [--testnet] [--epoch E] [--clarity_version N]",
+                    invoked_by, args[0]
+                );
+                panic_test!();
+            }
+
             let mut marf = MemoryBackingStore::new();
             let mut vm_env = OwnedEnvironment::new_free(
                 mainnet,
@@ -1394,6 +1407,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let mut argv = args.to_vec();
             let epoch = parse_epoch_flag(&mut argv);
             let clarity_version = parse_clarity_version_flag(&mut argv, epoch);
+
+            if argv.len() != 1 {
+                eprintln!(
+                    "Usage: {} {} [--epoch E] [--clarity_version N]",
+                    invoked_by, args[0]
+                );
+                eprintln!("   Examples:");
+                eprintln!("   echo \"(+ 1 2)\" | {} {}", invoked_by, args[0]);
+                eprintln!("   {} {} < input.clar", invoked_by, args[0]);
+                panic_test!();
+            }
+
             let content: String = {
                 let mut buffer = String::new();
                 friendly_expect(
@@ -1601,7 +1626,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if argv.len() != 4 {
                 eprintln!(
-                    "Usage: {} {} [--costs] [index-block-hash] [contract-identifier] [--clarity_version N] [vm/clarity dir]",
+                    "Usage: {} {} [--costs] [--epoch E] [index-block-hash] [contract-identifier] [--clarity_version N] [vm/clarity dir]",
                     invoked_by, &argv[0]
                 );
                 panic_test!();
