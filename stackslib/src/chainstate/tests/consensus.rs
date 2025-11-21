@@ -23,7 +23,7 @@ use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
 use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
@@ -1021,6 +1021,7 @@ impl ContractConsensusTest<'_> {
     /// * `contract_code` - Clarity source code of the contract
     /// * `function_name` - Contract function to test
     /// * `function_args` - Arguments passed to `function_name` on every call
+    /// * `exclude_clarity_versions` - List of Clarity versions to exclude from testing. For each epoch to test, at least a clarity version must available.
     /// * `setup_contracts` - Contracts that must be deployed before epoch-specific logic runs
     ///
     /// # Panics
@@ -1031,23 +1032,38 @@ impl ContractConsensusTest<'_> {
     pub fn new(
         test_name: &str,
         initial_balances: Vec<(PrincipalData, u64)>,
-        clarity_versions: &[ClarityVersion],
         deploy_epochs: &[StacksEpochId],
         call_epochs: &[StacksEpochId],
         contract_name: &str,
         contract_code: &str,
         function_name: &str,
         function_args: &[ClarityValue],
+        exclude_clarity_versions: &[ClarityVersion],
         setup_contracts: &[SetupContract],
     ) -> Self {
         assert!(
             !deploy_epochs.is_empty(),
             "At least one deploy epoch is required"
         );
+        for epoch in deploy_epochs {
+            let supported_versions = clarity_versions_for_epoch(*epoch);
+            assert!(
+                supported_versions
+                    .iter()
+                    .any(|version| !exclude_clarity_versions.contains(version)),
+                "Epoch {epoch} does not have any Clarity versions available after applying exclusions",
+            );
+        }
         let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
         assert!(
             call_epochs.iter().all(|e| e >= min_deploy_epoch),
             "All call epochs must be >= the minimum deploy epoch"
+        );
+        assert!(
+            setup_contracts
+                .iter()
+                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() >= *min_deploy_epoch),
+            "All setup contracts must have a deploy epoch >= the minimum deploy epoch"
         );
 
         // Build epoch_blocks map based on deploy and call epochs
@@ -1100,10 +1116,10 @@ impl ContractConsensusTest<'_> {
 
             if deploy_epochs.contains(epoch) {
                 let clarity_versions_per_epoch = clarity_versions_for_epoch(*epoch);
-                // Filter the clarity versions to only include the ones that are supported in the epoch.
-                let clarity_versions = clarity_versions
+                // Exclude the clarity versions that are in the exclude_clarity_versions list.
+                let clarity_versions = clarity_versions_per_epoch
                     .iter()
-                    .filter(|v| clarity_versions_per_epoch.contains(v));
+                    .filter(|v| !exclude_clarity_versions.contains(v));
 
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
@@ -1179,27 +1195,59 @@ impl ContractConsensusTest<'_> {
     }
 
     /// Deploys prerequisite contracts scheduled for the given epoch.
-    fn deploy_setup_contracts(&mut self, epoch: StacksEpochId) -> Vec<ExpectedResult> {
+    /// Panics if the deployment fails.
+    fn deploy_setup_contracts(&mut self, epoch: StacksEpochId) {
         let Some(contracts) = self.setup_contracts_per_epoch.get(&epoch).cloned() else {
-            return vec![];
+            return;
         };
 
         let is_naka_block = epoch.uses_nakamoto_blocks();
-        contracts
-            .into_iter()
-            .map(|contract| {
-                self.chain.consume_pre_naka_prepare_phase();
-                self.append_tx_block(
-                    &TestTxSpec::ContractDeploy {
-                        sender: &FAUCET_PRIV_KEY,
-                        name: &contract.name,
-                        code: &contract.code,
-                        clarity_version: contract.clarity_version,
-                    },
-                    is_naka_block,
-                )
-            })
-            .collect()
+        contracts.into_iter().for_each(|contract| {
+            self.chain.consume_pre_naka_prepare_phase();
+            let result = self.append_tx_block(
+                &TestTxSpec::ContractDeploy {
+                    sender: &FAUCET_PRIV_KEY,
+                    name: &contract.name,
+                    code: &contract.code,
+                    clarity_version: contract.clarity_version,
+                },
+                is_naka_block,
+            );
+            match result {
+                ExpectedResult::Success(ref output) => {
+                    assert_eq!(
+                        output.transactions.len(),
+                        1,
+                        "Expected 1 transaction for setup contract {}, got {}",
+                        contract.name,
+                        output.transactions.len()
+                    );
+                    let tx_output = &output.transactions.first().unwrap();
+                    assert_eq!(
+                        tx_output.return_type,
+                        ClarityValue::Response(ResponseData {
+                            committed: true,
+                            data: Box::new(ClarityValue::Bool(true)),
+                        }),
+                        "Setup contract {} failed to deploy: got {:?}",
+                        contract.name,
+                        tx_output
+                    );
+                    assert!(
+                        tx_output.vm_error.is_none(),
+                        "Expected no VM error for setup contract {}, got {:?}",
+                        contract.name,
+                        tx_output.vm_error
+                    );
+                }
+                ExpectedResult::Failure(error) => {
+                    panic!(
+                        "Setup contract {} deployment failed: {error:?}",
+                        contract.name
+                    );
+                }
+            }
+        });
     }
 
     /// Deploys all contract versions scheduled for the given epoch.
@@ -1319,7 +1367,9 @@ impl ContractConsensusTest<'_> {
                 .test_chainstate
                 .advance_into_epoch(&private_key, epoch);
 
-            results.extend(self.deploy_setup_contracts(epoch));
+            // Differently from the deploy_contracts and call_contracts functions, setup contracts are expected to succeed.
+            // Their receipt is not relevant to the test.
+            self.deploy_setup_contracts(epoch);
             results.extend(self.deploy_contracts(epoch));
             results.extend(self.call_contracts(epoch));
         }
@@ -1535,6 +1585,7 @@ impl TestTxFactory {
 /// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
 /// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
+/// * `clarity_versions` — *(optional)* Clarity versions to test. For each epoch to test, at least one of the clarity versions must be supported. Defaults to all Clarity versions.
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy once before the main contract logic.
 ///
 /// # Example
@@ -1564,7 +1615,7 @@ macro_rules! contract_call_consensus_test {
         function_args: $function_args:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
-        $(clarity_versions: $clarity_versions:expr,)?
+        $(exclude_clarity_versions: $exclude_clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
@@ -1577,18 +1628,18 @@ macro_rules! contract_call_consensus_test {
             $(let call_epochs = $call_epochs;)?
             let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
             $(let setup_contracts = $setup_contracts;)?
-            let clarity_versions = clarity::vm::ClarityVersion::ALL;
-            $(let clarity_versions = $clarity_versions;)?
+            let exclude_clarity_versions: &[clarity::vm::ClarityVersion] = &[];
+            $(let exclude_clarity_versions = $exclude_clarity_versions;)?
             let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
                 function_name!(),
                 vec![],
-                clarity_versions,
                 deploy_epochs,
                 call_epochs,
                 $contract_name,
                 $contract_code,
                 $function_name,
                 $function_args,
+                exclude_clarity_versions,
                 setup_contracts,
             );
             let result = contract_test.run();
@@ -1616,6 +1667,7 @@ pub(crate) use contract_call_consensus_test;
 /// * `contract_name` — Name of the contract being tested.
 /// * `contract_code` — The Clarity source code of the contract.
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
+/// * `exclude_clarity_versions` — *(optional)* Clarity versions to exclude from testing. For each epoch to test, at least one of the clarity versions must be supported. Defaults to no Clarity versions.
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy before the main contract.
 ///
 /// # Example
@@ -1635,7 +1687,7 @@ macro_rules! contract_deploy_consensus_test {
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
-        $(clarity_versions: $clarity_versions:expr,)?
+        $(exclude_clarity_versions: $exclude_clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
@@ -1648,7 +1700,7 @@ macro_rules! contract_deploy_consensus_test {
                 function_args: &[],  // No function calls, just deploys
                 deploy_epochs: deploy_epochs,
                 call_epochs: &[],    // No function calls, just deploys
-                $(clarity_versions: $clarity_versions,)?
+                $(exclude_clarity_versions: $exclude_clarity_versions,)?
                 $(setup_contracts: $setup_contracts,)?
             );
         }

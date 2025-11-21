@@ -4,34 +4,6 @@ expression: result
 ---
 [
   Success(ExpectedBlockOutput(
-    marf_hash: "fe901ae4720a11103c393c4d52fd3c488b65bad953b8de4effac4a60d9375421",
-    evaluated_epoch: Epoch33,
-    transactions: [
-      ExpectedTransactionOutput(
-        tx: "SmartContract(name: contract-1, code_body: [..], clarity_version: Some(Clarity4))",
-        vm_error: "None [NON-CONSENSUS BREAKING]",
-        return_type: Response(ResponseData(
-          committed: true,
-          data: Bool(true),
-        )),
-        cost: ExecutionCost(
-          write_length: 58,
-          write_count: 2,
-          read_length: 1,
-          read_count: 1,
-          runtime: 9610,
-        ),
-      ),
-    ],
-    total_block_cost: ExecutionCost(
-      write_length: 58,
-      write_count: 2,
-      read_length: 1,
-      read_count: 1,
-      runtime: 9610,
-    ),
-  )),
-  Success(ExpectedBlockOutput(
     marf_hash: "89d0625148d64e4c64add4eb0b6106cf68261e1221269d4ae818a5602def3252",
     evaluated_epoch: Epoch33,
     transactions: [

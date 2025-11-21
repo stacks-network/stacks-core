@@ -197,6 +197,7 @@ fn check_error_kind_contract_call_expect_name_cdeploy() {
             (define-constant default-target .contract-2)
 
             (contract-call? default-target ping)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
         setup_contracts: &[contract_1, contract_2],
     );
 }
@@ -225,7 +226,7 @@ fn check_error_kind_union_type_value_error_cdeploy() {
 
             (define-constant trigger-error
                 (foo .contract-1))",
-        clarity_versions: &[ClarityVersion::Clarity4],
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
         setup_contracts: &[contract_1],
     );
 }
@@ -388,6 +389,7 @@ fn check_error_kind_contract_call_expect_name_ccall() {
         function_args: &[],
         deploy_epochs: EPOCHS_TO_TEST,
         call_epochs: EPOCHS_TO_TEST,
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
         setup_contracts: &[contract_1, contract_2],
     );
 }
@@ -513,7 +515,7 @@ fn check_error_kind_union_type_value_error_ccall() {
                 (foo .contract-1))",
         function_name: "trigger-runtime-error",
         function_args: &[],
-        clarity_versions: &[ClarityVersion::Clarity4],
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
         setup_contracts: &[contract_1],
     );
 }

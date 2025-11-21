@@ -24,6 +24,7 @@ use clarity::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRA
 #[allow(unused_imports)]
 use clarity::vm::analysis::StaticCheckErrorKind;
 use clarity::vm::types::MAX_TYPE_DEPTH;
+use clarity::vm::ClarityVersion;
 
 use crate::chainstate::stacks::StacksTransaction;
 use crate::chainstate::tests::consensus::{
@@ -217,9 +218,28 @@ fn static_check_error_expected_optional_type() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::NameAlreadyUsed`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTraitImplementation`]
+/// Caused by: trying to implement a trait with a bad implementation.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_trait_implementation() {
+    let setup_contract = SetupContract::new(
+        "trait-contract",
+        "(define-trait trait-1 ((get-1 ((list 10 uint)) (response uint uint))))",
+    );
+
+    contract_deploy_consensus_test!(
+        contract_name: "contract-name",
+        contract_code: "
+        (impl-trait .trait-contract.trait-1)
+        (define-public (get-1 (x (list 5 uint))) (ok u1))",
+        setup_contracts: &[setup_contract],
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NameAlreadyUsed`]
+/// Caused by: redefining constant `foo` a second time.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_name_already_used() {
     contract_deploy_consensus_test!(
@@ -230,9 +250,9 @@ fn static_check_error_name_already_used() {
     );
 }
 
-// StaticCheckErrorKind: [`StaticCheckErrorKind::ReturnTypesMustMatch`]
-// Caused by:
-// Outcome: block accepted.
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ReturnTypesMustMatch`]
+/// Caused by: `unwrap!` default returns `err 1` while the function returns `err false`, so response types diverge.
+/// Outcome: block accepted.
 #[test]
 fn static_check_error_return_types_must_match() {
     contract_deploy_consensus_test!(
@@ -248,7 +268,7 @@ fn static_check_error_return_types_must_match() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeError`]
-/// Caused by:
+/// Caused by: initializing `define-data-var cursor int` with the boolean `true`.
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_type_error() {
@@ -259,7 +279,7 @@ fn static_check_error_type_error() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineVariableBadSignature`]
-/// Caused by:
+/// Caused by: `define-data-var` is provided only a name and value, missing the required type.
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_define_variable_bad_signature() {
@@ -270,7 +290,7 @@ fn static_check_error_define_variable_bad_signature() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::InvalidTypeDescription`]
-/// Caused by:
+/// Caused by: `define-data-var` uses `0x00` where a valid type description is required.
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_invalid_type_description() {
@@ -281,7 +301,7 @@ fn static_check_error_invalid_type_description() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::TypeSignatureTooDeep`]
-/// Caused by:
+/// Caused by: parameter type nests `optional` wrappers deeper than [`MAX_TYPE_DEPTH`].
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_type_signature_too_deep() {
@@ -304,7 +324,7 @@ fn static_check_error_type_signature_too_deep() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::SupertypeTooLarge`]
-/// Caused by:
+/// Caused by: combining tuples with `buff 600000` and `buff 10` forces a supertype beyond the size limit.
 /// Outcome: block rejected.
 #[test]
 fn static_check_error_supertype_too_large() {
@@ -320,7 +340,7 @@ fn static_check_error_supertype_too_large() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::ConstructedListTooLarge`]
-/// Caused by:
+/// Caused by: mapping `sha512` over a list capped at 65,535 elements constructs a list past [`MAX_VALUE_SIZE`].
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_constructed_list_too_large() {
@@ -337,7 +357,7 @@ fn static_check_error_constructed_list_too_large() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownTypeName`]
-/// Caused by:
+/// Caused by: `from-consensus-buff?` references an undefined type named `foo`.
 /// Outcome: block accepted.
 /// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
 ///       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
@@ -349,6 +369,7 @@ fn static_check_error_unknown_type_name() {
         contract_code: "
         (define-public (trigger)
             (ok (from-consensus-buff? foo 0x00)))",
+    exclude_clarity_versions: &[ClarityVersion::Clarity1],
     );
 }
 
@@ -364,7 +385,7 @@ fn static_check_error_public_function_must_return_response() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::UnionTypeError`]
-/// Caused by:
+/// Caused by: `map` applies subtraction to booleans.
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_union_type_error() {
@@ -375,7 +396,7 @@ fn static_check_error_union_type_error() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::UndefinedVariable`]
-/// Caused by:
+/// Caused by: `x`, `y`, and `z` are referenced without being defined.
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_undefined_variable() {
@@ -386,7 +407,7 @@ fn static_check_error_undefined_variable() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::BadMapTypeDefinition`]
-/// Caused by:
+/// Caused by: Invalid map type definition in a `(define-map ...)` expression.
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_bad_map_type_definition() {
@@ -397,7 +418,7 @@ fn static_check_error_bad_map_type_definition() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineType`]
-/// Caused by:
+/// Caused by: `(index-of (list) none)` supplies no concrete element types.
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_could_not_determine_type() {
@@ -408,7 +429,7 @@ fn static_check_error_could_not_determine_type() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedSequence`]
-/// Caused by:
+/// Caused by: passing integer `3` as the sequence argument to `index-of` instead of a list or string.
 /// Outcome: block accepted.
 #[test]
 fn static_check_error_expected_sequence() {
@@ -419,7 +440,7 @@ fn static_check_error_expected_sequence() {
 }
 
 /// StaticCheckErrorKind: [`StaticCheckErrorKind::CouldNotDetermineSerializationType`]
-/// Caused by:
+/// Caused by: `to-consensus-buff?` over a list of trait references lacks a serialization type.
 /// Outcome: block accepted.
 /// Note: during analysis, this error can only be triggered by `from-consensus-buff?`
 ///       which is only available in Clarity 2 and later. So Clarity 1 will not trigger
@@ -427,12 +448,13 @@ fn static_check_error_expected_sequence() {
 #[test]
 fn static_check_error_could_not_determine_serialization_type() {
     contract_deploy_consensus_test!(
-        contract_name: "serialization-type",
-        contract_code: "
+    contract_name: "serialization-type",
+    contract_code: "
         (define-trait trait-a ((ping () (response bool bool))))
         (define-trait trait-b ((pong () (response bool bool))))
         (define-public (trigger (first <trait-a>) (second <trait-b>))
             (ok (to-consensus-buff? (list first second))))",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
     );
 }
 
@@ -1143,26 +1165,6 @@ fn static_check_error_get_tenure_info_expect_property_name() {
     contract_deploy_consensus_test!(
         contract_name: "tenure-exp-prop-name",
         contract_code: "(get-tenure-info? u1 u0)",
-    );
-}
-
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTraitImplementation`]
-/// Caused by: trying to implement a trait with a bad implementation.
-/// Outcome: block accepted.
-#[test]
-fn static_check_error_bad_trait_implementation() {
-    let setup_contract = SetupContract::new(
-        "trait-contract",
-        "(define-trait trait-1 ((get-1 ((list 10 uint)) (response uint uint))))",
-    );
-
-    contract_deploy_consensus_test!(
-        contract_name: "contract-name",
-        contract_code: &format!("
-            (impl-trait .trait-contract.trait-1)
-            (define-public (get-1 (x (list 5 uint))) (ok u1))",
-        ),
-        setup_contracts: &[setup_contract],
     );
 }
 
