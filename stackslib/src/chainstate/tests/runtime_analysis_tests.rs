@@ -190,16 +190,13 @@ fn check_error_kind_contract_call_expect_name_cdeploy() {
 
     contract_deploy_consensus_test!(
         contract_name: "contract-3",
-        contract_code: &format!(
-            "
-    (use-trait simple-trait .contract-1.simple-trait)
+        contract_code: "
+            (use-trait simple-trait .contract-1.simple-trait)
 
-    ;; Evaluated during initialization; runtime cannot resolve the callable.
-    (define-constant default-target '{}.contract-2)
+            ;; Evaluated during initialization; runtime cannot resolve the callable.
+            (define-constant default-target .contract-2)
 
-    (contract-call? default-target ping)",
-        to_addr(&FAUCET_PRIV_KEY),
-    ),
+            (contract-call? default-target ping)",
         setup_contracts: &[contract_1, contract_2],
     );
 }
@@ -379,17 +376,14 @@ fn check_error_kind_contract_call_expect_name_ccall() {
 
     contract_call_consensus_test!(
         contract_name: "contract-3",
-        contract_code: &format!(
-            "
-    (use-trait simple-trait .contract-1.simple-trait)
+        contract_code: "
+            (use-trait simple-trait .contract-1.simple-trait)
 
-    ;; Trait reference stored as a constant.
-    (define-constant default-target '{}.contract-2)
+            ;; Trait reference stored as a constant.
+            (define-constant default-target .contract-2)
 
-    (define-public (trigger-error)
-        (contract-call? default-target ping))",
-        to_addr(&FAUCET_PRIV_KEY),
-    ),
+            (define-public (trigger-error)
+                (contract-call? default-target ping))",
         function_name: "trigger-error",
         function_args: &[],
         deploy_epochs: EPOCHS_TO_TEST,
