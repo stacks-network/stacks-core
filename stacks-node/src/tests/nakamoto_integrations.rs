@@ -317,13 +317,19 @@ pub fn check_nakamoto_empty_block_heuristics(mainnet: bool) {
             )
         });
         if has_tenure_change {
-            let only_coinbase_and_tenure_change = txs.iter().all(|tx| {
-                matches!(
+            for tx in txs.iter() {
+                if tx.get_origin().address_testnet().is_boot_code_addr() {
+                    // boot code txs are okay
+                    continue;
+                }
+                if !matches!(
                     tx.payload,
                     TransactionPayload::TenureChange(_) | TransactionPayload::Coinbase(..)
-                )
-            });
-            assert!(only_coinbase_and_tenure_change, "Nakamoto blocks with a tenure change in them should only have coinbase or tenure changes");
+                ) {
+                    error!("Nakamoto TenureChange(BlockFound) block should only have coinbase and tenure change txs, but found tx: {tx:?}");
+                    panic!("Nakamoto TenureChange(BlockFound) block should only have coinbase and tenure change txs");
+                }
+            }
         }
     }
 }
