@@ -23,7 +23,7 @@ use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
 use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
@@ -1196,11 +1196,40 @@ impl ContractConsensusTest<'_> {
                 },
                 is_naka_block,
             );
-            assert!(
-                matches!(result, ExpectedResult::Success(_)),
-                "Expected success for setup contract {}: {result:?}",
-                contract.name,
-            );
+            match result {
+                ExpectedResult::Success(ref output) => {
+                    assert_eq!(
+                        output.transactions.len(),
+                        1,
+                        "Expected 1 transaction for setup contract {}, got {}",
+                        contract.name,
+                        output.transactions.len()
+                    );
+                    let tx_output = &output.transactions.first().unwrap();
+                    assert_eq!(
+                        tx_output.return_type,
+                        ClarityValue::Response(ResponseData {
+                            committed: true,
+                            data: Box::new(ClarityValue::Bool(true)),
+                        }),
+                        "Setup contract {} failed to deploy: got {:?}",
+                        contract.name,
+                        tx_output
+                    );
+                    assert!(
+                        tx_output.vm_error.is_none(),
+                        "Expected no VM error for setup contract {}, got {:?}",
+                        contract.name,
+                        tx_output.vm_error
+                    );
+                }
+                ExpectedResult::Failure(error) => {
+                    panic!(
+                        "Setup contract {} deployment failed: {error:?}",
+                        contract.name
+                    );
+                }
+            }
         });
     }
 
