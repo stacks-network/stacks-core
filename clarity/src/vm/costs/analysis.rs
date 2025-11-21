@@ -226,18 +226,18 @@ type TraitCount = HashMap<String, MinMaxTraitCount>;
 /// Context passed to visitors during trait count analysis
 struct TraitCountContext {
     containing_fn_name: String,
-    multiplier: u64,
+    multiplier: (u64, u64),
 }
 
 impl TraitCountContext {
-    fn new(containing_fn_name: String, multiplier: u64) -> Self {
+    fn new(containing_fn_name: String, multiplier: (u64, u64)) -> Self {
         Self {
             containing_fn_name,
             multiplier,
         }
     }
 
-    fn with_multiplier(&self, multiplier: u64) -> Self {
+    fn with_multiplier(&self, multiplier: (u64, u64)) -> Self {
         Self {
             containing_fn_name: self.containing_fn_name.clone(),
             multiplier,
@@ -254,9 +254,9 @@ impl TraitCountContext {
 
 /// Extract the list size multiplier from a list expression (for map/filter/fold operations)
 /// Expects a list in the form `(list <size>)` where size is an integer literal
-fn extract_list_multiplier(list: &[SymbolicExpression]) -> u64 {
+fn extract_list_multiplier(list: &[SymbolicExpression]) -> (u64, u64) {
     if list.is_empty() {
-        return 1;
+        return (1, 1);
     }
 
     let is_list_atom = list[0]
@@ -264,24 +264,24 @@ fn extract_list_multiplier(list: &[SymbolicExpression]) -> u64 {
         .map(|a| a.as_str() == "list")
         .unwrap_or(false);
     if !is_list_atom || list.len() < 2 {
-        return 1;
+        return (1, 1);
     }
 
     match &list[1].expr {
-        SymbolicExpressionType::LiteralValue(Value::Int(value)) => *value as u64,
-        _ => 1,
+        SymbolicExpressionType::LiteralValue(Value::Int(value)) => (0, *value as u64),
+        _ => (1, 1),
     }
 }
 
 /// Increment trait count for a function
-fn increment_trait_count(trait_counts: &mut TraitCount, fn_name: &str, multiplier: u64) {
+fn increment_trait_count(trait_counts: &mut TraitCount, fn_name: &str, multiplier: (u64, u64)) {
     trait_counts
         .entry(fn_name.to_string())
         .and_modify(|(min, max)| {
-            *min += 1;
-            *max += multiplier;
+            *min += multiplier.0;
+            *max += multiplier.1;
         })
-        .or_insert((1, multiplier));
+        .or_insert(multiplier);
 }
 
 /// Propagate trait count from one function to another with a multiplier
@@ -289,16 +289,19 @@ fn propagate_trait_count(
     trait_counts: &mut TraitCount,
     from_fn: &str,
     to_fn: &str,
-    multiplier: u64,
+    multiplier: (u64, u64),
 ) {
     if let Some(called_trait_count) = trait_counts.get(from_fn).cloned() {
         trait_counts
             .entry(to_fn.to_string())
             .and_modify(|(min, max)| {
-                *min += called_trait_count.0;
-                *max += called_trait_count.1 * multiplier;
+                *min += called_trait_count.0 * multiplier.0;
+                *max += called_trait_count.1 * multiplier.1;
             })
-            .or_insert((called_trait_count.0, called_trait_count.1 * multiplier));
+            .or_insert((
+                called_trait_count.0 * multiplier.0,
+                called_trait_count.1 * multiplier.1,
+            ));
     }
 }
 
@@ -409,7 +412,7 @@ impl TraitCountVisitor for TraitCountCollector {
                         {
                             extract_list_multiplier(list)
                         } else {
-                            1
+                            (1, 1)
                         };
                     let new_context = context.with_multiplier(multiplier);
                     for child in &node.children {
@@ -535,7 +538,7 @@ impl<'a> TraitCountVisitor for TraitCountPropagator<'a> {
                         {
                             extract_list_multiplier(list)
                         } else {
-                            1
+                            (1, 1)
                         };
 
                     // Process the function being called in map/filter/fold
@@ -630,7 +633,7 @@ pub(crate) fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Opti
     // First pass: collect trait counts and trait names
     let mut collector = TraitCountCollector::new();
     for (name, cost_analysis_node) in costs.iter() {
-        let context = TraitCountContext::new(name.clone(), 1);
+        let context = TraitCountContext::new(name.clone(), (1, 1));
         collector.visit(cost_analysis_node, &context);
     }
 
@@ -640,7 +643,7 @@ pub(crate) fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Opti
     let mut propagator =
         TraitCountPropagator::new(&mut collector.trait_counts, &collector.trait_names);
     for (name, cost_analysis_node) in costs.iter() {
-        let context = TraitCountContext::new(name.clone(), 1);
+        let context = TraitCountContext::new(name.clone(), (1, 1));
         propagator.visit(cost_analysis_node, &context);
     }
 

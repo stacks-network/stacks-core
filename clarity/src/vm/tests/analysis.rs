@@ -216,16 +216,13 @@ fn test_get_trait_count_direct() {
     )
     .unwrap();
 
-    // Build the cost analysis tree
     let costs = static_cost_tree_from_ast(&ast, &ClarityVersion::Clarity3).unwrap();
 
-    // Call get_trait_count directly
     let trait_count = get_trait_count(&costs);
 
-    // Expected result: {something: (1,10), send: (1,1)}
     let expected = {
         let mut map = HashMap::new();
-        map.insert("something".to_string(), (1, 10));
+        map.insert("something".to_string(), (0, 10));
         map.insert("send".to_string(), (1, 1));
         Some(map)
     };
@@ -256,22 +253,14 @@ fn test_trait_counting() {
     let static_cost = static_cost_from_ast(&ast, &ClarityVersion::Clarity3)
         .unwrap()
         .clone();
-    // trait count for 'something' function should be minimum 1 maximum 10
-    println!("static_cost: {:?}", static_cost);
-    //trait count for send should be 1
-    println!("trait_count: {:?}", static_cost.get("something").unwrap());
-    println!("trait_count: {:?}", static_cost.get("send").unwrap());
-    // Trait counts are now keyed by function name, not trait name
-    // Check that "send" function has trait count of (1, 1)
     let send_trait_count_map = static_cost.get("send").unwrap().1.clone().unwrap();
     let send_trait_count = send_trait_count_map.get("send").unwrap();
     assert_eq!(send_trait_count.0, 1);
     assert_eq!(send_trait_count.1, 1);
 
-    // Check that "something" function has trait count of (1, 10)
     let something_trait_count_map = static_cost.get("something").unwrap().1.clone().unwrap();
     let something_trait_count = something_trait_count_map.get("something").unwrap();
-    assert_eq!(something_trait_count.0, 1);
+    assert_eq!(something_trait_count.0, 0);
     assert_eq!(something_trait_count.1, 10);
 }
 
@@ -283,10 +272,8 @@ fn execute_contract_function_and_get_cost(
     args: &[u64],
     version: ClarityVersion,
 ) -> ExecutionCost {
-    // Start with a fresh cost tracker
     let initial_cost = env.get_cost_total();
 
-    // Create a dummy sender
     let sender = PrincipalData::parse_qualified_contract_principal(
         "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM.sender",
     )
@@ -317,7 +304,6 @@ fn execute_contract_function_and_get_cost(
         );
     }
 
-    // Get the cost after execution
     let final_cost = env.get_cost_total();
 
     ExecutionCost {
