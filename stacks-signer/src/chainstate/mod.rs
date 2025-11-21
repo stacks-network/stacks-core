@@ -91,8 +91,6 @@ pub struct ProposalEvalConfig {
     /// How many blocks after a fork should we reset the replay set,
     /// as a failsafe mechanism
     pub reset_replay_set_after_fork_blocks: u64,
-    /// Whether or not this signer supports SIP-034 tenure extensions
-    pub supports_sip034_tenure_extensions: bool,
 }
 
 impl From<&SignerConfig> for ProposalEvalConfig {
@@ -106,24 +104,8 @@ impl From<&SignerConfig> for ProposalEvalConfig {
             tenure_idle_timeout_buffer: value.tenure_idle_timeout_buffer,
             proposal_wait_for_parent_time: value.proposal_wait_for_parent_time,
             reset_replay_set_after_fork_blocks: value.reset_replay_set_after_fork_blocks,
-            // disabled for now, but can be overridden in tests
-            supports_sip034_tenure_extensions: Self::config_sip034_tenure_extensions(),
             read_count_idle_timeout: value.read_count_idle_timeout,
         }
-    }
-}
-
-impl ProposalEvalConfig {
-    #[cfg(any(test, feature = "testing"))]
-    fn config_sip034_tenure_extensions() -> bool {
-        std::env::var("SIGNER_TEST_SIP034")
-            .map(|var| var.as_str() == "1")
-            .unwrap_or(false)
-    }
-
-    #[cfg(not(any(test, feature = "testing")))]
-    fn config_sip034_tenure_extensions() -> bool {
-        false
     }
 }
 

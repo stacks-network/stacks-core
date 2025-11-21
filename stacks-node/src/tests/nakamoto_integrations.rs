@@ -6768,7 +6768,6 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
             reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-            supports_sip034_tenure_extensions: false,
             read_count_idle_timeout: Duration::from_secs(12000),
         };
         let mut sortitions_view =
@@ -6905,7 +6904,6 @@ fn signer_chainstate() {
             tenure_idle_timeout_buffer: Duration::from_secs(2),
             reorg_attempts_activity_timeout: Duration::from_secs(30),
             reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-            supports_sip034_tenure_extensions: false,
             read_count_idle_timeout: Duration::from_secs(12000),
         };
         let burn_block_height = SortitionDB::get_canonical_burn_chain_tip(sortdb.conn())
@@ -6986,7 +6984,6 @@ fn signer_chainstate() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut sortitions_view = SortitionsView::fetch_view(proposal_conf, &signer_client).unwrap();

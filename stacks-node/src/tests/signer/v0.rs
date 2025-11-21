@@ -1775,7 +1775,6 @@ fn block_proposal_rejection() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
@@ -1999,7 +1998,6 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: allow,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
 
@@ -11093,7 +11091,6 @@ fn block_validation_response_timeout() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
@@ -11391,7 +11388,6 @@ fn block_validation_pending_table() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
@@ -12747,7 +12743,6 @@ fn incoming_signers_ignore_block_proposals() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
@@ -12927,7 +12922,6 @@ fn outgoing_signers_ignore_block_proposals() {
         tenure_idle_timeout_buffer: Duration::from_secs(2),
         reorg_attempts_activity_timeout: Duration::from_secs(30),
         reset_replay_set_after_fork_blocks: DEFAULT_RESET_REPLAY_SET_AFTER_FORK_BLOCKS,
-        supports_sip034_tenure_extensions: false,
         read_count_idle_timeout: Duration::from_secs(12000),
     };
     let mut block = NakamotoBlock {
