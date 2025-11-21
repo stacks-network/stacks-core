@@ -1,6 +1,6 @@
 // Static cost analysis for Clarity contracts
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use clarity_types::types::{CharType, SequenceData, TraitIdentifier};
 use stacks_common::types::StacksEpochId;
@@ -29,11 +29,9 @@ const STRING_COST_MULTIPLIER: u64 = 3;
 /// cost includes their processing
 const FUNCTIONS_WITH_ZERO_STRING_ARG_COST: &[&str] = &["concat", "len"];
 
-/// Function definition keywords in Clarity
 const FUNCTION_DEFINITION_KEYWORDS: &[&str] =
     &["define-public", "define-private", "define-read-only"];
 
-/// Check if a function name is a function definition keyword
 fn is_function_definition(function_name: &str) -> bool {
     FUNCTION_DEFINITION_KEYWORDS.contains(&function_name)
 }
@@ -225,137 +223,428 @@ fn static_cost_native(
 type MinMaxTraitCount = (u64, u64);
 type TraitCount = HashMap<String, MinMaxTraitCount>;
 
-// // "<trait-name>" -> "trait-name"
-// // ClarityName can't contain
-// fn strip_trait_surrounding_brackets(name: &ClarityName) -> ClarityName {
-//     let stripped = name
-//         .as_str()
-//         .strip_prefix("<")
-//         .and_then(|name| name.strip_suffix(">"));
-//     if let Some(name) = stripped {
-//         ClarityName::from(name)
-//     } else {
-//         name.clone()
-//     }
-// }
-fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Option<TraitCount> {
-    let mut trait_counts = HashMap::new();
-    let mut trait_names = HashMap::new();
-    // walk tree
-    for (name, cost_analysis_node) in costs.iter() {
-        get_trait_count_from_node(
-            cost_analysis_node,
-            &mut trait_counts,
-            &mut trait_names,
-            name.clone(),
-            1,
-        );
-        // trait_counts.extend(counts);
-    }
-    Some(trait_counts)
-}
-fn get_trait_count_from_node(
-    cost_analysis_node: &CostAnalysisNode,
-    mut trait_counts: &mut TraitCount,
-    mut trait_names: &mut HashMap<ClarityName, String>,
+/// Context passed to visitors during trait count analysis
+struct TraitCountContext {
     containing_fn_name: String,
     multiplier: u64,
-) -> TraitCount {
-    match &cost_analysis_node.expr {
-        CostExprNode::UserArgument(arg_name, arg_type) => match arg_type {
-            SymbolicExpressionType::TraitReference(name, _) => {
-                trait_names.insert(arg_name.clone(), name.clone().to_string());
-                trait_counts.entry(name.to_string()).or_insert((0, 0));
-            }
-            _ => {}
-        },
-        CostExprNode::NativeFunction(native_function) => {
-            println!("native function: {:?}", native_function);
-            match native_function {
-                // if map, filter, or fold, we need to check if traits are called
-                NativeFunctions::Map | NativeFunctions::Filter | NativeFunctions::Fold => {
-                    println!("map: {:?}", cost_analysis_node.children);
-                    let list_to_traverse = cost_analysis_node.children[1].clone();
-                    let multiplier = match list_to_traverse.expr {
-                        CostExprNode::UserArgument(_, arg_type) => match arg_type {
-                            SymbolicExpressionType::List(list) => {
-                                if list[0].match_atom().unwrap().as_str() == "list" {
-                                    match list[1].clone().expr {
-                                        SymbolicExpressionType::LiteralValue(value) => {
-                                            match value {
-                                                Value::Int(value) => value as u64,
-                                                _ => 1,
-                                            }
-                                        }
-                                        _ => 1,
-                                    }
-                                } else {
-                                    1
-                                }
-                            }
-                            _ => 1,
-                        },
-                        _ => 1,
-                    };
-                    println!("multiplier: {:?}", multiplier);
-                    cost_analysis_node.children.iter().for_each(|child| {
-                        get_trait_count_from_node(
-                            child,
-                            &mut trait_counts,
-                            &mut trait_names,
-                            containing_fn_name.clone(),
-                            multiplier,
-                        );
-                    });
-                }
-                _ => {}
-            }
-        }
-        CostExprNode::AtomValue(atom_value) => {
-            println!("atom value: {:?}", atom_value);
-            // do nothing
-        }
-        CostExprNode::Atom(atom) => {
-            println!("atom: {:?}", atom);
-            if trait_names.get(atom).is_some() {
-                trait_counts
-                    .entry(containing_fn_name.clone())
-                    .and_modify(|(min, max)| {
-                        *min += 1;
-                        *max += multiplier;
-                    })
-                    .or_insert((1, multiplier));
-            }
-            // do nothing
-        }
-        CostExprNode::FieldIdentifier(field_identifier) => {
-            println!("field identifier: {:?}", field_identifier);
-            // do nothing
-        }
-        CostExprNode::TraitReference(trait_name) => {
-            println!("trait_name: {:?}", trait_name);
-            trait_counts
-                .entry(trait_name.to_string())
-                .and_modify(|(min, max)| {
-                    *min += 1;
-                    *max += multiplier;
-                })
-                .or_insert((1, multiplier));
-        }
-        CostExprNode::UserFunction(user_function) => {
-            println!("user function: {:?}", user_function);
-            cost_analysis_node.children.iter().for_each(|child| {
-                get_trait_count_from_node(
-                    child,
-                    &mut trait_counts,
-                    &mut trait_names,
-                    containing_fn_name.clone(),
-                    multiplier,
-                );
-            });
+}
+
+impl TraitCountContext {
+    fn new(containing_fn_name: String, multiplier: u64) -> Self {
+        Self {
+            containing_fn_name,
+            multiplier,
         }
     }
-    trait_counts.clone()
+
+    fn with_multiplier(&self, multiplier: u64) -> Self {
+        Self {
+            containing_fn_name: self.containing_fn_name.clone(),
+            multiplier,
+        }
+    }
+
+    fn with_fn_name(&self, fn_name: String) -> Self {
+        Self {
+            containing_fn_name: fn_name,
+            multiplier: self.multiplier,
+        }
+    }
+}
+
+/// Extract the list size multiplier from a list expression (for map/filter/fold operations)
+/// Expects a list in the form `(list <size>)` where size is an integer literal
+fn extract_list_multiplier(list: &[SymbolicExpression]) -> u64 {
+    if list.is_empty() {
+        return 1;
+    }
+
+    let is_list_atom = list[0]
+        .match_atom()
+        .map(|a| a.as_str() == "list")
+        .unwrap_or(false);
+    if !is_list_atom || list.len() < 2 {
+        return 1;
+    }
+
+    match &list[1].expr {
+        SymbolicExpressionType::LiteralValue(Value::Int(value)) => *value as u64,
+        _ => 1,
+    }
+}
+
+/// Increment trait count for a function
+fn increment_trait_count(trait_counts: &mut TraitCount, fn_name: &str, multiplier: u64) {
+    trait_counts
+        .entry(fn_name.to_string())
+        .and_modify(|(min, max)| {
+            *min += 1;
+            *max += multiplier;
+        })
+        .or_insert((1, multiplier));
+}
+
+/// Propagate trait count from one function to another with a multiplier
+fn propagate_trait_count(
+    trait_counts: &mut TraitCount,
+    from_fn: &str,
+    to_fn: &str,
+    multiplier: u64,
+) {
+    if let Some(called_trait_count) = trait_counts.get(from_fn).cloned() {
+        trait_counts
+            .entry(to_fn.to_string())
+            .and_modify(|(min, max)| {
+                *min += called_trait_count.0;
+                *max += called_trait_count.1 * multiplier;
+            })
+            .or_insert((called_trait_count.0, called_trait_count.1 * multiplier));
+    }
+}
+
+/// Visitor trait for traversing cost analysis nodes and collecting/propagating trait counts
+trait TraitCountVisitor {
+    fn visit_user_argument(
+        &mut self,
+        node: &CostAnalysisNode,
+        arg_name: &ClarityName,
+        arg_type: &SymbolicExpressionType,
+        context: &TraitCountContext,
+    );
+    fn visit_native_function(
+        &mut self,
+        node: &CostAnalysisNode,
+        native_function: &NativeFunctions,
+        context: &TraitCountContext,
+    );
+    fn visit_atom_value(&mut self, node: &CostAnalysisNode, context: &TraitCountContext);
+    fn visit_atom(
+        &mut self,
+        node: &CostAnalysisNode,
+        atom: &ClarityName,
+        context: &TraitCountContext,
+    );
+    fn visit_field_identifier(&mut self, node: &CostAnalysisNode, context: &TraitCountContext);
+    fn visit_trait_reference(
+        &mut self,
+        node: &CostAnalysisNode,
+        trait_name: &ClarityName,
+        context: &TraitCountContext,
+    );
+    fn visit_user_function(
+        &mut self,
+        node: &CostAnalysisNode,
+        user_function: &ClarityName,
+        context: &TraitCountContext,
+    );
+
+    fn visit(&mut self, node: &CostAnalysisNode, context: &TraitCountContext) {
+        match &node.expr {
+            CostExprNode::UserArgument(arg_name, arg_type) => {
+                self.visit_user_argument(node, arg_name, arg_type, context);
+            }
+            CostExprNode::NativeFunction(native_function) => {
+                self.visit_native_function(node, native_function, context);
+            }
+            CostExprNode::AtomValue(_atom_value) => {
+                self.visit_atom_value(node, context);
+            }
+            CostExprNode::Atom(atom) => {
+                self.visit_atom(node, atom, context);
+            }
+            CostExprNode::FieldIdentifier(_field_identifier) => {
+                self.visit_field_identifier(node, context);
+            }
+            CostExprNode::TraitReference(trait_name) => {
+                self.visit_trait_reference(node, trait_name, context);
+            }
+            CostExprNode::UserFunction(user_function) => {
+                self.visit_user_function(node, user_function, context);
+            }
+        }
+    }
+}
+
+struct TraitCountCollector {
+    trait_counts: TraitCount,
+    trait_names: HashMap<ClarityName, String>,
+}
+
+impl TraitCountCollector {
+    fn new() -> Self {
+        Self {
+            trait_counts: HashMap::new(),
+            trait_names: HashMap::new(),
+        }
+    }
+}
+
+impl TraitCountVisitor for TraitCountCollector {
+    fn visit_user_argument(
+        &mut self,
+        _node: &CostAnalysisNode,
+        arg_name: &ClarityName,
+        arg_type: &SymbolicExpressionType,
+        _context: &TraitCountContext,
+    ) {
+        if let SymbolicExpressionType::TraitReference(name, _) = arg_type {
+            self.trait_names
+                .insert(arg_name.clone(), name.clone().to_string());
+        }
+    }
+
+    fn visit_native_function(
+        &mut self,
+        node: &CostAnalysisNode,
+        native_function: &NativeFunctions,
+        context: &TraitCountContext,
+    ) {
+        match native_function {
+            NativeFunctions::Map | NativeFunctions::Filter | NativeFunctions::Fold => {
+                if node.children.len() > 1 {
+                    let list_node = &node.children[1];
+                    let multiplier =
+                        if let CostExprNode::UserArgument(_, SymbolicExpressionType::List(list)) =
+                            &list_node.expr
+                        {
+                            extract_list_multiplier(list)
+                        } else {
+                            1
+                        };
+                    let new_context = context.with_multiplier(multiplier);
+                    for child in &node.children {
+                        self.visit(child, &new_context);
+                    }
+                }
+            }
+            _ => {
+                for child in &node.children {
+                    self.visit(child, context);
+                }
+            }
+        }
+    }
+
+    fn visit_atom_value(&mut self, _node: &CostAnalysisNode, _context: &TraitCountContext) {
+        // No action needed for atom values
+    }
+
+    fn visit_atom(
+        &mut self,
+        _node: &CostAnalysisNode,
+        atom: &ClarityName,
+        context: &TraitCountContext,
+    ) {
+        if self.trait_names.contains_key(atom) {
+            increment_trait_count(
+                &mut self.trait_counts,
+                &context.containing_fn_name,
+                context.multiplier,
+            );
+        }
+    }
+
+    fn visit_field_identifier(&mut self, _node: &CostAnalysisNode, _context: &TraitCountContext) {
+        // No action needed for field identifiers
+    }
+
+    fn visit_trait_reference(
+        &mut self,
+        _node: &CostAnalysisNode,
+        _trait_name: &ClarityName,
+        context: &TraitCountContext,
+    ) {
+        increment_trait_count(
+            &mut self.trait_counts,
+            &context.containing_fn_name,
+            context.multiplier,
+        );
+    }
+
+    fn visit_user_function(
+        &mut self,
+        node: &CostAnalysisNode,
+        user_function: &ClarityName,
+        context: &TraitCountContext,
+    ) {
+        // Check if this is a trait call (the function name is a trait argument)
+        if self.trait_names.contains_key(user_function) {
+            increment_trait_count(
+                &mut self.trait_counts,
+                &context.containing_fn_name,
+                context.multiplier,
+            );
+        }
+
+        // Determine the containing function name for children
+        let fn_name = if is_function_definition(user_function.as_str()) {
+            context.containing_fn_name.clone()
+        } else {
+            user_function.to_string()
+        };
+        let child_context = context.with_fn_name(fn_name);
+
+        for child in &node.children {
+            self.visit(child, &child_context);
+        }
+    }
+}
+
+/// Second pass visitor: propagates trait counts through function calls
+struct TraitCountPropagator<'a> {
+    trait_counts: &'a mut TraitCount,
+    trait_names: &'a HashMap<ClarityName, String>,
+}
+
+impl<'a> TraitCountPropagator<'a> {
+    fn new(
+        trait_counts: &'a mut TraitCount,
+        trait_names: &'a HashMap<ClarityName, String>,
+    ) -> Self {
+        Self {
+            trait_counts,
+            trait_names,
+        }
+    }
+}
+
+impl<'a> TraitCountVisitor for TraitCountPropagator<'a> {
+    fn visit_user_argument(
+        &mut self,
+        _node: &CostAnalysisNode,
+        _arg_name: &ClarityName,
+        _arg_type: &SymbolicExpressionType,
+        _context: &TraitCountContext,
+    ) {
+        // No propagation needed for arguments
+    }
+
+    fn visit_native_function(
+        &mut self,
+        node: &CostAnalysisNode,
+        native_function: &NativeFunctions,
+        context: &TraitCountContext,
+    ) {
+        match native_function {
+            NativeFunctions::Map | NativeFunctions::Filter | NativeFunctions::Fold => {
+                if node.children.len() > 1 {
+                    let list_node = &node.children[1];
+                    let multiplier =
+                        if let CostExprNode::UserArgument(_, SymbolicExpressionType::List(list)) =
+                            &list_node.expr
+                        {
+                            extract_list_multiplier(list)
+                        } else {
+                            1
+                        };
+
+                    // Process the function being called in map/filter/fold
+                    let mut skip_first_child = false;
+                    if let Some(function_node) = node.children.get(0) {
+                        if let CostExprNode::UserFunction(function_name) = &function_node.expr {
+                            if !self.trait_names.contains_key(function_name) {
+                                // This is a regular function call, not a trait call
+                                propagate_trait_count(
+                                    self.trait_counts,
+                                    &function_name.to_string(),
+                                    &context.containing_fn_name,
+                                    multiplier,
+                                );
+                                skip_first_child = true;
+                            }
+                        }
+                    }
+
+                    // Continue traversing children, but skip the function node if we already propagated it
+                    for (idx, child) in node.children.iter().enumerate() {
+                        if idx == 0 && skip_first_child {
+                            continue;
+                        }
+                        let new_context = context.with_multiplier(multiplier);
+                        self.visit(child, &new_context);
+                    }
+                }
+            }
+            _ => {
+                for child in &node.children {
+                    self.visit(child, context);
+                }
+            }
+        }
+    }
+
+    fn visit_atom_value(&mut self, _node: &CostAnalysisNode, _context: &TraitCountContext) {}
+
+    fn visit_atom(
+        &mut self,
+        _node: &CostAnalysisNode,
+        _atom: &ClarityName,
+        _context: &TraitCountContext,
+    ) {
+    }
+
+    fn visit_field_identifier(&mut self, _node: &CostAnalysisNode, _context: &TraitCountContext) {}
+
+    fn visit_trait_reference(
+        &mut self,
+        _node: &CostAnalysisNode,
+        _trait_name: &ClarityName,
+        _context: &TraitCountContext,
+    ) {
+        // No propagation needed for trait references (already counted in first pass)
+    }
+
+    fn visit_user_function(
+        &mut self,
+        node: &CostAnalysisNode,
+        user_function: &ClarityName,
+        context: &TraitCountContext,
+    ) {
+        if !is_function_definition(user_function.as_str())
+            && !self.trait_names.contains_key(user_function)
+        {
+            // This is a regular function call, not a trait call or function definition
+            propagate_trait_count(
+                self.trait_counts,
+                &user_function.to_string(),
+                &context.containing_fn_name,
+                context.multiplier,
+            );
+        }
+
+        // Determine the containing function name for children
+        let fn_name = if is_function_definition(user_function.as_str()) {
+            context.containing_fn_name.clone()
+        } else {
+            user_function.to_string()
+        };
+        let child_context = context.with_fn_name(fn_name);
+
+        for child in &node.children {
+            self.visit(child, &child_context);
+        }
+    }
+}
+
+pub(crate) fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Option<TraitCount> {
+    // First pass: collect trait counts and trait names
+    let mut collector = TraitCountCollector::new();
+    for (name, cost_analysis_node) in costs.iter() {
+        let context = TraitCountContext::new(name.clone(), 1);
+        collector.visit(cost_analysis_node, &context);
+    }
+
+    // Second pass: propagate trait counts through function calls
+    // If function A calls function B and uses a map, filter, or fold with
+    // traits, the maximum will reflect that in A's trait call counts
+    let mut propagator =
+        TraitCountPropagator::new(&mut collector.trait_counts, &collector.trait_names);
+    for (name, cost_analysis_node) in costs.iter() {
+        let context = TraitCountContext::new(name.clone(), 1);
+        propagator.visit(cost_analysis_node, &context);
+    }
+
+    Some(collector.trait_counts)
 }
 
 pub fn static_cost_from_ast(
@@ -378,7 +667,7 @@ pub fn static_cost_from_ast(
         .collect())
 }
 
-fn static_cost_tree_from_ast(
+pub(crate) fn static_cost_tree_from_ast(
     ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
 ) -> Result<HashMap<String, CostAnalysisNode>, String> {
@@ -404,21 +693,19 @@ fn static_cost_tree_from_ast(
         .collect())
 }
 
-/// Calculate static execution cost for functions using Environment context
+/// STatic execution cost for functions within Environment
 /// returns the top level cost for specific functions
-/// function_name -> cost
+/// {function_name: cost}
 pub fn static_cost(
     env: &mut Environment,
     contract_identifier: &QualifiedContractIdentifier,
 ) -> Result<HashMap<String, StaticCost>, String> {
-    // Get contract source from the environment's database
     let contract_source = env
         .global_context
         .database
         .get_contract_src(contract_identifier)
         .ok_or_else(|| "Contract source not found in database".to_string())?;
 
-    // Get clarity version from the environment
     let contract = env
         .global_context
         .database
@@ -438,18 +725,17 @@ pub fn static_cost(
 }
 
 /// same idea as `static_cost` but returns the root of the cost analysis tree for each function
+/// Useful if you need to analyze specific nodes in the cost tree
 pub fn static_cost_tree(
     env: &mut Environment,
     contract_identifier: &QualifiedContractIdentifier,
 ) -> Result<HashMap<String, CostAnalysisNode>, String> {
-    // Get contract source from the environment's database
     let contract_source = env
         .global_context
         .database
         .get_contract_src(contract_identifier)
         .ok_or_else(|| "Contract source not found in database".to_string())?;
 
-    // Get clarity version from the environment
     let contract = env
         .global_context
         .database
@@ -466,19 +752,16 @@ pub fn static_cost_tree(
 
 /// Extract function name from a symbolic expression
 fn extract_function_name(expr: &SymbolicExpression) -> Option<String> {
-    if let Some(list) = expr.match_list() {
-        if let Some(first_atom) = list.first().and_then(|first| first.match_atom()) {
-            if is_function_definition(first_atom.as_str()) {
-                if let Some(signature) = list.get(1).and_then(|sig| sig.match_list()) {
-                    return signature
-                        .first()
-                        .and_then(|name| name.match_atom())
-                        .map(|name| name.to_string());
-                }
-            }
-        }
-    }
-    None
+    expr.match_list().and_then(|list| {
+        list.first()
+            .and_then(|first| first.match_atom())
+            .filter(|atom| is_function_definition(atom.as_str()))
+            .and_then(|_| list.get(1))
+            .and_then(|sig| sig.match_list())
+            .and_then(|signature| signature.first())
+            .and_then(|name| name.match_atom())
+            .map(|name| name.to_string())
+    })
 }
 
 pub fn build_cost_analysis_tree(
@@ -1305,5 +1588,24 @@ mod tests {
         let func2_cost = ast_cost.get("func2").unwrap();
         assert!(func1_cost.min.runtime > 0);
         assert!(func2_cost.min.runtime > 0);
+    }
+
+    #[test]
+    fn test_extract_function_name_define_public() {
+        let src = "(define-public (my-func (x uint)) (ok x))";
+        let ast = build_test_ast(src);
+        let expr = &ast.expressions[0];
+        let result = extract_function_name(expr);
+        assert_eq!(result, Some("my-func".to_string()));
+    }
+
+    #[test]
+    fn test_extract_function_name_function_call_not_definition() {
+        // function call (not a definition) should return None
+        let src = "(my-func arg1 arg2)";
+        let ast = build_test_ast(src);
+        let expr = &ast.expressions[0];
+        let result = extract_function_name(expr);
+        assert_eq!(result, None);
     }
 }

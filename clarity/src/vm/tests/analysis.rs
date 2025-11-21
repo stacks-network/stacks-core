@@ -6,7 +6,8 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::analysis::{
-    build_cost_analysis_tree, static_cost_from_ast, UserArgumentsContext,
+    build_cost_analysis_tree, get_trait_count, static_cost_from_ast, static_cost_tree_from_ast,
+    UserArgumentsContext,
 };
 use crate::vm::costs::ExecutionCost;
 use crate::vm::tests::{tl_env_factory, TopLevelMemoryEnvironmentGenerator};
@@ -62,50 +63,6 @@ fn test_simple_trait_implementation_costs(
     let (cost, _trait_count) = static_cost.get(key).unwrap();
     assert!(dynamic_cost.runtime >= cost.min.runtime);
     assert!(dynamic_cost.runtime <= cost.max.runtime);
-}
-
-#[rstest]
-fn test_trait_counting() {
-    // map, fold, filter over traits counting
-    let src = r#"(define-trait trait-name (
-    (send (uint principal) (response uint uint))
-))
-(define-public (something (trait <trait-name>) (addresses (list 10 principal)))
-    (map (send u500 trait) addresses)
-)
-(define-private (send (amount uint) (trait <trait-name>) (addr principal)) (trait true))
-"#;
-    let contract_id = QualifiedContractIdentifier::local("trait-counting").unwrap();
-    let ast = crate::vm::ast::build_ast(
-        &contract_id,
-        src,
-        &mut (),
-        ClarityVersion::Clarity3,
-        StacksEpochId::Epoch32,
-    )
-    .unwrap();
-    let static_cost = static_cost_from_ast(&ast, &ClarityVersion::Clarity3)
-        .unwrap()
-        .clone();
-    // trait count for 'something' function should be minimum 1 maximum 10
-    println!("static_cost: {:?}", static_cost);
-    //trait count for send should be 1
-    println!("trait_count: {:?}", static_cost.get("something").unwrap());
-    println!("trait_count: {:?}", static_cost.get("send").unwrap());
-    assert_eq!(
-        static_cost
-            .get("send")
-            .unwrap()
-            .1
-            .clone()
-            .unwrap()
-            .get("trait-name")
-            .unwrap()
-            .0,
-        1
-    );
-    // assert_eq!(trait_count.get("trait-name").unwrap().0, 1);
-    // assert_eq!(trait_count.get("trait-name").unwrap().1, 1);
 }
 
 #[rstest]
@@ -236,6 +193,86 @@ fn test_dependent_function_calls() {
     println!("add_one_cost: {:?}", somefunc_cost);
     assert!(add_one_cost.min.runtime >= somefunc_cost.min.runtime);
     assert!(add_one_cost.max.runtime >= somefunc_cost.max.runtime);
+}
+
+#[test]
+fn test_get_trait_count_direct() {
+    let src = r#"(define-trait trait-name (
+    (send (uint principal) (response uint uint))
+))
+(define-public (something (trait <trait-name>) (addresses (list 10 principal)))
+    (map (send u500 trait) addresses)
+)
+(define-private (send (trait <trait-name>) (addr principal)) (trait addr))
+"#;
+
+    let contract_id = QualifiedContractIdentifier::transient();
+    let ast = crate::vm::ast::build_ast(
+        &contract_id,
+        src,
+        &mut (),
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch32,
+    )
+    .unwrap();
+
+    // Build the cost analysis tree
+    let costs = static_cost_tree_from_ast(&ast, &ClarityVersion::Clarity3).unwrap();
+
+    // Call get_trait_count directly
+    let trait_count = get_trait_count(&costs);
+
+    // Expected result: {something: (1,10), send: (1,1)}
+    let expected = {
+        let mut map = HashMap::new();
+        map.insert("something".to_string(), (1, 10));
+        map.insert("send".to_string(), (1, 1));
+        Some(map)
+    };
+
+    assert_eq!(trait_count, expected);
+}
+
+#[rstest]
+fn test_trait_counting() {
+    // map, fold, filter over traits counting
+    let src = r#"(define-trait trait-name (
+    (send (uint principal) (response uint uint))
+))
+(define-public (something (trait <trait-name>) (addresses (list 10 principal)))
+    (map (send u500 trait) addresses)
+)
+(define-private (send (trait <trait-name>) (addr principal)) (trait addr))
+"#;
+    let contract_id = QualifiedContractIdentifier::local("trait-counting").unwrap();
+    let ast = crate::vm::ast::build_ast(
+        &contract_id,
+        src,
+        &mut (),
+        ClarityVersion::Clarity3,
+        StacksEpochId::Epoch32,
+    )
+    .unwrap();
+    let static_cost = static_cost_from_ast(&ast, &ClarityVersion::Clarity3)
+        .unwrap()
+        .clone();
+    // trait count for 'something' function should be minimum 1 maximum 10
+    println!("static_cost: {:?}", static_cost);
+    //trait count for send should be 1
+    println!("trait_count: {:?}", static_cost.get("something").unwrap());
+    println!("trait_count: {:?}", static_cost.get("send").unwrap());
+    // Trait counts are now keyed by function name, not trait name
+    // Check that "send" function has trait count of (1, 1)
+    let send_trait_count_map = static_cost.get("send").unwrap().1.clone().unwrap();
+    let send_trait_count = send_trait_count_map.get("send").unwrap();
+    assert_eq!(send_trait_count.0, 1);
+    assert_eq!(send_trait_count.1, 1);
+
+    // Check that "something" function has trait count of (1, 10)
+    let something_trait_count_map = static_cost.get("something").unwrap().1.clone().unwrap();
+    let something_trait_count = something_trait_count_map.get("something").unwrap();
+    assert_eq!(something_trait_count.0, 1);
+    assert_eq!(something_trait_count.1, 10);
 }
 
 /// Helper function to execute a contract function and return the execution cost
