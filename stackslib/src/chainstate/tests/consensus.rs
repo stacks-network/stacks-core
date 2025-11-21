@@ -1015,13 +1015,13 @@ impl ContractConsensusTest<'_> {
     ///
     /// * `test_name` - Unique identifier for the test run (used in logging and snapshots)
     /// * `initial_balances` - Initial STX balances for principals (e.g., faucet, users)
-    /// * `clarity_versions` - List of Clarity versions to test. For each epoch to test, at least one of the clarity versions must be supported.
     /// * `deploy_epochs` - List of epochs where contract deployment should occur
     /// * `call_epochs` - List of epochs where function calls should be executed
     /// * `contract_name` - Base name for deployed contracts (versioned suffixes added automatically)
     /// * `contract_code` - Clarity source code of the contract
     /// * `function_name` - Contract function to test
     /// * `function_args` - Arguments passed to `function_name` on every call
+    /// * `exclude_clarity_versions` - List of Clarity versions to exclude from testing. For each epoch to test, at least a clarity version must available.
     /// * `setup_contracts` - Contracts that must be deployed before epoch-specific logic runs
     ///
     /// # Panics
@@ -1032,30 +1032,26 @@ impl ContractConsensusTest<'_> {
     pub fn new(
         test_name: &str,
         initial_balances: Vec<(PrincipalData, u64)>,
-        clarity_versions: &[ClarityVersion],
         deploy_epochs: &[StacksEpochId],
         call_epochs: &[StacksEpochId],
         contract_name: &str,
         contract_code: &str,
         function_name: &str,
         function_args: &[ClarityValue],
+        exclude_clarity_versions: &[ClarityVersion],
         setup_contracts: &[SetupContract],
     ) -> Self {
         assert!(
             !deploy_epochs.is_empty(),
             "At least one deploy epoch is required"
         );
-        assert!(
-            !clarity_versions.is_empty(),
-            "At least one clarity version is required"
-        );
         for epoch in deploy_epochs {
             let supported_versions = clarity_versions_for_epoch(*epoch);
             assert!(
-                clarity_versions
+                supported_versions
                     .iter()
-                    .any(|version| supported_versions.contains(version)),
-                "Epoch {epoch} does not support any of the requested clarity versions",
+                    .any(|version| !exclude_clarity_versions.contains(version)),
+                "Epoch {epoch} does not have any Clarity versions available after applying exclusions",
             );
         }
         let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
@@ -1120,10 +1116,10 @@ impl ContractConsensusTest<'_> {
 
             if deploy_epochs.contains(epoch) {
                 let clarity_versions_per_epoch = clarity_versions_for_epoch(*epoch);
-                // Filter the clarity versions to only include the ones that are supported in the epoch.
-                let clarity_versions = clarity_versions
+                // Exclude the clarity versions that are in the exclude_clarity_versions list.
+                let clarity_versions = clarity_versions_per_epoch
                     .iter()
-                    .filter(|v| clarity_versions_per_epoch.contains(v));
+                    .filter(|v| !exclude_clarity_versions.contains(v));
 
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
@@ -1619,7 +1615,7 @@ macro_rules! contract_call_consensus_test {
         function_args: $function_args:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
-        $(clarity_versions: $clarity_versions:expr,)?
+        $(exclude_clarity_versions: $exclude_clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
@@ -1632,18 +1628,18 @@ macro_rules! contract_call_consensus_test {
             $(let call_epochs = $call_epochs;)?
             let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
             $(let setup_contracts = $setup_contracts;)?
-            let clarity_versions = clarity::vm::ClarityVersion::ALL;
-            $(let clarity_versions = $clarity_versions;)?
+            let exclude_clarity_versions: &[clarity::vm::ClarityVersion] = &[];
+            $(let exclude_clarity_versions = $exclude_clarity_versions;)?
             let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
                 function_name!(),
                 vec![],
-                clarity_versions,
                 deploy_epochs,
                 call_epochs,
                 $contract_name,
                 $contract_code,
                 $function_name,
                 $function_args,
+                exclude_clarity_versions,
                 setup_contracts,
             );
             let result = contract_test.run();
@@ -1691,7 +1687,7 @@ macro_rules! contract_deploy_consensus_test {
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
-        $(clarity_versions: $clarity_versions:expr,)?
+        $(exclude_clarity_versions: $exclude_clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
@@ -1704,7 +1700,7 @@ macro_rules! contract_deploy_consensus_test {
                 function_args: &[],  // No function calls, just deploys
                 deploy_epochs: deploy_epochs,
                 call_epochs: &[],    // No function calls, just deploys
-                $(clarity_versions: $clarity_versions,)?
+                $(exclude_clarity_versions: $exclude_clarity_versions,)?
                 $(setup_contracts: $setup_contracts,)?
             );
         }
