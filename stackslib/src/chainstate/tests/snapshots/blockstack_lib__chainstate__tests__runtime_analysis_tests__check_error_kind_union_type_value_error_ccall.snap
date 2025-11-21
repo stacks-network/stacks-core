@@ -1,0 +1,92 @@
+---
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "b9c8422f985da80d714ac47d9b547a9dce5877b510749b82e9e5bc90a36dd8c7",
+    evaluated_epoch: Epoch20,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-1, code_body: [..], clarity_version: None)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 58,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 565000,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 58,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 565000,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "05142693c23e7aaf7bddb457b19e36e2990b4d0412cbe76b448bc5753a20b821",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 296,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 20202,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 296,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 20202,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8232aa03717c4a276de9cdedac5031274e925d8f49e7be54d0e0f7fb72f62c25",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-2-Epoch3_3-Clarity4, function_name: trigger-runtime-error, function_args: [[]])",
+        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"contract-1\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\"trait-1\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"contract-2-Epoch3_3-Clarity4\") } }) }))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 267,
+          read_count: 3,
+          runtime: 5835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 267,
+      read_count: 3,
+      runtime: 5835,
+    ),
+  )),
+]

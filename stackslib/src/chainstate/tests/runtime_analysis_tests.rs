@@ -20,7 +20,7 @@ use std::collections::HashMap;
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::{QualifiedContractIdentifier, MAX_TYPE_DEPTH};
-use clarity::vm::Value as ClarityValue;
+use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
@@ -201,6 +201,35 @@ fn check_error_kind_contract_call_expect_name_cdeploy() {
         to_addr(&FAUCET_PRIV_KEY),
     ),
         setup_contracts: &[contract_1, contract_2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::UnionTypeValueError`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: This test only works for Clarity 4 and later.
+///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
+#[test]
+fn check_error_kind_union_type_value_error_cdeploy() {
+    let contract_1 = SetupContract::new(
+        "contract-1",
+        "(define-public (dummy)
+                (ok true))",
+    );
+
+    contract_deploy_consensus_test!(
+        contract_name: "contract-2",
+        contract_code: "
+            (define-trait trait-1 (
+                (dummy () (response bool uint))))
+
+            (define-public (foo (contract <trait-1>))
+                (to-ascii? contract))
+
+            (define-constant trigger-error
+                (foo .contract-1))",
+        clarity_versions: &[ClarityVersion::Clarity4],
+        setup_contracts: &[contract_1],
     );
 }
 
@@ -457,4 +486,35 @@ fn check_error_kind_no_such_contract_ccall() {
 
     let result = ConsensusTest::new(function_name!(), vec![], epochs_blocks).run();
     insta::assert_ron_snapshot!(result);
+}
+
+/// CheckErrorKind: [`CheckErrorKind::UnionTypeValueError`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: This test only works for Clarity 4 and later.
+///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
+#[test]
+fn check_error_kind_union_type_value_error_ccall() {
+    let contract_1 = SetupContract::new(
+        "contract-1",
+        "(define-public (dummy)
+                (ok true))",
+    );
+
+    contract_call_consensus_test!(
+        contract_name: "contract-2",
+        contract_code: "
+            (define-trait trait-1 (
+                (dummy () (response bool uint))))
+
+            (define-public (foo (contract <trait-1>))
+                (to-ascii? contract))
+
+            (define-public (trigger-runtime-error)
+                (foo .contract-1))",
+        function_name: "trigger-runtime-error",
+        function_args: &[],
+        clarity_versions: &[ClarityVersion::Clarity4],
+        setup_contracts: &[contract_1],
+    );
 }
