@@ -1614,7 +1614,7 @@ impl SignerDb {
 
     /// Returns:
     /// * the time (epoch time in seconds) of the last tenure change during the tenure identified by `tenure`
-    ///    where the change cause matches `cause_match`
+    ///   where the change cause matches `cause_match`
     /// * the processing time in milliseconds of the blocks since that time
     fn get_tenure_times<F>(
         &self,

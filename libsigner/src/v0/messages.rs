@@ -2694,7 +2694,7 @@ mod test {
     /// can be deserialized by the current version.
     ///
     /// * When deserialized by V4 of the library, these messages will set the
-    ///     `tenure_extend_read_count_timestamp` field to u64::MAX.
+    ///   `tenure_extend_read_count_timestamp` field to u64::MAX.
     fn v3_block_response_deserialization() {
         let test_vectors = [
             (
