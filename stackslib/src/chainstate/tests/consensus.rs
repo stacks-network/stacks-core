@@ -1031,6 +1031,7 @@ impl ContractConsensusTest<'_> {
     pub fn new(
         test_name: &str,
         initial_balances: Vec<(PrincipalData, u64)>,
+        clarity_versions: &[ClarityVersion],
         deploy_epochs: &[StacksEpochId],
         call_epochs: &[StacksEpochId],
         contract_name: &str,
@@ -1098,7 +1099,12 @@ impl ContractConsensusTest<'_> {
             }
 
             if deploy_epochs.contains(epoch) {
-                let clarity_versions = clarity_versions_for_epoch(*epoch);
+                let clarity_versions_per_epoch = clarity_versions_for_epoch(*epoch);
+                // Filter the clarity versions to only include the ones that are supported in the epoch.
+                let clarity_versions = clarity_versions
+                    .iter()
+                    .filter(|v| clarity_versions_per_epoch.contains(v));
+
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
                 // Each deployment is a seperate TestBlock
@@ -1558,6 +1564,7 @@ macro_rules! contract_call_consensus_test {
         function_args: $function_args:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
+        $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
@@ -1570,9 +1577,12 @@ macro_rules! contract_call_consensus_test {
             $(let call_epochs = $call_epochs;)?
             let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
             $(let setup_contracts = $setup_contracts;)?
+            let clarity_versions = clarity::vm::ClarityVersion::ALL;
+            $(let clarity_versions = $clarity_versions;)?
             let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
                 function_name!(),
                 vec![],
+                clarity_versions,
                 deploy_epochs,
                 call_epochs,
                 $contract_name,
@@ -1625,6 +1635,7 @@ macro_rules! contract_deploy_consensus_test {
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
+        $(clarity_versions: $clarity_versions:expr,)?
         $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
@@ -1637,6 +1648,7 @@ macro_rules! contract_deploy_consensus_test {
                 function_args: &[],  // No function calls, just deploys
                 deploy_epochs: deploy_epochs,
                 call_epochs: &[],    // No function calls, just deploys
+                $(clarity_versions: $clarity_versions,)?
                 $(setup_contracts: $setup_contracts,)?
             );
         }
