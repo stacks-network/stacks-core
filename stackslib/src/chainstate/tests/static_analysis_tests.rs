@@ -218,10 +218,9 @@ fn static_check_error_bad_trait_implementation() {
 
     contract_deploy_consensus_test!(
         contract_name: "contract-name",
-        contract_code: &format!("
-            (impl-trait .trait-contract.trait-1)
-            (define-public (get-1 (x (list 5 uint))) (ok u1))",
-        ),
+        contract_code: "
+        (impl-trait .trait-contract.trait-1)
+        (define-public (get-1 (x (list 5 uint))) (ok u1))",
         setup_contracts: &[setup_contract],
     );
 }
