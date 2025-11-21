@@ -1015,6 +1015,7 @@ impl ContractConsensusTest<'_> {
     ///
     /// * `test_name` - Unique identifier for the test run (used in logging and snapshots)
     /// * `initial_balances` - Initial STX balances for principals (e.g., faucet, users)
+    /// * `clarity_versions` - List of Clarity versions to test. For each epoch to test, at least one of the clarity versions must be supported.
     /// * `deploy_epochs` - List of epochs where contract deployment should occur
     /// * `call_epochs` - List of epochs where function calls should be executed
     /// * `contract_name` - Base name for deployed contracts (versioned suffixes added automatically)
@@ -1044,6 +1045,19 @@ impl ContractConsensusTest<'_> {
             !deploy_epochs.is_empty(),
             "At least one deploy epoch is required"
         );
+        assert!(
+            !clarity_versions.is_empty(),
+            "At least one clarity version is required"
+        );
+        for epoch in deploy_epochs {
+            let supported_versions = clarity_versions_for_epoch(*epoch);
+            assert!(
+                clarity_versions
+                    .iter()
+                    .any(|version| supported_versions.contains(version)),
+                "Epoch {epoch} does not support any of the requested clarity versions",
+            );
+        }
         let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
         assert!(
             call_epochs.iter().all(|e| e >= min_deploy_epoch),
@@ -1055,6 +1069,7 @@ impl ContractConsensusTest<'_> {
                 .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() >= *min_deploy_epoch),
             "All setup contracts must have a deploy epoch >= the minimum deploy epoch"
         );
+
         // Build epoch_blocks map based on deploy and call epochs
         let mut num_blocks_per_epoch: HashMap<StacksEpochId, u64> = HashMap::new();
         let mut contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>> =
