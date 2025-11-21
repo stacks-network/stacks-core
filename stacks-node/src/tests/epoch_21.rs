@@ -3,7 +3,7 @@ use std::{env, thread};
 
 use ::core::str;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::{ClarityVersion, Value};
+use clarity::vm::{execute_with_parameters as execute, ClarityVersion, Value};
 use stacks::burnchains::bitcoin::address::{
     BitcoinAddress, LegacyBitcoinAddressType, SegwitBitcoinAddress,
 };
@@ -23,7 +23,6 @@ use stacks::chainstate::stacks::miner::{
     set_mining_spend_amount, signal_mining_blocked, signal_mining_ready,
 };
 use stacks::chainstate::stacks::StacksBlockHeader;
-use stacks::clarity_cli::vm_execute as execute;
 use stacks::config::{Config, InitialBalance};
 use stacks::core::test_util::make_contract_call;
 use stacks::core::{self, EpochList, BURNCHAIN_TX_SEARCH_WINDOW, STACKS_EPOCH_MAX};
@@ -1093,6 +1092,8 @@ fn transition_adds_get_pox_addr_recipients() {
                 &(*addr_variant as u8)
             ),
             ClarityVersion::Clarity2,
+            StacksEpochId::latest(),
+            false,
         )
         .unwrap()
         .unwrap();
@@ -1133,6 +1134,8 @@ fn transition_adds_get_pox_addr_recipients() {
         let pox_addr_tuple = execute(
             &format!("{{ hashbytes: 0x{bytes}, version: 0x{version:02x} }}"),
             ClarityVersion::Clarity2,
+            StacksEpochId::latest(),
+            false,
         )
         .unwrap()
         .unwrap();
@@ -1571,6 +1574,8 @@ fn transition_removes_pox_sunset() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -1628,6 +1633,8 @@ fn transition_removes_pox_sunset() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity2,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -2232,6 +2239,8 @@ fn test_sortition_divergence_pre_21() {
                     execute(
                         &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                         ClarityVersion::Clarity1,
+                        StacksEpochId::latest(),
+                        false,
                     )
                     .unwrap()
                     .unwrap(),
@@ -2780,6 +2789,8 @@ fn test_v1_unlock_height_with_current_stackers() {
     let pox_addr_tuple_1 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -2817,6 +2828,8 @@ fn test_v1_unlock_height_with_current_stackers() {
     let pox_addr_tuple_2 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -3038,6 +3051,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let pox_addr_tuple_1 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_1}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();
@@ -3087,6 +3102,8 @@ fn test_v1_unlock_height_with_delay_and_current_stackers() {
     let pox_addr_tuple_2 = execute(
         &format!("{{ hashbytes: 0x{pox_pubkey_hash_2}, version: 0x00 }}"),
         ClarityVersion::Clarity2,
+        StacksEpochId::latest(),
+        false,
     )
     .unwrap()
     .unwrap();

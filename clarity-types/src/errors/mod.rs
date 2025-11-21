@@ -184,8 +184,6 @@ pub enum RuntimeError {
     BadBlockHash(Vec<u8>),
     /// Failed to unwrap an `Optional` (`none`) or `Response` (`err` or `ok`) Clarity value.
     UnwrapFailure,
-    /// Attempt to set metadata (e.g., for NFTs or tokens) that was already initialized.
-    MetadataAlreadySet,
     /// Interaction with a deprecated or inactive Proof of Transfer (PoX) contract.
     DefunctPoxContract,
     /// Attempt to lock STX for stacking when already locked in an active PoX cycle.
@@ -206,8 +204,6 @@ pub enum EarlyReturnError {
     /// The `Box<Value>` holds the value provided as the second argument to `asserts!`.
     AssertionFailed(Box<Value>),
 }
-
-pub type InterpreterResult<R> = Result<R, VmExecutionError>;
 
 impl<T> PartialEq<IncomparableError<T>> for IncomparableError<T> {
     fn eq(&self, _other: &IncomparableError<T>) -> bool {

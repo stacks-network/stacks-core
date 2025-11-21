@@ -622,6 +622,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "clarity-cli"
+version = "0.1.0"
+dependencies = [
+ "clarity 0.0.1",
+ "lazy_static",
+ "rand 0.8.5",
+ "rusqlite",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "slog",
+ "stacks-common 0.0.1",
+ "stackslib 0.0.1",
+]
+
+[[package]]
 name = "clarity-types"
 version = "0.0.1"
 dependencies = [
@@ -3246,6 +3262,7 @@ name = "stacks-cli"
 version = "0.1.0"
 dependencies = [
  "clarity 0.0.1",
+ "clarity-cli",
  "serde_json",
  "stacks-common 0.0.1",
  "stackslib 0.0.1",
@@ -3317,6 +3334,7 @@ name = "stacks-inspect"
 version = "0.1.0"
 dependencies = [
  "clarity 0.0.1",
+ "clarity-cli",
  "libstackerdb 0.0.1",
  "mutants",
  "regex",
