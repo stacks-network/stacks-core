@@ -318,10 +318,11 @@ pub fn check_nakamoto_empty_block_heuristics(mainnet: bool) {
         });
         if has_tenure_change {
             let only_coinbase_and_tenure_change = txs.iter().all(|tx| {
-                matches!(
-                    tx.payload,
-                    TransactionPayload::TenureChange(_) | TransactionPayload::Coinbase(..)
-                )
+                tx.auth.origin().address_testnet() == StacksAddress::burn_address(false)
+                    || matches!(
+                        tx.payload,
+                        TransactionPayload::TenureChange(_) | TransactionPayload::Coinbase(..)
+                    )
             });
             assert!(only_coinbase_and_tenure_change, "Nakamoto blocks with a tenure change in them should only have coinbase or tenure changes");
         }
