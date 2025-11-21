@@ -19,7 +19,7 @@
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::MAX_TYPE_DEPTH;
 
-use crate::chainstate::tests::consensus::contract_deploy_consensus_test;
+use crate::chainstate::tests::consensus::{contract_deploy_consensus_test, SetupContract};
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::util_lib::boot::boot_code_test_addr;
 
@@ -203,6 +203,25 @@ fn static_check_error_expected_optional_type() {
     contract_deploy_consensus_test!(
         contract_name: "expected-optional-type",
         contract_code: "(default-to 3 5)",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTraitImplementation`]
+/// Caused by: trying to implement a trait with a bad implementation.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_trait_implementation() {
+    let setup_contract = SetupContract::new(
+        "trait-contract",
+        "(define-trait trait-1 ((get-1 ((list 10 uint)) (response uint uint))))",
+    );
+
+    contract_deploy_consensus_test!(
+        contract_name: "contract-name",
+        contract_code: "
+        (impl-trait .trait-contract.trait-1)
+        (define-public (get-1 (x (list 5 uint))) (ok u1))",
+        setup_contracts: &[setup_contract],
     );
 }
 
