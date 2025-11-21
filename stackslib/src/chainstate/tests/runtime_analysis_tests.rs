@@ -243,16 +243,21 @@ fn check_error_kind_union_type_value_error_cdeploy() {
 //     ValueOutOfBounds,  // Unreachable: validated before reaching the runtime error
 //     TypeSignatureTooDeep, [`check_error_kind_type_signature_too_deep_cdeploy`]
 //     ExpectedName,  // Unreachable: every place in the runtime where ExpectedName is raised comes from a direct call to SymbolicExpression::match_atom() on the original AST node and the type checker runs the same structure check during analysis.
-//     SupertypeTooLarge,
+//     SupertypeTooLarge, // unreachable: equality's least_supertype checks already run in analysis, and
+//                       // runtime values are sanitized to their declared signatures, so the VM never
+//                       // sees a pair of values whose unified type wasn't accepted earlier.
 //     Expects(String),  // unreachable
-//     BadMatchOptionSyntax(Box<CheckErrorKind>),
-//     BadMatchResponseSyntax(Box<CheckErrorKind>),
-//     BadMatchInput(Box<TypeSignature>),
-//     ListTypesMustMatch,
+//     BadMatchOptionSyntax(Box<CheckErrorKind>), Unreachable: Both the analyzer and the runtime examine the exact same match AST slice. The static pass invokes check_special_match_opt, which enforces the three-argument structure and the some binding name before any code is accepted.
+//     BadMatchResponseSyntax(Box<CheckErrorKind>), Unreachable: Both the analyzer and the runtime examine the exact same match AST slice. The static pass invokes check_special_match_resp, which enforces the four-argument structure and the ok and err binding names before any code is accepted.
+//     BadMatchInput(Box<TypeSignature>), Unreachable: Both the analyzer and the runtime examine the exact same match AST slice. The static pass invokes check_special_match, which enforces the two-argument structure and the input type before any code is accepted.
+//     ListTypesMustMatch, // Unrechable: list construction, append, replace-at?, and cons_list all sanitize their inputs before runtime
 //     TypeError(Box<TypeSignature>, Box<TypeSignature>),
 //     TypeValueError(Box<TypeSignature>, Box<Value>), [`check_error_kind_type_value_error_cdeploy`]
-//     InvalidTypeDescription,
-//     UnknownTypeName(String),
+//     InvalidTypeDescription, // unreachable: every invalid type literal is parsed both
+//                             // by the analyzer and by the runtime; both paths invoke
+//                             // the same TypeSignature::parse_* helpers, so analysis
+//                             // always fails before initialization can trigger it.
+//     UnknownTypeName(String), // Unreachable: static analysis catches invalid types via `TypeSignature::parse_atom_type`, returning `StaticCheckErrorKind::UnknownTypeName`.
 //     UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>),
 //     UnionTypeValueError(Vec<TypeSignature>, Box<Value>),
 //     ExpectedOptionalValue(Box<Value>),
