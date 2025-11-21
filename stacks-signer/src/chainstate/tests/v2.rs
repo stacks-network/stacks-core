@@ -439,13 +439,9 @@ fn check_proposal_tenure_extend() {
     block.txs = vec![tx];
     block.header.sign_miner(&block_sk).unwrap();
     sortitions_view.config.read_count_idle_timeout = Duration::ZERO;
-    sortitions_view.check_proposal(
-        &stacks_client,
-        &mut signer_db,
-        &block,
-    )
-    .expect("Proposal should validate");
-
+    sortitions_view
+        .check_proposal(&stacks_client, &mut signer_db, &block)
+        .expect("Proposal should validate");
 }
 
 #[test]
