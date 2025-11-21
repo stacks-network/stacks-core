@@ -10,7 +10,7 @@ use crate::vm::contexts::Environment;
 use crate::vm::costs::cost_functions::{linear, CostValues};
 use crate::vm::costs::costs_3::Costs3;
 use crate::vm::costs::ExecutionCost;
-use crate::vm::errors::InterpreterResult;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::QualifiedContractIdentifier;
@@ -1084,7 +1084,7 @@ fn calculate_function_cost_from_native_function(
 fn get_cost_function_for_native(
     function: NativeFunctions,
     _clarity_version: &ClarityVersion,
-) -> Option<fn(u64) -> InterpreterResult<ExecutionCost>> {
+) -> Option<fn(u64) -> Result<ExecutionCost, VmExecutionError>> {
     use crate::vm::functions::NativeFunctions::*;
 
     // Map NativeFunctions enum variants to their cost functions
@@ -1286,7 +1286,7 @@ impl From<SummingExecutionCost> for StaticCost {
 /// Helper: calculate min & max costs for a given cost function
 /// This is likely tooo simplistic but for now it'll do
 fn get_costs(
-    cost_fn: fn(u64) -> InterpreterResult<ExecutionCost>,
+    cost_fn: fn(u64) -> Result<ExecutionCost, VmExecutionError>,
     arg_count: u64,
 ) -> Result<ExecutionCost, String> {
     let cost = cost_fn(arg_count).map_err(|e| format!("Cost calculation error: {:?}", e))?;
