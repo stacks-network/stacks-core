@@ -1,5 +1,6 @@
 // TODO: This needs work to get the dynamic vs static testing working
 use std::collections::HashMap;
+use std::path::Path;
 
 use rstest::rstest;
 use stacks_common::types::StacksEpochId;
@@ -312,5 +313,57 @@ fn execute_contract_function_and_get_cost(
         read_length: final_cost.read_length - initial_cost.read_length,
         read_count: final_cost.read_count - initial_cost.read_count,
         runtime: final_cost.runtime - initial_cost.runtime,
+    }
+}
+
+#[test]
+fn test_pox_4_costs() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let pox_4_path = workspace_root
+        .join("contrib")
+        .join("boot-contracts-unit-tests")
+        .join("boot_contracts")
+        .join("pox-4.clar");
+    let contract_source = std::fs::read_to_string(&pox_4_path)
+        .unwrap_or_else(|e| panic!("Failed to read pox-4.clar file at {:?}: {}", pox_4_path, e));
+
+    let contract_id = QualifiedContractIdentifier::transient();
+    let epoch = StacksEpochId::Epoch32;
+    let clarity_version = ClarityVersion::Clarity3;
+
+    let ast = crate::vm::ast::build_ast(
+        &contract_id,
+        &contract_source,
+        &mut (),
+        clarity_version,
+        epoch,
+    )
+    .expect("Failed to build AST from pox-4.clar");
+
+    let cost_map = static_cost_from_ast(&ast, &clarity_version)
+        .expect("Failed to perform static cost analysis on pox-4.clar");
+
+    // Check some functions in the cost map
+    let key_functions = vec![
+        "stack-stx",
+        "delegate-stx",
+        "get-stacker-info",
+        "current-pox-reward-cycle",
+        "stack-aggregation-commit",
+        "stack-increase",
+        "stack-extend",
+    ];
+
+    for function_name in key_functions {
+        assert!(
+            cost_map.contains_key(function_name),
+            "Expected function '{}' to be present in cost map",
+            function_name
+        );
+
+        let (_cost, _trait_count) = cost_map.get(function_name).expect(&format!(
+            "Failed to get cost for function '{}'",
+            function_name
+        ));
     }
 }

@@ -953,30 +953,81 @@ fn build_listlike_cost_analysis_tree(
         children.push(child_tree);
     }
 
-    let function_name = get_function_name(&exprs[0])?;
-    // Try to lookup the function as a native function first
-    let (expr_node, cost) = if let Some(native_function) =
-        NativeFunctions::lookup_by_name_at_version(function_name.as_str(), clarity_version)
-    {
-        CostExprNode::NativeFunction(native_function);
-        let cost = calculate_function_cost_from_native_function(
-            native_function,
-            children.len() as u64,
-            clarity_version,
-        )?;
-        (CostExprNode::NativeFunction(native_function), cost)
-    } else {
-        // If not a native function, treat as user-defined function and look it up
-        let expr_node = CostExprNode::UserFunction(function_name.clone());
-        let cost = calculate_function_cost(function_name.to_string(), cost_map, clarity_version)?;
-        (expr_node, cost)
+    // Try to get function name from first element
+    let (expr_node, cost, function_name_opt) = match get_function_name(&exprs[0]) {
+        Ok(function_name) => {
+            // Try to lookup the function as a native function first
+            if let Some(native_function) =
+                NativeFunctions::lookup_by_name_at_version(function_name.as_str(), clarity_version)
+            {
+                let cost = calculate_function_cost_from_native_function(
+                    native_function,
+                    children.len() as u64,
+                    clarity_version,
+                )?;
+                (
+                    CostExprNode::NativeFunction(native_function),
+                    cost,
+                    Some(function_name),
+                )
+            } else {
+                // If not a native function, treat as user-defined function and look it up
+                let expr_node = CostExprNode::UserFunction(function_name.clone());
+                let cost =
+                    calculate_function_cost(function_name.to_string(), cost_map, clarity_version)?;
+                (expr_node, cost, Some(function_name))
+            }
+        }
+        Err(_) => {
+            // First element is not an atom - it might be a List that needs to be recursively analyzed
+            match &exprs[0].expr {
+                SymbolicExpressionType::List(_) => {
+                    // Recursively analyze the nested list structure
+                    let (_, nested_tree) =
+                        build_cost_analysis_tree(&exprs[0], user_args, cost_map, clarity_version)?;
+                    // Add the nested tree as a child (its cost will be included when summing children)
+                    children.insert(0, nested_tree);
+                    // The root cost is zero - the actual cost comes from the nested expression
+                    let expr_node = CostExprNode::Atom(ClarityName::from("nested-expression"));
+                    (expr_node, StaticCost::ZERO, None)
+                }
+                SymbolicExpressionType::Atom(name) => {
+                    // It's an atom but not a function name - treat as atom with zero cost
+                    (CostExprNode::Atom(name.clone()), StaticCost::ZERO, None)
+                }
+                SymbolicExpressionType::AtomValue(value) => {
+                    // It's an atom value - calculate its cost
+                    let cost = calculate_value_cost(value)?;
+                    (CostExprNode::AtomValue(value.clone()), cost, None)
+                }
+                SymbolicExpressionType::TraitReference(trait_name, _trait_definition) => (
+                    CostExprNode::TraitReference(trait_name.clone()),
+                    StaticCost::ZERO,
+                    None,
+                ),
+                SymbolicExpressionType::Field(field_identifier) => (
+                    CostExprNode::FieldIdentifier(field_identifier.clone()),
+                    StaticCost::ZERO,
+                    None,
+                ),
+                SymbolicExpressionType::LiteralValue(value) => {
+                    let cost = calculate_value_cost(value)?;
+                    // TODO not sure if LiteralValue is needed in the CostExprNode types
+                    (CostExprNode::AtomValue(value.clone()), cost, None)
+                }
+            }
+        }
     };
 
     // Handle special cases for string arguments to functions that include their processing cost
-    if FUNCTIONS_WITH_ZERO_STRING_ARG_COST.contains(&function_name.as_str()) {
-        for child in &mut children {
-            if let CostExprNode::AtomValue(Value::Sequence(SequenceData::String(_))) = &child.expr {
-                child.cost = StaticCost::ZERO;
+    if let Some(function_name) = &function_name_opt {
+        if FUNCTIONS_WITH_ZERO_STRING_ARG_COST.contains(&function_name.as_str()) {
+            for child in &mut children {
+                if let CostExprNode::AtomValue(Value::Sequence(SequenceData::String(_))) =
+                    &child.expr
+                {
+                    child.cost = StaticCost::ZERO;
+                }
             }
         }
     }
