@@ -287,12 +287,7 @@ impl RPCNakamotoBlockReplayRequestHandler {
 
             let err = match tx_result {
                 TransactionResult::Success(tx_result) => {
-                    txs_receipts.push((
-                        tx_result.receipt,
-                        profiler_result.cpu_instructions,
-                        profiler_result.cpu_cycles,
-                        profiler_result.cpu_ref_cycles,
-                    ));
+                    txs_receipts.push((tx_result.receipt, profiler_result));
                     Ok(())
                 }
                 _ => Err(format!("Problematic tx {i}")),
@@ -317,13 +312,8 @@ impl RPCNakamotoBlockReplayRequestHandler {
         let mut rpc_replayed_block =
             RPCReplayedBlock::from_block(block, block_fees, tenure_id, parent_block_id);
 
-        for (receipt, cpu_instructions, cpu_cycles, cpu_ref_cycles) in &txs_receipts {
-            let transaction = RPCReplayedBlockTransaction::from_receipt(
-                receipt,
-                cpu_instructions,
-                cpu_cycles,
-                cpu_ref_cycles,
-            );
+        for (receipt, profiler_result) in &txs_receipts {
+            let transaction = RPCReplayedBlockTransaction::from_receipt(receipt, &profiler_result);
             rpc_replayed_block.transactions.push(transaction);
         }
 
@@ -366,11 +356,9 @@ pub struct RPCReplayedBlockTransaction {
 }
 
 impl RPCReplayedBlockTransaction {
-    pub fn from_receipt(
+    fn from_receipt(
         receipt: &StacksTransactionReceipt,
-        cpu_instructions: &Option<u64>,
-        cpu_cycles: &Option<u64>,
-        cpu_ref_cycles: &Option<u64>,
+        profiler_result: &BlockReplayProfilerResult,
     ) -> Self {
         let events = receipt
             .events
@@ -406,9 +394,9 @@ impl RPCReplayedBlockTransaction {
             events,
             post_condition_aborted: receipt.post_condition_aborted,
             vm_error: receipt.vm_error.clone(),
-            cpu_instructions: cpu_instructions.clone(),
-            cpu_cycles: cpu_cycles.clone(),
-            cpu_ref_cycles: cpu_ref_cycles.clone(),
+            cpu_instructions: profiler_result.cpu_instructions,
+            cpu_cycles: profiler_result.cpu_cycles,
+            cpu_ref_cycles: profiler_result.cpu_ref_cycles,
         }
     }
 }
