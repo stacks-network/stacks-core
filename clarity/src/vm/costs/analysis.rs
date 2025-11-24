@@ -2,25 +2,29 @@
 
 use std::collections::HashMap;
 
-use clarity_types::types::{CharType, SequenceData, TraitIdentifier};
+use clarity_types::types::TraitIdentifier;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::ast::build_ast;
+#[cfg(test)]
+use crate::vm::ast::static_cost::is_node_branching;
+use crate::vm::ast::static_cost::{
+    calculate_function_cost, calculate_function_cost_from_native_function,
+    calculate_total_cost_with_branching, calculate_value_cost, TraitCount, TraitCountCollector,
+    TraitCountContext, TraitCountPropagator, TraitCountVisitor,
+};
 use crate::vm::contexts::Environment;
-use crate::vm::costs::cost_functions::{linear, CostValues};
-use crate::vm::costs::costs_3::Costs3;
 use crate::vm::costs::ExecutionCost;
-use crate::vm::errors::VmExecutionError;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{ClarityName, SymbolicExpression, SymbolicExpressionType};
 use crate::vm::types::QualifiedContractIdentifier;
 use crate::vm::{ClarityVersion, Value};
-
 // TODO:
 // contract-call? - get source from database
 // type-checking
 // lookups
 // unwrap evaluates both branches (https://github.com/clarity-lang/reference/issues/59)
+// split up trait counting and expr node tree impl into separate module?
 
 const STRING_COST_BASE: u64 = 36;
 const STRING_COST_MULTIPLIER: u64 = 3;
@@ -32,7 +36,7 @@ const FUNCTIONS_WITH_ZERO_STRING_ARG_COST: &[&str] = &["concat", "len"];
 const FUNCTION_DEFINITION_KEYWORDS: &[&str] =
     &["define-public", "define-private", "define-read-only"];
 
-fn is_function_definition(function_name: &str) -> bool {
+pub(crate) fn is_function_definition(function_name: &str) -> bool {
     FUNCTION_DEFINITION_KEYWORDS.contains(&function_name)
 }
 
@@ -220,434 +224,71 @@ fn static_cost_native(
     Ok(summing_cost.into())
 }
 
-type MinMaxTraitCount = (u64, u64);
-type TraitCount = HashMap<String, MinMaxTraitCount>;
+/// STatic execution cost for functions within Environment
+/// returns the top level cost for specific functions
+/// {function_name: cost}
+pub fn static_cost(
+    env: &mut Environment,
+    contract_identifier: &QualifiedContractIdentifier,
+) -> Result<HashMap<String, StaticCost>, String> {
+    let contract_source = env
+        .global_context
+        .database
+        .get_contract_src(contract_identifier)
+        .ok_or_else(|| {
+            format!(
+                "Contract source ({:?}) not found in database",
+                contract_identifier.to_string(),
+            )
+        })?;
 
-/// Context passed to visitors during trait count analysis
-struct TraitCountContext {
-    containing_fn_name: String,
-    multiplier: (u64, u64),
+    let contract = env
+        .global_context
+        .database
+        .get_contract(contract_identifier)
+        .map_err(|e| format!("Failed to get contract: {:?}", e))?;
+
+    let clarity_version = contract.contract_context.get_clarity_version();
+
+    let epoch = env.global_context.epoch_id;
+    let ast = make_ast(&contract_source, epoch, clarity_version)?;
+
+    let costs = static_cost_from_ast(&ast, clarity_version)?;
+    Ok(costs
+        .into_iter()
+        .map(|(name, (cost, _trait_count))| (name, cost))
+        .collect())
 }
 
-impl TraitCountContext {
-    fn new(containing_fn_name: String, multiplier: (u64, u64)) -> Self {
-        Self {
-            containing_fn_name,
-            multiplier,
-        }
-    }
+/// same idea as `static_cost` but returns the root of the cost analysis tree for each function
+/// Useful if you need to analyze specific nodes in the cost tree
+pub fn static_cost_tree(
+    env: &mut Environment,
+    contract_identifier: &QualifiedContractIdentifier,
+) -> Result<HashMap<String, CostAnalysisNode>, String> {
+    let contract_source = env
+        .global_context
+        .database
+        .get_contract_src(contract_identifier)
+        .ok_or_else(|| {
+            format!(
+                "Contract source ({:?}) not found in database",
+                contract_identifier.to_string(),
+            )
+        })?;
 
-    fn with_multiplier(&self, multiplier: (u64, u64)) -> Self {
-        Self {
-            containing_fn_name: self.containing_fn_name.clone(),
-            multiplier,
-        }
-    }
+    let contract = env
+        .global_context
+        .database
+        .get_contract(contract_identifier)
+        .map_err(|e| format!("Failed to get contract: {:?}", e))?;
 
-    fn with_fn_name(&self, fn_name: String) -> Self {
-        Self {
-            containing_fn_name: fn_name,
-            multiplier: self.multiplier,
-        }
-    }
-}
+    let clarity_version = contract.contract_context.get_clarity_version();
 
-/// Extract the list size multiplier from a list expression (for map/filter/fold operations)
-/// Expects a list in the form `(list <size>)` where size is an integer literal
-fn extract_list_multiplier(list: &[SymbolicExpression]) -> (u64, u64) {
-    if list.is_empty() {
-        return (1, 1);
-    }
+    let epoch = env.global_context.epoch_id;
+    let ast = make_ast(&contract_source, epoch, clarity_version)?;
 
-    let is_list_atom = list[0]
-        .match_atom()
-        .map(|a| a.as_str() == "list")
-        .unwrap_or(false);
-    if !is_list_atom || list.len() < 2 {
-        return (1, 1);
-    }
-
-    match &list[1].expr {
-        SymbolicExpressionType::LiteralValue(Value::Int(value)) => (0, *value as u64),
-        _ => (1, 1),
-    }
-}
-
-/// Increment trait count for a function
-fn increment_trait_count(trait_counts: &mut TraitCount, fn_name: &str, multiplier: (u64, u64)) {
-    trait_counts
-        .entry(fn_name.to_string())
-        .and_modify(|(min, max)| {
-            *min += multiplier.0;
-            *max += multiplier.1;
-        })
-        .or_insert(multiplier);
-}
-
-/// Propagate trait count from one function to another with a multiplier
-fn propagate_trait_count(
-    trait_counts: &mut TraitCount,
-    from_fn: &str,
-    to_fn: &str,
-    multiplier: (u64, u64),
-) {
-    if let Some(called_trait_count) = trait_counts.get(from_fn).cloned() {
-        trait_counts
-            .entry(to_fn.to_string())
-            .and_modify(|(min, max)| {
-                *min += called_trait_count.0 * multiplier.0;
-                *max += called_trait_count.1 * multiplier.1;
-            })
-            .or_insert((
-                called_trait_count.0 * multiplier.0,
-                called_trait_count.1 * multiplier.1,
-            ));
-    }
-}
-
-/// Visitor trait for traversing cost analysis nodes and collecting/propagating trait counts
-trait TraitCountVisitor {
-    fn visit_user_argument(
-        &mut self,
-        node: &CostAnalysisNode,
-        arg_name: &ClarityName,
-        arg_type: &SymbolicExpressionType,
-        context: &TraitCountContext,
-    );
-    fn visit_native_function(
-        &mut self,
-        node: &CostAnalysisNode,
-        native_function: &NativeFunctions,
-        context: &TraitCountContext,
-    );
-    fn visit_atom_value(&mut self, node: &CostAnalysisNode, context: &TraitCountContext);
-    fn visit_atom(
-        &mut self,
-        node: &CostAnalysisNode,
-        atom: &ClarityName,
-        context: &TraitCountContext,
-    );
-    fn visit_field_identifier(&mut self, node: &CostAnalysisNode, context: &TraitCountContext);
-    fn visit_trait_reference(
-        &mut self,
-        node: &CostAnalysisNode,
-        trait_name: &ClarityName,
-        context: &TraitCountContext,
-    );
-    fn visit_user_function(
-        &mut self,
-        node: &CostAnalysisNode,
-        user_function: &ClarityName,
-        context: &TraitCountContext,
-    );
-
-    fn visit(&mut self, node: &CostAnalysisNode, context: &TraitCountContext) {
-        match &node.expr {
-            CostExprNode::UserArgument(arg_name, arg_type) => {
-                self.visit_user_argument(node, arg_name, arg_type, context);
-            }
-            CostExprNode::NativeFunction(native_function) => {
-                self.visit_native_function(node, native_function, context);
-            }
-            CostExprNode::AtomValue(_atom_value) => {
-                self.visit_atom_value(node, context);
-            }
-            CostExprNode::Atom(atom) => {
-                self.visit_atom(node, atom, context);
-            }
-            CostExprNode::FieldIdentifier(_field_identifier) => {
-                self.visit_field_identifier(node, context);
-            }
-            CostExprNode::TraitReference(trait_name) => {
-                self.visit_trait_reference(node, trait_name, context);
-            }
-            CostExprNode::UserFunction(user_function) => {
-                self.visit_user_function(node, user_function, context);
-            }
-        }
-    }
-}
-
-struct TraitCountCollector {
-    trait_counts: TraitCount,
-    trait_names: HashMap<ClarityName, String>,
-}
-
-impl TraitCountCollector {
-    fn new() -> Self {
-        Self {
-            trait_counts: HashMap::new(),
-            trait_names: HashMap::new(),
-        }
-    }
-}
-
-impl TraitCountVisitor for TraitCountCollector {
-    fn visit_user_argument(
-        &mut self,
-        _node: &CostAnalysisNode,
-        arg_name: &ClarityName,
-        arg_type: &SymbolicExpressionType,
-        _context: &TraitCountContext,
-    ) {
-        if let SymbolicExpressionType::TraitReference(name, _) = arg_type {
-            self.trait_names
-                .insert(arg_name.clone(), name.clone().to_string());
-        }
-    }
-
-    fn visit_native_function(
-        &mut self,
-        node: &CostAnalysisNode,
-        native_function: &NativeFunctions,
-        context: &TraitCountContext,
-    ) {
-        match native_function {
-            NativeFunctions::Map | NativeFunctions::Filter | NativeFunctions::Fold => {
-                if node.children.len() > 1 {
-                    let list_node = &node.children[1];
-                    let multiplier =
-                        if let CostExprNode::UserArgument(_, SymbolicExpressionType::List(list)) =
-                            &list_node.expr
-                        {
-                            extract_list_multiplier(list)
-                        } else {
-                            (1, 1)
-                        };
-                    let new_context = context.with_multiplier(multiplier);
-                    for child in &node.children {
-                        self.visit(child, &new_context);
-                    }
-                }
-            }
-            _ => {
-                for child in &node.children {
-                    self.visit(child, context);
-                }
-            }
-        }
-    }
-
-    fn visit_atom_value(&mut self, _node: &CostAnalysisNode, _context: &TraitCountContext) {
-        // No action needed for atom values
-    }
-
-    fn visit_atom(
-        &mut self,
-        _node: &CostAnalysisNode,
-        atom: &ClarityName,
-        context: &TraitCountContext,
-    ) {
-        if self.trait_names.contains_key(atom) {
-            increment_trait_count(
-                &mut self.trait_counts,
-                &context.containing_fn_name,
-                context.multiplier,
-            );
-        }
-    }
-
-    fn visit_field_identifier(&mut self, _node: &CostAnalysisNode, _context: &TraitCountContext) {
-        // No action needed for field identifiers
-    }
-
-    fn visit_trait_reference(
-        &mut self,
-        _node: &CostAnalysisNode,
-        _trait_name: &ClarityName,
-        context: &TraitCountContext,
-    ) {
-        increment_trait_count(
-            &mut self.trait_counts,
-            &context.containing_fn_name,
-            context.multiplier,
-        );
-    }
-
-    fn visit_user_function(
-        &mut self,
-        node: &CostAnalysisNode,
-        user_function: &ClarityName,
-        context: &TraitCountContext,
-    ) {
-        // Check if this is a trait call (the function name is a trait argument)
-        if self.trait_names.contains_key(user_function) {
-            increment_trait_count(
-                &mut self.trait_counts,
-                &context.containing_fn_name,
-                context.multiplier,
-            );
-        }
-
-        // Determine the containing function name for children
-        let fn_name = if is_function_definition(user_function.as_str()) {
-            context.containing_fn_name.clone()
-        } else {
-            user_function.to_string()
-        };
-        let child_context = context.with_fn_name(fn_name);
-
-        for child in &node.children {
-            self.visit(child, &child_context);
-        }
-    }
-}
-
-/// Second pass visitor: propagates trait counts through function calls
-struct TraitCountPropagator<'a> {
-    trait_counts: &'a mut TraitCount,
-    trait_names: &'a HashMap<ClarityName, String>,
-}
-
-impl<'a> TraitCountPropagator<'a> {
-    fn new(
-        trait_counts: &'a mut TraitCount,
-        trait_names: &'a HashMap<ClarityName, String>,
-    ) -> Self {
-        Self {
-            trait_counts,
-            trait_names,
-        }
-    }
-}
-
-impl<'a> TraitCountVisitor for TraitCountPropagator<'a> {
-    fn visit_user_argument(
-        &mut self,
-        _node: &CostAnalysisNode,
-        _arg_name: &ClarityName,
-        _arg_type: &SymbolicExpressionType,
-        _context: &TraitCountContext,
-    ) {
-        // No propagation needed for arguments
-    }
-
-    fn visit_native_function(
-        &mut self,
-        node: &CostAnalysisNode,
-        native_function: &NativeFunctions,
-        context: &TraitCountContext,
-    ) {
-        match native_function {
-            NativeFunctions::Map | NativeFunctions::Filter | NativeFunctions::Fold => {
-                if node.children.len() > 1 {
-                    let list_node = &node.children[1];
-                    let multiplier =
-                        if let CostExprNode::UserArgument(_, SymbolicExpressionType::List(list)) =
-                            &list_node.expr
-                        {
-                            extract_list_multiplier(list)
-                        } else {
-                            (1, 1)
-                        };
-
-                    // Process the function being called in map/filter/fold
-                    let mut skip_first_child = false;
-                    if let Some(function_node) = node.children.get(0) {
-                        if let CostExprNode::UserFunction(function_name) = &function_node.expr {
-                            if !self.trait_names.contains_key(function_name) {
-                                // This is a regular function call, not a trait call
-                                propagate_trait_count(
-                                    self.trait_counts,
-                                    &function_name.to_string(),
-                                    &context.containing_fn_name,
-                                    multiplier,
-                                );
-                                skip_first_child = true;
-                            }
-                        }
-                    }
-
-                    // Continue traversing children, but skip the function node if we already propagated it
-                    for (idx, child) in node.children.iter().enumerate() {
-                        if idx == 0 && skip_first_child {
-                            continue;
-                        }
-                        let new_context = context.with_multiplier(multiplier);
-                        self.visit(child, &new_context);
-                    }
-                }
-            }
-            _ => {
-                for child in &node.children {
-                    self.visit(child, context);
-                }
-            }
-        }
-    }
-
-    fn visit_atom_value(&mut self, _node: &CostAnalysisNode, _context: &TraitCountContext) {}
-
-    fn visit_atom(
-        &mut self,
-        _node: &CostAnalysisNode,
-        _atom: &ClarityName,
-        _context: &TraitCountContext,
-    ) {
-    }
-
-    fn visit_field_identifier(&mut self, _node: &CostAnalysisNode, _context: &TraitCountContext) {}
-
-    fn visit_trait_reference(
-        &mut self,
-        _node: &CostAnalysisNode,
-        _trait_name: &ClarityName,
-        _context: &TraitCountContext,
-    ) {
-        // No propagation needed for trait references (already counted in first pass)
-    }
-
-    fn visit_user_function(
-        &mut self,
-        node: &CostAnalysisNode,
-        user_function: &ClarityName,
-        context: &TraitCountContext,
-    ) {
-        if !is_function_definition(user_function.as_str())
-            && !self.trait_names.contains_key(user_function)
-        {
-            // This is a regular function call, not a trait call or function definition
-            propagate_trait_count(
-                self.trait_counts,
-                &user_function.to_string(),
-                &context.containing_fn_name,
-                context.multiplier,
-            );
-        }
-
-        // Determine the containing function name for children
-        let fn_name = if is_function_definition(user_function.as_str()) {
-            context.containing_fn_name.clone()
-        } else {
-            user_function.to_string()
-        };
-        let child_context = context.with_fn_name(fn_name);
-
-        for child in &node.children {
-            self.visit(child, &child_context);
-        }
-    }
-}
-
-pub(crate) fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Option<TraitCount> {
-    // First pass: collect trait counts and trait names
-    let mut collector = TraitCountCollector::new();
-    for (name, cost_analysis_node) in costs.iter() {
-        let context = TraitCountContext::new(name.clone(), (1, 1));
-        collector.visit(cost_analysis_node, &context);
-    }
-
-    // Second pass: propagate trait counts through function calls
-    // If function A calls function B and uses a map, filter, or fold with
-    // traits, the maximum will reflect that in A's trait call counts
-    let mut propagator =
-        TraitCountPropagator::new(&mut collector.trait_counts, &collector.trait_names);
-    for (name, cost_analysis_node) in costs.iter() {
-        let context = TraitCountContext::new(name.clone(), (1, 1));
-        propagator.visit(cost_analysis_node, &context);
-    }
-
-    Some(collector.trait_counts)
+    static_cost_tree_from_ast(&ast, clarity_version)
 }
 
 pub fn static_cost_from_ast(
@@ -694,63 +335,6 @@ pub(crate) fn static_cost_tree_from_ast(
         .into_iter()
         .filter_map(|(name, cost)| cost.map(|c| (name, c)))
         .collect())
-}
-
-/// STatic execution cost for functions within Environment
-/// returns the top level cost for specific functions
-/// {function_name: cost}
-pub fn static_cost(
-    env: &mut Environment,
-    contract_identifier: &QualifiedContractIdentifier,
-) -> Result<HashMap<String, StaticCost>, String> {
-    let contract_source = env
-        .global_context
-        .database
-        .get_contract_src(contract_identifier)
-        .ok_or_else(|| "Contract source not found in database".to_string())?;
-
-    let contract = env
-        .global_context
-        .database
-        .get_contract(contract_identifier)
-        .map_err(|e| format!("Failed to get contract: {:?}", e))?;
-
-    let clarity_version = contract.contract_context.get_clarity_version();
-
-    let epoch = env.global_context.epoch_id;
-    let ast = make_ast(&contract_source, epoch, clarity_version)?;
-
-    let costs = static_cost_from_ast(&ast, clarity_version)?;
-    Ok(costs
-        .into_iter()
-        .map(|(name, (cost, _trait_count))| (name, cost))
-        .collect())
-}
-
-/// same idea as `static_cost` but returns the root of the cost analysis tree for each function
-/// Useful if you need to analyze specific nodes in the cost tree
-pub fn static_cost_tree(
-    env: &mut Environment,
-    contract_identifier: &QualifiedContractIdentifier,
-) -> Result<HashMap<String, CostAnalysisNode>, String> {
-    let contract_source = env
-        .global_context
-        .database
-        .get_contract_src(contract_identifier)
-        .ok_or_else(|| "Contract source not found in database".to_string())?;
-
-    let contract = env
-        .global_context
-        .database
-        .get_contract(contract_identifier)
-        .map_err(|e| format!("Failed to get contract: {:?}", e))?;
-
-    let clarity_version = contract.contract_context.get_clarity_version();
-
-    let epoch = env.global_context.epoch_id;
-    let ast = make_ast(&contract_source, epoch, clarity_version)?;
-
-    static_cost_tree_from_ast(&ast, clarity_version)
 }
 
 /// Extract function name from a symbolic expression
@@ -880,23 +464,6 @@ fn build_function_definition_cost_analysis_tree(
                     .ok_or("Expected atom for argument name")?;
 
                 let arg_type = arg_list[1].clone();
-                // let arg_type = match &arg_list[1].expr {
-                //     SymbolicExpressionType::Atom(type_name) => type_name.clone(),
-                //     SymbolicExpressionType::AtomValue(value) => {
-                //         ClarityName::from(value.to_string().as_str())
-                //     }
-                //     SymbolicExpressionType::LiteralValue(value) => {
-                //         ClarityName::from(value.to_string().as_str())
-                //     }
-                //     SymbolicExpressionType::TraitReference(trait_name, _trait_definition) => {
-                //         trait_name.clone()
-                //     }
-                //     SymbolicExpressionType::List(_) => ClarityName::from("list"),
-                //     _ => {
-                //         println!("arg: {:?}", arg_list[1].expr);
-                //         return Err("Argument type must be an atom or atom value".to_string());
-                //     }
-                // };
 
                 // Add to function's user arguments context
                 function_user_args.add_argument(arg_name.clone(), arg_type.clone().expr);
@@ -953,395 +520,78 @@ fn build_listlike_cost_analysis_tree(
         children.push(child_tree);
     }
 
-    // Try to get function name from first element
-    let (expr_node, cost, function_name_opt) = match get_function_name(&exprs[0]) {
-        Ok(function_name) => {
+    let (expr_node, cost) = match &exprs[0].expr {
+        SymbolicExpressionType::List(_) => {
+            // Recursively analyze the nested list structure
+            let (_, nested_tree) =
+                build_cost_analysis_tree(&exprs[0], user_args, cost_map, clarity_version)?;
+            // Add the nested tree as a child (its cost will be included when summing children)
+            children.insert(0, nested_tree);
+            // The root cost is zero - the actual cost comes from the nested expression
+            let expr_node = CostExprNode::Atom(ClarityName::from("nested-expression"));
+            (expr_node, StaticCost::ZERO)
+        }
+        SymbolicExpressionType::Atom(name) => {
+            // Try to get function name from first element
             // Try to lookup the function as a native function first
             if let Some(native_function) =
-                NativeFunctions::lookup_by_name_at_version(function_name.as_str(), clarity_version)
+                NativeFunctions::lookup_by_name_at_version(name.as_str(), clarity_version)
             {
                 let cost = calculate_function_cost_from_native_function(
                     native_function,
                     children.len() as u64,
                     clarity_version,
                 )?;
-                (
-                    CostExprNode::NativeFunction(native_function),
-                    cost,
-                    Some(function_name),
-                )
+                (CostExprNode::NativeFunction(native_function), cost)
             } else {
                 // If not a native function, treat as user-defined function and look it up
-                let expr_node = CostExprNode::UserFunction(function_name.clone());
-                let cost =
-                    calculate_function_cost(function_name.to_string(), cost_map, clarity_version)?;
-                (expr_node, cost, Some(function_name))
+                let expr_node = CostExprNode::UserFunction(name.clone());
+                let cost = calculate_function_cost(name.to_string(), cost_map, clarity_version)?;
+                (expr_node, cost)
             }
         }
-        Err(_) => {
-            // First element is not an atom - it might be a List that needs to be recursively analyzed
-            match &exprs[0].expr {
-                SymbolicExpressionType::List(_) => {
-                    // Recursively analyze the nested list structure
-                    let (_, nested_tree) =
-                        build_cost_analysis_tree(&exprs[0], user_args, cost_map, clarity_version)?;
-                    // Add the nested tree as a child (its cost will be included when summing children)
-                    children.insert(0, nested_tree);
-                    // The root cost is zero - the actual cost comes from the nested expression
-                    let expr_node = CostExprNode::Atom(ClarityName::from("nested-expression"));
-                    (expr_node, StaticCost::ZERO, None)
-                }
-                SymbolicExpressionType::Atom(name) => {
-                    // It's an atom but not a function name - treat as atom with zero cost
-                    (CostExprNode::Atom(name.clone()), StaticCost::ZERO, None)
-                }
-                SymbolicExpressionType::AtomValue(value) => {
-                    // It's an atom value - calculate its cost
-                    let cost = calculate_value_cost(value)?;
-                    (CostExprNode::AtomValue(value.clone()), cost, None)
-                }
-                SymbolicExpressionType::TraitReference(trait_name, _trait_definition) => (
-                    CostExprNode::TraitReference(trait_name.clone()),
-                    StaticCost::ZERO,
-                    None,
-                ),
-                SymbolicExpressionType::Field(field_identifier) => (
-                    CostExprNode::FieldIdentifier(field_identifier.clone()),
-                    StaticCost::ZERO,
-                    None,
-                ),
-                SymbolicExpressionType::LiteralValue(value) => {
-                    let cost = calculate_value_cost(value)?;
-                    // TODO not sure if LiteralValue is needed in the CostExprNode types
-                    (CostExprNode::AtomValue(value.clone()), cost, None)
-                }
-            }
+        SymbolicExpressionType::AtomValue(value) => {
+            // It's an atom value - calculate its cost
+            let cost = calculate_value_cost(value)?;
+            (CostExprNode::AtomValue(value.clone()), cost)
+        }
+        SymbolicExpressionType::TraitReference(trait_name, _trait_definition) => (
+            CostExprNode::TraitReference(trait_name.clone()),
+            StaticCost::ZERO,
+        ),
+        SymbolicExpressionType::Field(field_identifier) => (
+            CostExprNode::FieldIdentifier(field_identifier.clone()),
+            StaticCost::ZERO,
+        ),
+        SymbolicExpressionType::LiteralValue(value) => {
+            let cost = calculate_value_cost(value)?;
+            // TODO not sure if LiteralValue is needed in the CostExprNode types
+            (CostExprNode::AtomValue(value.clone()), cost)
         }
     };
-
-    // Handle special cases for string arguments to functions that include their processing cost
-    if let Some(function_name) = &function_name_opt {
-        if FUNCTIONS_WITH_ZERO_STRING_ARG_COST.contains(&function_name.as_str()) {
-            for child in &mut children {
-                if let CostExprNode::AtomValue(Value::Sequence(SequenceData::String(_))) =
-                    &child.expr
-                {
-                    child.cost = StaticCost::ZERO;
-                }
-            }
-        }
-    }
 
     Ok(CostAnalysisNode::new(expr_node, cost, children))
 }
 
-// Calculate function cost with lazy evaluation support
-fn calculate_function_cost(
-    function_name: String,
-    cost_map: &HashMap<String, Option<StaticCost>>,
-    _clarity_version: &ClarityVersion,
-) -> Result<StaticCost, String> {
-    match cost_map.get(&function_name) {
-        Some(Some(cost)) => {
-            // Cost already computed
-            Ok(cost.clone())
-        }
-        Some(None) => {
-            // Should be impossible but alas..
-            // Function exists but cost not yet computed - this indicates a circular dependency
-            // For now, return zero cost to avoid infinite recursion
-            println!(
-                "Circular dependency detected for function: {}",
-                function_name
-            );
-            Ok(StaticCost::ZERO)
-        }
-        None => {
-            // Function not found
-            Ok(StaticCost::ZERO)
-        }
-    }
-}
-/// This function is no longer needed - we now use NativeFunctions::lookup_by_name_at_version
-/// directly in build_listlike_cost_analysis_tree
-
-/// Determine if a function name represents a branching function
-fn is_branching_function(function_name: &ClarityName) -> bool {
-    match function_name.as_str() {
-        "if" | "match" => true,
-        "unwrap!" | "unwrap-err!" => false, // XXX: currently unwrap and
-        // unwrap-err traverse both branches regardless of result, so until this is
-        // fixed in clarity we'll set this to false
-        _ => false,
-    }
-}
-
-/// Helper function to determine if a node represents a branching operation
-/// This is used in tests and cost calculation
-fn is_node_branching(node: &CostAnalysisNode) -> bool {
-    match &node.expr {
-        CostExprNode::NativeFunction(NativeFunctions::If)
-        | CostExprNode::NativeFunction(NativeFunctions::Match) => true,
-        CostExprNode::UserFunction(name) => is_branching_function(name),
-        _ => false,
-    }
-}
-
-/// Calculate the cost for a string based on its length
-fn string_cost(length: usize) -> StaticCost {
-    let cost = linear(length as u64, STRING_COST_BASE, STRING_COST_MULTIPLIER);
-    let execution_cost = ExecutionCost::runtime(cost);
-    StaticCost {
-        min: execution_cost.clone(),
-        max: execution_cost,
-    }
-}
-
-/// Calculate cost for a value (used for literal values)
-fn calculate_value_cost(value: &Value) -> Result<StaticCost, String> {
-    match value {
-        Value::Sequence(SequenceData::String(CharType::UTF8(data))) => {
-            Ok(string_cost(data.data.len()))
-        }
-        Value::Sequence(SequenceData::String(CharType::ASCII(data))) => {
-            Ok(string_cost(data.data.len()))
-        }
-        _ => Ok(StaticCost::ZERO),
-    }
-}
-
-fn calculate_function_cost_from_native_function(
-    native_function: NativeFunctions,
-    arg_count: u64,
-    clarity_version: &ClarityVersion,
-) -> Result<StaticCost, String> {
-    let cost_function = match get_cost_function_for_native(native_function, clarity_version) {
-        Some(cost_fn) => cost_fn,
-        None => {
-            // TODO: zero cost for now
-            return Ok(StaticCost::ZERO);
-        }
-    };
-
-    let cost = get_costs(cost_function, arg_count)?;
-    Ok(StaticCost {
-        min: cost.clone(),
-        max: cost,
-    })
-}
-
-/// Convert a NativeFunctions enum variant to its corresponding cost function
-/// TODO: This assumes Costs3 but should find a way to use the clarity version passed in
-fn get_cost_function_for_native(
-    function: NativeFunctions,
-    _clarity_version: &ClarityVersion,
-) -> Option<fn(u64) -> Result<ExecutionCost, VmExecutionError>> {
-    use crate::vm::functions::NativeFunctions::*;
-
-    // Map NativeFunctions enum variants to their cost functions
-    match function {
-        Add => Some(Costs3::cost_add),
-        Subtract => Some(Costs3::cost_sub),
-        Multiply => Some(Costs3::cost_mul),
-        Divide => Some(Costs3::cost_div),
-        Modulo => Some(Costs3::cost_mod),
-        Power => Some(Costs3::cost_pow),
-        Sqrti => Some(Costs3::cost_sqrti),
-        Log2 => Some(Costs3::cost_log2),
-        ToInt | ToUInt => Some(Costs3::cost_int_cast),
-        Equals => Some(Costs3::cost_eq),
-        CmpGeq => Some(Costs3::cost_geq),
-        CmpLeq => Some(Costs3::cost_leq),
-        CmpGreater => Some(Costs3::cost_ge),
-        CmpLess => Some(Costs3::cost_le),
-        BitwiseXor | BitwiseXor2 => Some(Costs3::cost_xor),
-        Not | BitwiseNot => Some(Costs3::cost_not),
-        And | BitwiseAnd => Some(Costs3::cost_and),
-        Or | BitwiseOr => Some(Costs3::cost_or),
-        Concat => Some(Costs3::cost_concat),
-        Len => Some(Costs3::cost_len),
-        AsMaxLen => Some(Costs3::cost_as_max_len),
-        ListCons => Some(Costs3::cost_list_cons),
-        ElementAt | ElementAtAlias => Some(Costs3::cost_element_at),
-        IndexOf | IndexOfAlias => Some(Costs3::cost_index_of),
-        Fold => Some(Costs3::cost_fold),
-        Map => Some(Costs3::cost_map),
-        Filter => Some(Costs3::cost_filter),
-        Append => Some(Costs3::cost_append),
-        TupleGet => Some(Costs3::cost_tuple_get),
-        TupleMerge => Some(Costs3::cost_tuple_merge),
-        TupleCons => Some(Costs3::cost_tuple_cons),
-        ConsSome => Some(Costs3::cost_some_cons),
-        ConsOkay => Some(Costs3::cost_ok_cons),
-        ConsError => Some(Costs3::cost_err_cons),
-        DefaultTo => Some(Costs3::cost_default_to),
-        UnwrapRet => Some(Costs3::cost_unwrap_ret),
-        UnwrapErrRet => Some(Costs3::cost_unwrap_err_or_ret),
-        IsOkay => Some(Costs3::cost_is_okay),
-        IsNone => Some(Costs3::cost_is_none),
-        IsErr => Some(Costs3::cost_is_err),
-        IsSome => Some(Costs3::cost_is_some),
-        Unwrap => Some(Costs3::cost_unwrap),
-        UnwrapErr => Some(Costs3::cost_unwrap_err),
-        TryRet => Some(Costs3::cost_try_ret),
-        If => Some(Costs3::cost_if),
-        Match => Some(Costs3::cost_match),
-        Begin => Some(Costs3::cost_begin),
-        Let => Some(Costs3::cost_let),
-        Asserts => Some(Costs3::cost_asserts),
-        Hash160 => Some(Costs3::cost_hash160),
-        Sha256 => Some(Costs3::cost_sha256),
-        Sha512 => Some(Costs3::cost_sha512),
-        Sha512Trunc256 => Some(Costs3::cost_sha512t256),
-        Keccak256 => Some(Costs3::cost_keccak256),
-        Secp256k1Recover => Some(Costs3::cost_secp256k1recover),
-        Secp256k1Verify => Some(Costs3::cost_secp256k1verify),
-        Print => Some(Costs3::cost_print),
-        ContractCall => Some(Costs3::cost_contract_call),
-        ContractOf => Some(Costs3::cost_contract_of),
-        PrincipalOf => Some(Costs3::cost_principal_of),
-        AtBlock => Some(Costs3::cost_at_block),
-        // => Some(Costs3::cost_create_map),
-        // => Some(Costs3::cost_create_var),
-        // ContractStorage => Some(Costs3::cost_contract_storage),
-        FetchEntry => Some(Costs3::cost_fetch_entry),
-        SetEntry => Some(Costs3::cost_set_entry),
-        FetchVar => Some(Costs3::cost_fetch_var),
-        SetVar => Some(Costs3::cost_set_var),
-        GetBlockInfo => Some(Costs3::cost_block_info),
-        GetBurnBlockInfo => Some(Costs3::cost_burn_block_info),
-        GetStxBalance => Some(Costs3::cost_stx_balance),
-        StxTransfer => Some(Costs3::cost_stx_transfer),
-        StxTransferMemo => Some(Costs3::cost_stx_transfer_memo),
-        StxGetAccount => Some(Costs3::cost_stx_account),
-        MintToken => Some(Costs3::cost_ft_mint),
-        MintAsset => Some(Costs3::cost_nft_mint),
-        TransferToken => Some(Costs3::cost_ft_transfer),
-        GetTokenBalance => Some(Costs3::cost_ft_balance),
-        GetTokenSupply => Some(Costs3::cost_ft_get_supply),
-        BurnToken => Some(Costs3::cost_ft_burn),
-        TransferAsset => Some(Costs3::cost_nft_transfer),
-        GetAssetOwner => Some(Costs3::cost_nft_owner),
-        BurnAsset => Some(Costs3::cost_nft_burn),
-        BuffToIntLe => Some(Costs3::cost_buff_to_int_le),
-        BuffToUIntLe => Some(Costs3::cost_buff_to_uint_le),
-        BuffToIntBe => Some(Costs3::cost_buff_to_int_be),
-        BuffToUIntBe => Some(Costs3::cost_buff_to_uint_be),
-        ToConsensusBuff => Some(Costs3::cost_to_consensus_buff),
-        FromConsensusBuff => Some(Costs3::cost_from_consensus_buff),
-        IsStandard => Some(Costs3::cost_is_standard),
-        PrincipalDestruct => Some(Costs3::cost_principal_destruct),
-        PrincipalConstruct => Some(Costs3::cost_principal_construct),
-        AsContract | AsContractSafe => Some(Costs3::cost_as_contract),
-        StringToInt => Some(Costs3::cost_string_to_int),
-        StringToUInt => Some(Costs3::cost_string_to_uint),
-        IntToAscii => Some(Costs3::cost_int_to_ascii),
-        IntToUtf8 => Some(Costs3::cost_int_to_utf8),
-        BitwiseLShift => Some(Costs3::cost_bitwise_left_shift),
-        BitwiseRShift => Some(Costs3::cost_bitwise_right_shift),
-        Slice => Some(Costs3::cost_slice),
-        ReplaceAt => Some(Costs3::cost_replace_at),
-        GetStacksBlockInfo => Some(Costs3::cost_block_info),
-        GetTenureInfo => Some(Costs3::cost_block_info),
-        ContractHash => Some(Costs3::cost_contract_hash),
-        ToAscii => Some(Costs3::cost_to_ascii),
-        InsertEntry => Some(Costs3::cost_set_entry),
-        DeleteEntry => Some(Costs3::cost_set_entry),
-        StxBurn => Some(Costs3::cost_stx_transfer),
-        Secp256r1Verify => Some(Costs3::cost_secp256r1verify),
-        RestrictAssets => None,        // TODO: add cost function
-        AllowanceWithStx => None,      // TODO: add cost function
-        AllowanceWithFt => None,       // TODO: add cost function
-        AllowanceWithNft => None,      // TODO: add cost function
-        AllowanceWithStacking => None, // TODO: add cost function
-        AllowanceAll => None,          // TODO: add cost function
-    }
-}
-
-/// Calculate total cost using SummingExecutionCost to handle branching properly
-fn calculate_total_cost_with_summing(node: &CostAnalysisNode) -> SummingExecutionCost {
-    let mut summing_cost = SummingExecutionCost::from_single(node.cost.min.clone());
-
-    for child in &node.children {
-        let child_summing = calculate_total_cost_with_summing(child);
-        summing_cost.add_summing(&child_summing);
+pub(crate) fn get_trait_count(costs: &HashMap<String, CostAnalysisNode>) -> Option<TraitCount> {
+    // First pass: collect trait counts and trait names
+    let mut collector = TraitCountCollector::new();
+    for (name, cost_analysis_node) in costs.iter() {
+        let context = TraitCountContext::new(name.clone(), (1, 1));
+        collector.visit(cost_analysis_node, &context);
     }
 
-    summing_cost
-}
-
-fn calculate_total_cost_with_branching(node: &CostAnalysisNode) -> SummingExecutionCost {
-    let mut summing_cost = SummingExecutionCost::new();
-
-    // Check if this is a branching function by examining the node's expression
-    let is_branching = is_node_branching(node);
-
-    if is_branching {
-        match &node.expr {
-            CostExprNode::NativeFunction(NativeFunctions::If)
-            | CostExprNode::NativeFunction(NativeFunctions::Match) => {
-                // TODO match?
-                if node.children.len() >= 2 {
-                    let condition_cost = calculate_total_cost_with_summing(&node.children[0]);
-                    let condition_total = condition_cost.add_all();
-
-                    // Add the root cost + condition cost to each branch
-                    let mut root_and_condition = node.cost.min.clone();
-                    let _ = root_and_condition.add(&condition_total);
-
-                    for child_cost_node in node.children.iter().skip(1) {
-                        let branch_cost = calculate_total_cost_with_summing(child_cost_node);
-                        let branch_total = branch_cost.add_all();
-
-                        let mut path_cost = root_and_condition.clone();
-                        let _ = path_cost.add(&branch_total);
-
-                        summing_cost.add_cost(path_cost);
-                    }
-                }
-            }
-            _ => {
-                // For other branching functions, fall back to sequential processing
-                let mut total_cost = node.cost.min.clone();
-                for child_cost_node in &node.children {
-                    let child_summing = calculate_total_cost_with_summing(child_cost_node);
-                    let combined_cost = child_summing.add_all();
-                    let _ = total_cost.add(&combined_cost);
-                }
-                summing_cost.add_cost(total_cost);
-            }
-        }
-    } else {
-        // For non-branching, add all costs sequentially
-        let mut total_cost = node.cost.min.clone();
-        for child_cost_node in &node.children {
-            let child_summing = calculate_total_cost_with_summing(child_cost_node);
-            let combined_cost = child_summing.add_all();
-            let _ = total_cost.add(&combined_cost);
-        }
-        summing_cost.add_cost(total_cost);
+    // Second pass: propagate trait counts through function calls
+    // If function A calls function B and uses a map, filter, or fold with
+    // traits, the maximum will reflect that in A's trait call counts
+    let mut propagator =
+        TraitCountPropagator::new(&mut collector.trait_counts, &collector.trait_names);
+    for (name, cost_analysis_node) in costs.iter() {
+        let context = TraitCountContext::new(name.clone(), (1, 1));
+        propagator.visit(cost_analysis_node, &context);
     }
 
-    summing_cost
-}
-
-impl From<SummingExecutionCost> for StaticCost {
-    fn from(summing: SummingExecutionCost) -> Self {
-        StaticCost {
-            min: summing.min(),
-            max: summing.max(),
-        }
-    }
-}
-
-/// Helper: calculate min & max costs for a given cost function
-/// This is likely tooo simplistic but for now it'll do
-fn get_costs(
-    cost_fn: fn(u64) -> Result<ExecutionCost, VmExecutionError>,
-    arg_count: u64,
-) -> Result<ExecutionCost, String> {
-    let cost = cost_fn(arg_count).map_err(|e| format!("Cost calculation error: {:?}", e))?;
-    Ok(cost)
+    Some(collector.trait_counts)
 }
 
 #[cfg(test)]

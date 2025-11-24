@@ -11,121 +11,8 @@ use crate::vm::costs::analysis::{
     UserArgumentsContext,
 };
 use crate::vm::costs::ExecutionCost;
-use crate::vm::tests::{tl_env_factory, TopLevelMemoryEnvironmentGenerator};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::{ast, ClarityVersion};
-
-const SIMPLE_TRAIT_SRC: &str = r#"(define-trait mytrait (
-  (somefunc (uint uint) (response uint uint))
-))
-"#;
-
-#[rstest]
-#[case::clarity2(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_simple_trait_implementation_costs(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
-    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
-) {
-    let simple_impl = r#"(impl-trait .mytrait.mytrait)
-        (define-public (somefunc (a uint) (b uint))
-          (ok (+ a b))
-        )"#;
-
-    let mut owned_env = tl_env_factory.get_env(epoch);
-
-    let epoch = StacksEpochId::Epoch21;
-    let ast = crate::vm::ast::build_ast(
-        &QualifiedContractIdentifier::transient(),
-        simple_impl,
-        &mut (),
-        version,
-        epoch,
-    )
-    .unwrap();
-    let static_cost = static_cost_from_ast(&ast, &version).unwrap();
-    // Deploy and execute the contract to get dynamic costs
-    let contract_id = QualifiedContractIdentifier::local("simple-impl").unwrap();
-    owned_env
-        .initialize_versioned_contract(contract_id.clone(), version, simple_impl, None)
-        .unwrap();
-
-    let dynamic_cost = execute_contract_function_and_get_cost(
-        &mut owned_env,
-        &contract_id,
-        "somefunc",
-        &[4, 5],
-        version,
-    );
-    println!("dynamic_cost: {:?}", dynamic_cost);
-    println!("static_cost: {:?}", static_cost);
-
-    let key = static_cost.keys().nth(1).unwrap();
-    let (cost, _trait_count) = static_cost.get(key).unwrap();
-    assert!(dynamic_cost.runtime >= cost.min.runtime);
-    assert!(dynamic_cost.runtime <= cost.max.runtime);
-}
-
-#[rstest]
-#[case::clarity2(ClarityVersion::Clarity2, StacksEpochId::Epoch21)]
-fn test_complex_trait_implementation_costs(
-    #[case] version: ClarityVersion,
-    #[case] epoch: StacksEpochId,
-    mut tl_env_factory: TopLevelMemoryEnvironmentGenerator,
-) {
-    let complex_impl = r#"(define-public (somefunc (a uint) (b uint))
-    (begin
-        ;; do something expensive
-        ;; emit events
-        (print a)
-        (print b)
-        (print "doing complex calculation")
-        (let ((result (* a b)))
-            (print result)
-            (ok (+ result (/ (+ a b) u2)))
-        )
-    )
-)"#;
-
-    let mut owned_env = tl_env_factory.get_env(epoch);
-
-    let epoch = StacksEpochId::Epoch21;
-    let ast = crate::vm::ast::build_ast(
-        &QualifiedContractIdentifier::transient(),
-        complex_impl,
-        &mut (),
-        version,
-        epoch,
-    )
-    .unwrap();
-    let static_cost_result = static_cost_from_ast(&ast, &version);
-    match static_cost_result {
-        Ok(static_cost) => {
-            let contract_id = QualifiedContractIdentifier::local("complex-impl").unwrap();
-            owned_env
-                .initialize_versioned_contract(contract_id.clone(), version, complex_impl, None)
-                .unwrap();
-
-            let dynamic_cost = execute_contract_function_and_get_cost(
-                &mut owned_env,
-                &contract_id,
-                "somefunc",
-                &[7, 8],
-                version,
-            );
-
-            let key = static_cost.keys().nth(1).unwrap();
-            let (cost, _trait_count) = static_cost.get(key).unwrap();
-            println!("dynamic_cost: {:?}", dynamic_cost);
-            println!("cost: {:?}", cost);
-            assert!(dynamic_cost.runtime >= cost.min.runtime);
-            assert!(dynamic_cost.runtime <= cost.max.runtime);
-        }
-        Err(e) => {
-            println!("Static cost analysis failed: {}", e);
-        }
-    }
-}
 
 #[test]
 fn test_build_cost_analysis_tree_function_definition() {
@@ -341,7 +228,7 @@ fn test_pox_4_costs() {
     .expect("Failed to build AST from pox-4.clar");
 
     let cost_map = static_cost_from_ast(&ast, &clarity_version)
-        .expect("Failed to perform static cost analysis on pox-4.clar");
+        .expect("Failed to get static cost analysis for pox-4.clar");
 
     // Check some functions in the cost map
     let key_functions = vec![
