@@ -205,25 +205,6 @@ fn make_ast(
     Ok(ast)
 }
 
-/// somewhat of a passthrough since we don't have to build the whole context we
-/// can jsut return the cost of the single expression
-fn static_cost_native(
-    source: &str,
-    cost_map: &HashMap<String, Option<StaticCost>>,
-    clarity_version: &ClarityVersion,
-) -> Result<StaticCost, String> {
-    let epoch = StacksEpochId::latest(); // XXX this should be matched with the clarity version
-    let ast = make_ast(source, epoch, clarity_version)?;
-    let exprs = &ast.expressions;
-    let user_args = UserArgumentsContext::new();
-    let expr = &exprs[0];
-    let (_, cost_analysis_tree) =
-        build_cost_analysis_tree(&expr, &user_args, cost_map, clarity_version)?;
-
-    let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
-    Ok(summing_cost.into())
-}
-
 /// STatic execution cost for functions within Environment
 /// returns the top level cost for specific functions
 /// {function_name: cost}
@@ -604,7 +585,17 @@ mod tests {
         clarity_version: &ClarityVersion,
     ) -> Result<StaticCost, String> {
         let cost_map: HashMap<String, Option<StaticCost>> = HashMap::new();
-        static_cost_native(source, &cost_map, clarity_version)
+
+        let epoch = StacksEpochId::latest(); // XXX this should be matched with the clarity version
+        let ast = make_ast(source, epoch, clarity_version)?;
+        let exprs = &ast.expressions;
+        let user_args = UserArgumentsContext::new();
+        let expr = &exprs[0];
+        let (_, cost_analysis_tree) =
+            build_cost_analysis_tree(&expr, &user_args, &cost_map, clarity_version)?;
+
+        let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
+        Ok(summing_cost.into())
     }
 
     fn static_cost_test(
