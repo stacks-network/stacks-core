@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 
+use clarity::types::StacksEpochId;
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::{QualifiedContractIdentifier, MAX_TYPE_DEPTH};
@@ -256,8 +257,18 @@ fn check_error_kind_union_type_value_error_cdeploy() {
 //                             // the same TypeSignature::parse_* helpers, so analysis
 //                             // always fails before initialization can trigger it.
 //     UnknownTypeName(String), // Unreachable: static analysis catches invalid types via `TypeSignature::parse_atom_type`, returning `StaticCheckErrorKind::UnknownTypeName`.
-//     UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>),
-//     UnionTypeValueError(Vec<TypeSignature>, Box<Value>),
+//     UnionTypeError(Vec<TypeSignature>, Box<TypeSignature>), Unreachable:
+//                             // the analyzer enforces that every call to `bit-shift-left` / `bit-shift-right`
+//                             // supplies an argument whose type is exactly `int` or `uint` (see
+//                             // `NativeFunctions::BitwiseLShift|BitwiseRShift` using
+//                             // `FunctionArgSignature::Union(IntType, UIntType)` and the
+//                             // `TypeSignature::admits_type` checks in `type_checker::check_function_arg_signature`).
+//                             // All dynamic sources that might yield a different runtime value (trait dispatch,
+//                             // consensus buffers, callable constants, etc.) either fail earlier with their own
+//                             // `CheckErrorKind` (e.g. `ReturnTypesMustMatch`, `UnionTypeValueError`) or sanitize
+//                             // the value before it can reach the bitwise native. As a result, the VM never receives
+//                             // a non-integer argument at these call sites, so this variant cannot be exercised.
+//     UnionTypeValueError(Vec<TypeSignature>, Box<Value>), [`check_error_kind_union_type_value_error_cdeploy`] [`check_error_kind_union_type_value_error_ccall`]
 //     ExpectedOptionalValue(Box<Value>),
 //     ExpectedResponseValue(Box<Value>),
 //     ExpectedOptionalOrResponseValue(Box<Value>),
@@ -515,6 +526,7 @@ fn check_error_kind_union_type_value_error_ccall() {
                 (foo .contract-1))",
         function_name: "trigger-runtime-error",
         function_args: &[],
+        deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
         setup_contracts: &[contract_1],
     );
