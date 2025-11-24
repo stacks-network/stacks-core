@@ -18,27 +18,29 @@ use std::sync::LazyLock;
 use clarity::boot_util::boot_code_addr;
 use clarity::codec::StacksMessageCodec;
 use clarity::consts::{CHAIN_ID_TESTNET, STACKS_EPOCH_MAX};
-use clarity::types::chainstate::{
-    StacksAddress, StacksBlockId, StacksPrivateKey, StacksPublicKey, TrieHash,
-};
+use clarity::types::chainstate::{StacksAddress, StacksPrivateKey, StacksPublicKey, TrieHash};
 use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
-use clarity::util::hash::{MerkleTree, Sha512Trunc256Sum};
+use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::PrincipalData;
+use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
 
+use crate::burnchains::tests::TestBurnchainBlock;
 use crate::burnchains::PoxConstants;
 use crate::chainstate::burn::db::sortdb::SortitionDB;
+use crate::chainstate::burn::operations::BlockstackOperationType;
 use crate::chainstate::nakamoto::{NakamotoBlock, NakamotoBlockHeader, NakamotoChainState};
 use crate::chainstate::stacks::db::{ClarityTx, StacksChainState, StacksEpochReceipt};
 use crate::chainstate::stacks::events::TransactionOrigin;
-use crate::chainstate::stacks::tests::TestStacksNode;
+use crate::chainstate::stacks::miner::BlockBuilder;
+use crate::chainstate::stacks::tests::{make_coinbase, TestStacksNode};
 use crate::chainstate::stacks::{
-    Error as ChainstateError, StacksTransaction, TransactionContractCall, TransactionPayload,
-    TransactionSmartContract, MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
+    Error as ChainstateError, StacksBlock, StacksBlockBuilder, StacksTransaction,
+    TransactionContractCall, TransactionPayload, TransactionSmartContract,
+    MINER_BLOCK_CONSENSUS_HASH, MINER_BLOCK_HEADER_HASH,
 };
 use crate::chainstate::tests::TestChainstate;
 use crate::core::test_util::{
@@ -166,21 +168,31 @@ pub struct ExpectedBlockOutput {
     pub total_block_cost: ExecutionCost,
 }
 
+/// Represents the expected outputs for a block's failed execution.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct ExpectedFailureOutput {
+    /// The epoch in which the test block was expected to be evaluated
+    pub evaluated_epoch: StacksEpochId,
+    /// The test should fail with an error matching the specified string
+    /// Cannot match on the exact Error directly as they do not implement
+    /// Serialize/Deserialize or PartialEq
+    pub error: String,
+}
+
 /// Represents the expected result of a consensus test.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum ExpectedResult {
     /// The test should succeed with the specified outputs.
     Success(ExpectedBlockOutput),
-    /// The test should fail with an error matching the specified string
-    /// Cannot match on the exact Error directly as they do not implement
-    /// Serialize/Deserialize or PartialEq
-    Failure(String),
+    /// The test should fail with the specified outputs.
+    Failure(ExpectedFailureOutput),
 }
 
 impl ExpectedResult {
     fn create_from(
         result: Result<StacksEpochReceipt, ChainstateError>,
         marf_hash: TrieHash,
+        evaluated_epoch: StacksEpochId,
     ) -> Self {
         match result {
             Ok(epoch_receipt) => {
@@ -207,7 +219,10 @@ impl ExpectedResult {
                     total_block_cost: epoch_receipt.anchored_block_cost,
                 })
             }
-            Err(e) => ExpectedResult::Failure(e.to_string()),
+            Err(e) => ExpectedResult::Failure(ExpectedFailureOutput {
+                error: e.to_string(),
+                evaluated_epoch,
+            }),
         }
     }
 }
@@ -298,74 +313,60 @@ impl ConsensusChain<'_> {
         pox_constants: &PoxConstants,
         num_blocks_per_epoch: HashMap<StacksEpochId, u64>,
     ) -> (EpochList<ExecutionCost>, u64) {
-        // Helper function to check if a height is at a reward cycle boundary
-        let is_reward_cycle_boundary = |height: u64, reward_cycle_length: u64| -> bool {
-            height % reward_cycle_length <= 1 // Covers both 0 (end of cycle) and 1 (start of cycle)
+        let reward_cycle_length = pox_constants.reward_cycle_length as u64;
+        let prepare_length = pox_constants.prepare_length as u64;
+
+        // Helper: is this burnchain height in a prepare phase?
+        let is_in_prepare_phase = |height: u64| -> bool {
+            let pos_in_cycle = height % reward_cycle_length;
+            pos_in_cycle == 0 || pos_in_cycle >= (reward_cycle_length - prepare_length)
+        };
+
+        // Helper: is this burnchain height at a reward cycle boundary?
+        let is_reward_cycle_boundary = |height: u64| -> bool { height % reward_cycle_length <= 1 };
+
+        // Helper: place N blocks starting at `start`, skipping prepare phases (for pre-3.0)
+        // this is necessary to prevent PoX anchor blocks getting messed with if any pre-naka
+        // blocks fail to append
+        let place_blocks_avoiding_prepare = |start: u64, n: u64| -> u64 {
+            let mut height = start;
+            let mut blocks_placed = 0;
+
+            while blocks_placed < n {
+                if is_in_prepare_phase(height) {
+                    height += 1; // skip prepare phase
+                } else {
+                    blocks_placed += 1;
+                    if blocks_placed < n {
+                        height += 1; // move to next height only if more blocks are needed
+                    }
+                }
+            }
+
+            height
         };
 
         let first_burnchain_height =
             (pox_constants.pox_4_activation_height + pox_constants.reward_cycle_length + 1) as u64;
         info!("StacksEpoch calculate_epochs first_burn_height = {first_burnchain_height}");
-        let reward_cycle_length = pox_constants.reward_cycle_length as u64;
-        let prepare_length = pox_constants.prepare_length as u64;
-        // Initialize heights
         let mut epochs = vec![];
         let mut current_height = 0;
         for epoch_id in StacksEpochId::ALL.iter() {
             let start_height = current_height;
-            let end_height = match *epoch_id {
+            let mut end_height = match *epoch_id {
                 StacksEpochId::Epoch10 => first_burnchain_height,
                 StacksEpochId::Epoch20
                 | StacksEpochId::Epoch2_05
                 | StacksEpochId::Epoch21
                 | StacksEpochId::Epoch22
                 | StacksEpochId::Epoch23
-                | StacksEpochId::Epoch24 => {
+                | StacksEpochId::Epoch24
+                | StacksEpochId::Epoch25 => {
                     // Use test vector block count
                     // Always add 1 so we can ensure we are fully in the epoch before we then execute
                     // the corresponding test blocks in their own blocks
-                    let num_blocks = num_blocks_per_epoch
-                        .get(epoch_id)
-                        .map(|num_blocks| *num_blocks + 1)
-                        .unwrap_or(0);
-                    start_height + num_blocks
-                }
-                StacksEpochId::Epoch25 => {
-                    // Calculate Epoch 2.5 end height and Epoch 3.0 start height.
-                    // Epoch 2.5 must start before the prepare phase of the cycle prior to Epoch 3.0's activation.
-                    // Epoch 2.5 end must equal Epoch 3.0 start
-                    // Epoch 3.0 must not start at a cycle boundary
-                    // Epoch 2.5 and 3.0 cannot be in the same reward cycle.
-                    let num_blocks = num_blocks_per_epoch
-                        .get(epoch_id)
-                        .copied()
-                        .unwrap_or(0)
-                        .saturating_add(1); // Add one block for pox lockups.
-
-                    let epoch_25_start = current_height;
-                    let epoch_30_start = epoch_25_start + num_blocks;
-
-                    let epoch_25_reward_cycle = epoch_25_start / reward_cycle_length;
-                    let mut epoch_30_start = epoch_30_start;
-                    let mut epoch_30_reward_cycle = epoch_30_start / reward_cycle_length;
-                    // Ensure different reward cycles and Epoch 2.5 starts before prior cycle's prepare phase
-                    let mut prior_cycle = epoch_30_reward_cycle.saturating_sub(1);
-                    let mut prior_prepare_phase_start =
-                        prior_cycle * reward_cycle_length + (reward_cycle_length - prepare_length);
-                    while epoch_25_start + num_blocks >= prior_prepare_phase_start
-                        || epoch_25_reward_cycle >= epoch_30_reward_cycle
-                        || is_reward_cycle_boundary(epoch_30_start, reward_cycle_length)
-                    {
-                        // Advance to 3.0 start so it is not in a reward cycle boundary and to ensure
-                        // 2.5 starts prior to the prepare phase of epoch 30 reward cycle activation
-                        epoch_30_start += 1;
-                        epoch_30_reward_cycle = epoch_30_start / reward_cycle_length;
-                        prior_cycle = epoch_30_reward_cycle.saturating_sub(1);
-                        prior_prepare_phase_start = prior_cycle * reward_cycle_length
-                            + (reward_cycle_length - prepare_length);
-                    }
-                    current_height = epoch_30_start;
-                    epoch_30_start // Epoch 2.5 ends where Epoch 3.0 starts
+                    let num_blocks = num_blocks_per_epoch.get(epoch_id).copied().unwrap_or(0) + 1;
+                    place_blocks_avoiding_prepare(start_height, num_blocks) + 1
                 }
                 StacksEpochId::Epoch30 | StacksEpochId::Epoch31 | StacksEpochId::Epoch32 => {
                     // Only need 1 block per Epoch
@@ -377,11 +378,46 @@ impl ConsensusChain<'_> {
                         start_height
                     }
                 }
-                StacksEpochId::Epoch33 => {
-                    // The last epoch extends to max
-                    STACKS_EPOCH_MAX
-                }
+                // The last Epoch height never ends
+                StacksEpochId::Epoch33 => STACKS_EPOCH_MAX,
             };
+
+            // Special case the Epoch 2.5 -> Epoch 3.0 transition
+            if *epoch_id == StacksEpochId::Epoch25 {
+                // Calculate Epoch 2.5 end height and Epoch 3.0 start height.
+                // Epoch 2.5 must start before the prepare phase of the cycle prior to Epoch 3.0's activation.
+                // Epoch 2.5 end must equal Epoch 3.0 start
+                // Epoch 3.0 must not start at a cycle boundary
+                // Epoch 2.5 and 3.0 cannot be in the same reward cycle.
+                let num_blocks = num_blocks_per_epoch
+                    .get(epoch_id)
+                    .copied()
+                    .unwrap_or(0)
+                    .saturating_add(1); // Add one block for pox lockups.
+
+                let epoch_25_start = start_height;
+                let mut epoch_30_start = end_height; // from block placement above
+
+                let epoch_25_reward_cycle = epoch_25_start / reward_cycle_length;
+                let mut epoch_30_reward_cycle = epoch_30_start / reward_cycle_length;
+                // Ensure different reward cycles and Epoch 2.5 starts before prior cycle's prepare phase
+                let mut prior_cycle = epoch_30_reward_cycle.saturating_sub(1);
+                let mut prior_prepare_phase_start =
+                    prior_cycle * reward_cycle_length + (reward_cycle_length - prepare_length);
+                while epoch_25_start + num_blocks >= prior_prepare_phase_start
+                    || epoch_25_reward_cycle >= epoch_30_reward_cycle
+                    || is_reward_cycle_boundary(epoch_30_start)
+                {
+                    // Advance to 3.0 start so it is not in a reward cycle boundary and to ensure
+                    // 2.5 starts prior to the prepare phase of epoch 30 reward cycle activation
+                    epoch_30_start += 1;
+                    epoch_30_reward_cycle = epoch_30_start / reward_cycle_length;
+                    prior_cycle = epoch_30_reward_cycle.saturating_sub(1);
+                    prior_prepare_phase_start =
+                        prior_cycle * reward_cycle_length + (reward_cycle_length - prepare_length);
+                }
+                end_height = epoch_30_start; // Epoch 2.5 ends where Epoch 3.0 starts
+            }
             // Create epoch
             let block_limit = if *epoch_id == StacksEpochId::Epoch10 {
                 ExecutionCost::max_value()
@@ -464,11 +500,19 @@ impl ConsensusChain<'_> {
             "--------- Processed block: {sig_hash} ---------";
             "block" => ?nakamoto_block
         );
-        let remapped_result = res.map(|receipt| receipt.unwrap());
         // Restore chainstate for the next block
         self.test_chainstate.sortdb = Some(sortdb);
         self.test_chainstate.stacks_node = Some(stacks_node);
-        ExpectedResult::create_from(remapped_result, expected_marf)
+
+        let burn_block_height = self.test_chainstate.get_burn_block_height();
+        let current_epoch =
+            SortitionDB::get_stacks_epoch(self.test_chainstate.sortdb().conn(), burn_block_height)
+                .unwrap()
+                .unwrap()
+                .epoch_id;
+
+        let remapped_result = res.map(|receipt| receipt.unwrap());
+        ExpectedResult::create_from(remapped_result, expected_marf, current_epoch)
     }
 
     /// Appends a single block to the chain as a Pre-Nakamoto block and returns the result.
@@ -486,37 +530,39 @@ impl ConsensusChain<'_> {
     /// A [`ExpectedResult`] with the outcome of the block processing.
     fn append_pre_nakamoto_block(&mut self, block: TestBlock) -> ExpectedResult {
         debug!("--------- Running Pre-Nakamoto block {block:?} ---------");
-        let (ch, bh) = SortitionDB::get_canonical_stacks_chain_tip_hash(
-            self.test_chainstate.sortdb_ref().conn(),
-        )
-        .unwrap();
-        let tip_id = StacksBlockId::new(&ch, &bh);
-        let (burn_ops, stacks_block, microblocks) = self
-            .test_chainstate
-            .make_pre_nakamoto_tenure_with_txs(&block.transactions);
-        let (_, _, consensus_hash) = self.test_chainstate.next_burnchain_block(burn_ops);
-
-        debug!(
-            "--------- Processing Pre-Nakamoto block ---------";
-            "block" => ?stacks_block
-        );
-
+        let (pre_nakamoto_block, burn_ops) = self.construct_pre_nakamoto_block(block);
+        let (block_height, _, consensus_hash) = self.test_chainstate.next_burnchain_block(burn_ops);
         let mut stacks_node = self.test_chainstate.stacks_node.take().unwrap();
         let mut sortdb = self.test_chainstate.sortdb.take().unwrap();
-        let expected_marf = stacks_block.header.state_index_root;
+
+        debug!(
+            "--------- Processing Pre-Nakamoto block {} ---------", pre_nakamoto_block.block_hash();
+        );
+        let expected_marf = pre_nakamoto_block.header.state_index_root;
         let res = TestStacksNode::process_pre_nakamoto_next_ready_block(
             &mut stacks_node,
             &mut sortdb,
             &mut self.test_chainstate.miner,
-            &ch,
             &mut self.test_chainstate.coord,
-            &stacks_block,
-            &microblocks,
+            &pre_nakamoto_block,
+            &[],
         );
+
         debug!(
-            "--------- Processed Pre-Nakamoto block ---------";
-            "block" => ?stacks_block
+            "--------- Processed Pre-Nakamoto block {}---------", pre_nakamoto_block.block_hash();
         );
+
+        // Restore chainstate for the next block
+        self.test_chainstate.sortdb = Some(sortdb);
+        self.test_chainstate.stacks_node = Some(stacks_node);
+
+        let burn_block_height = self.test_chainstate.get_burn_block_height();
+        let current_epoch =
+            SortitionDB::get_stacks_epoch(self.test_chainstate.sortdb().conn(), burn_block_height)
+                .unwrap()
+                .unwrap()
+                .epoch_id;
+
         let remapped_result = res.map(|receipt| {
             let mut receipt = receipt.unwrap();
             let mut sanitized_receipts = vec![];
@@ -530,10 +576,7 @@ impl ConsensusChain<'_> {
             receipt.tx_receipts = sanitized_receipts;
             receipt
         });
-        // Restore chainstate for the next block
-        self.test_chainstate.sortdb = Some(sortdb);
-        self.test_chainstate.stacks_node = Some(stacks_node);
-        ExpectedResult::create_from(remapped_result, expected_marf)
+        ExpectedResult::create_from(remapped_result, expected_marf, current_epoch)
     }
 
     /// Appends a single block to the chain and returns the result.
@@ -553,8 +596,133 @@ impl ConsensusChain<'_> {
         if is_naka_epoch {
             self.append_nakamoto_block(block)
         } else {
-            self.append_pre_nakamoto_block(block)
+            let result = self.append_pre_nakamoto_block(block);
+            if matches!(result, ExpectedResult::Failure(_)) {
+                // We didn't successfully mine the coinbase tx. Revert the nonce of the miner.
+                let old_nonce = self.test_chainstate.miner.get_nonce();
+                self.test_chainstate
+                    .miner
+                    .set_nonce(old_nonce.saturating_sub(1));
+            }
+            result
         }
+    }
+
+    /// Constructs a pre-Nakamoto block with the given [`TestBlock`] configuration.
+    fn construct_pre_nakamoto_block(
+        &mut self,
+        test_block: TestBlock,
+    ) -> (StacksBlock, Vec<BlockstackOperationType>) {
+        let microblock_privkey = self.test_chainstate.miner.next_microblock_privkey();
+        let microblock_pubkeyhash =
+            Hash160::from_node_public_key(&StacksPublicKey::from_private(&microblock_privkey));
+        let burnchain = self.test_chainstate.config.burnchain.clone();
+
+        let tip =
+            SortitionDB::get_canonical_burn_chain_tip(self.test_chainstate.sortdb_ref().conn())
+                .unwrap();
+        let parent_sortition_opt = SortitionDB::get_block_snapshot(
+            self.test_chainstate.sortdb_ref().conn(),
+            &tip.parent_sortition_id,
+        )
+        .unwrap();
+
+        let mut burn_block = TestBurnchainBlock::new(&tip, 0);
+
+        let last_key = self
+            .test_chainstate
+            .stacks_node_ref()
+            .get_last_key(&self.test_chainstate.miner);
+        let vrf_proof = self
+            .test_chainstate
+            .miner
+            .make_proof(
+                &last_key.public_key,
+                &burn_block.parent_snapshot.sortition_hash,
+            )
+            .unwrap_or_else(|| panic!("FATAL: no private key for {:?}", last_key.public_key));
+
+        let coinbase_tx = make_coinbase(
+            &mut self.test_chainstate.miner,
+            tip.block_height.try_into().unwrap(),
+        );
+        let mut stacks_block = {
+            let genesis_header_info = StacksChainState::get_genesis_header_info(
+                self.test_chainstate.stacks_node_ref().chainstate.db(),
+            )
+            .unwrap();
+            let tip =
+                SortitionDB::get_canonical_burn_chain_tip(self.test_chainstate.sortdb_ref().conn())
+                    .unwrap();
+            let parent_tip = StacksChainState::get_anchored_block_header_info(
+                self.test_chainstate.stacks_node_ref().chainstate.db(),
+                &tip.canonical_stacks_tip_consensus_hash,
+                &tip.canonical_stacks_tip_hash,
+            )
+            .unwrap()
+            .unwrap_or(genesis_header_info);
+            // Just use the block builder to calculate the header easily. Note that the merkle root and state index hash will be wrong though!
+            let mut builder = StacksBlockBuilder::make_regtest_block_builder(
+                &burnchain,
+                &parent_tip,
+                &vrf_proof,
+                tip.total_burn,
+                &microblock_pubkeyhash,
+            )
+            .unwrap();
+            let burndb = self
+                .test_chainstate
+                .sortdb_ref()
+                .index_handle(&tip.sortition_id);
+            let (mut chainstate, _) = self
+                .test_chainstate
+                .stacks_node_ref()
+                .chainstate
+                .reopen()
+                .unwrap();
+            let mut miner_epoch_info = builder
+                .pre_epoch_begin(&mut chainstate, &burndb, true)
+                .unwrap();
+            let (mut epoch_tx, _) = builder.epoch_begin(&burndb, &mut miner_epoch_info).unwrap();
+            // First mine the coinbase transaction
+            builder
+                .try_mine_tx(&mut epoch_tx, &coinbase_tx, None)
+                .unwrap();
+
+            // We attempt to mine each transaction to build the hash
+            for tx in &test_block.transactions {
+                // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
+                let _ = builder.try_mine_tx(&mut epoch_tx, tx, None);
+            }
+
+            let stacks_block = builder.mine_anchored_block(&mut epoch_tx);
+            epoch_tx.rollback_block();
+            stacks_block
+        };
+        // Just in case any of the transactions failed during above marf computation, just overwrite the merkle root again
+        let mut txs = vec![coinbase_tx];
+        txs.extend_from_slice(&test_block.transactions);
+        stacks_block.txs = txs;
+        let tx_merkle_root = {
+            let txid_vecs: Vec<_> = stacks_block
+                .txs
+                .iter()
+                .map(|tx| tx.txid().as_bytes().to_vec())
+                .collect();
+            MerkleTree::<Sha512Trunc256Sum>::new(&txid_vecs).root()
+        };
+        stacks_block.header.tx_merkle_root = tx_merkle_root;
+
+        let block_ops = self.test_chainstate.calculate_block_ops(
+            &tip,
+            &mut burn_block,
+            &last_key,
+            &stacks_block,
+            vec![],
+            parent_sortition_opt.as_ref(),
+        );
+
+        (stacks_block, block_ops)
     }
 
     /// Constructs a Nakamoto block with the given [`TestBlock`] configuration.
@@ -607,7 +775,8 @@ impl ConsensusChain<'_> {
 
         // Set the MARF root hash or use an all-zero hash in case of failure.
         // NOTE: It is expected to fail when trying computing the marf for invalid block/transactions.
-        let marf_result = self.compute_block_marf_root_hash(block.header.timestamp, &block.txs);
+        let marf_result =
+            self.compute_naka_block_marf_root_hash(block.header.timestamp, &block.txs);
         block.header.state_index_root = match marf_result {
             Ok(marf) => marf,
             Err(_) => TrieHash::from_bytes(&[0; 32]).unwrap(),
@@ -625,7 +794,7 @@ impl ConsensusChain<'_> {
         (block, block_len)
     }
 
-    /// Computes the MARF root hash for a block.
+    /// Computes the MARF root hash for a Nakamoto block.
     ///
     /// This function is intended for use in success test cases only, where all
     /// transactions are valid. In other scenarios, the computation may fail.
@@ -633,7 +802,7 @@ impl ConsensusChain<'_> {
     /// The implementation is deliberately minimal: it does not cover every
     /// possible situation (such as new tenure handling), but it should be
     /// sufficient for the scope of our test cases.
-    fn compute_block_marf_root_hash(
+    fn compute_naka_block_marf_root_hash(
         &mut self,
         block_time: u64,
         block_txs: &[StacksTransaction],
@@ -659,7 +828,7 @@ impl ConsensusChain<'_> {
             &MINER_BLOCK_CONSENSUS_HASH,
             &MINER_BLOCK_HEADER_HASH,
         );
-        let result = Self::inner_compute_block_marf_root_hash(
+        let result = Self::inner_compute_naka_block_marf_root_hash(
             &mut clarity_tx,
             block_time,
             block_txs,
@@ -669,11 +838,11 @@ impl ConsensusChain<'_> {
         result
     }
 
-    /// This is where the real MARF computation happens.
+    /// This is where the real MARF computation happens for Nakamoto blocks.
     /// It is extrapolated into an _inner_ method to simplify rollback handling,
     /// ensuring that rollback can be applied consistently on both success and failure
     /// in the _outer_ method.
-    fn inner_compute_block_marf_root_hash(
+    fn inner_compute_naka_block_marf_root_hash(
         clarity_tx: &mut ClarityTx,
         block_time: u64,
         block_txs: &[StacksTransaction],
@@ -696,6 +865,31 @@ impl ConsensusChain<'_> {
             .map_err(|e| e.to_string())?;
 
         Ok(clarity_tx.seal())
+    }
+
+    /// Advance out of a pre-nakamoto prepare phase to prevent potentially messing with the PoX anchor block selection
+    /// Is a no-op if already in Nakamoto epoch
+    pub fn consume_pre_naka_prepare_phase(&mut self) {
+        let mut block_height = self.test_chainstate.get_burn_block_height();
+        let evaluating_epoch =
+            SortitionDB::get_stacks_epoch(self.test_chainstate.sortdb().conn(), block_height + 1)
+                .unwrap()
+                .unwrap()
+                .epoch_id;
+        if !evaluating_epoch.uses_nakamoto_blocks() {
+            block_height = self.test_chainstate.get_burn_block_height();
+            while self
+                .test_chainstate
+                .config
+                .burnchain
+                .is_in_prepare_phase(block_height + 1)
+            {
+                // Cannot apply a pre nakamoto block in the prepare phase in case it fails and we do not calculate
+                // our PoX anchor properly. Mine until we are out of the prepare phase
+                self.test_chainstate.mine_pre_nakamoto_tenure_with_txs(&[]);
+                block_height = self.test_chainstate.get_burn_block_height();
+            }
+        }
     }
 }
 
@@ -754,8 +948,10 @@ impl ConsensusTest<'_> {
                 .test_chainstate
                 .advance_into_epoch(&miner_key, epoch);
 
+            let is_naka_epoch = epoch.uses_nakamoto_blocks();
             for block in blocks {
-                results.push(self.chain.append_block(block, epoch.uses_nakamoto_blocks()));
+                self.chain.consume_pre_naka_prepare_phase();
+                results.push(self.chain.append_block(block, is_naka_epoch));
             }
         }
         results
@@ -788,6 +984,8 @@ pub struct ContractConsensusTest<'a> {
     chain: ConsensusChain<'a>,
     /// Address of the contract deployer (the test faucet).
     contract_addr: StacksAddress,
+    /// Mapping of epoch → list of prerequisite contracts to deploy.
+    setup_contracts_per_epoch: HashMap<StacksEpochId, Vec<SetupContract>>,
     /// Mapping of epoch → list of `(contract_name, ClarityVersion)` deployed in that epoch.
     /// Multiple versions may exist per epoch (e.g., Clarity 1, 2, 3 in Epoch 3.0).
     contract_deploys_per_epoch: HashMap<StacksEpochId, Vec<(String, ClarityVersion)>>,
@@ -823,6 +1021,8 @@ impl ContractConsensusTest<'_> {
     /// * `contract_code` - Clarity source code of the contract
     /// * `function_name` - Contract function to test
     /// * `function_args` - Arguments passed to `function_name` on every call
+    /// * `exclude_clarity_versions` - List of Clarity versions to exclude from testing. For each epoch to test, at least a clarity version must available.
+    /// * `setup_contracts` - Contracts that must be deployed before epoch-specific logic runs
     ///
     /// # Panics
     ///
@@ -838,15 +1038,32 @@ impl ContractConsensusTest<'_> {
         contract_code: &str,
         function_name: &str,
         function_args: &[ClarityValue],
+        exclude_clarity_versions: &[ClarityVersion],
+        setup_contracts: &[SetupContract],
     ) -> Self {
         assert!(
             !deploy_epochs.is_empty(),
             "At least one deploy epoch is required"
         );
+        for epoch in deploy_epochs {
+            let supported_versions = clarity_versions_for_epoch(*epoch);
+            assert!(
+                supported_versions
+                    .iter()
+                    .any(|version| !exclude_clarity_versions.contains(version)),
+                "Epoch {epoch} does not have any Clarity versions available after applying exclusions",
+            );
+        }
         let min_deploy_epoch = deploy_epochs.iter().min().unwrap();
         assert!(
             call_epochs.iter().all(|e| e >= min_deploy_epoch),
             "All call epochs must be >= the minimum deploy epoch"
+        );
+        assert!(
+            setup_contracts
+                .iter()
+                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() >= *min_deploy_epoch),
+            "All setup contracts must have a deploy epoch >= the minimum deploy epoch"
         );
 
         // Build epoch_blocks map based on deploy and call epochs
@@ -855,17 +1072,55 @@ impl ContractConsensusTest<'_> {
             HashMap::new();
         let mut contract_calls_per_epoch: HashMap<StacksEpochId, Vec<String>> = HashMap::new();
         let mut contract_names = vec![];
+        let mut setup_contracts_per_epoch: HashMap<StacksEpochId, Vec<SetupContract>> =
+            HashMap::new();
+
+        let mut epoch_candidates: BTreeSet<StacksEpochId> = deploy_epochs.iter().copied().collect();
+        epoch_candidates.extend(call_epochs.iter().copied());
+        let default_setup_epoch = *epoch_candidates
+            .iter()
+            .next()
+            .expect("deploy_epochs guarantees at least one epoch");
+
+        for contract in setup_contracts {
+            // Deploy the setup contracts in the first epoch if not specified.
+            let deploy_epoch = contract.deploy_epoch.unwrap_or(default_setup_epoch);
+            // Get the default Clarity version for the epoch of the contract if not specified.
+            let clarity_version = contract.clarity_version.or_else(|| {
+                if deploy_epoch < StacksEpochId::Epoch21 {
+                    None
+                } else {
+                    Some(ClarityVersion::default_for_epoch(deploy_epoch))
+                }
+            });
+            let mut contract = contract.clone();
+            contract.deploy_epoch = Some(deploy_epoch);
+            contract.clarity_version = clarity_version;
+            setup_contracts_per_epoch
+                .entry(deploy_epoch)
+                .or_default()
+                .push(contract);
+        }
 
         // Combine and sort unique epochs
-        let all_epochs: BTreeSet<StacksEpochId> =
-            deploy_epochs.iter().chain(call_epochs).cloned().collect();
+        let mut all_epochs: BTreeSet<StacksEpochId> = epoch_candidates;
+        all_epochs.extend(setup_contracts_per_epoch.keys().copied());
 
         // Precompute contract names and block counts
         for epoch in &all_epochs {
             let mut num_blocks = 0;
 
+            if let Some(contracts) = setup_contracts_per_epoch.get(epoch) {
+                num_blocks += contracts.len() as u64;
+            }
+
             if deploy_epochs.contains(epoch) {
-                let clarity_versions = clarity_versions_for_epoch(*epoch);
+                let clarity_versions_per_epoch = clarity_versions_for_epoch(*epoch);
+                // Exclude the clarity versions that are in the exclude_clarity_versions list.
+                let clarity_versions = clarity_versions_per_epoch
+                    .iter()
+                    .filter(|v| !exclude_clarity_versions.contains(v));
+
                 let epoch_name = format!("Epoch{}", epoch.to_string().replace('.', "_"));
 
                 // Each deployment is a seperate TestBlock
@@ -906,6 +1161,7 @@ impl ContractConsensusTest<'_> {
             contract_code: contract_code.to_string(),
             function_name: function_name.to_string(),
             function_args: function_args.to_vec(),
+            setup_contracts_per_epoch,
             all_epochs,
         }
     }
@@ -938,6 +1194,62 @@ impl ContractConsensusTest<'_> {
         result
     }
 
+    /// Deploys prerequisite contracts scheduled for the given epoch.
+    /// Panics if the deployment fails.
+    fn deploy_setup_contracts(&mut self, epoch: StacksEpochId) {
+        let Some(contracts) = self.setup_contracts_per_epoch.get(&epoch).cloned() else {
+            return;
+        };
+
+        let is_naka_block = epoch.uses_nakamoto_blocks();
+        contracts.into_iter().for_each(|contract| {
+            self.chain.consume_pre_naka_prepare_phase();
+            let result = self.append_tx_block(
+                &TestTxSpec::ContractDeploy {
+                    sender: &FAUCET_PRIV_KEY,
+                    name: &contract.name,
+                    code: &contract.code,
+                    clarity_version: contract.clarity_version,
+                },
+                is_naka_block,
+            );
+            match result {
+                ExpectedResult::Success(ref output) => {
+                    assert_eq!(
+                        output.transactions.len(),
+                        1,
+                        "Expected 1 transaction for setup contract {}, got {}",
+                        contract.name,
+                        output.transactions.len()
+                    );
+                    let tx_output = &output.transactions.first().unwrap();
+                    assert_eq!(
+                        tx_output.return_type,
+                        ClarityValue::Response(ResponseData {
+                            committed: true,
+                            data: Box::new(ClarityValue::Bool(true)),
+                        }),
+                        "Setup contract {} failed to deploy: got {:?}",
+                        contract.name,
+                        tx_output
+                    );
+                    assert!(
+                        tx_output.vm_error.is_none(),
+                        "Expected no VM error for setup contract {}, got {:?}",
+                        contract.name,
+                        tx_output.vm_error
+                    );
+                }
+                ExpectedResult::Failure(error) => {
+                    panic!(
+                        "Setup contract {} deployment failed: {error:?}",
+                        contract.name
+                    );
+                }
+            }
+        });
+    }
+
     /// Deploys all contract versions scheduled for the given epoch.
     ///
     /// For each Clarity version supported in the epoch:
@@ -965,6 +1277,7 @@ impl ContractConsensusTest<'_> {
                 } else {
                     Some(*version)
                 };
+                self.chain.consume_pre_naka_prepare_phase();
                 self.append_tx_block(
                     &TestTxSpec::ContractDeploy {
                         sender: &FAUCET_PRIV_KEY,
@@ -1002,6 +1315,7 @@ impl ContractConsensusTest<'_> {
             .clone()
             .iter()
             .map(|contract_name| {
+                self.chain.consume_pre_naka_prepare_phase();
                 self.append_tx_block(
                     &TestTxSpec::ContractCall {
                         sender: &FAUCET_PRIV_KEY,
@@ -1053,6 +1367,9 @@ impl ContractConsensusTest<'_> {
                 .test_chainstate
                 .advance_into_epoch(&private_key, epoch);
 
+            // Differently from the deploy_contracts and call_contracts functions, setup contracts are expected to succeed.
+            // Their receipt is not relevant to the test.
+            self.deploy_setup_contracts(epoch);
             results.extend(self.deploy_contracts(epoch));
             results.extend(self.call_contracts(epoch));
         }
@@ -1266,8 +1583,10 @@ impl TestTxFactory {
 /// * `contract_code` — The Clarity source code for the contract.
 /// * `function_name` — The public function to call.
 /// * `function_args` — Function arguments, provided as a slice of [`ClarityValue`].
-/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 3.0.
+/// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to all epochs ≥ 2.0.
 /// * `call_epochs` — *(optional)* Epochs in which to call the function. Defaults to [`EPOCHS_TO_TEST`].
+/// * `clarity_versions` — *(optional)* Clarity versions to test. For each epoch to test, at least one of the clarity versions must be supported. Defaults to all Clarity versions.
+/// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy once before the main contract logic.
 ///
 /// # Example
 ///
@@ -1276,9 +1595,15 @@ impl TestTxFactory {
 /// fn test_my_contract_call_consensus() {
 ///     contract_call_consensus_test!(
 ///         contract_name: "my-contract",
-///         contract_code: "(define-public (get-message) (ok \"hello\"))",
+///         contract_code: "
+///             (define-public (get-message)
+///                 (contract-call? .dependency.foo))",
 ///         function_name: "get-message",
 ///         function_args: &[],
+///         setup_contracts: &[SetupContract::new(
+///             "dependency",
+///             "(define-public (foo) (ok \"hello\"))",
+///         )],
 ///     );
 /// }
 /// ```
@@ -1290,6 +1615,8 @@ macro_rules! contract_call_consensus_test {
         function_args: $function_args:expr,
         $(deploy_epochs: $deploy_epochs:expr,)?
         $(call_epochs: $call_epochs:expr,)?
+        $(exclude_clarity_versions: $exclude_clarity_versions:expr,)?
+        $(setup_contracts: $setup_contracts:expr,)?
     ) => {
         {
              // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
@@ -1299,6 +1626,10 @@ macro_rules! contract_call_consensus_test {
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
             let call_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
             $(let call_epochs = $call_epochs;)?
+            let setup_contracts: &[$crate::chainstate::tests::consensus::SetupContract] = &[];
+            $(let setup_contracts = $setup_contracts;)?
+            let exclude_clarity_versions: &[clarity::vm::ClarityVersion] = &[];
+            $(let exclude_clarity_versions = $exclude_clarity_versions;)?
             let contract_test = $crate::chainstate::tests::consensus::ContractConsensusTest::new(
                 function_name!(),
                 vec![],
@@ -1308,6 +1639,8 @@ macro_rules! contract_call_consensus_test {
                 $contract_code,
                 $function_name,
                 $function_args,
+                exclude_clarity_versions,
+                setup_contracts,
             );
             let result = contract_test.run();
             insta::assert_ron_snapshot!(result);
@@ -1334,6 +1667,8 @@ pub(crate) use contract_call_consensus_test;
 /// * `contract_name` — Name of the contract being tested.
 /// * `contract_code` — The Clarity source code of the contract.
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
+/// * `clarity_versions` — *(optional)* Clarity versions to test. For each epoch to test, at least one of the clarity versions must be supported. Defaults to all Clarity versions.
+/// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy before the main contract.
 ///
 /// # Example
 ///
@@ -1348,33 +1683,73 @@ pub(crate) use contract_call_consensus_test;
 /// }
 /// ```
 macro_rules! contract_deploy_consensus_test {
-    // Handle the case where deploy_epochs is not provided
     (
         contract_name: $contract_name:expr,
         contract_code: $contract_code:expr,
+        $(deploy_epochs: $deploy_epochs:expr,)?
+        $(exclude_clarity_versions: $exclude_clarity_versions:expr,)?
+        $(setup_contracts: $setup_contracts:expr,)?
     ) => {
-        contract_deploy_consensus_test!(
-            contract_name: $contract_name,
-            contract_code: $contract_code,
-            deploy_epochs: $crate::chainstate::tests::consensus::EPOCHS_TO_TEST,
-        );
-    };
-    (
-        contract_name: $contract_name:expr,
-        contract_code: $contract_code:expr,
-        deploy_epochs: $deploy_epochs:expr,
-    ) => {
-        $crate::chainstate::tests::consensus::contract_call_consensus_test!(
-            contract_name: $contract_name,
-            contract_code: $contract_code,
-            function_name: "",   // No function calls, just deploys
-            function_args: &[],  // No function calls, just deploys
-            deploy_epochs: $deploy_epochs,
-            call_epochs: &[],    // No function calls, just deploys
-        );
+        {
+            let deploy_epochs = $crate::chainstate::tests::consensus::EPOCHS_TO_TEST;
+            $(let deploy_epochs = $deploy_epochs;)?
+            $crate::chainstate::tests::consensus::contract_call_consensus_test!(
+                contract_name: $contract_name,
+                contract_code: $contract_code,
+                function_name: "",   // No function calls, just deploys
+                function_args: &[],  // No function calls, just deploys
+                deploy_epochs: deploy_epochs,
+                call_epochs: &[],    // No function calls, just deploys
+                $(exclude_clarity_versions: $exclude_clarity_versions,)?
+                $(setup_contracts: $setup_contracts,)?
+            );
+        }
     };
 }
 pub(crate) use contract_deploy_consensus_test;
+
+/// Contract deployment that must occur before `contract_call_consensus_test!` or `contract_deploy_consensus_test!` runs its own logic.
+///
+/// These setups are useful when the primary contract references other contracts (traits, functions, etc.)
+/// that need to exist ahead of time with deterministic names and versions.
+#[derive(Clone, Debug)]
+pub struct SetupContract {
+    /// Contract name that should be deployed (no macro suffixes applied).
+    pub name: String,
+    /// Source code for the supporting contract.
+    pub code: String,
+    /// Optional Clarity version for this contract.
+    pub clarity_version: Option<ClarityVersion>,
+    /// Optional epoch for this contract.
+    pub deploy_epoch: Option<StacksEpochId>,
+}
+
+impl SetupContract {
+    /// Creates a new SetupContract with default deployment settings.
+    ///
+    /// By default, the contract will deploy in the first epoch used by the test and with the
+    /// default Clarity version for that epoch.
+    pub fn new(name: impl Into<String>, code: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            code: code.into(),
+            clarity_version: None,
+            deploy_epoch: None,
+        }
+    }
+
+    /// Override the epoch where this setup contract should deploy.
+    pub fn with_epoch(mut self, epoch: StacksEpochId) -> Self {
+        self.deploy_epoch = Some(epoch);
+        self
+    }
+
+    /// Override the Clarity version used to deploy this setup contract.
+    pub fn with_clarity_version(mut self, version: ClarityVersion) -> Self {
+        self.clarity_version = Some(version);
+        self
+    }
+}
 
 // Just a namespace for utilities for writing consensus tests
 pub struct ConsensusUtils;
@@ -1494,5 +1869,24 @@ fn test_successfully_deploy() {
     contract_deploy_consensus_test!(
         contract_name: "foo_contract",
         contract_code: FOO_CONTRACT,
+    );
+}
+
+#[test]
+/// Test that the supertype list is accepted in >= Epoch 2.4,
+/// but is rejected in all earlier Epochs
+fn problematic_supertype_list() {
+    contract_deploy_consensus_test!(
+        contract_name: "problematic",
+        contract_code: "(define-data-var my-list (list 10 { a: int }) (list { a: 1 }))
+    (var-set my-list
+    (unwrap! (as-max-len?
+        (append (var-get my-list)
+                { a: 2, b: 2 })
+        u10)
+    (err  1)))
+    (print (var-get my-list))
+    ",
+    deploy_epochs: &StacksEpochId::ALL[1..],
     );
 }

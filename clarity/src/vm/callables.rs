@@ -28,7 +28,7 @@ use crate::vm::analysis::errors::CheckErrorKind;
 use crate::vm::contexts::ContractContext;
 use crate::vm::costs::cost_functions::ClarityCostFunction;
 use crate::vm::costs::runtime_cost;
-use crate::vm::errors::{check_argument_count, InterpreterResult as Result, VmExecutionError};
+use crate::vm::errors::{check_argument_count, VmExecutionError};
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{
     CallableData, ListData, ListTypeData, OptionalData, PrincipalData, ResponseData, SequenceData,
@@ -47,11 +47,15 @@ pub enum CallableType {
         &'static str,
         NativeHandle,
         ClarityCostFunction,
-        &'static dyn Fn(&[Value]) -> Result<u64>,
+        &'static dyn Fn(&[Value]) -> Result<u64, VmExecutionError>,
     ),
     SpecialFunction(
         &'static str,
-        &'static dyn Fn(&[SymbolicExpression], &mut Environment, &LocalContext) -> Result<Value>,
+        &'static dyn Fn(
+            &[SymbolicExpression],
+            &mut Environment,
+            &LocalContext,
+        ) -> Result<Value, VmExecutionError>,
     ),
 }
 
@@ -76,14 +80,19 @@ pub struct DefinedFunction {
 /// implementing a native function. Each variant handles
 /// different expected number of arguments.
 pub enum NativeHandle {
-    SingleArg(&'static dyn Fn(Value) -> Result<Value>),
-    DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value>),
-    MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value>),
-    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> Result<Value>),
+    SingleArg(&'static dyn Fn(Value) -> Result<Value, VmExecutionError>),
+    DoubleArg(&'static dyn Fn(Value, Value) -> Result<Value, VmExecutionError>),
+    MoreArg(&'static dyn Fn(Vec<Value>) -> Result<Value, VmExecutionError>),
+    #[allow(clippy::type_complexity)]
+    MoreArgEnv(&'static dyn Fn(Vec<Value>, &mut Environment) -> Result<Value, VmExecutionError>),
 }
 
 impl NativeHandle {
-    pub fn apply(&self, mut args: Vec<Value>, env: &mut Environment) -> Result<Value> {
+    pub fn apply(
+        &self,
+        mut args: Vec<Value>,
+        env: &mut Environment,
+    ) -> Result<Value, VmExecutionError> {
         match self {
             Self::SingleArg(function) => {
                 check_argument_count(1, &args)?;
@@ -108,7 +117,7 @@ impl NativeHandle {
     }
 }
 
-pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64> {
+pub fn cost_input_sized_vararg(args: &[Value]) -> Result<u64, VmExecutionError> {
     args.iter()
         .try_fold(0, |sum, value| {
             (value
@@ -139,7 +148,11 @@ impl DefinedFunction {
         }
     }
 
-    pub fn execute_apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    pub fn execute_apply(
+        &self,
+        args: &[Value],
+        env: &mut Environment,
+    ) -> Result<Value, VmExecutionError> {
         runtime_cost(
             ClarityCostFunction::UserFunctionApplication,
             env,
@@ -311,7 +324,7 @@ impl DefinedFunction {
         epoch: &StacksEpochId,
         contract_defining_trait: &ContractContext,
         trait_identifier: &TraitIdentifier,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         let trait_name = trait_identifier.name.to_string();
         let constraining_trait = contract_defining_trait
             .lookup_trait_definition(&trait_name)
@@ -340,7 +353,7 @@ impl DefinedFunction {
         self.define_type == DefineType::ReadOnly
     }
 
-    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value> {
+    pub fn apply(&self, args: &[Value], env: &mut Environment) -> Result<Value, VmExecutionError> {
         match self.define_type {
             DefineType::Private => self.execute_apply(args, env),
             DefineType::Public => env.execute_function_as_transaction(self, args, None, false),
@@ -397,7 +410,10 @@ impl CallableType {
 // recursing into compound types. This function does not check for legality of
 // these casts, as that is done in the type-checker. Note: depth of recursion
 // should be capped by earlier checks on the types/values.
-fn clarity2_implicit_cast(type_sig: &TypeSignature, value: &Value) -> Result<Value> {
+fn clarity2_implicit_cast(
+    type_sig: &TypeSignature,
+    value: &Value,
+) -> Result<Value, VmExecutionError> {
     Ok(match (type_sig, value) {
         (
             TypeSignature::OptionalType(inner_type),

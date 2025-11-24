@@ -111,6 +111,7 @@ pub struct RPCPoxInfoData {
     pub current_cycle: RPCPoxCurrentCycleInfo,
     pub next_cycle: RPCPoxNextCycleInfo,
     pub epochs: Vec<RPCPoxEpoch>,
+    pub current_epoch: StacksEpochId,
 
     // below are included for backwards-compatibility
     pub min_amount_ustx: u64,
@@ -354,11 +355,21 @@ impl RPCPoxInfoData {
             as u64;
 
         let cur_cycle_pox_active = sortdb.is_pox_active(burnchain, &burnchain_tip)?;
-        let epochs = SortitionDB::get_stacks_epochs(sortdb.conn())?
+        let epochs: Vec<RPCPoxEpoch> = SortitionDB::get_stacks_epochs(sortdb.conn())?
             .to_vec()
             .into_iter()
             .map(RPCPoxEpoch::from)
             .collect();
+        let burn_height = burnchain_tip.block_height;
+        let current_epoch = epochs
+            .iter()
+            .fold(StacksEpochId::Epoch10, |acc, epoch_data| {
+                if burn_height >= epoch_data.start_height {
+                    epoch_data.epoch_id
+                } else {
+                    acc
+                }
+            });
 
         Ok(RPCPoxInfoData {
             contract_id: boot_code_id(cur_block_pox_contract, chainstate.mainnet).to_string(),
@@ -388,6 +399,7 @@ impl RPCPoxInfoData {
                 ustx_until_pox_rejection: rejection_votes_left_required,
             },
             epochs,
+            current_epoch,
             min_amount_ustx: next_threshold,
             prepare_cycle_length,
             reward_cycle_id,
