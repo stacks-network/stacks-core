@@ -18,6 +18,7 @@
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::MAX_TYPE_DEPTH;
+use clarity::vm::ClarityVersion;
 
 use crate::chainstate::tests::consensus::{contract_deploy_consensus_test, SetupContract};
 use crate::core::BLOCK_LIMIT_MAINNET_21;
@@ -206,7 +207,7 @@ fn static_check_error_expected_optional_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadTraitImplementation`]
+/// CheckErrorKind: [`CheckErrorKind::BadTraitImplementation`]
 /// Caused by: trying to implement a trait with a bad implementation.
 /// Outcome: block accepted.
 #[test]
@@ -357,6 +358,7 @@ fn static_check_error_unknown_type_name() {
         contract_code: "
         (define-public (trigger)
             (ok (from-consensus-buff? foo 0x00)))",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
     );
 }
 
@@ -430,6 +432,7 @@ fn static_check_error_could_not_determine_serialization_type() {
         (define-trait trait-b ((pong () (response bool bool))))
         (define-public (trigger (first <trait-a>) (second <trait-b>))
             (ok (to-consensus-buff? (list first second))))",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
     );
 }
 
