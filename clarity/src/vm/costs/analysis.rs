@@ -207,11 +207,11 @@ fn make_ast(
 
 /// STatic execution cost for functions within Environment
 /// returns the top level cost for specific functions
-/// {function_name: cost}
+/// {some-function-name: (CostAnalysisNode, Some({some-function-name: (1,1)}))}
 pub fn static_cost(
     env: &mut Environment,
     contract_identifier: &QualifiedContractIdentifier,
-) -> Result<HashMap<String, StaticCost>, String> {
+) -> Result<HashMap<String, (CostAnalysisNode, Option<TraitCount>)>, String> {
     let contract_source = env
         .global_context
         .database
@@ -234,11 +234,7 @@ pub fn static_cost(
     let epoch = env.global_context.epoch_id;
     let ast = make_ast(&contract_source, epoch, clarity_version)?;
 
-    let costs = static_cost_from_ast(&ast, clarity_version)?;
-    Ok(costs
-        .into_iter()
-        .map(|(name, (cost, _trait_count))| (name, cost))
-        .collect())
+    static_cost_tree_from_ast(&ast, clarity_version)
 }
 
 /// same idea as `static_cost` but returns the root of the cost analysis tree for each function
@@ -246,7 +242,7 @@ pub fn static_cost(
 pub fn static_cost_tree(
     env: &mut Environment,
     contract_identifier: &QualifiedContractIdentifier,
-) -> Result<HashMap<String, CostAnalysisNode>, String> {
+) -> Result<HashMap<String, (CostAnalysisNode, Option<TraitCount>)>, String> {
     let contract_source = env
         .global_context
         .database
@@ -276,16 +272,23 @@ pub fn static_cost_from_ast(
     contract_ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
 ) -> Result<HashMap<String, (StaticCost, Option<TraitCount>)>, String> {
-    let cost_trees = static_cost_tree_from_ast(contract_ast, clarity_version)?;
+    let cost_trees_with_traits = static_cost_tree_from_ast(contract_ast, clarity_version)?;
 
-    let trait_count = get_trait_count(&cost_trees);
-    let costs: HashMap<String, StaticCost> = cost_trees
+    // Extract trait_count from the first entry (all entries have the same trait_count)
+    let trait_count = cost_trees_with_traits
+        .values()
+        .next()
+        .and_then(|(_, trait_count)| trait_count.clone());
+
+    // Convert CostAnalysisNode to StaticCost
+    let costs: HashMap<String, StaticCost> = cost_trees_with_traits
         .into_iter()
-        .map(|(name, cost_analysis_node)| {
+        .map(|(name, (cost_analysis_node, _))| {
             let summing_cost = calculate_total_cost_with_branching(&cost_analysis_node);
             (name, summing_cost.into())
         })
         .collect();
+
     Ok(costs
         .into_iter()
         .map(|(name, cost)| (name, (cost, trait_count.clone())))
@@ -295,16 +298,18 @@ pub fn static_cost_from_ast(
 pub(crate) fn static_cost_tree_from_ast(
     ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
-) -> Result<HashMap<String, CostAnalysisNode>, String> {
+) -> Result<HashMap<String, (CostAnalysisNode, Option<TraitCount>)>, String> {
     let exprs = &ast.expressions;
     let user_args = UserArgumentsContext::new();
     let costs_map: HashMap<String, Option<StaticCost>> = HashMap::new();
     let mut costs: HashMap<String, Option<CostAnalysisNode>> = HashMap::new();
+    // first pass extracts the function names
     for expr in exprs {
         if let Some(function_name) = extract_function_name(expr) {
             costs.insert(function_name, None);
         }
     }
+    // second pass computes the cost
     for expr in exprs {
         if let Some(function_name) = extract_function_name(expr) {
             let (_, cost_analysis_tree) =
@@ -312,9 +317,20 @@ pub(crate) fn static_cost_tree_from_ast(
             costs.insert(function_name, Some(cost_analysis_tree));
         }
     }
-    Ok(costs
+
+    // Build the final map with cost analysis nodes
+    let cost_trees: HashMap<String, CostAnalysisNode> = costs
         .into_iter()
         .filter_map(|(name, cost)| cost.map(|c| (name, c)))
+        .collect();
+
+    // Compute trait_count while creating the root CostAnalysisNode
+    let trait_count = get_trait_count(&cost_trees);
+
+    // Return each node with its trait_count
+    Ok(cost_trees
+        .into_iter()
+        .map(|(name, node)| (name, (node, trait_count.clone())))
         .collect())
 }
 

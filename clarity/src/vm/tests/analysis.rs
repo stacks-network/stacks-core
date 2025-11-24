@@ -7,8 +7,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::vm::contexts::OwnedEnvironment;
 use crate::vm::costs::analysis::{
-    build_cost_analysis_tree, get_trait_count, static_cost_from_ast, static_cost_tree_from_ast,
-    UserArgumentsContext,
+    build_cost_analysis_tree, static_cost_from_ast, static_cost_tree_from_ast, UserArgumentsContext,
 };
 use crate::vm::costs::ExecutionCost;
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
@@ -106,7 +105,11 @@ fn test_get_trait_count_direct() {
 
     let costs = static_cost_tree_from_ast(&ast, &ClarityVersion::Clarity3).unwrap();
 
-    let trait_count = get_trait_count(&costs);
+    // Extract trait_count from the result (all entries have the same trait_count)
+    let trait_count = costs
+        .values()
+        .next()
+        .and_then(|(_, trait_count)| trait_count.clone());
 
     let expected = {
         let mut map = HashMap::new();
