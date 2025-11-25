@@ -232,6 +232,88 @@ fn check_error_kind_union_type_value_error_cdeploy() {
     );
 }
 
+/// CheckErrorKind: [`CheckErrorKind::ListTypesMustMatch`]
+/// Caused by:
+/// Outcome: block accepted.
+/// Note: The error is only triggered since Clarity 2. In Clarity 1 the tx is valid and accepted.
+#[test]
+fn check_error_kind_list_types_must_match_cdeploy() {
+    let contract_1 = SetupContract::new(
+        "contract-1",
+        "
+(define-trait trait-a (
+    (ping () (response bool uint))))
+
+(define-trait trait-b (
+    (pong () (response bool uint))))",
+    );
+    let contract_2 = SetupContract::new(
+        "contract-2",
+        "
+;; Implements both trait interfaces defined in contract-3 and exposes a
+;; helper that returns a list mixing the two callable types.
+
+(use-trait trait-a .contract-1.trait-a)
+(use-trait trait-b .contract-1.trait-b)
+
+(impl-trait .contract-1.trait-a)
+(impl-trait .contract-1.trait-b)
+
+(define-public (ping)
+    (ok true))
+
+(define-public (pong)
+    (ok true))
+
+(define-public (make-callables (first <trait-a>) (second <trait-b>))
+    ;; Returning mixedgenous callable references forces the runtime to
+    ;; sanitize a `ListUnionType` value.
+    (ok (list first second)))",
+    );
+
+    contract_deploy_consensus_test!(
+        contract_name: "contract-3",
+        contract_code: "
+;; Contract under test: during initialization it defines a constant list that
+;; mixes callable references to two distinct traits.  The list's entry type is a
+;; `ListUnionType`, which the runtime sanitization in `put_value_with_size`
+;; cannot admit, triggering `CheckErrorKind::CouldNotDetermineType`.
+
+(use-trait trait-a .contract-1.trait-a)
+(use-trait trait-b .contract-1.trait-b)
+
+(define-private (as-trait-a (target <trait-a>)) target)
+(define-private (as-trait-b (target <trait-b>)) target)
+
+(define-constant mixed-callables
+    (list
+        (as-trait-a .contract-2)
+        (as-trait-b .contract-2)))
+
+(define-public (noop)
+    (ok u0))
+",
+        setup_contracts: &[contract_1, contract_2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ExpectedContractPrincipalValue`]
+/// Caused by: Supplying tx-sender to with-ft inside as-contract? forces eval_allowance to inspect a standard principal
+/// Outcome: block accepted.
+/// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
+#[test]
+fn check_error_kind_expected_contract_principal_value_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "contract",
+        contract_code: r#"
+            (define-constant trigger-error
+                (as-contract?
+                    ((with-ft tx-sender "token" u0))
+                    true))"#,
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
 // pub enum CheckErrorKind {
 //     CostOverflow, // Unreachable: should exceed u64
 //     CostBalanceExceeded(ExecutionCost, ExecutionCost), [`check_error_cost_balance_exceeded_cdeploy`]
@@ -273,7 +355,7 @@ fn check_error_kind_union_type_value_error_cdeploy() {
 //     ExpectedResponseValue(Box<Value>),
 //     ExpectedOptionalOrResponseValue(Box<Value>),
 //     ExpectedContractPrincipalValue(Box<Value>),
-//     CouldNotDetermineType,
+//     CouldNotDetermineType, [`check_error_kind_could_not_determine_type_cdeploy`] [`check_error_kind_could_not_determine_type_ccall`]
 //     BadTokenName,
 //     NoSuchNFT(String),
 //     NoSuchFT(String),
@@ -529,5 +611,82 @@ fn check_error_kind_union_type_value_error_ccall() {
         deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
         setup_contracts: &[contract_1],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ExpectedContractPrincipalValue`]
+/// Caused by: Supplying tx-sender to with-ft inside as-contract? forces eval_allowance to inspect a standard principal
+/// Outcome: block accepted.
+/// Note: This test only works for Clarity 4 and later. 'as-contract?' is not supported in earlier versions.
+#[test]
+fn check_error_kind_expected_contract_principal_value_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "contract",
+        contract_code: r#"
+            (define-public (trigger-error)
+                (as-contract?
+                    ((with-ft tx-sender "token" u0))
+                    true))"#,
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: &StacksEpochId::ALL[11..], // Epochs 3.3 and later
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::CouldNotDetermineType`]
+/// Caused by: reading a constant that was created in a pre-2.4 epoch without
+///     value sanitization. The constant stores a mixed list of callable
+///     references which cannot be sanitized once sanitization is enforced.
+/// Outcome: block accepted.
+/// Note: This test only works in Clarity 2 deployed in Epoch 2.3.
+#[test]
+fn check_error_kind_could_not_determine_type_ccall() {
+    let trait_contract = SetupContract::new(
+        "contract-traits",
+        "
+        (define-trait trait-a (
+            (ping () (response bool uint))))
+        (define-trait trait-b (
+            (pong () (response bool uint))))",
+    )
+    .with_epoch(StacksEpochId::Epoch23);
+
+    let trait_impl = SetupContract::new(
+        "trait-impl",
+        "
+        (use-trait trait-a .contract-traits.trait-a)
+        (use-trait trait-b .contract-traits.trait-b)
+
+        (impl-trait .contract-traits.trait-a)
+        (impl-trait .contract-traits.trait-b)
+
+        (define-public (ping) (ok true))
+        (define-public (pong) (ok true))",
+    )
+    .with_epoch(StacksEpochId::Epoch23);
+
+    contract_call_consensus_test!(
+        contract_name: "mixed-constant",
+        contract_code: "
+        (use-trait trait-a .contract-traits.trait-a)
+        (use-trait trait-b .contract-traits.trait-b)
+
+        (define-private (cast-a (target <trait-a>)) target)
+        (define-private (cast-b (target <trait-b>)) target)
+
+        (define-constant mixed
+            (list
+                (cast-a .trait-impl)
+                (cast-b .trait-impl)))
+
+        (define-public (trigger-error)
+            (ok mixed))",
+        function_name: "trigger-error",
+        function_args: &[],
+        deploy_epochs: &[StacksEpochId::Epoch23],
+        call_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
+        setup_contracts: &[trait_contract, trait_impl],
     );
 }

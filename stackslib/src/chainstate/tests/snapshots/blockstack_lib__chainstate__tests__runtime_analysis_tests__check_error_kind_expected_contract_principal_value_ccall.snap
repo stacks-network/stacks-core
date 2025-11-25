@@ -1,0 +1,64 @@
+---
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "042c2d4c0277139c8de76ad68d6bdae22a0ad3032dcddf774f983cf19d56c0bb",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 168,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 14420,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 168,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 14420,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "bccef81ca460f9c06b67be7cd7623a024bc5147483662a4dee97e706956c2065",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-Epoch3_3-Clarity4, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(ExpectedContractPrincipalValue(Principal(Standard(StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP))))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 154,
+          read_count: 3,
+          runtime: 1267,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 154,
+      read_count: 3,
+      runtime: 1267,
+    ),
+  )),
+]

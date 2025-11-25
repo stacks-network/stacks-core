@@ -1062,7 +1062,7 @@ impl ContractConsensusTest<'_> {
         assert!(
             setup_contracts
                 .iter()
-                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() >= *min_deploy_epoch),
+                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() <= *min_deploy_epoch),
             "All setup contracts must have a deploy epoch >= the minimum deploy epoch"
         );
 
