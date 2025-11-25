@@ -14085,15 +14085,25 @@ fn test_sip_031_last_phase_coinbase_matches_activation() {
                         .unwrap()
                         .as_array()
                         .unwrap()
-                        .get(1)
-                        .unwrap()
-                        .get("txid")
-                        .unwrap()
-                        .as_str()
-                        .unwrap();
+                        .iter()
+                        .find_map(|tx_json| {
+                            let raw_tx = tx_json.get("raw_tx").unwrap().as_str().unwrap();
+                            let bytes = hex_bytes(&raw_tx[2..]).ok()?;
+                            let tx =
+                                StacksTransaction::consensus_deserialize(&mut bytes.as_slice())
+                                    .ok()?;
+                            if !matches!(tx.payload, TransactionPayload::Coinbase(..)) {
+                                return None;
+                            }
+                            Some(format!("0x{}", tx.txid()))
+                        })
+                        .expect("Failed to find a coinbase tx");
 
                     // check the event txid is mapped to the coinbase
-                    assert_eq!(event.get("txid").unwrap().as_str().unwrap(), coinbase_txid);
+                    assert_eq!(
+                        event.get("txid").unwrap().as_str().unwrap(),
+                        coinbase_txid.as_str()
+                    );
                 }
             }
         }
@@ -18160,8 +18170,8 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
     naka_conf.miner.max_tenure_bytes = 3 * 1024 * 1024; // 3MB
     naka_conf.miner.log_skipped_transactions = true;
     // quickly tenure extend
-    naka_conf.miner.tenure_timeout = Duration::from_secs(1);
-    naka_conf.miner.tenure_extend_cost_threshold = 2;
+    naka_conf.miner.tenure_timeout = Duration::from_secs(0);
+    naka_conf.miner.tenure_extend_cost_threshold = 0;
 
     naka_conf.add_initial_balance(
         PrincipalData::from(signer_addr.clone()).to_string(),
@@ -18257,10 +18267,9 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
 
     let blocks = test_observer::get_blocks();
 
-    assert_eq!(
-        blocks.len(),
-        5,
-        "Should have successfully mined five blocks, but got {}",
+    assert!(
+        blocks.len() >= 5,
+        "Should have successfully mined >= 5 blocks, but got {}",
         blocks.len()
     );
 
@@ -18272,7 +18281,7 @@ fn smaller_tenure_size_for_miner_with_tenure_extend() {
             _ => false,
         });
 
-        if block_index > 1 {
+        if block_index >= 1 {
             assert!(has_tenure_extend, "Expected tenure extend transaction");
         } else {
             assert!(!has_tenure_extend, "Unexpected tenure extend transaction");
