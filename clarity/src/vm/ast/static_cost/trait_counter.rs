@@ -7,6 +7,7 @@ use crate::vm::ast::static_cost::{CostAnalysisNode, CostExprNode};
 use crate::vm::costs::analysis::is_function_definition;
 use crate::vm::functions::NativeFunctions;
 use crate::vm::representations::{SymbolicExpression, SymbolicExpressionType};
+
 type MinMaxTraitCount = (u64, u64);
 pub type TraitCount = HashMap<String, MinMaxTraitCount>;
 

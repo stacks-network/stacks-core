@@ -24,7 +24,7 @@ use crate::vm::contexts::OwnedEnvironment;
 pub use crate::vm::database::BurnStateDB;
 use crate::vm::database::MemoryBackingStore;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "developer-mode"))]
 mod analysis;
 mod assets;
 mod contracts;

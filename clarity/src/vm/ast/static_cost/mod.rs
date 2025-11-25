@@ -6,7 +6,6 @@ pub use trait_counter::{
     TraitCount, TraitCountCollector, TraitCountContext, TraitCountPropagator, TraitCountVisitor,
 };
 
-// Import types from analysis.rs
 use crate::vm::costs::analysis::{
     CostAnalysisNode, CostExprNode, StaticCost, SummingExecutionCost,
 };
