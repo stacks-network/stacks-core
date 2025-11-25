@@ -351,10 +351,26 @@ fn check_error_kind_expected_contract_principal_value_cdeploy() {
 //                             // the value before it can reach the bitwise native. As a result, the VM never receives
 //                             // a non-integer argument at these call sites, so this variant cannot be exercised.
 //     UnionTypeValueError(Vec<TypeSignature>, Box<Value>), [`check_error_kind_union_type_value_error_cdeploy`] [`check_error_kind_union_type_value_error_ccall`]
-//     ExpectedOptionalValue(Box<Value>),
-//     ExpectedResponseValue(Box<Value>),
-//     ExpectedOptionalOrResponseValue(Box<Value>),
-//     ExpectedContractPrincipalValue(Box<Value>),
+//     ExpectedOptionalValue(Box<Value>),  // Unreachable: every optional primitive (`is-some`,
+//                                         // `default-to`, `unwrap!`, etc.) has a dedicated
+//                                         // analysis hook (`check_special_is_optional`,
+//                                         // `check_special_default_to`, `inner_unwrap`, …) that
+//                                         // enforces the optional type before a contract can be
+//                                         // published, so the runtime never sees a plain `Value`
+//                                         // arrive at `native_default_to` / `is_some`.
+//     ExpectedResponseValue(Box<Value>),   // Unreachable for the same reason: response helpers are
+//                                         // validated by `check_special_is_response` /
+//                                         // `inner_unwrap_err` during static analysis, preventing a
+//                                         // non-response from reaching the runtime handlers.
+//     ExpectedOptionalOrResponseValue(Box<Value>), // Unreachable: the mixed helpers (`match`,
+//                                                  // `try!`, `unwrap!`/`unwrap-err!`) ultimately
+//                                                  // delegate to `check_special_match` /
+//                                                  // `inner_unwrap` in the analyzer, which enforce
+//                                                  // that the argument is either an optional or a
+//                                                  // response before the code is accepted. There is
+//                                                  // no runtime path where a plain value reaches
+//                                                  // `native_try_ret` or the option/response matchers.
+//     ExpectedContractPrincipalValue(Box<Value>), [`check_error_kind_expected_contract_principal_value_cdeploy`] [`check_error_kind_expected_contract_principal_value_ccall`]
 //     CouldNotDetermineType, [`check_error_kind_could_not_determine_type_cdeploy`] [`check_error_kind_could_not_determine_type_ccall`]
 //     BadTokenName,
 //     NoSuchNFT(String),
