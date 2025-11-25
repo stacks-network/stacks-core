@@ -105,23 +105,3 @@ jobs:
                   signer_tag: signer-${{ inputs.signer_tag }} # name used for release (prefix with 'signer-')
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    # ## Create the downstream PR for the release branch to master and develop
-    # create-pr:
-    #     if: |
-    #         inputs.node_tag != '' ||
-    #         inputs.signer_tag != ''
-    #     name: Create Downstream PR (${{ github.ref_name }})
-    #     runs-on: ubuntu-latest
-    #     needs:
-    #         - andon-cord
-    #         - build-binaries
-    #         - create-release
-    #         - docker-images
-    #     permissions:
-    #         pull-requests: write
-    #     steps:
-    #         - name: Open Downstream PR
-    #           id: create-pr
-    #           uses: stacks-network/actions/stacks-core/release/downstream-pr@main
-    #           with:
-    #               token: ${{ secrets.GITHUB_TOKEN }}
