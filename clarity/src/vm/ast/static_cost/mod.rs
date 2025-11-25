@@ -11,7 +11,10 @@ use crate::vm::costs::analysis::{
     CostAnalysisNode, CostExprNode, StaticCost, SummingExecutionCost,
 };
 use crate::vm::costs::cost_functions::{linear, CostValues};
+use crate::vm::costs::costs_1::Costs1;
+use crate::vm::costs::costs_2::Costs2;
 use crate::vm::costs::costs_3::Costs3;
+use crate::vm::costs::costs_4::Costs4;
 use crate::vm::costs::ExecutionCost;
 use crate::vm::errors::VmExecutionError;
 use crate::vm::functions::NativeFunctions;
@@ -21,126 +24,138 @@ use crate::vm::{ClarityVersion, Value};
 const STRING_COST_BASE: u64 = 36;
 const STRING_COST_MULTIPLIER: u64 = 3;
 
-/// Convert a NativeFunctions enum variant to its corresponding cost function
-/// TODO: This assumes Costs3 but should find a way to use the clarity version passed in
+/// Macro to dispatch to the correct Costs module based on clarity version
+/// returns a function pointer to the appropriate cost function
+macro_rules! dispatch_cost {
+    ($version:expr, $cost_fn:ident) => {
+        match $version {
+            ClarityVersion::Clarity1 => Costs1::$cost_fn,
+            ClarityVersion::Clarity2 => Costs2::$cost_fn,
+            ClarityVersion::Clarity3 => Costs3::$cost_fn,
+            ClarityVersion::Clarity4 => Costs4::$cost_fn,
+        }
+    };
+}
+
+/// NativeFunctions -> cost via appropriate cost fn
 pub(crate) fn get_cost_function_for_native(
     function: NativeFunctions,
-    _clarity_version: &ClarityVersion,
+    clarity_version: &ClarityVersion,
 ) -> Option<fn(u64) -> Result<ExecutionCost, VmExecutionError>> {
     use crate::vm::functions::NativeFunctions::*;
 
-    // Map NativeFunctions enum variants to their cost functions
+    // Map NativeFunctions enum to cost functions
     match function {
-        Add => Some(Costs3::cost_add),
-        Subtract => Some(Costs3::cost_sub),
-        Multiply => Some(Costs3::cost_mul),
-        Divide => Some(Costs3::cost_div),
-        Modulo => Some(Costs3::cost_mod),
-        Power => Some(Costs3::cost_pow),
-        Sqrti => Some(Costs3::cost_sqrti),
-        Log2 => Some(Costs3::cost_log2),
-        ToInt | ToUInt => Some(Costs3::cost_int_cast),
-        Equals => Some(Costs3::cost_eq),
-        CmpGeq => Some(Costs3::cost_geq),
-        CmpLeq => Some(Costs3::cost_leq),
-        CmpGreater => Some(Costs3::cost_ge),
-        CmpLess => Some(Costs3::cost_le),
-        BitwiseXor | BitwiseXor2 => Some(Costs3::cost_xor),
-        Not | BitwiseNot => Some(Costs3::cost_not),
-        And | BitwiseAnd => Some(Costs3::cost_and),
-        Or | BitwiseOr => Some(Costs3::cost_or),
-        Concat => Some(Costs3::cost_concat),
-        Len => Some(Costs3::cost_len),
-        AsMaxLen => Some(Costs3::cost_as_max_len),
-        ListCons => Some(Costs3::cost_list_cons),
-        ElementAt | ElementAtAlias => Some(Costs3::cost_element_at),
-        IndexOf | IndexOfAlias => Some(Costs3::cost_index_of),
-        Fold => Some(Costs3::cost_fold),
-        Map => Some(Costs3::cost_map),
-        Filter => Some(Costs3::cost_filter),
-        Append => Some(Costs3::cost_append),
-        TupleGet => Some(Costs3::cost_tuple_get),
-        TupleMerge => Some(Costs3::cost_tuple_merge),
-        TupleCons => Some(Costs3::cost_tuple_cons),
-        ConsSome => Some(Costs3::cost_some_cons),
-        ConsOkay => Some(Costs3::cost_ok_cons),
-        ConsError => Some(Costs3::cost_err_cons),
-        DefaultTo => Some(Costs3::cost_default_to),
-        UnwrapRet => Some(Costs3::cost_unwrap_ret),
-        UnwrapErrRet => Some(Costs3::cost_unwrap_err_or_ret),
-        IsOkay => Some(Costs3::cost_is_okay),
-        IsNone => Some(Costs3::cost_is_none),
-        IsErr => Some(Costs3::cost_is_err),
-        IsSome => Some(Costs3::cost_is_some),
-        Unwrap => Some(Costs3::cost_unwrap),
-        UnwrapErr => Some(Costs3::cost_unwrap_err),
-        TryRet => Some(Costs3::cost_try_ret),
-        If => Some(Costs3::cost_if),
-        Match => Some(Costs3::cost_match),
-        Begin => Some(Costs3::cost_begin),
-        Let => Some(Costs3::cost_let),
-        Asserts => Some(Costs3::cost_asserts),
-        Hash160 => Some(Costs3::cost_hash160),
-        Sha256 => Some(Costs3::cost_sha256),
-        Sha512 => Some(Costs3::cost_sha512),
-        Sha512Trunc256 => Some(Costs3::cost_sha512t256),
-        Keccak256 => Some(Costs3::cost_keccak256),
-        Secp256k1Recover => Some(Costs3::cost_secp256k1recover),
-        Secp256k1Verify => Some(Costs3::cost_secp256k1verify),
-        Print => Some(Costs3::cost_print),
-        ContractCall => Some(Costs3::cost_contract_call),
-        ContractOf => Some(Costs3::cost_contract_of),
-        PrincipalOf => Some(Costs3::cost_principal_of),
-        AtBlock => Some(Costs3::cost_at_block),
-        // => Some(Costs3::cost_create_map),
-        // => Some(Costs3::cost_create_var),
-        // ContractStorage => Some(Costs3::cost_contract_storage),
-        FetchEntry => Some(Costs3::cost_fetch_entry),
-        SetEntry => Some(Costs3::cost_set_entry),
-        FetchVar => Some(Costs3::cost_fetch_var),
-        SetVar => Some(Costs3::cost_set_var),
-        GetBlockInfo => Some(Costs3::cost_block_info),
-        GetBurnBlockInfo => Some(Costs3::cost_burn_block_info),
-        GetStxBalance => Some(Costs3::cost_stx_balance),
-        StxTransfer => Some(Costs3::cost_stx_transfer),
-        StxTransferMemo => Some(Costs3::cost_stx_transfer_memo),
-        StxGetAccount => Some(Costs3::cost_stx_account),
-        MintToken => Some(Costs3::cost_ft_mint),
-        MintAsset => Some(Costs3::cost_nft_mint),
-        TransferToken => Some(Costs3::cost_ft_transfer),
-        GetTokenBalance => Some(Costs3::cost_ft_balance),
-        GetTokenSupply => Some(Costs3::cost_ft_get_supply),
-        BurnToken => Some(Costs3::cost_ft_burn),
-        TransferAsset => Some(Costs3::cost_nft_transfer),
-        GetAssetOwner => Some(Costs3::cost_nft_owner),
-        BurnAsset => Some(Costs3::cost_nft_burn),
-        BuffToIntLe => Some(Costs3::cost_buff_to_int_le),
-        BuffToUIntLe => Some(Costs3::cost_buff_to_uint_le),
-        BuffToIntBe => Some(Costs3::cost_buff_to_int_be),
-        BuffToUIntBe => Some(Costs3::cost_buff_to_uint_be),
-        ToConsensusBuff => Some(Costs3::cost_to_consensus_buff),
-        FromConsensusBuff => Some(Costs3::cost_from_consensus_buff),
-        IsStandard => Some(Costs3::cost_is_standard),
-        PrincipalDestruct => Some(Costs3::cost_principal_destruct),
-        PrincipalConstruct => Some(Costs3::cost_principal_construct),
-        AsContract | AsContractSafe => Some(Costs3::cost_as_contract),
-        StringToInt => Some(Costs3::cost_string_to_int),
-        StringToUInt => Some(Costs3::cost_string_to_uint),
-        IntToAscii => Some(Costs3::cost_int_to_ascii),
-        IntToUtf8 => Some(Costs3::cost_int_to_utf8),
-        BitwiseLShift => Some(Costs3::cost_bitwise_left_shift),
-        BitwiseRShift => Some(Costs3::cost_bitwise_right_shift),
-        Slice => Some(Costs3::cost_slice),
-        ReplaceAt => Some(Costs3::cost_replace_at),
-        GetStacksBlockInfo => Some(Costs3::cost_block_info),
-        GetTenureInfo => Some(Costs3::cost_block_info),
-        ContractHash => Some(Costs3::cost_contract_hash),
-        ToAscii => Some(Costs3::cost_to_ascii),
-        InsertEntry => Some(Costs3::cost_set_entry),
-        DeleteEntry => Some(Costs3::cost_set_entry),
-        StxBurn => Some(Costs3::cost_stx_transfer),
-        Secp256r1Verify => Some(Costs3::cost_secp256r1verify),
-        RestrictAssets => None,        // TODO: add cost function
+        Add => Some(dispatch_cost!(clarity_version, cost_add)),
+        Subtract => Some(dispatch_cost!(clarity_version, cost_sub)),
+        Multiply => Some(dispatch_cost!(clarity_version, cost_mul)),
+        Divide => Some(dispatch_cost!(clarity_version, cost_div)),
+        Modulo => Some(dispatch_cost!(clarity_version, cost_mod)),
+        Power => Some(dispatch_cost!(clarity_version, cost_pow)),
+        Sqrti => Some(dispatch_cost!(clarity_version, cost_sqrti)),
+        Log2 => Some(dispatch_cost!(clarity_version, cost_log2)),
+        ToInt | ToUInt => Some(dispatch_cost!(clarity_version, cost_int_cast)),
+        Equals => Some(dispatch_cost!(clarity_version, cost_eq)),
+        CmpGeq => Some(dispatch_cost!(clarity_version, cost_geq)),
+        CmpLeq => Some(dispatch_cost!(clarity_version, cost_leq)),
+        CmpGreater => Some(dispatch_cost!(clarity_version, cost_ge)),
+        CmpLess => Some(dispatch_cost!(clarity_version, cost_le)),
+        BitwiseXor | BitwiseXor2 => Some(dispatch_cost!(clarity_version, cost_xor)),
+        Not | BitwiseNot => Some(dispatch_cost!(clarity_version, cost_not)),
+        And | BitwiseAnd => Some(dispatch_cost!(clarity_version, cost_and)),
+        Or | BitwiseOr => Some(dispatch_cost!(clarity_version, cost_or)),
+        Concat => Some(dispatch_cost!(clarity_version, cost_concat)),
+        Len => Some(dispatch_cost!(clarity_version, cost_len)),
+        AsMaxLen => Some(dispatch_cost!(clarity_version, cost_as_max_len)),
+        ListCons => Some(dispatch_cost!(clarity_version, cost_list_cons)),
+        ElementAt | ElementAtAlias => Some(dispatch_cost!(clarity_version, cost_element_at)),
+        IndexOf | IndexOfAlias => Some(dispatch_cost!(clarity_version, cost_index_of)),
+        Fold => Some(dispatch_cost!(clarity_version, cost_fold)),
+        Map => Some(dispatch_cost!(clarity_version, cost_map)),
+        Filter => Some(dispatch_cost!(clarity_version, cost_filter)),
+        Append => Some(dispatch_cost!(clarity_version, cost_append)),
+        TupleGet => Some(dispatch_cost!(clarity_version, cost_tuple_get)),
+        TupleMerge => Some(dispatch_cost!(clarity_version, cost_tuple_merge)),
+        TupleCons => Some(dispatch_cost!(clarity_version, cost_tuple_cons)),
+        ConsSome => Some(dispatch_cost!(clarity_version, cost_some_cons)),
+        ConsOkay => Some(dispatch_cost!(clarity_version, cost_ok_cons)),
+        ConsError => Some(dispatch_cost!(clarity_version, cost_err_cons)),
+        DefaultTo => Some(dispatch_cost!(clarity_version, cost_default_to)),
+        UnwrapRet => Some(dispatch_cost!(clarity_version, cost_unwrap_ret)),
+        UnwrapErrRet => Some(dispatch_cost!(clarity_version, cost_unwrap_err_or_ret)),
+        IsOkay => Some(dispatch_cost!(clarity_version, cost_is_okay)),
+        IsNone => Some(dispatch_cost!(clarity_version, cost_is_none)),
+        IsErr => Some(dispatch_cost!(clarity_version, cost_is_err)),
+        IsSome => Some(dispatch_cost!(clarity_version, cost_is_some)),
+        Unwrap => Some(dispatch_cost!(clarity_version, cost_unwrap)),
+        UnwrapErr => Some(dispatch_cost!(clarity_version, cost_unwrap_err)),
+        TryRet => Some(dispatch_cost!(clarity_version, cost_try_ret)),
+        If => Some(dispatch_cost!(clarity_version, cost_if)),
+        Match => Some(dispatch_cost!(clarity_version, cost_match)),
+        Begin => Some(dispatch_cost!(clarity_version, cost_begin)),
+        Let => Some(dispatch_cost!(clarity_version, cost_let)),
+        Asserts => Some(dispatch_cost!(clarity_version, cost_asserts)),
+        Hash160 => Some(dispatch_cost!(clarity_version, cost_hash160)),
+        Sha256 => Some(dispatch_cost!(clarity_version, cost_sha256)),
+        Sha512 => Some(dispatch_cost!(clarity_version, cost_sha512)),
+        Sha512Trunc256 => Some(dispatch_cost!(clarity_version, cost_sha512t256)),
+        Keccak256 => Some(dispatch_cost!(clarity_version, cost_keccak256)),
+        Secp256k1Recover => Some(dispatch_cost!(clarity_version, cost_secp256k1recover)),
+        Secp256k1Verify => Some(dispatch_cost!(clarity_version, cost_secp256k1verify)),
+        Print => Some(dispatch_cost!(clarity_version, cost_print)),
+        ContractCall => Some(dispatch_cost!(clarity_version, cost_contract_call)),
+        ContractOf => Some(dispatch_cost!(clarity_version, cost_contract_of)),
+        PrincipalOf => Some(dispatch_cost!(clarity_version, cost_principal_of)),
+        AtBlock => Some(dispatch_cost!(clarity_version, cost_at_block)),
+        // => Some(dispatch_cost!(clarity_version, cost_create_map)),
+        // => Some(dispatch_cost!(clarity_version, cost_create_var)),
+        // ContractStorage => Some(dispatch_cost!(clarity_version, cost_contract_storage)),
+        FetchEntry => Some(dispatch_cost!(clarity_version, cost_fetch_entry)),
+        SetEntry => Some(dispatch_cost!(clarity_version, cost_set_entry)),
+        FetchVar => Some(dispatch_cost!(clarity_version, cost_fetch_var)),
+        SetVar => Some(dispatch_cost!(clarity_version, cost_set_var)),
+        GetBlockInfo => Some(dispatch_cost!(clarity_version, cost_block_info)),
+        GetBurnBlockInfo => Some(dispatch_cost!(clarity_version, cost_burn_block_info)),
+        GetStxBalance => Some(dispatch_cost!(clarity_version, cost_stx_balance)),
+        StxTransfer => Some(dispatch_cost!(clarity_version, cost_stx_transfer)),
+        StxTransferMemo => Some(dispatch_cost!(clarity_version, cost_stx_transfer_memo)),
+        StxGetAccount => Some(dispatch_cost!(clarity_version, cost_stx_account)),
+        MintToken => Some(dispatch_cost!(clarity_version, cost_ft_mint)),
+        MintAsset => Some(dispatch_cost!(clarity_version, cost_nft_mint)),
+        TransferToken => Some(dispatch_cost!(clarity_version, cost_ft_transfer)),
+        GetTokenBalance => Some(dispatch_cost!(clarity_version, cost_ft_balance)),
+        GetTokenSupply => Some(dispatch_cost!(clarity_version, cost_ft_get_supply)),
+        BurnToken => Some(dispatch_cost!(clarity_version, cost_ft_burn)),
+        TransferAsset => Some(dispatch_cost!(clarity_version, cost_nft_transfer)),
+        GetAssetOwner => Some(dispatch_cost!(clarity_version, cost_nft_owner)),
+        BurnAsset => Some(dispatch_cost!(clarity_version, cost_nft_burn)),
+        BuffToIntLe => Some(dispatch_cost!(clarity_version, cost_buff_to_int_le)),
+        BuffToUIntLe => Some(dispatch_cost!(clarity_version, cost_buff_to_uint_le)),
+        BuffToIntBe => Some(dispatch_cost!(clarity_version, cost_buff_to_int_be)),
+        BuffToUIntBe => Some(dispatch_cost!(clarity_version, cost_buff_to_uint_be)),
+        ToConsensusBuff => Some(dispatch_cost!(clarity_version, cost_to_consensus_buff)),
+        FromConsensusBuff => Some(dispatch_cost!(clarity_version, cost_from_consensus_buff)),
+        IsStandard => Some(dispatch_cost!(clarity_version, cost_is_standard)),
+        PrincipalDestruct => Some(dispatch_cost!(clarity_version, cost_principal_destruct)),
+        PrincipalConstruct => Some(dispatch_cost!(clarity_version, cost_principal_construct)),
+        AsContract | AsContractSafe => Some(dispatch_cost!(clarity_version, cost_as_contract)),
+        StringToInt => Some(dispatch_cost!(clarity_version, cost_string_to_int)),
+        StringToUInt => Some(dispatch_cost!(clarity_version, cost_string_to_uint)),
+        IntToAscii => Some(dispatch_cost!(clarity_version, cost_int_to_ascii)),
+        IntToUtf8 => Some(dispatch_cost!(clarity_version, cost_int_to_utf8)),
+        BitwiseLShift => Some(dispatch_cost!(clarity_version, cost_bitwise_left_shift)),
+        BitwiseRShift => Some(dispatch_cost!(clarity_version, cost_bitwise_right_shift)),
+        Slice => Some(dispatch_cost!(clarity_version, cost_slice)),
+        ReplaceAt => Some(dispatch_cost!(clarity_version, cost_replace_at)),
+        GetStacksBlockInfo => Some(dispatch_cost!(clarity_version, cost_block_info)),
+        GetTenureInfo => Some(dispatch_cost!(clarity_version, cost_block_info)),
+        ContractHash => Some(dispatch_cost!(clarity_version, cost_contract_hash)),
+        ToAscii => Some(dispatch_cost!(clarity_version, cost_to_ascii)),
+        InsertEntry => Some(dispatch_cost!(clarity_version, cost_set_entry)),
+        DeleteEntry => Some(dispatch_cost!(clarity_version, cost_set_entry)),
+        StxBurn => Some(dispatch_cost!(clarity_version, cost_stx_transfer)),
+        Secp256r1Verify => Some(dispatch_cost!(clarity_version, cost_secp256r1verify)),
+        RestrictAssets => Some(dispatch_cost!(clarity_version, cost_restrict_assets)),
         AllowanceWithStx => None,      // TODO: add cost function
         AllowanceWithFt => None,       // TODO: add cost function
         AllowanceWithNft => None,      // TODO: add cost function
@@ -149,7 +164,6 @@ pub(crate) fn get_cost_function_for_native(
     }
 }
 
-// Calculate function cost with lazy evaluation support
 pub(crate) fn calculate_function_cost(
     function_name: String,
     cost_map: &HashMap<String, Option<StaticCost>>,
@@ -161,8 +175,8 @@ pub(crate) fn calculate_function_cost(
             Ok(cost.clone())
         }
         Some(None) => {
-            // Should be impossible but alas..
-            // Function exists but cost not yet computed - this indicates a circular dependency
+            // Should be impossible..
+            // Function exists but cost not yet computed, circular dependency?
             // For now, return zero cost to avoid infinite recursion
             println!(
                 "Circular dependency detected for function: {}",
@@ -188,8 +202,6 @@ pub(crate) fn is_branching_function(function_name: &ClarityName) -> bool {
     }
 }
 
-/// Helper function to determine if a node represents a branching operation
-/// This is used in tests and cost calculation
 pub(crate) fn is_node_branching(node: &CostAnalysisNode) -> bool {
     match &node.expr {
         CostExprNode::NativeFunction(NativeFunctions::If)
@@ -199,7 +211,7 @@ pub(crate) fn is_node_branching(node: &CostAnalysisNode) -> bool {
     }
 }
 
-/// Calculate the cost for a string based on its length
+/// string cost based on length
 fn string_cost(length: usize) -> StaticCost {
     let cost = linear(length as u64, STRING_COST_BASE, STRING_COST_MULTIPLIER);
     let execution_cost = ExecutionCost::runtime(cost);
@@ -209,7 +221,7 @@ fn string_cost(length: usize) -> StaticCost {
     }
 }
 
-/// Calculate cost for a value (used for literal values)
+/// Strings are the only Value's with costs associated
 pub(crate) fn calculate_value_cost(value: &Value) -> Result<StaticCost, String> {
     match value {
         Value::Sequence(SequenceData::String(CharType::UTF8(data))) => {
@@ -230,7 +242,6 @@ pub(crate) fn calculate_function_cost_from_native_function(
     let cost_function = match get_cost_function_for_native(native_function, clarity_version) {
         Some(cost_fn) => cost_fn,
         None => {
-            // TODO: zero cost for now
             return Ok(StaticCost::ZERO);
         }
     };
@@ -242,7 +253,7 @@ pub(crate) fn calculate_function_cost_from_native_function(
     })
 }
 
-/// Calculate total cost using SummingExecutionCost to handle branching properly
+/// total cost handling branching
 pub(crate) fn calculate_total_cost_with_summing(node: &CostAnalysisNode) -> SummingExecutionCost {
     let mut summing_cost = SummingExecutionCost::from_single(node.cost.min.clone());
 
@@ -318,8 +329,7 @@ impl From<SummingExecutionCost> for StaticCost {
     }
 }
 
-/// Helper: calculate min & max costs for a given cost function
-/// This is likely tooo simplistic but for now it'll do
+/// get min & max costs for a given cost function
 fn get_costs(
     cost_fn: fn(u64) -> Result<ExecutionCost, VmExecutionError>,
     arg_count: u64,
