@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use madhouse::{Command, CommandWrapper};
 use proptest::prelude::{Just, Strategy};
+use stacks::core::StacksEpochId;
 
 use super::context::{SignerTestContext, SignerTestState};
 use crate::tests::neon_integrations::get_chain_info;
@@ -32,17 +33,24 @@ impl Command<SignerTestState, SignerTestContext> for ChainBootToEpoch3 {
     fn apply(&self, state: &mut SignerTestState) {
         info!("Applying: Booting miners to Nakamoto");
 
-        self.ctx.miners.lock().unwrap().boot_to_epoch_3();
-
         // We can use miner 1 conf to get the chain info - it's the same for both miners
         let conf = self.ctx.get_node_config(1);
-        let burn_block_height = get_chain_info(&conf).burn_block_height;
 
-        state.epoch_3_start_block_height = Some(self.ctx.get_peer_stacks_tip_height());
-
-        // Epoch 3.0 is expected to start at burn block height 231
-        assert_eq!(burn_block_height, 231);
-
+        let epoch_3_start_height = conf
+            .burnchain
+            .epochs
+            .as_ref()
+            .map(|epochs| epochs[StacksEpochId::Epoch30].start_height)
+            .unwrap();
+        // If we have successfully bootstrapped already, don't bother doing it again.
+        if get_chain_info(&conf).burn_block_height < epoch_3_start_height {
+            self.ctx.miners.lock().unwrap().boot_to_epoch_3();
+            assert_eq!(
+                get_chain_info(&conf).burn_block_height,
+                epoch_3_start_height
+            );
+            state.epoch_3_start_block_height = Some(self.ctx.get_peer_stacks_tip_height());
+        }
         state.is_booted_to_nakamoto = true;
     }
 

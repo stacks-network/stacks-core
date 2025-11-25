@@ -18,10 +18,6 @@ rust-version = "1.80"
 name = "blockstack_lib"
 path = "src/lib.rs"
 
-[[bin]]
-name = "clarity-cli"
-path = "src/clarity_cli_main.rs"
-
 [dependencies]
 rand = { workspace = true }
 rand_core = { workspace = true }
@@ -46,7 +42,7 @@ siphasher = "0.3.7"
 rusqlite = { workspace = true }
 time = { version = "0.3.41", features = ["std"] }
 toml = { workspace = true }
-clar2wasm = { git = "https://github.com/stx-labs/clarity-wasm.git", branch = "sync-wasm-develop"}
+clar2wasm = { git = "https://github.com/stx-labs/clarity-wasm.git", branch = "sync-clarity-wasm-develop" }
 
 [target.'cfg(unix)'.dependencies]
 nix = "0.23"
@@ -60,10 +56,6 @@ winapi = { version = "0.3", features = ["fileapi", "processenv", "winnt"] }
 [dependencies.serde_json]
 version = "1.0"
 features = ["arbitrary_precision", "unbounded_depth"]
-
-[dependencies.secp256k1]
-version = "0.24.3"
-features = ["serde", "recovery"]
 
 [dependencies.ed25519-dalek]
 workspace = true

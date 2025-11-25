@@ -35,7 +35,7 @@ use crate::chainstate::burn::*;
 use crate::chainstate::coordinator::tests::NullEventDispatcher;
 use crate::chainstate::coordinator::{ChainsCoordinator, OnChainRewardSetProvider};
 use crate::chainstate::nakamoto::coordinator::load_nakamoto_reward_set;
-use crate::chainstate::nakamoto::miner::NakamotoBlockBuilder;
+use crate::chainstate::nakamoto::miner::{MinerTenureInfoCause, NakamotoBlockBuilder};
 use crate::chainstate::nakamoto::staging_blocks::{
     NakamotoBlockObtainMethod, NakamotoStagingBlocksConnRef,
 };
@@ -48,6 +48,7 @@ use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::*;
 use crate::chainstate::stacks::tests::TestStacksNode;
 use crate::chainstate::stacks::{Error as ChainstateError, StacksBlock, *};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::{BOOT_BLOCK_HASH, STACKS_EPOCH_3_0_MARKER};
 use crate::net::relay::{BlockAcceptResponse, Relayer};
 use crate::net::test::{TestPeer, *};
@@ -646,7 +647,7 @@ impl TestStacksNode {
             burn_amount,
             miner_key,
             Some(&parent_block_snapshot),
-            tenure_change_cause == TenureChangeCause::BlockFound,
+            tenure_change_cause.is_new_tenure(),
             parent_is_shadow,
         );
 
@@ -795,6 +796,8 @@ impl TestStacksNode {
                     1,
                     None,
                     None,
+                    None,
+                    u64::from(DEFAULT_MAX_TENURE_BYTES),
                 )?
             } else {
                 NakamotoBlockBuilder::new_first_block(
@@ -996,12 +999,12 @@ impl TestStacksNode {
         debug!("Build Nakamoto block from {} transactions", txs.len());
         let (mut chainstate, _) = chainstate_handle.reopen()?;
 
-        let mut tenure_cause = None;
+        let mut tenure_cause = MinerTenureInfoCause::NoTenureChange;
         for tx in txs.iter() {
             let TransactionPayload::TenureChange(payload) = &tx.payload else {
                 continue;
             };
-            tenure_cause = Some(payload.cause);
+            tenure_cause = MinerTenureInfoCause::from(payload.cause);
             break;
         }
 
@@ -1059,6 +1062,120 @@ impl TestStacksNode {
         let size = builder.bytes_so_far;
         let cost = builder.tenure_finish(tenure_tx).unwrap();
         Ok((block, size, cost))
+    }
+
+    /// Insert a staging pre-Nakamoto block and microblocks
+    /// then process them as the next ready block
+    /// NOTE: Will panic if called with unprocessed staging
+    /// blocks already in the queue.
+    pub fn process_pre_nakamoto_next_ready_block<'a>(
+        stacks_node: &mut TestStacksNode,
+        sortdb: &mut SortitionDB,
+        miner: &mut TestMiner,
+        coord: &mut ChainsCoordinator<
+            'a,
+            TestEventObserver,
+            (),
+            OnChainRewardSetProvider<'a, TestEventObserver>,
+            (),
+            (),
+            BitcoinIndexer,
+        >,
+        block: &StacksBlock,
+        microblocks: &[StacksMicroblock],
+    ) -> Result<Option<StacksEpochReceipt>, ChainstateError> {
+        // First append the block to the staging blocks
+        {
+            let ic = sortdb.index_conn();
+            let tip = SortitionDB::get_canonical_burn_chain_tip(&ic).unwrap();
+
+            let blocks_path = stacks_node.chainstate.blocks_path.clone();
+
+            let mut block_tx = stacks_node.chainstate.db_tx_begin()?;
+
+            let block_hash = block.block_hash();
+            let sort_handle = SortitionHandleConn::open_reader_consensus(&ic, &tip.consensus_hash)?;
+            let block_commit = SortitionDB::get_block_commit_for_stacks_block(
+                sort_handle.conn(),
+                &tip.consensus_hash,
+                &block_hash,
+            )
+            .unwrap()
+            .unwrap();
+
+            let parent_snapshot = SortitionDB::get_block_snapshot_for_winning_stacks_block(
+                &ic,
+                &tip.parent_sortition_id,
+                &block.header.parent_block,
+            )
+            .unwrap()
+            .unwrap();
+            // burn chain tip that selected this commit's block
+            let burn_chain_tip = sort_handle
+                .get_block_snapshot(&block_commit.burn_header_hash)
+                .unwrap()
+                .unwrap();
+
+            let sortition_burns = SortitionDB::get_block_burn_amount(&sort_handle, &burn_chain_tip)
+                .expect("FATAL: have block commit but no total burns in its sortition");
+
+            // queue block up for processing
+            StacksChainState::store_staging_block_test(
+                &mut block_tx,
+                &blocks_path,
+                &tip.consensus_hash,
+                block,
+                &parent_snapshot.consensus_hash,
+                block_commit.burn_fee,
+                sortition_burns,
+                5,
+            )?;
+
+            block_tx.commit()?;
+
+            debug!(
+                "Stored {}/{} to staging",
+                &tip.consensus_hash,
+                &block.block_hash()
+            );
+        }
+
+        let canonical_sortition_tip = coord.canonical_sortition_tip.clone().expect(
+            "FAIL: processing a new Stacks block, but don't have a canonical sortition tip",
+        );
+        let mut sort_tx = sortdb.tx_begin_at_tip();
+        let res = stacks_node
+            .chainstate
+            .process_next_staging_block(&mut sort_tx, coord.dispatcher)
+            .map(|(epoch_receipt, _)| epoch_receipt)?;
+        sort_tx.commit()?;
+        if let Some(block_receipt) = res.as_ref() {
+            let in_sortition_set = coord
+                .sortition_db
+                .is_stacks_block_in_sortition_set(
+                    &canonical_sortition_tip,
+                    &block_receipt.header.anchored_header.block_hash(),
+                )
+                .unwrap();
+            if in_sortition_set {
+                let block_hash = block_receipt.header.anchored_header.block_hash();
+                // Was this block sufficiently confirmed by the prepare phase that it was a PoX
+                // anchor block?  And if we're in epoch 2.1, does it match the heaviest-confirmed
+                // block-commit in the burnchain DB, and is it affirmed by the majority of the
+                // network?
+                if let Some(pox_anchor) = coord
+                    .sortition_db
+                    .is_stacks_block_pox_anchor(&block_hash, &canonical_sortition_tip)
+                    .unwrap()
+                {
+                    debug!("Discovered PoX anchor block {block_hash} off of canonical sortition tip {canonical_sortition_tip}");
+                    coord
+                        .process_new_pox_anchor_test(pox_anchor, &mut HashSet::new())
+                        .unwrap();
+                }
+            }
+        }
+        Ok(res)
     }
 
     /// Insert a staging Nakamoto block as a pushed block and
@@ -2095,7 +2212,7 @@ impl TestPeer<'_> {
                 );
             }
 
-            if tenure_tx.cause == TenureChangeCause::BlockFound {
+            if tenure_tx.cause.is_new_tenure() {
                 // block-founds are always in new tenures
                 assert!(!NakamotoChainState::check_tenure_continuity(
                     &mut chainstate.index_conn(),

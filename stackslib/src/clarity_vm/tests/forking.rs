@@ -14,9 +14,8 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity::vm::analysis::errors::CheckErrors;
 use clarity::vm::contexts::OwnedEnvironment;
-use clarity::vm::errors::{Error, InterpreterResult as Result, RuntimeErrorType};
+use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::test_util::{
     execute, is_committed, is_err_code, symbols_from_values, TEST_BURN_STATE_DB, TEST_HEADER_DB,
 };
@@ -75,7 +74,7 @@ fn test_at_block_mutations(#[case] version: ClarityVersion, #[case] epoch: Stack
         version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal().unwrap();
         let placeholder_context =
@@ -152,7 +151,7 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
         version: ClarityVersion,
         expected_value: i128,
         to_exec: &str,
-    ) -> Result<Value> {
+    ) -> Result<Value, VmExecutionError> {
         let c = QualifiedContractIdentifier::local("contract").unwrap();
         let p1 = execute(p1_str).expect_principal().unwrap();
         let placeholder_context =
@@ -185,9 +184,9 @@ fn test_at_block_good(#[case] version: ClarityVersion, #[case] epoch: StacksEpoc
             let resp = branch(x, version, 1, "reset").unwrap_err();
             eprintln!("{}", resp);
             match resp {
-                Error::Runtime(x, _) => assert_eq!(
+                VmExecutionError::Runtime(x, _) => assert_eq!(
                     x,
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash::from(
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash::from(
                         vec![2; 32].as_slice()
                     ))
                 ),
@@ -222,7 +221,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
         owned_env.initialize_contract(c_a, contract, None).unwrap();
     }
 
-    fn initialize_2(owned_env: &mut OwnedEnvironment) -> Error {
+    fn initialize_2(owned_env: &mut OwnedEnvironment) -> VmExecutionError {
         let c_b = QualifiedContractIdentifier::local("contract-b").unwrap();
 
         let contract = "(define-private (problematic-cc)
@@ -248,7 +247,7 @@ fn test_at_block_missing_defines(#[case] version: ClarityVersion, #[case] epoch:
             let err = initialize_2(env);
             assert_eq!(
                 err,
-                CheckErrors::NoSuchContract(
+                clarity::vm::analysis::errors::CheckErrorKind::NoSuchContract(
                     "S1G2081040G2081040G2081040G208105NK8PE5.contract-a".into()
                 )
                 .into()

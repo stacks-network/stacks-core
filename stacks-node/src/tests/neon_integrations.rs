@@ -9,7 +9,10 @@ use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::types::serialization::SerializationError;
 use clarity::vm::types::PrincipalData;
-use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value, MAX_CALL_STACK_DEPTH};
+use clarity::vm::{
+    execute_with_parameters as execute, ClarityName, ClarityVersion, ContractName, Value,
+    MAX_CALL_STACK_DEPTH,
+};
 use rusqlite::params;
 use serde::Deserialize;
 use serde_json::json;
@@ -36,7 +39,6 @@ use stacks::chainstate::stacks::{
     StacksBlock, StacksBlockHeader, StacksMicroblock, StacksPrivateKey, StacksPublicKey,
     StacksTransaction, TransactionContractCall, TransactionPayload,
 };
-use stacks::clarity_cli::vm_execute as execute;
 use stacks::codec::StacksMessageCodec;
 use stacks::config::{EventKeyType, EventObserverConfig, FeeEstimatorName, InitialBalance};
 use stacks::core::mempool::{MemPoolWalkStrategy, MemPoolWalkTxTypes};
@@ -110,21 +112,21 @@ fn inner_neon_integration_test_conf(seed: Option<Vec<u8>>) -> (Config, StacksAdd
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1000,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1000,
             end_height: 1000000 - 1,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 1000000 - 1,
             end_height: 9223372036854775807,
-            block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+            block_limit: HELIUM_BLOCK_LIMIT_20,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));
@@ -2217,21 +2219,21 @@ fn stx_delegate_btc_integration_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));
@@ -2368,6 +2370,8 @@ fn stx_delegate_btc_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity2,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -2468,49 +2472,49 @@ fn stack_stx_burn_op_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 6,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 6,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
     ]));
@@ -2865,49 +2869,49 @@ fn vote_for_aggregate_key_burn_op_test() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 2,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 2,
             end_height: 3,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch22,
             start_height: 3,
             end_height: 4,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_2,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch23,
             start_height: 4,
             end_height: 5,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_3,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch24,
             start_height: 5,
             end_height: 6,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_4,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch25,
             start_height: 6,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_5,
         },
     ]));
@@ -5356,6 +5360,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -5468,6 +5474,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_2_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -5492,6 +5500,8 @@ fn pox_integration_test() {
             execute(
                 &format!("{{ hashbytes: 0x{pox_2_pubkey_hash}, version: 0x00 }}"),
                 ClarityVersion::Clarity1,
+                StacksEpochId::latest(),
+                false,
             )
             .unwrap()
             .unwrap(),
@@ -7795,21 +7805,21 @@ fn test_problematic_txs_are_not_stored() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 10_002,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 10_002,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));
@@ -8033,21 +8043,21 @@ fn test_problematic_blocks_are_not_mined() {
             epoch_id: StacksEpochId::Epoch20,
             start_height: 0,
             end_height: 1,
-            block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_20,
             network_epoch: PEER_VERSION_EPOCH_2_0,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch2_05,
             start_height: 1,
             end_height: 10_002,
-            block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_205,
             network_epoch: PEER_VERSION_EPOCH_2_05,
         },
         StacksEpoch {
             epoch_id: StacksEpochId::Epoch21,
             start_height: 10_002,
             end_height: 9223372036854775807,
-            block_limit: BLOCK_LIMIT_MAINNET_21.clone(),
+            block_limit: BLOCK_LIMIT_MAINNET_21,
             network_epoch: PEER_VERSION_EPOCH_2_1,
         },
     ]));

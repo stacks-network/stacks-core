@@ -27,6 +27,7 @@ pub mod pair;
 pub mod pipe;
 pub mod retry;
 pub mod secp256k1;
+pub mod secp256r1;
 pub mod serde_serializers;
 pub mod uint;
 #[cfg(feature = "vrf")]

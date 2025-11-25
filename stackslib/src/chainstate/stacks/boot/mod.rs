@@ -19,11 +19,11 @@ use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use clarity::types::Address;
-use clarity::vm::analysis::CheckErrors;
-use clarity::vm::clarity::{Error as ClarityError, TransactionConnection};
+use clarity::vm::analysis::CheckErrorKind;
+use clarity::vm::clarity::{ClarityError, TransactionConnection};
 use clarity::vm::costs::LimitedCostTracker;
 use clarity::vm::database::{ClarityDatabase, NULL_BURN_STATE_DB, NULL_HEADER_DB};
-use clarity::vm::errors::Error as VmError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::events::StacksTransactionEvent;
 use clarity::vm::representations::ContractName;
 use clarity::vm::types::{
@@ -365,7 +365,7 @@ impl StacksChainState {
     fn mark_pox_cycle_handled(
         db: &mut ClarityDatabase,
         cycle_number: u64,
-    ) -> Result<(), clarity::vm::errors::Error> {
+    ) -> Result<(), VmExecutionError> {
         let db_key = Self::handled_pox_cycle_start_key(cycle_number);
         db.put_data(&db_key, &POX_CYCLE_START_HANDLED_VALUE.to_string())?;
         Ok(())
@@ -613,7 +613,7 @@ impl StacksChainState {
 
             // Add synthetic print event for `handle-unlock`, since it alters stacking state
             let tx_event =
-                Environment::construct_print_transaction_event(&pox_contract, &event_info);
+                Environment::construct_print_transaction_event(&pox_contract, event_info);
             events.push(tx_event);
             total_events.extend(events.into_iter());
         }
@@ -1358,8 +1358,8 @@ impl StacksChainState {
         // Catch the epoch boundary edge case where burn height >= pox 3 activation height, but
         // there hasn't yet been a Stacks block.
         match result {
-            Err(Error::ClarityError(ClarityError::Interpreter(VmError::Unchecked(
-                CheckErrors::NoSuchContract(_),
+            Err(Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
+                CheckErrorKind::NoSuchContract(_),
             )))) => {
                 warn!("Reward cycle attempted to calculate rewards before the PoX contract was instantiated");
                 return Ok(vec![]);

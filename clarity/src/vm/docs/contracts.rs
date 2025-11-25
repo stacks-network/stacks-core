@@ -11,6 +11,7 @@ use crate::vm::database::MemoryBackingStore;
 use crate::vm::docs::{get_input_type_string, get_output_type_string, get_signature};
 use crate::vm::types::{FunctionType, QualifiedContractIdentifier, Value};
 use crate::vm::version::ClarityVersion;
+use crate::vm::errors::VmExecutionError;
 use crate::vm::{self, ContractContext};
 
 pub const DOCS_GENERATION_EPOCH: StacksEpochId = StacksEpochId::Epoch2_05;
@@ -67,7 +68,7 @@ fn get_constant_value(var_name: &str, contract_content: &str) -> Value {
         .expect("BUG: failed to return constant value")
 }
 
-fn doc_execute(program: &str) -> Result<Option<Value>, vm::Error> {
+fn doc_execute(program: &str) -> Result<Option<Value>, VmExecutionError> {
     let contract_id = QualifiedContractIdentifier::transient();
     let mut contract_context = ContractContext::new(contract_id.clone(), ClarityVersion::Clarity2);
     let mut marf = MemoryBackingStore::new();

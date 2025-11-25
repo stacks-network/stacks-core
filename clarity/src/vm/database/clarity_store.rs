@@ -24,7 +24,7 @@ use crate::vm::contexts::GlobalContext;
 use crate::vm::database::{
     ClarityDatabase, ClarityDeserializable, ClaritySerializable, NULL_BURN_STATE_DB, NULL_HEADER_DB,
 };
-use crate::vm::errors::{InterpreterError, InterpreterResult as Result};
+use crate::vm::errors::{VmExecutionError, VmInternalError};
 use crate::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use crate::vm::Value;
 
@@ -45,33 +45,36 @@ pub type SpecialCaseHandler = &'static dyn Fn(
     &[Value],
     // the result of the function call
     &Value,
-) -> Result<()>;
+) -> Result<(), VmExecutionError>;
 
 // These functions generally _do not_ return errors, rather, any errors in the underlying storage
 //    will _panic_. The rationale for this is that under no condition should the interpreter
 //    attempt to continue processing in the event of an unexpected storage error.
 pub trait ClarityBackingStore {
     /// put K-V data into the committed datastore
-    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<()>;
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError>;
     /// fetch K-V out of the committed datastore
-    fn get_data(&mut self, key: &str) -> Result<Option<String>>;
+    fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError>;
     /// fetch Hash(K)-V out of the commmitted datastore
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>>;
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>, VmExecutionError>;
     /// fetch K-V out of the committed datastore, along with the byte representation
     ///  of the Merkle proof for that key-value pair
-    fn get_data_with_proof(&mut self, key: &str) -> Result<Option<(String, Vec<u8>)>>;
+    fn get_data_with_proof(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError>;
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>>;
-    fn has_entry(&mut self, key: &str) -> Result<bool> {
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError>;
+    fn has_entry(&mut self, key: &str) -> Result<bool, VmExecutionError> {
         Ok(self.get_data(key)?.is_some())
     }
 
     /// change the current MARF context to service reads from a different chain_tip
     ///   used to implement time-shifted evaluation.
     /// returns the previous block header hash on success
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId>;
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError>;
 
     /// Is None if `block_height` >= the "currently" under construction Stacks block height.
     fn get_block_at_height(&mut self, height: u32) -> Option<StacksBlockId>;
@@ -108,32 +111,32 @@ pub trait ClarityBackingStore {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)>;
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError>;
 
     fn insert_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> Result<()>;
+    ) -> Result<(), VmExecutionError>;
 
     fn get_metadata(
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>>;
+    ) -> Result<Option<String>, VmExecutionError>;
 
     fn get_metadata_manual(
         &mut self,
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> Result<Option<String>>;
+    ) -> Result<Option<String>, VmExecutionError>;
 
     fn put_all_metadata(
         &mut self,
         items: Vec<((QualifiedContractIdentifier, String), String)>,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         for ((contract, key), value) in items.into_iter() {
             self.insert_metadata(&contract, &key, &value)?;
         }
@@ -158,19 +161,19 @@ impl ClaritySerializable for ContractCommitment {
 }
 
 impl ClarityDeserializable<ContractCommitment> for ContractCommitment {
-    fn deserialize(input: &str) -> Result<ContractCommitment> {
+    fn deserialize(input: &str) -> Result<ContractCommitment, VmExecutionError> {
         if input.len() != 72 {
-            return Err(InterpreterError::Expect("Unexpected input length".into()).into());
+            return Err(VmInternalError::Expect("Unexpected input length".into()).into());
         }
         let hash = Sha512Trunc256Sum::from_hex(&input[0..64])
-            .map_err(|_| InterpreterError::Expect("Hex decode fail.".into()))?;
+            .map_err(|_| VmInternalError::Expect("Hex decode fail.".into()))?;
         let height_bytes = hex_bytes(&input[64..72])
-            .map_err(|_| InterpreterError::Expect("Hex decode fail.".into()))?;
+            .map_err(|_| VmInternalError::Expect("Hex decode fail.".into()))?;
         let block_height = u32::from_be_bytes(
             height_bytes
                 .as_slice()
                 .try_into()
-                .map_err(|_| InterpreterError::Expect("Block height decode fail.".into()))?,
+                .map_err(|_| VmInternalError::Expect("Block height decode fail.".into()))?,
         );
         Ok(ContractCommitment { hash, block_height })
     }
@@ -198,26 +201,29 @@ impl NullBackingStore {
 
 #[allow(clippy::panic)]
 impl ClarityBackingStore for NullBackingStore {
-    fn set_block_hash(&mut self, _bhh: StacksBlockId) -> Result<StacksBlockId> {
+    fn set_block_hash(&mut self, _bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError> {
         panic!("NullBackingStore can't set block hash")
     }
 
-    fn get_data(&mut self, _key: &str) -> Result<Option<String>> {
+    fn get_data(&mut self, _key: &str) -> Result<Option<String>, VmExecutionError> {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_data_from_path(&mut self, _hash: &TrieHash) -> Result<Option<String>> {
+    fn get_data_from_path(&mut self, _hash: &TrieHash) -> Result<Option<String>, VmExecutionError> {
         panic!("NullBackingStore can't retrieve data")
     }
 
-    fn get_data_with_proof(&mut self, _key: &str) -> Result<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(
+        &mut self,
+        _key: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         panic!("NullBackingStore can't retrieve data")
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         _hash: &TrieHash,
-    ) -> Result<Option<(String, Vec<u8>)>> {
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         panic!("NullBackingStore can't retrieve data")
     }
 
@@ -242,14 +248,14 @@ impl ClarityBackingStore for NullBackingStore {
         panic!("NullBackingStore can't get current block height")
     }
 
-    fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<()> {
+    fn put_all_data(&mut self, mut _items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
         panic!("NullBackingStore cannot put")
     }
 
     fn get_contract_hash(
         &mut self,
         _contract: &QualifiedContractIdentifier,
-    ) -> Result<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
         panic!("NullBackingStore cannot get_contract_hash")
     }
 
@@ -258,7 +264,7 @@ impl ClarityBackingStore for NullBackingStore {
         _contract: &QualifiedContractIdentifier,
         _key: &str,
         _value: &str,
-    ) -> Result<()> {
+    ) -> Result<(), VmExecutionError> {
         panic!("NullBackingStore cannot insert_metadata")
     }
 
@@ -266,7 +272,7 @@ impl ClarityBackingStore for NullBackingStore {
         &mut self,
         _contract: &QualifiedContractIdentifier,
         _key: &str,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         panic!("NullBackingStore cannot get_metadata")
     }
 
@@ -275,7 +281,7 @@ impl ClarityBackingStore for NullBackingStore {
         _at_height: u32,
         _contract: &QualifiedContractIdentifier,
         _key: &str,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         panic!("NullBackingStore cannot get_metadata_manual")
     }
 }

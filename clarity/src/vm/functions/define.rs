@@ -19,8 +19,8 @@ use std::collections::BTreeMap;
 use crate::vm::callables::{DefineType, DefinedFunction};
 use crate::vm::contexts::{ContractContext, Environment, LocalContext};
 use crate::vm::errors::{
-    check_argument_count, check_arguments_at_least, CheckErrors, InterpreterResult as Result,
-    SyntaxBindingErrorType,
+    check_argument_count, check_arguments_at_least, CheckErrorKind, SyntaxBindingErrorType,
+    VmExecutionError,
 };
 use crate::vm::eval;
 use crate::vm::representations::SymbolicExpressionType::Field;
@@ -108,9 +108,12 @@ pub enum DefineResult {
     NoDefine,
 }
 
-fn check_legal_define(name: &str, contract_context: &ContractContext) -> Result<()> {
+fn check_legal_define(
+    name: &str,
+    contract_context: &ContractContext,
+) -> Result<(), VmExecutionError> {
     if contract_context.is_name_used(name) {
-        Err(CheckErrors::NameAlreadyUsed(name.to_string()).into())
+        Err(CheckErrorKind::NameAlreadyUsed(name.to_string()).into())
     } else {
         Ok(())
     }
@@ -120,7 +123,7 @@ fn handle_define_variable(
     variable: &ClarityName,
     expression: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> Result<DefineResult, VmExecutionError> {
     // is the variable name legal?
     check_legal_define(variable, env.contract_context)?;
     let context = LocalContext::new();
@@ -133,18 +136,18 @@ fn handle_define_function(
     expression: &SymbolicExpression,
     env: &mut Environment,
     define_type: DefineType,
-) -> Result<DefineResult> {
+) -> Result<DefineResult, VmExecutionError> {
     let (function_symbol, arg_symbols) = signature
         .split_first()
-        .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+        .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
 
     let function_name = function_symbol
         .match_atom()
-        .ok_or(CheckErrors::ExpectedName)?;
+        .ok_or(CheckErrorKind::ExpectedName)?;
 
     check_legal_define(function_name, env.contract_context)?;
 
-    let arguments = parse_name_type_pairs::<_, CheckErrors>(
+    let arguments = parse_name_type_pairs::<_, CheckErrorKind>(
         *env.epoch(),
         arg_symbols,
         SyntaxBindingErrorType::Eval,
@@ -172,7 +175,7 @@ fn handle_define_persisted_variable(
     value_type: &SymbolicExpression,
     value: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(variable_str, env.contract_context)?;
 
     let value_type_signature = TypeSignature::parse_type_repr(*env.epoch(), value_type, env)?;
@@ -191,7 +194,7 @@ fn handle_define_nonfungible_asset(
     asset_name: &ClarityName,
     key_type: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(asset_name, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
@@ -206,7 +209,7 @@ fn handle_define_fungible_token(
     asset_name: &ClarityName,
     total_supply: Option<&SymbolicExpression>,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(asset_name, env.contract_context)?;
 
     if let Some(total_supply_expr) = total_supply {
@@ -218,7 +221,7 @@ fn handle_define_fungible_token(
                 Some(total_supply_int),
             ))
         } else {
-            Err(CheckErrors::TypeValueError(
+            Err(CheckErrorKind::TypeValueError(
                 Box::new(TypeSignature::UIntType),
                 Box::new(total_supply_value),
             )
@@ -234,7 +237,7 @@ fn handle_define_map(
     key_type: &SymbolicExpression,
     value_type: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(map_str, env.contract_context)?;
 
     let key_type_signature = TypeSignature::parse_type_repr(*env.epoch(), key_type, env)?;
@@ -251,7 +254,7 @@ fn handle_define_trait(
     name: &ClarityName,
     functions: &[SymbolicExpression],
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> Result<DefineResult, VmExecutionError> {
     check_legal_define(name, env.contract_context)?;
 
     let trait_signature = TypeSignature::parse_trait_type_repr(
@@ -289,7 +292,7 @@ impl<'a> DefineFunctionsParsed<'a> {
     /// a define-statement, returns None if the supplied expression is not a define.
     pub fn try_parse(
         expression: &'a SymbolicExpression,
-    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrors> {
+    ) -> std::result::Result<Option<DefineFunctionsParsed<'a>>, CheckErrorKind> {
         let (define_type, args) = match DefineFunctions::try_parse(expression) {
             Some(x) => x,
             None => return Ok(None),
@@ -297,7 +300,7 @@ impl<'a> DefineFunctionsParsed<'a> {
         let result = match define_type {
             DefineFunctions::Constant => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Constant {
                     name,
                     value: &args[1],
@@ -307,7 +310,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PrivateFunction {
                     signature,
                     body: &args[1],
@@ -317,7 +320,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::ReadOnlyFunction {
                     signature,
                     body: &args[1],
@@ -327,7 +330,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                 check_argument_count(2, args)?;
                 let signature = args[0]
                     .match_list()
-                    .ok_or(CheckErrors::DefineFunctionBadSignature)?;
+                    .ok_or(CheckErrorKind::DefineFunctionBadSignature)?;
                 DefineFunctionsParsed::PublicFunction {
                     signature,
                     body: &args[1],
@@ -335,7 +338,7 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::NonFungibleToken => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::NonFungibleToken {
                     name,
                     nft_type: &args[1],
@@ -343,7 +346,7 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::FungibleToken => {
                 check_arguments_at_least(1, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
                 if args.len() == 1 {
                     DefineFunctionsParsed::UnboundedFungibleToken { name }
                 } else if args.len() == 2 {
@@ -352,12 +355,12 @@ impl<'a> DefineFunctionsParsed<'a> {
                         max_supply: &args[1],
                     }
                 } else {
-                    return Err(CheckErrors::IncorrectArgumentCount(1, args.len()));
+                    return Err(CheckErrorKind::IncorrectArgumentCount(1, args.len()));
                 }
             }
             DefineFunctions::Map => {
                 check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Map {
                     name,
                     key_type: &args[1],
@@ -366,7 +369,7 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::PersistedVariable => {
                 check_argument_count(3, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::PersistedVariable {
                     name,
                     data_type: &args[1],
@@ -375,7 +378,7 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::Trait => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
                 DefineFunctionsParsed::Trait {
                     name,
                     functions: &args[1..],
@@ -383,13 +386,13 @@ impl<'a> DefineFunctionsParsed<'a> {
             }
             DefineFunctions::UseTrait => {
                 check_argument_count(2, args)?;
-                let name = args[0].match_atom().ok_or(CheckErrors::ExpectedName)?;
+                let name = args[0].match_atom().ok_or(CheckErrorKind::ExpectedName)?;
                 match &args[1].expr {
                     Field(ref field) => DefineFunctionsParsed::UseTrait {
                         name,
                         trait_identifier: field,
                     },
-                    _ => return Err(CheckErrors::ExpectedTraitIdentifier),
+                    _ => return Err(CheckErrorKind::ExpectedTraitIdentifier),
                 }
             }
             DefineFunctions::ImplTrait => {
@@ -398,7 +401,7 @@ impl<'a> DefineFunctionsParsed<'a> {
                     Field(ref field) => DefineFunctionsParsed::ImplTrait {
                         trait_identifier: field,
                     },
-                    _ => return Err(CheckErrors::ExpectedTraitIdentifier),
+                    _ => return Err(CheckErrorKind::ExpectedTraitIdentifier),
                 }
             }
         };
@@ -409,7 +412,7 @@ impl<'a> DefineFunctionsParsed<'a> {
 pub fn evaluate_define(
     expression: &SymbolicExpression,
     env: &mut Environment,
-) -> Result<DefineResult> {
+) -> Result<DefineResult, VmExecutionError> {
     if let Some(define_type) = DefineFunctionsParsed::try_parse(expression)? {
         match define_type {
             DefineFunctionsParsed::Constant { name, value } => {

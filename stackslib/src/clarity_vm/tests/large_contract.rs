@@ -19,12 +19,12 @@ use clarity::vm::ast::stack_depth_checker::AST_CALL_STACK_DEPTH_BUFFER;
 use clarity::vm::clarity::{ClarityConnection, TransactionConnection};
 use clarity::vm::contexts::OwnedEnvironment;
 use clarity::vm::database::HeadersDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::test_util::*;
 use clarity::vm::tests::{test_clarity_versions, BurnStateDB};
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier, Value};
 use clarity::vm::version::ClarityVersion;
-use clarity::vm::{ast, ContractContext, MAX_CALL_STACK_DEPTH};
+use clarity::vm::{ContractContext, MAX_CALL_STACK_DEPTH};
 #[cfg(test)]
 use rstest::rstest;
 #[cfg(test)]
@@ -35,7 +35,7 @@ use stacks_common::types::StacksEpochId;
 
 use crate::chainstate::stacks::boot::{BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4};
 use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityInstance, Error as ClarityError};
+use crate::clarity_vm::clarity::{ClarityBlockConnection, ClarityError, ClarityInstance};
 use crate::clarity_vm::database::marf::MarfedKV;
 use crate::clarity_vm::database::MemoryBackingStore;
 use crate::util_lib::boot::boot_code_id;
@@ -1223,7 +1223,7 @@ fn test_deep_tuples() {
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
                 eprintln!("Runtime error: {:?}", r_e);
             }
             other => {
@@ -1291,7 +1291,7 @@ fn test_deep_tuples_ast_precheck() {
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
                 eprintln!("Runtime error: {:?}", r_e);
             }
             other => {
@@ -1362,7 +1362,7 @@ fn test_deep_type_nesting() {
         });
 
         match error {
-            ClarityError::Interpreter(InterpreterError::Runtime(r_e, _)) => {
+            ClarityError::Interpreter(VmExecutionError::Runtime(r_e, _)) => {
                 eprintln!("Runtime error: {:?}", r_e);
             }
             other => {

@@ -16,16 +16,43 @@ use std::fmt;
 
 use crate::execution_cost::ExecutionCost;
 
+/// Errors related to cost tracking and resource accounting in the Clarity VM.
+///
+/// Each error variant is annotated with "Invalidates Block" status, indicating
+/// whether the inclusion of the transaction that caused the error should cause
+/// an entire block to be rejected.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CostErrors {
-    CostComputationFailed(String),
+    /// Arithmetic overflow in cost computation during type-checking, exceeding the maximum threshold.
+    /// Invalidates Block: true.
     CostOverflow,
+    /// Cumulative type-checking cost exceeds the allocated budget, indicating budget depletion.
+    /// The first `ExecutionCost` represents the total consumed cost, and the second represents the budget limit.
+    /// Invalidates Block: true.
     CostBalanceExceeded(ExecutionCost, ExecutionCost),
+    /// Memory usage during type-checking exceeds the allocated budget.
+    /// The first `u64` represents the total consumed memory, and the second represents the memory limit.
+    /// Invalidates Block:
+    ///  - true if happens during contract analysis
+    ///  - false if happens during contract intitialization or contract call.
     MemoryBalanceExceeded(u64, u64),
+    /// Failure to access or load cost-related contracts or their state during runtime operations.
+    /// Invalidates Block: false.
     CostContractLoadFailure,
-    InterpreterFailure,
-    Expect(String),
+    /// Failure in cost-tracking due to an unexpected condition or invalid state.
+    /// The `String` wraps the specific reason for the failure.
+    /// Invalidates Block: false.
+    CostComputationFailed(String),
+    // Time checker errors
+    /// Type-checking time exceeds the allowed budget, halting analysis to ensure responsiveness.
+    /// Invalidates Block: true.
     ExecutionTimeExpired,
+    /// Unexpected condition or failure, indicating a bug or invalid state.
+    /// Invalidates Block: true.
+    InterpreterFailure,
+    /// Unexpected condition or failure, indicating a bug or invalid state.
+    /// Invalidates Block: true.
+    Expect(String),
 }
 
 impl fmt::Display for CostErrors {

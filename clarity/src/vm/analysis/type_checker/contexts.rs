@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 
 use stacks_common::types::StacksEpochId;
 
-use crate::vm::analysis::errors::{CheckError, CheckErrors};
+use crate::vm::analysis::errors::{CheckErrorKind, StaticCheckError};
 use crate::vm::types::signatures::CallableSubtype;
 use crate::vm::types::{TraitIdentifier, TypeSignature};
 use crate::vm::{ClarityName, ClarityVersion, SymbolicExpression, MAX_CONTEXT_DEPTH};
@@ -64,18 +64,22 @@ impl TypeMap {
         &mut self,
         expr: &SymbolicExpression,
         type_sig: TypeSignature,
-    ) -> Result<(), CheckError> {
+    ) -> Result<(), StaticCheckError> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 if map.insert(expr.id, type_sig).is_some() {
-                    Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+                    Err(StaticCheckError::new(
+                        CheckErrorKind::TypeAlreadyAnnotatedFailure,
+                    ))
                 } else {
                     Ok(())
                 }
             }
             TypeMapDataType::Set(ref mut map) => {
                 if !map.insert(expr.id) {
-                    Err(CheckError::new(CheckErrors::TypeAlreadyAnnotatedFailure))
+                    Err(StaticCheckError::new(
+                        CheckErrorKind::TypeAlreadyAnnotatedFailure,
+                    ))
                 } else {
                     Ok(())
                 }
@@ -97,7 +101,7 @@ impl TypeMap {
     ///
     /// [concretize]: TypeSignature::concretize
     /// [ListUnionType]: TypeSignature::ListUnionType
-    pub fn concretize(&mut self) -> Result<(), CheckError> {
+    pub fn concretize(&mut self) -> Result<(), CheckErrorKind> {
         match self.map {
             TypeMapDataType::Map(ref mut map) => {
                 for ty in map.values_mut() {
@@ -122,9 +126,11 @@ impl TypingContext<'_> {
         }
     }
 
-    pub fn extend(&self) -> Result<TypingContext<'_>, CheckError> {
+    pub fn extend(&self) -> Result<TypingContext<'_>, StaticCheckError> {
         if self.depth >= MAX_CONTEXT_DEPTH {
-            Err(CheckError::new(CheckErrors::MaxContextDepthReached))
+            Err(StaticCheckError::new(
+                CheckErrorKind::MaxContextDepthReached,
+            ))
         } else {
             Ok(TypingContext {
                 epoch: self.epoch,

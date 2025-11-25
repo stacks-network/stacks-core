@@ -384,6 +384,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             return Err(Error::ReadOnlyError);
         }
         if self.open_chain_tip.is_some() {
+            error!(
+                "MARF at {} is already in the process of writing",
+                &self.storage.db_path
+            );
             return Err(Error::InProgressError);
         }
         if self.storage.has_block(next_chain_tip)? {
@@ -547,6 +551,10 @@ impl<'a, T: MarfTrieId> MarfTransaction<'a, T> {
             return Err(Error::ReadOnlyError);
         }
         if self.open_chain_tip.is_some() {
+            error!(
+                "MARF at {} is already in the process of writing",
+                &self.storage.db_path
+            );
             return Err(Error::InProgressError);
         }
         if !self.storage.unconfirmed() {

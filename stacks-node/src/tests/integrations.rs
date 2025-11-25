@@ -1,6 +1,4 @@
-use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fmt::Write;
 use std::sync::Mutex;
 
 use clarity::vm::analysis::contract_interface_builder::{
@@ -31,16 +29,13 @@ use stacks::core::test_util::{
     make_contract_call, make_contract_publish, make_sponsored_stacks_transfer_on_testnet,
     make_stacks_transfer_serialized, to_addr,
 };
-use stacks::core::{
-    EpochList, StacksEpoch, StacksEpochId, CHAIN_ID_TESTNET, PEER_VERSION_EPOCH_2_0,
-    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1,
-};
+use stacks::core::{StacksEpochId, CHAIN_ID_TESTNET};
 use stacks::net::api::callreadonly::CallReadOnlyRequestBody;
 use stacks::net::api::getaccount::AccountEntryResponse;
 use stacks::net::api::getcontractsrc::ContractSrcResponse;
 use stacks::net::api::getistraitimplemented::GetIsTraitImplementedResponse;
 use stacks_common::types::chainstate::{StacksAddress, StacksBlockId, VRFSeed};
-use stacks_common::util::hash::{hex_bytes, to_hex, Sha256Sum};
+use stacks_common::util::hash::{hex_bytes, to_hex};
 
 use super::{new_test_conf, ADDR_4, SK_1, SK_2, SK_3};
 use crate::helium::RunLoop;
@@ -1940,16 +1935,20 @@ fn bad_contract_tx_rollback() {
     run_loop.start(num_rounds).unwrap();
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 lazy_static! {
     static ref EXPENSIVE_CONTRACT: String = make_expensive_contract(
-        "(define-private (inner-loop (x int)) (begin
+        "(define-private (inner-loop (x )int)) (begin
            (map sha256 list-9)
            0))",
         ""
     );
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
+    use std::fmt::Write;
+
     let mut contract = "(define-constant list-0 (list 0))".to_string();
 
     for i in 0..10 {
@@ -1979,7 +1978,10 @@ fn make_expensive_contract(inner_loop: &str, other_decl: &str) -> String {
     contract
 }
 
+#[cfg(not(feature = "clarity-wasm"))]
 fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
+    use stacks_common::util::hash::Sha256Sum;
+
     let mut seed = {
         let secret_state = seed.as_bytes().to_vec();
         Sha256Sum::from_data(&secret_state)
@@ -1998,6 +2000,12 @@ fn make_keys(seed: &str, count: u64) -> Vec<StacksPrivateKey> {
 #[test]
 #[cfg(not(feature = "clarity-wasm"))]
 fn block_limit_runtime_test() {
+    use stacks::core::{
+        EpochList, StacksEpoch, PEER_VERSION_EPOCH_2_0, PEER_VERSION_EPOCH_2_05,
+        PEER_VERSION_EPOCH_2_1,
+    };
+    use std::cmp::Ordering;
+
     let mut conf = new_test_conf();
 
     conf.burnchain.epochs = Some(EpochList::new(&[

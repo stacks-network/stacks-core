@@ -23,7 +23,7 @@ use clarity::vm::contexts::{AssetMap, AssetMapEntry, Environment};
 use clarity::vm::costs::cost_functions::ClarityCostFunction;
 use clarity::vm::costs::{runtime_cost, CostTracker, ExecutionCost};
 use clarity::vm::diagnostic::DiagnosableError;
-use clarity::vm::errors::{Error as InterpreterError, WasmError};
+use clarity::vm::errors::{VmInternalError, WasmError};
 use clarity::vm::representations::ClarityName;
 use clarity::vm::types::{
     AssetIdentifier, BuffData, PrincipalData, QualifiedContractIdentifier, SequenceData,
@@ -31,12 +31,11 @@ use clarity::vm::types::{
     TypeSignature, Value,
 };
 
+use crate::chainstate::nakamoto::miner::MinerTenureInfoCause;
 use crate::chainstate::stacks::db::*;
 use crate::chainstate::stacks::miner::TransactionResult;
 use crate::chainstate::stacks::{Error, StacksMicroblockHeader};
-use crate::clarity_vm::clarity::{
-    ClarityConnection, ClarityTransactionConnection, Error as clarity_error,
-};
+use crate::clarity_vm::clarity::{ClarityConnection, ClarityError, ClarityTransactionConnection};
 use crate::util_lib::strings::VecDisplay;
 
 /// This is a safe-to-hash Clarity value
@@ -44,12 +43,12 @@ use crate::util_lib::strings::VecDisplay;
 struct HashableClarityValue(Value);
 
 impl TryFrom<Value> for HashableClarityValue {
-    type Error = InterpreterError;
+    type Error = VmExecutionError;
 
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         // check that serialization _will_ be successful when hashed
         let _bytes = value.serialize_to_vec().map_err(|_| {
-            InterpreterError::Interpreter(clarity::vm::errors::InterpreterError::Expect(
+            VmExecutionError::Internal(VmInternalError::Expect(
                 "Failed to serialize asset in NFT during post-condition checks".into(),
             ))
         })?;
@@ -193,10 +192,10 @@ impl StacksTransactionReceipt {
     pub fn from_analysis_failure(
         tx: StacksTransaction,
         analysis_cost: ExecutionCost,
-        error: clarity::vm::clarity::Error,
+        error: ClarityError,
     ) -> StacksTransactionReceipt {
         let error_string = match error {
-            clarity_error::Analysis(ref check_error) => {
+            ClarityError::StaticCheck(ref check_error) => {
                 if let Some(span) = check_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
@@ -206,7 +205,7 @@ impl StacksTransactionReceipt {
                     check_error.diagnostic.message.to_string()
                 }
             }
-            clarity_error::Parse(ref parse_error) => {
+            ClarityError::Parse(ref parse_error) => {
                 if let Some(span) = parse_error.diagnostic.spans.first() {
                     format!(
                         ":{}:{}: {}",
@@ -255,7 +254,7 @@ impl StacksTransactionReceipt {
         tx: StacksTransaction,
         cost: ExecutionCost,
         contract_analysis: ContractAnalysis,
-        error: CheckErrors,
+        error: CheckErrorKind,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -274,7 +273,7 @@ impl StacksTransactionReceipt {
     pub fn from_runtime_failure_contract_call(
         tx: StacksTransaction,
         cost: ExecutionCost,
-        error: CheckErrors,
+        error: CheckErrorKind,
     ) -> StacksTransactionReceipt {
         StacksTransactionReceipt {
             transaction: tx.into(),
@@ -354,7 +353,7 @@ impl From<TransactionNonceMismatch> for MemPoolRejection {
 
 pub enum ClarityRuntimeTxError {
     Acceptable {
-        error: clarity_error,
+        error: ClarityError,
         err_type: &'static str,
     },
     AbortedByCallback {
@@ -369,35 +368,35 @@ pub enum ClarityRuntimeTxError {
         reason: String,
     },
     CostError(ExecutionCost, ExecutionCost),
-    AnalysisError(CheckErrors),
-    Rejectable(clarity_error),
+    AnalysisError(CheckErrorKind),
+    Rejectable(ClarityError),
 }
 
-pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxError {
+pub fn handle_clarity_runtime_error(error: ClarityError) -> ClarityRuntimeTxError {
     match error {
         // runtime errors are okay
-        clarity_error::Interpreter(InterpreterError::Runtime(_, _)) => {
+        ClarityError::Interpreter(VmExecutionError::Runtime(_, _)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "runtime error",
             }
         }
-        clarity_error::Interpreter(InterpreterError::ShortReturn(_)) => {
+        ClarityError::Interpreter(VmExecutionError::EarlyReturn(_)) => {
             ClarityRuntimeTxError::Acceptable {
                 error,
                 err_type: "short return/panic",
             }
         }
-        clarity_error::Interpreter(InterpreterError::Unchecked(check_error)) => {
+        ClarityError::Interpreter(VmExecutionError::Unchecked(check_error)) => {
             if check_error.rejectable() {
-                ClarityRuntimeTxError::Rejectable(clarity_error::Interpreter(
-                    InterpreterError::Unchecked(check_error),
+                ClarityRuntimeTxError::Rejectable(ClarityError::Interpreter(
+                    VmExecutionError::Unchecked(check_error),
                 ))
             } else {
                 ClarityRuntimeTxError::AnalysisError(check_error)
             }
         }
-        clarity_error::AbortedByCallback {
+        ClarityError::AbortedByCallback {
             output,
             assets_modified,
             tx_events,
@@ -408,7 +407,7 @@ pub fn handle_clarity_runtime_error(error: clarity_error) -> ClarityRuntimeTxErr
             tx_events,
             reason,
         },
-        clarity_error::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
+        ClarityError::CostError(cost, budget) => ClarityRuntimeTxError::CostError(cost, budget),
         unhandled_error => ClarityRuntimeTxError::Rejectable(unhandled_error),
     }
 }
@@ -633,7 +632,7 @@ impl StacksChainState {
         origin_account: &StacksAccount,
         asset_map: &AssetMap,
         txid: Txid,
-    ) -> Result<Option<String>, InterpreterError> {
+    ) -> Result<Option<String>, VmExecutionError> {
         let mut checked_fungible_assets: HashMap<PrincipalData, HashSet<AssetIdentifier>> =
             HashMap::new();
         let mut checked_nonfungible_assets: HashMap<
@@ -962,7 +961,7 @@ impl StacksChainState {
             env.add_memory(u64::from(
                 TypeSignature::PrincipalType
                     .size()
-                    .map_err(InterpreterError::from)?,
+                    .map_err(VmExecutionError::from)?,
             ))
             .map_err(|e| Error::from_cost_error(e, cost_before.clone(), env.global_context))?;
 
@@ -1211,8 +1210,8 @@ impl StacksChainState {
                                            "function_name" => %contract_call.function_name,
                                            "function_args" => %VecDisplay(&contract_call.function_args),
                                            "error" => %check_error);
-                                return Err(Error::ClarityError(clarity_error::Interpreter(
-                                    InterpreterError::Unchecked(check_error),
+                                return Err(Error::ClarityError(ClarityError::Interpreter(
+                                    VmExecutionError::Unchecked(check_error),
                                 )));
                             }
                         }
@@ -1280,7 +1279,7 @@ impl StacksChainState {
                     Ok(x) => x,
                     Err(e) => {
                         match e {
-                            clarity_error::CostError(ref cost_after, ref budget) => {
+                            ClarityError::CostError(ref cost_after, ref budget) => {
                                 warn!("Block compute budget exceeded on {}: cost before={}, after={}, budget={}", tx.txid(), &cost_before, cost_after, budget);
                                 return Err(Error::CostOverflowError(
                                     cost_before,
@@ -1289,13 +1288,13 @@ impl StacksChainState {
                                 ));
                             }
                             other_error => {
-                                if let clarity_error::Parse(err) = &other_error {
+                                if let ClarityError::Parse(err) = &other_error {
                                     if err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
                                     }
                                 }
-                                if let clarity_error::Analysis(err) = &other_error {
+                                if let ClarityError::StaticCheck(err) = &other_error {
                                     if err.err.rejectable() {
                                         info!("Transaction {} is problematic and should have prevented this block from being relayed", tx.txid());
                                         return Err(Error::ClarityError(other_error));
@@ -1332,7 +1331,7 @@ impl StacksChainState {
 
                 debug!("Compiling the contract to wasm binary");
                 let mut module = compile_contract(contract_analysis.clone()).map_err(|e| {
-                    Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(
+                    Error::ClarityError(ClarityError::Wasm(WasmError::WasmGeneratorError(
                         e.message(),
                     )))
                 })?;
@@ -1444,8 +1443,8 @@ impl StacksChainState {
                                       "txid" => %tx.txid(),
                                       "contract" => %contract_id,
                                       "error" => %check_error);
-                                return Err(Error::ClarityError(clarity_error::Interpreter(
-                                    InterpreterError::Unchecked(check_error),
+                                return Err(Error::ClarityError(ClarityError::Interpreter(
+                                    VmExecutionError::Unchecked(check_error),
                                 )));
                             }
                         }
@@ -1509,20 +1508,27 @@ impl StacksChainState {
                     return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
-                // what kind of tenure-change?
-                match payload.cause {
-                    TenureChangeCause::BlockFound => {
-                        // a sortition triggered this tenure change.
-                        // this is already processed, so it's a no-op here.
-                    }
-                    TenureChangeCause::Extended => {
-                        // the stackers granted a tenure extension.
-                        // reset the runtime cost
-                        debug!(
-                            "TenureChange extends block tenure (confirms {} blocks)",
-                            &payload.previous_tenure_blocks
-                        );
-                    }
+                if !payload.cause.is_new_tenure() {
+                    debug!(
+                        "TenureChange {:?} extends existing block tenure (confirms {} blocks)",
+                        &payload.cause, &payload.previous_tenure_blocks
+                    );
+                }
+
+                // defensive check -- this tenure change variant must be supported in this epoch
+                // (or we have a problem).  This should get caught earlier in append_block(), but
+                // this is kept here as an added layer of redundancy
+                let epoch_id = clarity_tx.get_epoch();
+                if MinerTenureInfoCause::from(payload.cause).is_sip034_tenure_extension()
+                    && !epoch_id.supports_specific_budget_extends()
+                {
+                    let msg = format!(
+                        "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
+                        &payload.cause,
+                        &epoch_id
+                    );
+                    info!("{msg}");
+                    return Err(Error::InvalidStacksTransaction(msg, false));
                 }
 
                 let receipt = StacksTransactionReceipt::from_tenure_change(tx.clone());
@@ -1563,13 +1569,14 @@ impl StacksChainState {
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
         let clarity_version = StacksChainState::get_tx_clarity_version(clarity_block, tx)?;
-        if clarity_version == ClarityVersion::Clarity2 {
-            // requires 2.1 and higher
-            if clarity_block.get_epoch() < StacksEpochId::Epoch21 {
-                let msg = format!("Invalid transaction {}: asks for Clarity2, but not in Stacks epoch 2.1 or later", tx.txid());
-                info!("{}", &msg);
-                return Err(Error::InvalidStacksTransaction(msg, false));
-            }
+        if clarity_version > ClarityVersion::default_for_epoch(epoch) {
+            let msg = format!(
+                "Invalid transaction {}: asks for {clarity_version}, but current epoch {epoch} only supports up to {}",
+                tx.txid(),
+                ClarityVersion::default_for_epoch(epoch)
+            );
+            info!("{msg}");
+            return Err(Error::InvalidStacksTransaction(msg, false));
         }
 
         let mut transaction = clarity_block.connection().start_transaction_processing();
@@ -1687,6 +1694,9 @@ pub mod test {
     pub const TestBurnStateDB_32: UnitTestBurnStateDB = UnitTestBurnStateDB {
         epoch_id: StacksEpochId::Epoch32,
     };
+    pub const TestBurnStateDB_33: UnitTestBurnStateDB = UnitTestBurnStateDB {
+        epoch_id: StacksEpochId::Epoch33,
+    };
 
     pub const ALL_BURN_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_20 as &dyn BurnStateDB,
@@ -1694,6 +1704,17 @@ pub mod test {
         &TestBurnStateDB_21 as &dyn BurnStateDB,
         &TestBurnStateDB_30 as &dyn BurnStateDB,
         &TestBurnStateDB_31 as &dyn BurnStateDB,
+        &TestBurnStateDB_32 as &dyn BurnStateDB,
+        &TestBurnStateDB_33 as &dyn BurnStateDB,
+    ];
+
+    pub const PRE_33_DBS: &[&dyn BurnStateDB] = &[
+        &TestBurnStateDB_20 as &dyn BurnStateDB,
+        &TestBurnStateDB_2_05 as &dyn BurnStateDB,
+        &TestBurnStateDB_21 as &dyn BurnStateDB,
+        &TestBurnStateDB_30 as &dyn BurnStateDB,
+        &TestBurnStateDB_31 as &dyn BurnStateDB,
+        &TestBurnStateDB_32 as &dyn BurnStateDB,
     ];
 
     pub const PRE_21_DBS: &[&dyn BurnStateDB] = &[
@@ -1704,6 +1725,8 @@ pub mod test {
     pub const NAKAMOTO_DBS: &[&dyn BurnStateDB] = &[
         &TestBurnStateDB_30 as &dyn BurnStateDB,
         &TestBurnStateDB_31 as &dyn BurnStateDB,
+        &TestBurnStateDB_32 as &dyn BurnStateDB,
+        &TestBurnStateDB_33 as &dyn BurnStateDB,
     ];
 
     #[test]
@@ -8263,7 +8286,7 @@ pub mod test {
                 None,
             )
             .unwrap_err();
-            let Error::ClarityError(clarity_error::BadTransaction(msg)) = &err else {
+            let Error::ClarityError(ClarityError::BadTransaction(msg)) = &err else {
                 panic!("Unexpected error type");
             };
             assert!(msg.find("never seen in this fork").is_some());
@@ -8501,14 +8524,14 @@ pub mod test {
                         epoch_id: StacksEpochId::Epoch2_05,
                         start_height: 1,
                         end_height: 2,
-                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        block_limit: HELIUM_BLOCK_LIMIT_20,
                         network_epoch: PEER_VERSION_EPOCH_2_05,
                     },
                     _ => StacksEpoch {
                         epoch_id: StacksEpochId::Epoch21,
                         start_height: 2,
                         end_height: u64::MAX,
-                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        block_limit: HELIUM_BLOCK_LIMIT_20,
                         network_epoch: PEER_VERSION_EPOCH_2_1,
                     },
                 })
@@ -8522,7 +8545,7 @@ pub mod test {
                         epoch_id: StacksEpochId::Epoch10,
                         start_height: 0,
                         end_height: 0,
-                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        block_limit: HELIUM_BLOCK_LIMIT_20,
                         network_epoch: PEER_VERSION_EPOCH_2_0,
                     }),
                     StacksEpochId::Epoch20 => self.get_stacks_epoch(0),
@@ -8655,7 +8678,9 @@ pub mod test {
         if let Err(Error::InvalidStacksTransaction(msg, ..)) =
             StacksChainState::process_transaction(&mut conn, &smart_contract_v2, false, None)
         {
-            assert!(msg.find("not in Stacks epoch 2.1 or later").is_some());
+            assert!(msg
+                .find("asks for Clarity 2, but current epoch 2.05 only supports up to Clarity 1")
+                .is_some());
         } else {
             panic!("FATAL: did not recieve the appropriate error in processing a clarity2 tx in pre-2.1 epoch");
         }
@@ -8724,7 +8749,7 @@ pub mod test {
                     epoch_id: StacksEpochId::Epoch21,
                     start_height: 0,
                     end_height: u64::MAX,
-                    block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                    block_limit: HELIUM_BLOCK_LIMIT_20,
                     network_epoch: PEER_VERSION_EPOCH_2_1,
                 })
             }
@@ -8737,7 +8762,7 @@ pub mod test {
                         epoch_id: StacksEpochId::Epoch10,
                         start_height: 0,
                         end_height: 0,
-                        block_limit: HELIUM_BLOCK_LIMIT_20.clone(),
+                        block_limit: HELIUM_BLOCK_LIMIT_20,
                         network_epoch: PEER_VERSION_EPOCH_2_0,
                     }),
                     _ => self.get_stacks_epoch(0),
@@ -9493,7 +9518,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9546,7 +9571,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9597,7 +9622,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -9649,7 +9674,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             _check_error,
         ))) = err
         {
@@ -10164,7 +10189,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -10623,7 +10648,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -10729,7 +10754,7 @@ pub mod test {
             false,
         )
         .unwrap_err();
-        if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
+        if let Error::ClarityError(ClarityError::Interpreter(VmExecutionError::Unchecked(
             check_error,
         ))) = err
         {
@@ -11444,5 +11469,83 @@ pub mod test {
 
         let _: TransactionPayload =
             TransactionPayload::consensus_deserialize(&mut &good_payload_bytes[..]).unwrap();
+    }
+
+    /// Verify that a SIP-034 tenure-extend will be rejected prior to epoch 3.3
+    #[test]
+    fn process_tenure_change_sip034_rejected_pre_3_3() {
+        let privk = StacksPrivateKey::from_hex(
+            "6d430bb91222408e7706c9001cfaeb91b08c2be6d5ac95779ab52c6b431950e001",
+        )
+        .unwrap();
+        let auth = TransactionAuth::from_p2pkh(&privk).unwrap();
+        let addr = auth.origin().address_testnet();
+
+        let balances = vec![(addr.clone(), 1000000000)];
+
+        let mut chainstate =
+            instantiate_chainstate_with_balances(false, 0x80000000, function_name!(), balances);
+
+        let sip034_causes = [
+            TenureChangeCause::ExtendedRuntime,
+            TenureChangeCause::ExtendedReadCount,
+            TenureChangeCause::ExtendedReadLength,
+            TenureChangeCause::ExtendedWriteCount,
+            TenureChangeCause::ExtendedWriteLength,
+        ];
+
+        for (dbi, burn_db) in PRE_33_DBS.iter().enumerate() {
+            let mut conn = chainstate.block_begin(
+                *burn_db,
+                &FIRST_BURNCHAIN_CONSENSUS_HASH,
+                &FIRST_STACKS_BLOCK_HASH,
+                &ConsensusHash([(dbi + 1) as u8; 20]),
+                &BlockHeaderHash([(dbi + 1) as u8; 32]),
+            );
+
+            for cause in sip034_causes.iter() {
+                let mut tx_extend_sip034 = StacksTransaction::new(
+                    TransactionVersion::Testnet,
+                    auth.clone(),
+                    TransactionPayload::TenureChange(TenureChangePayload {
+                        tenure_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        prev_tenure_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        burn_view_consensus_hash: FIRST_BURNCHAIN_CONSENSUS_HASH.clone(),
+                        previous_tenure_end: StacksBlockId([0xff; 32]),
+                        cause: *cause,
+                        previous_tenure_blocks: 0,
+                        pubkey_hash: Hash160([0x00; 20]),
+                    }),
+                );
+                tx_extend_sip034.chain_id = 0x80000000;
+
+                let mut signer = StacksTransactionSigner::new(&tx_extend_sip034);
+                signer.sign_origin(&privk).unwrap();
+                let tx_extend_sip034_signed = signer.get_tx().unwrap();
+
+                // try to process
+                let err = StacksChainState::process_transaction(
+                    &mut conn,
+                    &tx_extend_sip034_signed,
+                    false,
+                    None,
+                )
+                .unwrap_err();
+
+                let expected_msg = format!(
+                    "Invalid Stacks transaction: TenureChange cause variant {:?} is not supported in epoch {:?}",
+                    cause,
+                    conn.get_epoch()
+                );
+
+                if let Error::InvalidStacksTransaction(msg, ..) = err {
+                    assert_eq!(expected_msg, msg);
+                } else {
+                    panic!("Got unexpected error {:?}", &err);
+                }
+            }
+
+            conn.commit_block();
+        }
     }
 }

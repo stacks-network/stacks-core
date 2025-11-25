@@ -23,7 +23,7 @@ use std::sync::Arc;
 use clarity::vm::clarity::TransactionConnection;
 use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value;
 use lazy_static::lazy_static;
@@ -4830,7 +4830,7 @@ fn get_total_stacked_info(
     parent_tip: &StacksBlockId,
     reward_cycle: u64,
     is_pox_2: bool,
-) -> Result<u128, InterpreterError> {
+) -> Result<u128, VmExecutionError> {
     chainstate
         .with_read_only_clarity_tx(burn_dbconn, parent_tip, |conn| {
             conn.with_readonly_clarity_env(
@@ -6408,14 +6408,14 @@ fn test_check_chainstate_db_versions() {
         epoch_id: StacksEpochId::Epoch20,
         start_height: 0,
         end_height: 10000,
-        block_limit: BLOCK_LIMIT_MAINNET_20.clone(),
+        block_limit: BLOCK_LIMIT_MAINNET_20,
         network_epoch: PEER_VERSION_EPOCH_2_0,
     };
     let epoch_2_05 = StacksEpoch {
         epoch_id: StacksEpochId::Epoch2_05,
         start_height: 0,
         end_height: 10000,
-        block_limit: BLOCK_LIMIT_MAINNET_205.clone(),
+        block_limit: BLOCK_LIMIT_MAINNET_205,
         network_epoch: PEER_VERSION_EPOCH_2_05,
     };
 

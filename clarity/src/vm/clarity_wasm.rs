@@ -4,11 +4,10 @@ use stacks_common::util::hash::{Keccak256Hash, Sha512Sum, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::{secp256k1_recover, secp256k1_verify, Secp256k1PublicKey};
 use wasmtime::{AsContextMut, Caller, Linker, Memory, Module, Store, Val, ValType};
 
-use super::analysis::CheckErrors;
+use super::analysis::CheckErrorKind;
 use super::callables::{DefineType, DefinedFunction};
 use super::costs::{constants as cost_constants, CostTracker};
 use super::database::STXBalance;
-use super::errors::RuntimeErrorType;
 use super::events::*;
 use super::functions::crypto::{pubkey_to_address_v1, pubkey_to_address_v2};
 use super::types::signatures::CallableSubtype;
@@ -22,7 +21,7 @@ use super::{CallStack, ClarityVersion, ContractName, Environment, SymbolicExpres
 use crate::vm::analysis::ContractAnalysis;
 use crate::vm::ast::build_ast;
 use crate::vm::contexts::GlobalContext;
-use crate::vm::errors::{Error, WasmError};
+use crate::vm::errors::{WasmError, VmExecutionError, RuntimeError};
 use crate::vm::types::{
     BufferLength, SequenceSubtype, SequencedValue, StringSubtype, TypeSignature, TypeSignatureExt,
 };
@@ -138,10 +137,10 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         self.sender = Some(sender);
     }
 
-    fn pop_sender(&mut self) -> Result<PrincipalData, Error> {
+    fn pop_sender(&mut self) -> Result<PrincipalData, VmExecutionError> {
         self.sender
             .take()
-            .ok_or(RuntimeErrorType::NoSenderInContext.into())
+            .ok_or(RuntimeError::NoSenderInContext.into())
             .inspect(|_| {
                 self.sender = self.sender_stack.pop();
             })
@@ -154,10 +153,10 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         self.caller = Some(caller);
     }
 
-    fn pop_caller(&mut self) -> Result<PrincipalData, Error> {
+    fn pop_caller(&mut self) -> Result<PrincipalData, VmExecutionError> {
         self.caller
             .take()
-            .ok_or(RuntimeErrorType::NoCallerInContext.into())
+            .ok_or(RuntimeError::NoCallerInContext.into())
             .inspect(|_| {
                 self.caller = self.caller_stack.pop();
             })
@@ -167,10 +166,10 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         self.bhh_stack.push(bhh);
     }
 
-    fn pop_at_block(&mut self) -> Result<StacksBlockId, Error> {
+    fn pop_at_block(&mut self) -> Result<StacksBlockId, VmExecutionError> {
         self.bhh_stack
             .pop()
-            .ok_or(Error::Wasm(WasmError::WasmGeneratorError(
+            .ok_or(VmExecutionError::Wasm(WasmError::WasmGeneratorError(
                 "Could not pop at_block".to_string(),
             )))
     }
@@ -188,10 +187,10 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
 
     /// Return a mutable reference to the contract_context if we are currently
     /// initializing a contract, else, return an error.
-    pub fn contract_context_mut(&mut self) -> Result<&mut ContractContext, Error> {
+    pub fn contract_context_mut(&mut self) -> Result<&mut ContractContext, VmExecutionError> {
         match &mut self.contract_context_mut {
             Some(contract_context) => Ok(contract_context),
-            None => Err(Error::Wasm(WasmError::DefineFunctionCalledInRunMode)),
+            None => Err(VmExecutionError::Wasm(WasmError::DefineFunctionCalledInRunMode)),
         }
     }
 
@@ -213,7 +212,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         StacksTransactionEvent::SmartContractEvent(print_event)
     }
 
-    pub fn register_print_event(&mut self, value: Value) -> Result<(), Error> {
+    pub fn register_print_event(&mut self, value: Value) -> Result<(), VmExecutionError> {
         let event = Self::construct_print_transaction_event(
             &self.contract_context().contract_identifier,
             &value,
@@ -229,7 +228,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         recipient: PrincipalData,
         amount: u128,
         memo: BuffData,
-    ) -> Result<(), Error> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = STXTransferEventData {
             sender,
             recipient,
@@ -246,7 +245,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         &mut self,
         sender: PrincipalData,
         amount: u128,
-    ) -> Result<(), Error> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = STXBurnEventData { sender, amount };
         let event = StacksTransactionEvent::STXEvent(STXEventType::STXBurnEvent(event_data));
 
@@ -260,7 +259,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         recipient: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<(), Error> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = NFTTransferEventData {
             sender,
             recipient,
@@ -278,7 +277,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         recipient: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<(), Error> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = NFTMintEventData {
             recipient,
             asset_identifier,
@@ -295,7 +294,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         sender: PrincipalData,
         value: Value,
         asset_identifier: AssetIdentifier,
-    ) -> Result<(), Error> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = NFTBurnEventData {
             sender,
             asset_identifier,
@@ -313,7 +312,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         recipient: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<(), Error> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = FTTransferEventData {
             sender,
             recipient,
@@ -331,7 +330,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         recipient: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<(), Error> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = FTMintEventData {
             recipient,
             asset_identifier,
@@ -348,7 +347,7 @@ impl<'a, 'b> ClarityWasmContext<'a, 'b> {
         sender: PrincipalData,
         amount: u128,
         asset_identifier: AssetIdentifier,
-    ) -> Result<(), Error> {
+    ) -> Result<(), VmExecutionError> {
         let event_data = FTBurnEventData {
             sender,
             asset_identifier,
@@ -382,7 +381,7 @@ pub fn initialize_contract(
     contract_context: &mut ContractContext,
     sponsor: Option<PrincipalData>,
     contract_analysis: &ContractAnalysis,
-) -> Result<Option<Value>, Error> {
+) -> Result<Option<Value>, VmExecutionError> {
     let publisher: PrincipalData = contract_context.contract_identifier.issuer.clone().into();
 
     let mut call_stack = CallStack::new();
@@ -402,7 +401,7 @@ pub fn initialize_contract(
         .contract_context()
         .with_wasm_module(|wasm_module| {
             Module::from_binary(&engine, wasm_module)
-                .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
         })?;
     let mut store = Store::new(&engine, init_context);
     let mut linker = Linker::new(&engine);
@@ -412,13 +411,13 @@ pub fn initialize_contract(
 
     let instance = linker
         .instantiate(&mut store, &module)
-        .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
 
     // Call the `.top-level` function, which contains all top-level expressions
     // from the contract.
     let top_level = instance
         .get_func(&mut store, ".top-level")
-        .ok_or(Error::Wasm(WasmError::DefinesNotFound))?;
+        .ok_or(VmExecutionError::Wasm(WasmError::DefinesNotFound))?;
 
     // Get the return type of the top-level expressions function
     let ty = top_level.ty(&mut store);
@@ -438,7 +437,7 @@ pub fn initialize_contract(
     store.data_mut().contract_context_mut()?.set_wasm_module(
         module
             .serialize()
-            .map_err(|e| Error::Wasm(WasmError::WasmCompileFailed(e)))?,
+            .map_err(|e| VmExecutionError::Wasm(WasmError::WasmCompileFailed(e)))?,
     );
 
     // Get the type of the last top-level expression with a return value
@@ -453,7 +452,7 @@ pub fn initialize_contract(
     if let Some(return_type) = return_type {
         let memory = instance
             .get_memory(&mut store, "memory")
-            .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+            .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
         wasm_to_clarity_value(return_type, 0, &results, memory, &mut &mut store, epoch)
             .map(|(val, _offset)| val)
     } else {
@@ -471,7 +470,7 @@ pub fn call_function<'a>(
     sender: Option<PrincipalData>,
     caller: Option<PrincipalData>,
     sponsor: Option<PrincipalData>,
-) -> Result<Value, Error> {
+) -> Result<Value, VmExecutionError> {
     let epoch = global_context.epoch_id;
     let clarity_version = *contract_context.get_clarity_version();
     let engine = global_context.engine.clone();
@@ -488,12 +487,12 @@ pub fn call_function<'a>(
     let func_types = context
         .contract_context()
         .lookup_function(function_name)
-        .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?;
+        .ok_or(CheckErrorKind::UndefinedFunction(function_name.to_string()))?;
     let module = context
         .contract_context()
         .with_wasm_module(|wasm_module| unsafe {
             Module::deserialize(&engine, wasm_module)
-                .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))
         })?;
     let mut store = Store::new(&engine, context);
     let mut linker = Linker::new(&engine);
@@ -503,32 +502,32 @@ pub fn call_function<'a>(
 
     let instance = linker
         .instantiate(&mut store, &module)
-        .map_err(|e| Error::Wasm(WasmError::UnableToLoadModule(e)))?;
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLoadModule(e)))?;
 
     // Call the specified function
     let func = instance
         .get_func(&mut store, function_name)
-        .ok_or(CheckErrors::UndefinedFunction(function_name.to_string()))?;
+        .ok_or(CheckErrorKind::UndefinedFunction(function_name.to_string()))?;
 
     // Access the global stack pointer from the instance
     let stack_pointer = instance
         .get_global(&mut store, "stack-pointer")
-        .ok_or(Error::Wasm(WasmError::GlobalNotFound(
+        .ok_or(VmExecutionError::Wasm(WasmError::GlobalNotFound(
             "stack-pointer".to_string(),
         )))?;
     let mut offset = stack_pointer
         .get(&mut store)
         .i32()
-        .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+        .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
 
     let memory = instance
         .get_memory(&mut store, "memory")
-        .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+        .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
     // Validate argument count
     let expected_args = func_types.get_arg_types();
     if args.len() != expected_args.len() {
-        return Err(Error::Unchecked(CheckErrors::IncorrectArgumentCount(
+        return Err(VmExecutionError::Unchecked(CheckErrorKind::IncorrectArgumentCount(
             expected_args.len(),
             args.len(),
         )));
@@ -537,7 +536,7 @@ pub fn call_function<'a>(
     // Validate argument types
     for (arg, expected_type) in args.iter().zip(expected_args.iter()) {
         if !expected_type.admits(&epoch, arg)? {
-            return Err(Error::Unchecked(CheckErrors::TypeError(
+            return Err(VmExecutionError::Unchecked(CheckErrorKind::TypeError(
                 Box::new(expected_type.clone()),
                 Box::new(TypeSignature::type_of(arg)?),
             )));
@@ -576,7 +575,7 @@ pub fn call_function<'a>(
     let return_type = func_types
         .get_return_type()
         .as_ref()
-        .ok_or(Error::Wasm(WasmError::ExpectedReturnValue))?
+        .ok_or(VmExecutionError::Wasm(WasmError::ExpectedReturnValue))?
         .clone();
     let (mut results, offset) = reserve_space_for_return(in_mem_offset, &return_type)?;
 
@@ -584,7 +583,7 @@ pub fn call_function<'a>(
     // return values.
     stack_pointer
         .set(&mut store, Val::I32(offset))
-        .map_err(|e| Error::Wasm(WasmError::Runtime(e)))?;
+        .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e)))?;
 
     // Call the function
     func.call(&mut store, &wasm_args, &mut results)
@@ -596,7 +595,7 @@ pub fn call_function<'a>(
     wasm_to_clarity_value(&return_type, 0, &results, memory, &mut &mut store, epoch)
         .map(|(val, _offset)| val)
         .and_then(|option_value| {
-            option_value.ok_or_else(|| Error::Wasm(WasmError::ExpectedReturnValue))
+            option_value.ok_or_else(|| VmExecutionError::Wasm(WasmError::ExpectedReturnValue))
         })
 }
 
@@ -771,11 +770,11 @@ fn read_bytes_from_wasm(
     store: &mut impl AsContextMut,
     offset: i32,
     length: i32,
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<u8>, VmExecutionError> {
     let mut buffer: Vec<u8> = vec![0; length as usize];
     memory
         .read(store, offset as usize, &mut buffer)
-        .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+        .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
     Ok(buffer)
 }
 
@@ -785,24 +784,24 @@ fn read_identifier_from_wasm(
     store: &mut impl AsContextMut,
     offset: i32,
     length: i32,
-) -> Result<String, Error> {
+) -> Result<String, VmExecutionError> {
     let buffer = read_bytes_from_wasm(memory, store, offset, length)?;
-    String::from_utf8(buffer).map_err(|e| Error::Wasm(WasmError::UnableToReadIdentifier(e)))
+    String::from_utf8(buffer).map_err(|e| VmExecutionError::Wasm(WasmError::UnableToReadIdentifier(e)))
 }
 
 fn read_indirect_offset_and_length(
     memory: Memory,
     store: &mut impl AsContextMut,
     offset: i32,
-) -> Result<(i32, i32), Error> {
+) -> Result<(i32, i32), VmExecutionError> {
     let mut buffer: [u8; 4] = [0; 4];
     memory
         .read(store.as_context_mut(), offset as usize, &mut buffer)
-        .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+        .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
     let indirect_offset = i32::from_le_bytes(buffer);
     memory
         .read(store.as_context_mut(), (offset + 4) as usize, &mut buffer)
-        .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+        .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
     let length = i32::from_le_bytes(buffer);
     Ok((indirect_offset, length))
 }
@@ -817,7 +816,7 @@ fn read_from_wasm_indirect(
     ty: &TypeSignature,
     mut offset: i32,
     epoch: StacksEpochId,
-) -> Result<Value, Error> {
+) -> Result<Value, VmExecutionError> {
     let mut length = get_type_size(ty);
 
     // For in-memory types, first read the offset and length from the memory,
@@ -838,7 +837,7 @@ fn read_from_wasm(
     offset: i32,
     length: i32,
     epoch: StacksEpochId,
-) -> Result<Value, Error> {
+) -> Result<Value, VmExecutionError> {
     match ty {
         TypeSignature::UIntType => {
             debug_assert!(
@@ -848,11 +847,11 @@ fn read_from_wasm(
             let mut buffer: [u8; 8] = [0; 8];
             memory
                 .read(store.as_context_mut(), offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             let low = u64::from_le_bytes(buffer) as u128;
             memory
                 .read(store, (offset + 8) as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             let high = u64::from_le_bytes(buffer) as u128;
             Ok(Value::UInt((high << 64) | low))
         }
@@ -864,11 +863,11 @@ fn read_from_wasm(
             let mut buffer: [u8; 8] = [0; 8];
             memory
                 .read(store.as_context_mut(), offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             let low = u64::from_le_bytes(buffer) as u128;
             memory
                 .read(store, (offset + 8) as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             let high = u64::from_le_bytes(buffer) as u128;
             Ok(Value::Int(((high << 64) | low) as i128))
         }
@@ -882,14 +881,14 @@ fn read_from_wasm(
             let mut buffer: Vec<u8> = vec![0; length as usize];
             memory
                 .read(store, offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             Value::string_ascii_from_bytes(buffer)
         }
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_s))) => {
             let mut buffer: Vec<u8> = vec![0; length as usize];
             memory
                 .read(store, offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             Value::string_utf8_from_unicode_scalars(buffer)
         }
         TypeSignature::PrincipalType
@@ -903,11 +902,11 @@ fn read_from_wasm(
             let mut hash: [u8; PRINCIPAL_HASH_BYTES] = [0; PRINCIPAL_HASH_BYTES];
             memory
                 .read(store.as_context_mut(), current_offset, &mut version)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             current_offset += PRINCIPAL_VERSION_BYTES;
             memory
                 .read(store.as_context_mut(), current_offset, &mut hash)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             current_offset += PRINCIPAL_HASH_BYTES;
             let principal = StandardPrincipalData::new(version[0], hash)?;
             let mut contract_length_buf: [u8; CONTRACT_NAME_LENGTH_BYTES] =
@@ -918,7 +917,7 @@ fn read_from_wasm(
                     current_offset,
                     &mut contract_length_buf,
                 )
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             current_offset += CONTRACT_NAME_LENGTH_BYTES;
             let contract_length = contract_length_buf[0];
             if contract_length == 0 {
@@ -927,9 +926,9 @@ fn read_from_wasm(
                 let mut contract_name: Vec<u8> = vec![0; contract_length as usize];
                 memory
                     .read(store, current_offset, &mut contract_name)
-                    .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
                 let contract_name = String::from_utf8(contract_name)
-                    .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
                 let qualified_id = QualifiedContractIdentifier {
                     issuer: principal,
                     name: ContractName::try_from(contract_name)?,
@@ -952,7 +951,7 @@ fn read_from_wasm(
             let mut buffer: Vec<u8> = vec![0; length as usize];
             memory
                 .read(store, offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             Value::buff_from(buffer)
         }
         TypeSignature::SequenceType(SequenceSubtype::ListType(list)) => {
@@ -976,7 +975,7 @@ fn read_from_wasm(
             let mut buffer: [u8; 4] = [0; 4];
             memory
                 .read(store.as_context_mut(), offset as usize, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             let bool_val = u32::from_le_bytes(buffer);
             Ok(Value::Bool(bool_val != 0))
         }
@@ -1003,7 +1002,7 @@ fn read_from_wasm(
                     current_offset as usize,
                     &mut indicator_bytes,
                 )
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             current_offset += 4;
             let indicator = i32::from_le_bytes(indicator_bytes);
 
@@ -1018,7 +1017,7 @@ fn read_from_wasm(
                         current_offset,
                         epoch,
                     )?;
-                    Value::error(err_value).map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))
+                    Value::error(err_value).map_err(|_| VmExecutionError::Wasm(WasmError::ValueTypeMismatch))
                 }
                 1 => {
                     let ok_value = read_from_wasm_indirect(
@@ -1028,9 +1027,9 @@ fn read_from_wasm(
                         current_offset,
                         epoch,
                     )?;
-                    Value::okay(ok_value).map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))
+                    Value::okay(ok_value).map_err(|_| VmExecutionError::Wasm(WasmError::ValueTypeMismatch))
                 }
-                _ => Err(Error::Wasm(WasmError::InvalidIndicator(indicator))),
+                _ => Err(VmExecutionError::Wasm(WasmError::InvalidIndicator(indicator))),
             }
         }
         TypeSignature::OptionalType(type_sig) => {
@@ -1044,7 +1043,7 @@ fn read_from_wasm(
                     current_offset as usize,
                     &mut indicator_bytes,
                 )
-                .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
             current_offset += 4;
             let indicator = i32::from_le_bytes(indicator_bytes);
 
@@ -1055,86 +1054,86 @@ fn read_from_wasm(
                         read_from_wasm_indirect(memory, store, type_sig, current_offset, epoch)?;
                     Ok(
                         Value::some(value)
-                            .map_err(|_| Error::Wasm(WasmError::ValueTypeMismatch))?,
+                            .map_err(|_| VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?,
                     )
                 }
-                _ => Err(Error::Wasm(WasmError::InvalidIndicator(indicator))),
+                _ => Err(VmExecutionError::Wasm(WasmError::InvalidIndicator(indicator))),
             }
         }
-        TypeSignature::NoType => Err(Error::Wasm(WasmError::InvalidNoTypeInValue)),
+        TypeSignature::NoType => Err(VmExecutionError::Wasm(WasmError::InvalidNoTypeInValue)),
         TypeSignature::ListUnionType(_subtypes) => {
-            Err(Error::Wasm(WasmError::InvalidListUnionTypeInValue))
+            Err(VmExecutionError::Wasm(WasmError::InvalidListUnionTypeInValue))
         }
     }
 }
 
-fn value_as_bool(value: &Value) -> Result<bool, Error> {
+fn value_as_bool(value: &Value) -> Result<bool, VmExecutionError> {
     match value {
         Value::Bool(b) => Ok(*b),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_i128(value: &Value) -> Result<i128, Error> {
+fn value_as_i128(value: &Value) -> Result<i128, VmExecutionError> {
     match value {
         Value::Int(n) => Ok(*n),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_u128(value: &Value) -> Result<u128, Error> {
+fn value_as_u128(value: &Value) -> Result<u128, VmExecutionError> {
     match value {
         Value::UInt(n) => Ok(*n),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_principal(value: &Value) -> Result<&PrincipalData, Error> {
+fn value_as_principal(value: &Value) -> Result<&PrincipalData, VmExecutionError> {
     match value {
         Value::Principal(p) => Ok(p),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_buffer(value: Value) -> Result<BuffData, Error> {
+fn value_as_buffer(value: Value) -> Result<BuffData, VmExecutionError> {
     match value {
         Value::Sequence(SequenceData::Buffer(buffdata)) => Ok(buffdata),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_optional(value: &Value) -> Result<&OptionalData, Error> {
+fn value_as_optional(value: &Value) -> Result<&OptionalData, VmExecutionError> {
     match value {
         Value::Optional(opt_data) => Ok(opt_data),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_response(value: &Value) -> Result<&ResponseData, Error> {
+fn value_as_response(value: &Value) -> Result<&ResponseData, VmExecutionError> {
     match value {
         Value::Response(res_data) => Ok(res_data),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_string_ascii(value: Value) -> Result<ASCIIData, Error> {
+fn value_as_string_ascii(value: Value) -> Result<ASCIIData, VmExecutionError> {
     match value {
         Value::Sequence(SequenceData::String(CharType::ASCII(string_data))) => Ok(string_data),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_tuple(value: &Value) -> Result<&TupleData, Error> {
+fn value_as_tuple(value: &Value) -> Result<&TupleData, VmExecutionError> {
     match value {
         Value::Tuple(d) => Ok(d),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
-fn value_as_list(value: &Value) -> Result<&ListData, Error> {
+fn value_as_list(value: &Value) -> Result<&ListData, VmExecutionError> {
     match value {
         Value::Sequence(SequenceData::List(list_data)) => Ok(list_data),
-        _ => Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+        _ => Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
     }
 }
 
@@ -1153,7 +1152,7 @@ fn write_to_wasm(
     in_mem_offset: i32,
     value: &Value,
     include_repr: bool,
-) -> Result<(i32, i32), Error> {
+) -> Result<(i32, i32), VmExecutionError> {
     match ty {
         TypeSignature::IntType => {
             let mut buffer: [u8; 8] = [0; 8];
@@ -1163,11 +1162,11 @@ fn write_to_wasm(
             buffer.copy_from_slice(&low.to_le_bytes());
             memory
                 .write(&mut store, offset as usize, &buffer)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             buffer.copy_from_slice(&high.to_le_bytes());
             memory
                 .write(&mut store, (offset + 8) as usize, &buffer)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             Ok((16, 0))
         }
         TypeSignature::UIntType => {
@@ -1178,11 +1177,11 @@ fn write_to_wasm(
             buffer.copy_from_slice(&low.to_le_bytes());
             memory
                 .write(&mut store, offset as usize, &buffer)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             buffer.copy_from_slice(&high.to_le_bytes());
             memory
                 .write(&mut store, (offset + 8) as usize, &buffer)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             Ok((16, 0))
         }
         TypeSignature::SequenceType(SequenceSubtype::BufferType(_length)) => {
@@ -1197,7 +1196,7 @@ fn write_to_wasm(
                     (in_mem_offset + in_mem_written) as usize,
                     &buffdata.data,
                 )
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             in_mem_written += buffdata.data.len() as i32;
 
             if include_repr {
@@ -1206,12 +1205,12 @@ fn write_to_wasm(
                 let offset_buffer = in_mem_offset.to_le_bytes();
                 memory
                     .write(&mut store, (offset) as usize, &offset_buffer)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
                 let len_buffer = in_mem_written.to_le_bytes();
                 memory
                     .write(&mut store, (offset + written) as usize, &len_buffer)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
             }
 
@@ -1226,7 +1225,7 @@ fn write_to_wasm(
                         unreachable!("A string-utf8 type should contain a string-utf8 value")
                     };
                     String::from_utf8(utf8_data.items().iter().flatten().copied().collect())
-                        .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?
+                        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?
                         .chars()
                         .flat_map(|c| (c as u32).to_be_bytes())
                         .collect()
@@ -1242,7 +1241,7 @@ fn write_to_wasm(
                     (in_mem_offset + in_mem_written) as usize,
                     &string,
                 )
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             in_mem_written += string.len() as i32;
 
             if include_repr {
@@ -1251,12 +1250,12 @@ fn write_to_wasm(
                 let offset_buffer = in_mem_offset.to_le_bytes();
                 memory
                     .write(&mut store, (offset) as usize, &offset_buffer)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
                 let len_buffer = in_mem_written.to_le_bytes();
                 memory
                     .write(&mut store, (offset + written) as usize, &len_buffer)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
             }
 
@@ -1295,12 +1294,12 @@ fn write_to_wasm(
                 let offset_buffer = in_mem_offset.to_le_bytes();
                 memory
                     .write(&mut store, (offset) as usize, &offset_buffer)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
                 let len_buffer = val_written.to_le_bytes();
                 memory
                     .write(&mut store, (offset + 4) as usize, &len_buffer)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
             }
 
@@ -1314,7 +1313,7 @@ fn write_to_wasm(
             let indicator_bytes = indicator.to_le_bytes();
             memory
                 .write(&mut store, (offset) as usize, &indicator_bytes)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             written += 4;
 
             if res.committed {
@@ -1356,14 +1355,14 @@ fn write_to_wasm(
             let val_bytes = val.to_le_bytes();
             memory
                 .write(&mut store, (offset) as usize, &val_bytes)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             Ok((4, 0))
         }
         TypeSignature::NoType => {
             let val_bytes = [0u8; 4];
             memory
                 .write(&mut store, (offset) as usize, &val_bytes)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             Ok((4, 0))
         }
         TypeSignature::OptionalType(inner_ty) => {
@@ -1374,7 +1373,7 @@ fn write_to_wasm(
             let indicator_bytes = indicator.to_le_bytes();
             memory
                 .write(&mut store, (offset) as usize, &indicator_bytes)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             written += 4;
             if let Some(inner) = opt_data.data.as_ref() {
                 let (new_written, new_in_mem_written) = write_to_wasm(
@@ -1414,7 +1413,7 @@ fn write_to_wasm(
                     (in_mem_offset + in_mem_written) as usize,
                     &[standard.version()],
                 )
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             in_mem_written += 1;
             memory
                 .write(
@@ -1422,7 +1421,7 @@ fn write_to_wasm(
                     (in_mem_offset + in_mem_written) as usize,
                     &standard.1,
                 )
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             in_mem_written += standard.1.len() as i32;
             if !contract_name.is_empty() {
                 let len_buffer = [contract_name.len() as u8];
@@ -1432,12 +1431,12 @@ fn write_to_wasm(
                         (in_mem_offset + in_mem_written) as usize,
                         &len_buffer,
                     )
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 in_mem_written += 1;
                 let bytes = contract_name.as_bytes();
                 memory
                     .write(&mut store, (in_mem_offset + in_mem_written) as usize, bytes)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 in_mem_written += bytes.len() as i32;
             } else {
                 let len_buffer = [0u8];
@@ -1447,7 +1446,7 @@ fn write_to_wasm(
                         (in_mem_offset + in_mem_written) as usize,
                         &len_buffer,
                     )
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 in_mem_written += 1;
             }
 
@@ -1457,12 +1456,12 @@ fn write_to_wasm(
                 let offset_buffer = in_mem_offset.to_le_bytes();
                 memory
                     .write(&mut store, (offset) as usize, &offset_buffer)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
                 let len_buffer = in_mem_written.to_le_bytes();
                 memory
                     .write(&mut store, (offset + written) as usize, &len_buffer)
-                    .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
                 written += 4;
             }
 
@@ -1477,7 +1476,7 @@ fn write_to_wasm(
                 let val = tuple_data
                     .data_map
                     .get(key)
-                    .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
                 let (new_written, new_in_mem_written) = write_to_wasm(
                     store.as_context_mut(),
                     memory,
@@ -1504,7 +1503,7 @@ fn ensure_memory(
     memory: &Memory,
     store: &mut impl AsContextMut,
     required_bytes: usize,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     // Round up division.
     let required_pages = ((required_bytes + 65535) / 65536) as u64;
     let current_pages = memory.size(store.as_context_mut());
@@ -1513,14 +1512,14 @@ fn ensure_memory(
     if current_pages < required_pages {
         memory
             .grow(store.as_context_mut(), required_pages - current_pages)
-            .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+            .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
     }
     Ok(())
 }
 
 /// Get the number of bytes required to write the given value to memory.
 /// This is used to ensure that the memory has enough space for the arguments.
-fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error> {
+fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, VmExecutionError> {
     match value {
         Value::UInt(_) | Value::Int(_) | Value::Bool(_) => {
             // These types don't require memory allocation
@@ -1528,7 +1527,7 @@ fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error>
         }
         Value::Optional(o) => {
             let TypeSignature::OptionalType(inner_ty) = ty else {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             };
 
             if let Some(inner_value) = o.data.as_ref() {
@@ -1539,7 +1538,7 @@ fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error>
         }
         Value::Response(r) => {
             let TypeSignature::ResponseType(inner_tys) = ty else {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             };
             get_required_bytes(
                 if r.committed {
@@ -1555,7 +1554,7 @@ fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error>
         Value::Sequence(SequenceData::Buffer(b)) => Ok(b.data.len()),
         Value::Sequence(SequenceData::List(l)) => {
             let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             };
             let element_size = get_type_in_memory_size(ltd.get_list_item_type(), true) as usize;
             let total_bytes = element_size * l.data.len();
@@ -1569,18 +1568,18 @@ fn get_required_bytes(ty: &TypeSignature, value: &Value) -> Result<usize, Error>
         }) => Ok(PRINCIPAL_BYTES + 1 + p.name.len() as usize),
         Value::Tuple(TupleData { data_map, .. }) => {
             let TypeSignature::TupleType(tuple_ty) = ty else {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             };
 
             let mut total_bytes = 0;
             for (name, ty) in tuple_ty.get_type_map() {
                 match data_map.get(name) {
                     Some(value) => total_bytes += get_required_bytes(ty, value)?,
-                    None => return Err(Error::Wasm(WasmError::ValueTypeMismatch)),
+                    None => return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch)),
                 }
             }
             if data_map.len() != tuple_ty.get_type_map().len() {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             }
             Ok(total_bytes)
         }
@@ -1598,7 +1597,7 @@ fn pass_argument_to_wasm(
     value: &Value,
     offset: i32,
     in_mem_offset: i32,
-) -> Result<(Vec<Val>, i32, i32), Error> {
+) -> Result<(Vec<Val>, i32, i32), VmExecutionError> {
     match value {
         Value::UInt(n) => {
             let high = (n >> 64) as u64;
@@ -1619,7 +1618,7 @@ fn pass_argument_to_wasm(
         )),
         Value::Optional(o) => {
             let TypeSignature::OptionalType(inner_ty) = ty else {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             };
 
             if let Some(inner_value) = o.data.as_ref() {
@@ -1648,7 +1647,7 @@ fn pass_argument_to_wasm(
         }
         Value::Response(r) => {
             let TypeSignature::ResponseType(inner_tys) = ty else {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             };
             let mut buffer = vec![Val::I32(r.committed as i32)];
             let (value_buffer, new_offset, new_in_mem_offset) = pass_argument_to_wasm(
@@ -1695,7 +1694,7 @@ fn pass_argument_to_wasm(
                     in_mem_offset as usize,
                     s.data.as_slice(),
                 )
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             let adjusted_in_mem_offset = in_mem_offset + s.data.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
@@ -1703,14 +1702,14 @@ fn pass_argument_to_wasm(
             // For a utf8 string, convert the chars to big-endian i32, convert this into a list of
             // bytes, then pass the offset and length to the wasm function
             let bytes: Vec<u8> = String::from_utf8(s.items().iter().flatten().copied().collect())
-                .map_err(|e| Error::Wasm(WasmError::WasmGeneratorError(e.to_string())))?
+                .map_err(|e| VmExecutionError::Wasm(WasmError::WasmGeneratorError(e.to_string())))?
                 .chars()
                 .flat_map(|c| (c as u32).to_be_bytes())
                 .collect();
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
             memory
                 .write(&mut store, in_mem_offset as usize, &bytes)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
@@ -1724,13 +1723,13 @@ fn pass_argument_to_wasm(
                     in_mem_offset as usize,
                     b.data.as_slice(),
                 )
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             let adjusted_in_mem_offset = in_mem_offset + b.data.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Sequence(SequenceData::List(l)) => {
             let TypeSignature::SequenceType(SequenceSubtype::ListType(ltd)) = ty else {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             };
             let mut buffer = vec![Val::I32(offset)];
             let mut written = 0;
@@ -1761,7 +1760,7 @@ fn pass_argument_to_wasm(
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
             memory
                 .write(&mut store, in_mem_offset as usize, &bytes)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
@@ -1784,13 +1783,13 @@ fn pass_argument_to_wasm(
             let buffer = vec![Val::I32(in_mem_offset), Val::I32(bytes.len() as i32)];
             memory
                 .write(&mut store, in_mem_offset as usize, &bytes)
-                .map_err(|e| Error::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToWriteMemory(e.into())))?;
             let adjusted_in_mem_offset = in_mem_offset + bytes.len() as i32;
             Ok((buffer, offset, adjusted_in_mem_offset))
         }
         Value::Tuple(TupleData { data_map, .. }) => {
             let TypeSignature::TupleType(tuple_ty) = ty else {
-                return Err(Error::Wasm(WasmError::ValueTypeMismatch));
+                return Err(VmExecutionError::Wasm(WasmError::ValueTypeMismatch));
             };
 
             let mut buffer = vec![];
@@ -1817,7 +1816,7 @@ pub fn signature_from_string(
     val: &str,
     version: ClarityVersion,
     epoch: StacksEpochId,
-) -> Result<TypeSignature, Error> {
+) -> Result<TypeSignature, VmExecutionError> {
     let expr = build_ast(
         &QualifiedContractIdentifier::transient(),
         val,
@@ -1826,7 +1825,7 @@ pub fn signature_from_string(
         epoch,
     )?
     .expressions;
-    let expr = expr.first().ok_or(CheckErrors::InvalidTypeDescription)?;
+    let expr = expr.first().ok_or(CheckErrorKind::InvalidTypeDescription)?;
     Ok(TypeSignature::parse_type_repr(
         StacksEpochId::latest(),
         expr,
@@ -1841,7 +1840,7 @@ pub fn signature_from_string(
 fn reserve_space_for_return(
     offset: i32,
     return_type: &TypeSignature,
-) -> Result<(Vec<Val>, i32), Error> {
+) -> Result<(Vec<Val>, i32), VmExecutionError> {
     match return_type {
         TypeSignature::UIntType | TypeSignature::IntType => {
             Ok((vec![Val::I64(0), Val::I64(0)], offset))
@@ -1904,15 +1903,15 @@ fn wasm_to_clarity_value(
     memory: Memory,
     store: &mut impl AsContextMut,
     epoch: StacksEpochId,
-) -> Result<(Option<Value>, usize), Error> {
+) -> Result<(Option<Value>, usize), VmExecutionError> {
     match type_sig {
         TypeSignature::IntType => {
             let lower = buffer[value_index]
                 .i64()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let upper = buffer[value_index + 1]
                 .i64()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             Ok((
                 Some(Value::Int(((upper as i128) << 64) | (lower as u64) as i128)),
                 2,
@@ -1921,10 +1920,10 @@ fn wasm_to_clarity_value(
         TypeSignature::UIntType => {
             let lower = buffer[value_index]
                 .i64()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let upper = buffer[value_index + 1]
                 .i64()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             Ok((
                 Some(Value::UInt(
                     ((upper as u128) << 64) | (lower as u64) as u128,
@@ -1936,7 +1935,7 @@ fn wasm_to_clarity_value(
             Some(Value::Bool(
                 buffer[value_index]
                     .i32()
-                    .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?
                     != 0,
             )),
             1,
@@ -1946,7 +1945,7 @@ fn wasm_to_clarity_value(
             Ok((
                 if buffer[value_index]
                     .i32()
-                    .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?
                     == 1
                 {
                     let (value, _) = wasm_to_clarity_value(
@@ -1957,8 +1956,8 @@ fn wasm_to_clarity_value(
                         store,
                         epoch,
                     )?;
-                    Some(Value::some(value.ok_or(Error::Unchecked(
-                        CheckErrors::CouldNotDetermineType,
+                    Some(Value::some(value.ok_or(VmExecutionError::Unchecked(
+                        CheckErrorKind::CouldNotDetermineType,
                     ))?)?)
                 } else {
                     Some(Value::none())
@@ -1973,7 +1972,7 @@ fn wasm_to_clarity_value(
             Ok((
                 if buffer[value_index]
                     .i32()
-                    .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?
                     == 1
                 {
                     let (ok, _) = wasm_to_clarity_value(
@@ -1984,8 +1983,8 @@ fn wasm_to_clarity_value(
                         store,
                         epoch,
                     )?;
-                    Some(Value::okay(ok.ok_or(Error::Unchecked(
-                        CheckErrors::CouldNotDetermineResponseOkType,
+                    Some(Value::okay(ok.ok_or(VmExecutionError::Unchecked(
+                        CheckErrorKind::CouldNotDetermineResponseOkType,
                     ))?)?)
                 } else {
                     let (err, _) = wasm_to_clarity_value(
@@ -1996,8 +1995,8 @@ fn wasm_to_clarity_value(
                         store,
                         epoch,
                     )?;
-                    Some(Value::error(err.ok_or(Error::Unchecked(
-                        CheckErrors::CouldNotDetermineResponseErrType,
+                    Some(Value::error(err.ok_or(VmExecutionError::Unchecked(
+                        CheckErrorKind::CouldNotDetermineResponseErrType,
                     ))?)?)
                 },
                 1 + ok_types.len() + err_types.len(),
@@ -2006,14 +2005,14 @@ fn wasm_to_clarity_value(
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::ASCII(_))) => {
             let offset = buffer[value_index]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let length = buffer[value_index + 1]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let mut string_buffer: Vec<u8> = vec![0; length as usize];
             memory
                 .read(store, offset as usize, &mut string_buffer)
-                .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToReadMemory(e.into())))?;
             Ok((Some(Value::string_ascii_from_bytes(string_buffer)?), 2))
         }
         // A `NoType` will be a dummy value that should not be used.
@@ -2021,14 +2020,14 @@ fn wasm_to_clarity_value(
         TypeSignature::SequenceType(SequenceSubtype::StringType(StringSubtype::UTF8(_))) => {
             let offset = buffer[value_index]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let length = buffer[value_index + 1]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let mut string_buffer: Vec<u8> = vec![0; length as usize];
             memory
                 .read(store, offset as usize, &mut string_buffer)
-                .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToReadMemory(e.into())))?;
             Ok((
                 Some(Value::string_utf8_from_unicode_scalars(string_buffer)?),
                 2,
@@ -2037,23 +2036,23 @@ fn wasm_to_clarity_value(
         TypeSignature::SequenceType(SequenceSubtype::BufferType(_buffer_length)) => {
             let offset = buffer[value_index]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let length = buffer[value_index + 1]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let mut buff: Vec<u8> = vec![0; length as usize];
             memory
                 .read(store, offset as usize, &mut buff)
-                .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToReadMemory(e.into())))?;
             Ok((Some(Value::buff_from(buff)?), 2))
         }
         TypeSignature::SequenceType(SequenceSubtype::ListType(_)) => {
             let offset = buffer[value_index]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let length = buffer[value_index + 1]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
 
             let value = read_from_wasm(memory, store, type_sig, offset, length, epoch)?;
             Ok((Some(value), 2))
@@ -2063,7 +2062,7 @@ fn wasm_to_clarity_value(
         | TypeSignature::TraitReferenceType(_) => {
             let offset = buffer[value_index]
                 .i32()
-                .ok_or(Error::Wasm(WasmError::ValueTypeMismatch))?;
+                .ok_or(VmExecutionError::Wasm(WasmError::ValueTypeMismatch))?;
             let mut principal_bytes: [u8; 1 + PRINCIPAL_HASH_BYTES] = [0; 1 + PRINCIPAL_HASH_BYTES];
             memory
                 .read(
@@ -2071,15 +2070,15 @@ fn wasm_to_clarity_value(
                     offset as usize,
                     &mut principal_bytes,
                 )
-                .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToReadMemory(e.into())))?;
             let mut buffer: [u8; CONTRACT_NAME_LENGTH_BYTES] = [0; CONTRACT_NAME_LENGTH_BYTES];
             memory
                 .read(store.as_context_mut(), offset as usize + 21, &mut buffer)
-                .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
+                .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToReadMemory(e.into())))?;
             let standard = StandardPrincipalData::new(
                 principal_bytes[0],
                 principal_bytes[1..].try_into().map_err(|_| {
-                    Error::Wasm(WasmError::WasmGeneratorError(
+                    VmExecutionError::Wasm(WasmError::WasmGeneratorError(
                         "Could not decode principal".into(),
                     ))
                 })?,
@@ -2095,12 +2094,12 @@ fn wasm_to_clarity_value(
                         (offset + STANDARD_PRINCIPAL_BYTES as i32) as usize,
                         &mut contract_name,
                     )
-                    .map_err(|e| Error::Wasm(WasmError::UnableToReadMemory(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToReadMemory(e.into())))?;
                 let qualified_id = QualifiedContractIdentifier {
                     issuer: standard,
                     name: ContractName::try_from(
                         String::from_utf8(contract_name)
-                            .map_err(|e| Error::Wasm(WasmError::UnableToReadIdentifier(e)))?,
+                            .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToReadIdentifier(e)))?,
                     )?,
                 };
                 Ok((
@@ -2130,7 +2129,7 @@ fn wasm_to_clarity_value(
                 data_map.push((
                     name.clone(),
                     value.ok_or_else(|| {
-                        Error::Unchecked(CheckErrors::BadTupleConstruction(format!(
+                        VmExecutionError::Unchecked(CheckErrorKind::BadTupleConstruction(format!(
                             "Failed to convert Wasm value into Clarity value for field `{}`",
                             name.to_owned()
                         )))
@@ -2142,13 +2141,13 @@ fn wasm_to_clarity_value(
             Ok((Some(tuple.into()), index - value_index))
         }
         TypeSignature::ListUnionType(_subtypes) => {
-            Err(Error::Wasm(WasmError::InvalidListUnionTypeInValue))
+            Err(VmExecutionError::Wasm(WasmError::InvalidListUnionTypeInValue))
         }
     }
 }
 
 /// Link the host interface functions for into the Wasm module.
-fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     link_define_function_fn(linker)?;
     link_define_variable_fn(linker)?;
     link_define_ft_fn(linker)?;
@@ -2234,7 +2233,7 @@ fn link_host_functions(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
 
 /// Link host interface function, `define_variable`, into the Wasm module.
 /// This function is called for all variable definitions (`define-data-var`).
-fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2251,7 +2250,7 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -2263,9 +2262,9 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                 let value_type = caller
                     .data()
                     .contract_analysis
-                    .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::DefineFunctionCalledInRunMode))?
                     .get_persisted_variable_type(name.as_str())
-                    .ok_or(Error::Unchecked(CheckErrors::DefineVariableBadSignature))?
+                    .ok_or(VmExecutionError::Unchecked(CheckErrorKind::DefineVariableBadSignature))?
                     .clone();
 
                 let contract = caller.data().contract_context().contract_identifier.clone();
@@ -2295,14 +2294,14 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                     .global_context
                     .cost_track
                     .add_memory(value_type.type_size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 caller
                     .data_mut()
                     .global_context
                     .cost_track
                     .add_memory(value.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 // Create the variable in the global context
                 let data_types = caller.data_mut().global_context.database.create_variable(
@@ -2332,14 +2331,14 @@ fn link_define_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_variable".to_string(),
                 e,
             ))
         })
 }
 
-fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2356,7 +2355,7 @@ fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier = caller
                     .data_mut()
@@ -2390,7 +2389,7 @@ fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
                             .expect("type size should be realizable")
                             as u64,
                     )
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 let data_type = caller
                     .data_mut()
                     .global_context
@@ -2408,14 +2407,14 @@ fn link_define_ft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_ft".to_string(),
                 e,
             ))
         })
 }
 
-fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2427,7 +2426,7 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier = caller
                     .data_mut()
@@ -2443,10 +2442,10 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                 let asset_type = caller
                     .data()
                     .contract_analysis
-                    .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::DefineFunctionCalledInRunMode))?
                     .non_fungible_tokens
                     .get(&cname)
-                    .ok_or(Error::Unchecked(CheckErrors::DefineNFTBadSignature))?;
+                    .ok_or(VmExecutionError::Unchecked(CheckErrorKind::DefineNFTBadSignature))?;
 
                 caller
                     .data_mut()
@@ -2464,7 +2463,7 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                             .expect("type size should be realizable")
                             as u64,
                     )
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 let data_type = caller
                     .data_mut()
@@ -2483,14 +2482,14 @@ fn link_define_nft_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_nft".to_string(),
                 e,
             ))
         })
 }
 
-fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2506,7 +2505,7 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier = caller
                     .data_mut()
@@ -2521,9 +2520,9 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                 let (key_type, value_type) = caller
                     .data()
                     .contract_analysis
-                    .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::DefineFunctionCalledInRunMode))?
                     .get_map_type(&name)
-                    .ok_or(Error::Unchecked(CheckErrors::BadMapTypeDefinition))?;
+                    .ok_or(VmExecutionError::Unchecked(CheckErrorKind::BadMapTypeDefinition))?;
 
                 caller
                     .data_mut()
@@ -2541,7 +2540,7 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                             .expect("type size should be realizable")
                             as u64,
                     )
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
@@ -2552,7 +2551,7 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                             .expect("type size should be realizable")
                             as u64,
                     )
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 let data_type = caller.data_mut().global_context.database.create_map(
                     &contract_identifier,
@@ -2572,7 +2571,7 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_map".to_string(),
                 e,
             ))
@@ -2581,7 +2580,7 @@ fn link_define_map_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
 
 /// Link host interface function, `define_function`, into the Wasm module.
 /// This function is called for all function definitions.
-fn link_define_function_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_define_function_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2594,7 +2593,7 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Read the variable name string from the memory
                 let function_name =
@@ -2608,9 +2607,9 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                         caller
                             .data()
                             .contract_analysis
-                            .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                            .ok_or(VmExecutionError::Wasm(WasmError::DefineFunctionCalledInRunMode))?
                             .get_read_only_function_type(&function_name)
-                            .ok_or(Error::Unchecked(CheckErrors::UnknownFunction(
+                            .ok_or(VmExecutionError::Unchecked(CheckErrorKind::UnknownFunction(
                                 function_name.clone(),
                             )))?,
                     ),
@@ -2619,9 +2618,9 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                         caller
                             .data()
                             .contract_analysis
-                            .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                            .ok_or(VmExecutionError::Wasm(WasmError::DefineFunctionCalledInRunMode))?
                             .get_public_function_type(&function_name)
-                            .ok_or(Error::Unchecked(CheckErrors::UnknownFunction(
+                            .ok_or(VmExecutionError::Unchecked(CheckErrorKind::UnknownFunction(
                                 function_name.clone(),
                             )))?,
                     ),
@@ -2630,18 +2629,18 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                         caller
                             .data()
                             .contract_analysis
-                            .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                            .ok_or(VmExecutionError::Wasm(WasmError::DefineFunctionCalledInRunMode))?
                             .get_private_function(&function_name)
-                            .ok_or(Error::Unchecked(CheckErrors::UnknownFunction(
+                            .ok_or(VmExecutionError::Unchecked(CheckErrorKind::UnknownFunction(
                                 function_name.clone(),
                             )))?,
                     ),
-                    _ => Err(Error::Wasm(WasmError::InvalidFunctionKind(kind)))?,
+                    _ => Err(VmExecutionError::Wasm(WasmError::InvalidFunctionKind(kind)))?,
                 };
 
                 let fixed_type = match function_type {
                     FunctionType::Fixed(fixed_type) => fixed_type,
-                    _ => Err(Error::Unchecked(CheckErrors::DefineFunctionBadSignature))?,
+                    _ => Err(VmExecutionError::Unchecked(CheckErrorKind::DefineFunctionBadSignature))?,
                 };
 
                 let function = DefinedFunction::new(
@@ -2676,14 +2675,14 @@ fn link_define_function_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_function".to_string(),
                 e,
             ))
         })
 }
 
-fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2693,7 +2692,7 @@ fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let name =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -2702,9 +2701,9 @@ fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let trait_def = caller
                     .data()
                     .contract_analysis
-                    .ok_or(Error::Wasm(WasmError::DefineFunctionCalledInRunMode))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::DefineFunctionCalledInRunMode))?
                     .get_defined_trait(name.as_str())
-                    .ok_or(Error::Unchecked(CheckErrors::DefineTraitBadSignature))?;
+                    .ok_or(VmExecutionError::Unchecked(CheckErrorKind::DefineTraitBadSignature))?;
 
                 caller
                     .data_mut()
@@ -2717,14 +2716,14 @@ fn link_define_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_map".to_string(),
                 e,
             ))
         })
 }
 
-fn link_impl_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_impl_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2734,7 +2733,7 @@ fn link_impl_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let trait_id_string =
                     read_identifier_from_wasm(memory, &mut caller, name_offset, name_length)?;
@@ -2751,7 +2750,7 @@ fn link_impl_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "define_map".to_string(),
                 e,
             ))
@@ -2760,7 +2759,7 @@ fn link_impl_trait_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
 
 /// Link host interface function, `get_variable`, into the Wasm module.
 /// This function is called for all variable lookups (`var-get`).
-fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2774,7 +2773,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Retrieve the variable name for this identifier
                 let var_name =
@@ -2789,7 +2788,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .contract_context()
                     .meta_data_var
                     .get(var_name.as_str())
-                    .ok_or(CheckErrors::NoSuchDataVariable(var_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchDataVariable(var_name.to_string()))?
                     .clone();
 
                 let result = caller
@@ -2810,7 +2809,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 write_to_wasm(
                     &mut caller,
@@ -2827,7 +2826,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_variable".to_string(),
                 e,
             ))
@@ -2836,7 +2835,7 @@ fn link_get_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
 
 /// Link host interface function, `set_variable`, into the Wasm module.
 /// This function is called for all variable assignments (`var-set`).
-fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2850,7 +2849,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -2865,7 +2864,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .contract_context()
                     .meta_data_var
                     .get(var_name.as_str())
-                    .ok_or(Error::Unchecked(CheckErrors::NoSuchDataVariable(
+                    .ok_or(VmExecutionError::Unchecked(CheckErrorKind::NoSuchDataVariable(
                         var_name.to_string(),
                     )))?
                     .clone();
@@ -2900,14 +2899,14 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .global_context
                     .database
                     .set_variable(&contract, var_name.as_str(), value, &data_types, &epoch)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 Ok(())
             },
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "set_variable".to_string(),
                 e,
             ))
@@ -2916,7 +2915,7 @@ fn link_set_variable_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
 
 /// Link host interface function, `tx_sender`, into the Wasm module.
 /// This function is called for use of the builtin variable, `tx-sender`.
-fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2924,15 +2923,15 @@ fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
             |mut caller: Caller<'_, ClarityWasmContext>,
              return_offset: i32,
              _return_length: i32| {
-                let sender = caller.data().sender.clone().ok_or(Error::Runtime(
-                    RuntimeErrorType::NoSenderInContext.into(),
+                let sender = caller.data().sender.clone().ok_or(VmExecutionError::Runtime(
+                    RuntimeError::NoSenderInContext.into(),
                     None,
                 ))?;
 
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let (_, bytes_written) = write_to_wasm(
                     &mut caller,
@@ -2949,7 +2948,7 @@ fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "tx_sender".to_string(),
                 e,
             ))
@@ -2958,7 +2957,7 @@ fn link_tx_sender_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
 
 /// Link host interface function, `contract_caller`, into the Wasm module.
 /// This function is called for use of the builtin variable, `contract-caller`.
-fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -2966,15 +2965,15 @@ fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
             |mut caller: Caller<'_, ClarityWasmContext>,
              return_offset: i32,
              _return_length: i32| {
-                let contract_caller = caller.data().caller.clone().ok_or(Error::Runtime(
-                    RuntimeErrorType::NoCallerInContext.into(),
+                let contract_caller = caller.data().caller.clone().ok_or(VmExecutionError::Runtime(
+                    RuntimeError::NoCallerInContext.into(),
                     None,
                 ))?;
 
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let (_, bytes_written) = write_to_wasm(
                     &mut caller,
@@ -2991,7 +2990,7 @@ fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "contract_caller".to_string(),
                 e,
             ))
@@ -3000,7 +2999,7 @@ fn link_contract_caller_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
 
 /// Link host interface function, `tx_sponsor`, into the Wasm module.
 /// This function is called for use of the builtin variable, `tx-sponsor`.
-fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3013,7 +3012,7 @@ fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     let memory = caller
                         .get_export("memory")
                         .and_then(|export| export.into_memory())
-                        .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                        .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                     let (_, bytes_written) = write_to_wasm(
                         &mut caller,
@@ -3033,7 +3032,7 @@ fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "tx_sponsor".to_string(),
                 e,
             ))
@@ -3042,7 +3041,7 @@ fn link_tx_sponsor_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
 
 /// Link host interface function, `block_height`, into the Wasm module.
 /// This function is called for use of the builtin variable, `block-height`.
-fn link_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3058,7 +3057,7 @@ fn link_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "block_height".to_string(),
                 e,
             ))
@@ -3067,7 +3066,7 @@ fn link_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
 
 /// Link host interface function, `stacks_block_height`, into the Wasm module.
 /// This function is called for use of the builtin variable, `stacks_block-height`.
-fn link_stacks_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_stacks_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3083,7 +3082,7 @@ fn link_stacks_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "stacks_block_height".to_string(),
                 e,
             ))
@@ -3092,7 +3091,7 @@ fn link_stacks_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Resul
 
 /// Link host interface function, `tenure_height`, into the Wasm module.
 /// This function is called for use of the builtin variable, `tenure-height`.
-fn link_tenure_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_tenure_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3108,7 +3107,7 @@ fn link_tenure_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "tenure_height".to_string(),
                 e,
             ))
@@ -3118,7 +3117,7 @@ fn link_tenure_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 /// Link host interface function, `burn_block_height`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `burn-block-height`.
-fn link_burn_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_burn_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3134,7 +3133,7 @@ fn link_burn_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "burn_block_height".to_string(),
                 e,
             ))
@@ -3144,7 +3143,7 @@ fn link_burn_block_height_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
 /// Link host interface function, `stx_liquid_supply`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `stx-liquid-supply`.
-fn link_stx_liquid_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_stx_liquid_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3162,7 +3161,7 @@ fn link_stx_liquid_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "stx_liquid_supply".to_string(),
                 e,
             ))
@@ -3172,7 +3171,7 @@ fn link_stx_liquid_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
 /// Link host interface function, `is_in_regtest`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `is-in-regtest`.
-fn link_is_in_regtest_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_is_in_regtest_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3187,7 +3186,7 @@ fn link_is_in_regtest_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "is_in_regtest".to_string(),
                 e,
             ))
@@ -3197,7 +3196,7 @@ fn link_is_in_regtest_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 /// Link host interface function, `is_in_mainnet`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `is-in-mainnet`.
-fn link_is_in_mainnet_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_is_in_mainnet_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3212,7 +3211,7 @@ fn link_is_in_mainnet_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "is_in_mainnet".to_string(),
                 e,
             ))
@@ -3222,7 +3221,7 @@ fn link_is_in_mainnet_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 /// Link host interface function, `chain_id`, into the Wasm module.
 /// This function is called for use of the builtin variable,
 /// `chain-id`.
-fn link_chain_id_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_chain_id_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3234,7 +3233,7 @@ fn link_chain_id_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "chain_id".to_string(),
                 e,
             ))
@@ -3244,7 +3243,7 @@ fn link_chain_id_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
 /// Link host interface function, `enter_as_contract`, into the Wasm module.
 /// This function is called before processing the inner-expression of
 /// `as-contract`.
-fn link_enter_as_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_enter_as_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3262,7 +3261,7 @@ fn link_enter_as_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "enter_as_contract".to_string(),
                 e,
             ))
@@ -3272,7 +3271,7 @@ fn link_enter_as_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
 /// Link host interface function, `exit_as_contract`, into the Wasm module.
 /// This function is after before processing the inner-expression of
 /// `as-contract`, and is used to restore the caller and sender.
-fn link_exit_as_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_exit_as_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3285,7 +3284,7 @@ fn link_exit_as_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "exit_as_contract".to_string(),
                 e,
             ))
@@ -3294,7 +3293,7 @@ fn link_exit_as_contract_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
 
 /// Link host interface function, `stx_get_balance`, into the Wasm module.
 /// This function is called for the clarity expression, `stx-get-balance`.
-fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3306,7 +3305,7 @@ fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -3336,7 +3335,7 @@ fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "stx_get_balance".to_string(),
                 e,
             ))
@@ -3345,7 +3344,7 @@ fn link_stx_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<()
 
 /// Link host interface function, `stx_account`, into the Wasm module.
 /// This function is called for the clarity expression, `stx-account`.
-fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3357,7 +3356,7 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -3418,14 +3417,14 @@ fn link_stx_account_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "stx_account".to_string(),
                 e,
             ))
         })
 }
 
-fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3441,7 +3440,7 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -3474,13 +3473,13 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     .global_context
                     .cost_track
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .cost_track
                     .add_memory(STXBalance::unlocked_and_v1_size as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 let mut burner_snapshot = caller
                     .data_mut()
@@ -3514,14 +3513,14 @@ fn link_stx_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "stx_burn".to_string(),
                 e,
             ))
         })
 }
 
-fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3541,7 +3540,7 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -3607,13 +3606,13 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .global_context
                     .cost_track
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .cost_track
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 // loading sender's locked amount and height
                 // TODO: this does not count the inner stacks block header load, but arguably,
                 // this could be optimized away, so it shouldn't penalize the caller.
@@ -3621,12 +3620,12 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .data_mut()
                     .global_context
                     .add_memory(STXBalance::unlocked_and_v1_size as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .add_memory(STXBalance::unlocked_and_v1_size as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 let mut sender_snapshot = caller
                     .data_mut()
@@ -3656,14 +3655,14 @@ fn link_stx_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "stx_transfer".to_string(),
                 e,
             ))
         })
 }
 
-fn link_ft_get_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_ft_get_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3678,7 +3677,7 @@ fn link_ft_get_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Retrieve the token name
                 let token_name =
@@ -3697,14 +3696,14 @@ fn link_ft_get_supply_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_get_supply".to_string(),
                 e,
             ))
         })
 }
 
-fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3720,7 +3719,7 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Retrieve the token name
                 let name =
@@ -3747,7 +3746,7 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                     .contract_context()
                     .meta_ft
                     .get(&token_name)
-                    .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchFT(token_name.to_string()))?
                     .clone();
 
                 let balance = caller.data_mut().global_context.database.get_ft_balance(
@@ -3764,14 +3763,14 @@ fn link_ft_get_balance_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_get_balance".to_string(),
                 e,
             ))
         })
 }
 
-fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3789,7 +3788,7 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
@@ -3873,13 +3872,13 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     .global_context
                     .cost_track
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .cost_track
                     .add_memory(TypeSignature::UIntType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 caller.data_mut().global_context.log_token_transfer(
                     burner,
@@ -3894,14 +3893,14 @@ fn link_ft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_burn".to_string(),
                 e,
             ))
         })
 }
 
-fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -3919,7 +3918,7 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
@@ -3958,7 +3957,7 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     .contract_context()
                     .meta_ft
                     .get(token_name.as_str())
-                    .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchFT(token_name.to_string()))?
                     .clone();
 
                 caller
@@ -3983,20 +3982,20 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 // would have failed if the addition would have overflowed.
                 let final_to_bal = to_bal
                     .checked_add(amount)
-                    .ok_or(Error::Runtime(RuntimeErrorType::ArithmeticOverflow, None))?;
+                    .ok_or(VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, None))?;
 
                 caller
                     .data_mut()
                     .global_context
                     .cost_track
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .cost_track
                     .add_memory(TypeSignature::UIntType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 caller.data_mut().global_context.database.set_ft_balance(
                     &contract_identifier,
@@ -4021,14 +4020,14 @@ fn link_ft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_mint".to_string(),
                 e,
             ))
         })
 }
 
-fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -4048,7 +4047,7 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
@@ -4108,7 +4107,7 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
                     .contract_context()
                     .meta_ft
                     .get(&token_name)
-                    .ok_or(CheckErrors::NoSuchFT(token_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchFT(token_name.to_string()))?
                     .clone();
 
                 let from_bal = caller.data_mut().global_context.database.get_ft_balance(
@@ -4138,28 +4137,28 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
 
                 let final_to_bal = to_bal
                     .checked_add(amount)
-                    .ok_or(RuntimeErrorType::ArithmeticOverflow)?;
+                    .ok_or(RuntimeError::ArithmeticOverflow)?;
 
                 caller
                     .data_mut()
                     .global_context
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .add_memory(TypeSignature::UIntType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .add_memory(TypeSignature::UIntType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 caller.data_mut().global_context.database.set_ft_balance(
                     &contract_identifier,
@@ -4198,14 +4197,14 @@ fn link_ft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "ft_transfer".to_string(),
                 e,
             ))
         })
 }
 
-fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -4221,7 +4220,7 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
@@ -4237,7 +4236,7 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .contract_context()
                     .meta_nft
                     .get(&asset_name)
-                    .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?
                     .clone();
 
                 let expected_asset_type = &nft_metadata.key_type;
@@ -4261,7 +4260,7 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 // runtime_cost(ClarityCostFunction::NftOwner, env, asset_size)?;
 
                 if !expected_asset_type.admits(&caller.data().global_context.epoch_id, &asset)? {
-                    return Err(CheckErrors::TypeValueError(
+                    return Err(CheckErrorKind::TypeValueError(
                         Box::new(expected_asset_type.clone()),
                         Box::new(asset),
                     )
@@ -4279,7 +4278,7 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                         let memory = caller
                             .get_export("memory")
                             .and_then(|export| export.into_memory())
-                            .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                            .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                         let (_, bytes_written) = write_to_wasm(
                             caller,
@@ -4293,21 +4292,21 @@ fn link_nft_get_owner_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 
                         Ok((1i32, return_offset, bytes_written))
                     }
-                    Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok((0i32, 0i32, 0i32)),
+                    Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => Ok((0i32, 0i32, 0i32)),
                     Err(e) => Err(e)?,
                 }
             },
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "nft_get_owner".to_string(),
                 e,
             ))
         })
 }
 
-fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -4323,7 +4322,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
@@ -4340,7 +4339,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     .contract_context()
                     .meta_nft
                     .get(&asset_name)
-                    .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?
                     .clone();
 
                 let expected_asset_type = &nft_metadata.key_type;
@@ -4375,7 +4374,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 // runtime_cost(ClarityCostFunction::NftBurn, env, asset_size)?;
 
                 if !expected_asset_type.admits(&caller.data().global_context.epoch_id, &asset)? {
-                    return Err(CheckErrors::TypeValueError(
+                    return Err(CheckErrorKind::TypeValueError(
                         Box::new(expected_asset_type.clone()),
                         Box::new(asset),
                     )
@@ -4388,7 +4387,7 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     &asset,
                     expected_asset_type,
                 ) {
-                    Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+                    Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
                         return Ok((0i32, 0i32, BurnAssetErrorCodes::DOES_NOT_EXIST as i64, 0i64));
                     }
                     Ok(owner) => Ok(owner),
@@ -4403,12 +4402,12 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     .data_mut()
                     .global_context
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .add_memory(asset_size)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 caller.data_mut().global_context.database.burn_nft(
                     &contract_identifier,
@@ -4441,14 +4440,14 @@ fn link_nft_burn_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "nft_burn".to_string(),
                 e,
             ))
         })
 }
 
-fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -4464,7 +4463,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
@@ -4481,7 +4480,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     .contract_context()
                     .meta_nft
                     .get(&asset_name)
-                    .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?
                     .clone();
 
                 let expected_asset_type = &nft_metadata.key_type;
@@ -4515,7 +4514,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                 // runtime_cost(ClarityCostFunction::NftMint, env, asset_size)?;
 
                 if !expected_asset_type.admits(&caller.data().global_context.epoch_id, &asset)? {
-                    return Err(CheckErrors::TypeValueError(
+                    return Err(CheckErrorKind::TypeValueError(
                         Box::new(expected_asset_type.clone()),
                         Box::new(asset),
                     )
@@ -4528,7 +4527,7 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     &asset,
                     expected_asset_type,
                 ) {
-                    Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => Ok(()),
+                    Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => Ok(()),
                     Ok(_owner) => {
                         return Ok((0i32, 0i32, MintAssetErrorCodes::ALREADY_EXIST as i64, 0i64))
                     }
@@ -4539,12 +4538,12 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
                     .data_mut()
                     .global_context
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .add_memory(asset_size)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 caller.data_mut().global_context.database.set_nft_owner(
                     &contract_identifier,
@@ -4571,14 +4570,14 @@ fn link_nft_mint_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "nft_mint".to_string(),
                 e,
             ))
         })
 }
 
-fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -4596,7 +4595,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let contract_identifier =
                     caller.data().contract_context().contract_identifier.clone();
@@ -4613,7 +4612,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .contract_context()
                     .meta_nft
                     .get(&asset_name)
-                    .ok_or(CheckErrors::NoSuchNFT(asset_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchNFT(asset_name.to_string()))?
                     .clone();
 
                 let expected_asset_type = &nft_metadata.key_type;
@@ -4658,7 +4657,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 // runtime_cost(ClarityCostFunction::NftTransfer, env, asset_size)?;
 
                 if !expected_asset_type.admits(&caller.data().global_context.epoch_id, &asset)? {
-                    return Err(CheckErrors::TypeValueError(
+                    return Err(CheckErrorKind::TypeValueError(
                         Box::new(expected_asset_type.clone()),
                         Box::new(asset),
                     )
@@ -4681,7 +4680,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     expected_asset_type,
                 ) {
                     Ok(owner) => Ok(owner),
-                    Err(Error::Runtime(RuntimeErrorType::NoSuchToken, _)) => {
+                    Err(VmExecutionError::Runtime(RuntimeError::NoSuchToken, _)) => {
                         return Ok((
                             0i32,
                             0i32,
@@ -4705,12 +4704,12 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                     .data_mut()
                     .global_context
                     .add_memory(TypeSignature::PrincipalType.size()? as u64)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
                 caller
                     .data_mut()
                     .global_context
                     .add_memory(asset_size)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 caller.data_mut().global_context.database.set_nft_owner(
                     &contract_identifier,
@@ -4745,7 +4744,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "nft_transfer".to_string(),
                 e,
             ))
@@ -4754,7 +4753,7 @@ fn link_nft_transfer_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
 
 /// Link host interface function, `map_get`, into the Wasm module.
 /// This function is called for the `map-get?` expression.
-fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -4770,7 +4769,7 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Retrieve the map name
                 let map_name =
@@ -4785,7 +4784,7 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     .contract_context()
                     .meta_data_map
                     .get(map_name.as_str())
-                    .ok_or(CheckErrors::NoSuchMap(map_name.to_string()))?
+                    .ok_or(CheckErrorKind::NoSuchMap(map_name.to_string()))?
                     .clone();
 
                 // Read in the key from the Wasm memory
@@ -4820,7 +4819,7 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let ty = TypeSignature::OptionalType(Box::new(data_types.value_type));
                 write_to_wasm(
@@ -4838,7 +4837,7 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "map_get".to_string(),
                 e,
             ))
@@ -4847,7 +4846,7 @@ fn link_map_get_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
 
 /// Link host interface function, `map_set`, into the Wasm module.
 /// This function is called for the `map-set` expression.
-fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -4860,14 +4859,14 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
              mut value_offset: i32,
              mut value_length: i32| {
                 if caller.data().global_context.is_read_only() {
-                    return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                    return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
                 }
 
                 // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -4882,7 +4881,7 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     .contract_context()
                     .meta_data_map
                     .get(map_name.as_str())
-                    .ok_or(Error::Unchecked(CheckErrors::NoSuchMap(
+                    .ok_or(VmExecutionError::Unchecked(CheckErrorKind::NoSuchMap(
                         map_name.to_string(),
                     )))?
                     .clone();
@@ -4936,7 +4935,7 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
                     .data_mut()
                     .global_context
                     .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 let value = result.map(|data| data.value)?;
                 if let Value::Bool(true) = value {
@@ -4948,7 +4947,7 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "map_set".to_string(),
                 e,
             ))
@@ -4957,7 +4956,7 @@ fn link_map_set_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error>
 
 /// Link host interface function, `map_insert`, into the Wasm module.
 /// This function is called for the `map-insert` expression.
-fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -4970,14 +4969,14 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
              mut value_offset: i32,
              mut value_length: i32| {
                 if caller.data().global_context.is_read_only() {
-                    return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                    return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
                 }
 
                 // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -4992,7 +4991,7 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     .contract_context()
                     .meta_data_map
                     .get(map_name.as_str())
-                    .ok_or(Error::Unchecked(CheckErrors::NoSuchMap(
+                    .ok_or(VmExecutionError::Unchecked(CheckErrorKind::NoSuchMap(
                         map_name.to_string(),
                     )))?
                     .clone();
@@ -5046,7 +5045,7 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     .data_mut()
                     .global_context
                     .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 let value = result.map(|data| data.value)?;
                 if let Value::Bool(true) = value {
@@ -5058,7 +5057,7 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "map_insert".to_string(),
                 e,
             ))
@@ -5067,7 +5066,7 @@ fn link_map_insert_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
 
 /// Link host interface function, `map_delete`, into the Wasm module.
 /// This function is called for the `map-delete` expression.
-fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5078,14 +5077,14 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
              mut key_offset: i32,
              mut key_length: i32| {
                 if caller.data().global_context.is_read_only() {
-                    return Err(CheckErrors::WriteAttemptedInReadOnly.into());
+                    return Err(CheckErrorKind::WriteAttemptedInReadOnly.into());
                 }
 
                 // Get the memory from the caller
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Retrieve the map name
                 let map_name =
@@ -5099,7 +5098,7 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     .contract_context()
                     .meta_data_map
                     .get(map_name.as_str())
-                    .ok_or(Error::Unchecked(CheckErrors::NoSuchMap(
+                    .ok_or(VmExecutionError::Unchecked(CheckErrorKind::NoSuchMap(
                         map_name.to_string(),
                     )))?
                     .clone();
@@ -5138,7 +5137,7 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                     .data_mut()
                     .global_context
                     .add_memory(result_size)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 let value = result.map(|data| data.value)?;
                 if let Value::Bool(true) = value {
@@ -5150,7 +5149,7 @@ fn link_map_delete_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "map_delete".to_string(),
                 e,
             ))
@@ -5163,7 +5162,7 @@ fn check_height_valid(
     height_lo: i64,
     height_hi: i64,
     return_offset: i32,
-) -> Result<Option<u32>, Error> {
+) -> Result<Option<u32>, VmExecutionError> {
     let height = (height_hi as u128) << 64 | ((height_lo as u64) as u128);
 
     let height_value = match u32::try_from(height) {
@@ -5208,7 +5207,7 @@ fn check_height_valid(
 /// This function is called for the `get-block-info? time` expression.
 fn link_get_block_info_time_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5221,7 +5220,7 @@ fn link_get_block_info_time_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5249,7 +5248,7 @@ fn link_get_block_info_time_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_time_property".to_string(),
                 e,
             ))
@@ -5260,7 +5259,7 @@ fn link_get_block_info_time_property_fn(
 /// This function is called for the `get-block-info? vrf-seed` expression.
 fn link_get_block_info_vrf_seed_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5273,7 +5272,7 @@ fn link_get_block_info_vrf_seed_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5308,7 +5307,7 @@ fn link_get_block_info_vrf_seed_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_vrf_seed_property".to_string(),
                 e,
             ))
@@ -5319,7 +5318,7 @@ fn link_get_block_info_vrf_seed_property_fn(
 /// This function is called for the `get-block-info? header-hash` expression.
 fn link_get_block_info_header_hash_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5332,7 +5331,7 @@ fn link_get_block_info_header_hash_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5367,7 +5366,7 @@ fn link_get_block_info_header_hash_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_header_hash_property".to_string(),
                 e,
             ))
@@ -5378,7 +5377,7 @@ fn link_get_block_info_header_hash_property_fn(
 /// This function is called for the `get-block-info? burnchain-header-hash` expression.
 fn link_get_block_info_burnchain_header_hash_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5391,7 +5390,7 @@ fn link_get_block_info_burnchain_header_hash_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5426,7 +5425,7 @@ fn link_get_block_info_burnchain_header_hash_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_burnchain_header_hash_property".to_string(),
                 e,
             ))
@@ -5437,7 +5436,7 @@ fn link_get_block_info_burnchain_header_hash_property_fn(
 /// This function is called for the `get-block-info? id-header-hash` expression.
 fn link_get_block_info_identity_header_hash_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5450,7 +5449,7 @@ fn link_get_block_info_identity_header_hash_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5485,7 +5484,7 @@ fn link_get_block_info_identity_header_hash_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_identity_header_hash_property".to_string(),
                 e,
             ))
@@ -5496,7 +5495,7 @@ fn link_get_block_info_identity_header_hash_property_fn(
 /// This function is called for the `get-block-info? miner-address` expression.
 fn link_get_block_info_miner_address_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5509,7 +5508,7 @@ fn link_get_block_info_miner_address_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5538,7 +5537,7 @@ fn link_get_block_info_miner_address_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_miner_address_property".to_string(),
                 e,
             ))
@@ -5549,7 +5548,7 @@ fn link_get_block_info_miner_address_property_fn(
 /// This function is called for the `get-block-info? miner-spend-winner` expression.
 fn link_get_block_info_miner_spend_winner_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5562,7 +5561,7 @@ fn link_get_block_info_miner_spend_winner_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5590,7 +5589,7 @@ fn link_get_block_info_miner_spend_winner_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_miner_spend_winner_property".to_string(),
                 e,
             ))
@@ -5601,7 +5600,7 @@ fn link_get_block_info_miner_spend_winner_property_fn(
 /// This function is called for the `get-block-info? miner-spend-total` expression.
 fn link_get_block_info_miner_spend_total_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5614,7 +5613,7 @@ fn link_get_block_info_miner_spend_total_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5642,7 +5641,7 @@ fn link_get_block_info_miner_spend_total_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_miner_spend_total_property".to_string(),
                 e,
             ))
@@ -5653,7 +5652,7 @@ fn link_get_block_info_miner_spend_total_property_fn(
 /// This function is called for the `get-block-info? block-reward` expression.
 fn link_get_block_info_block_reward_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5666,7 +5665,7 @@ fn link_get_block_info_block_reward_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -5712,7 +5711,7 @@ fn link_get_block_info_block_reward_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_block_info_block_reward_property".to_string(),
                 e,
             ))
@@ -5723,7 +5722,7 @@ fn link_get_block_info_block_reward_property_fn(
 /// This function is called for the `get-burn-block-info? header-hash` expression.
 fn link_get_burn_block_info_header_hash_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5736,7 +5735,7 @@ fn link_get_burn_block_info_header_hash_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
                 let height = (height_hi as u128) << 64 | ((height_lo as u64) as u128);
 
                 // Note: we assume that we will not have a height bigger than u32::MAX.
@@ -5787,7 +5786,7 @@ fn link_get_burn_block_info_header_hash_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_burn_block_info_header_hash_property".to_string(),
                 e,
             ))
@@ -5798,7 +5797,7 @@ fn link_get_burn_block_info_header_hash_property_fn(
 /// This function is called for the `get-burn-block-info? pox-addrs` expression.
 fn link_get_burn_block_info_pox_addrs_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5811,7 +5810,7 @@ fn link_get_burn_block_info_pox_addrs_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let height = (height_hi as u128) << 64 | ((height_lo as u64) as u128);
 
@@ -5880,7 +5879,7 @@ fn link_get_burn_block_info_pox_addrs_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_burn_block_info_pox_addrs_property".to_string(),
                 e,
             ))
@@ -5891,7 +5890,7 @@ fn link_get_burn_block_info_pox_addrs_property_fn(
 /// This function is called for the `get-stacks-block-info? id-header-hash` expression.
 fn link_get_stacks_block_info_time_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5904,7 +5903,7 @@ fn link_get_stacks_block_info_time_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Get the memory from the caller
                 if let Some(height_value) =
@@ -5933,7 +5932,7 @@ fn link_get_stacks_block_info_time_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_stacks_block_info_time_property".to_string(),
                 e,
             ))
@@ -5944,7 +5943,7 @@ fn link_get_stacks_block_info_time_property_fn(
 /// This function is called for the `get-stacks-block-info? header-hash` expression.
 fn link_get_stacks_block_info_header_hash_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -5957,7 +5956,7 @@ fn link_get_stacks_block_info_header_hash_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Get the memory from the caller
                 if let Some(height_value) =
@@ -5992,7 +5991,7 @@ fn link_get_stacks_block_info_header_hash_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_stacks_block_info_header_hash_property".to_string(),
                 e,
             ))
@@ -6003,7 +6002,7 @@ fn link_get_stacks_block_info_header_hash_property_fn(
 /// This function is called for the `get-stacks-block-info? time` expression.
 fn link_get_stacks_block_info_identity_header_hash_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6016,7 +6015,7 @@ fn link_get_stacks_block_info_identity_header_hash_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -6051,7 +6050,7 @@ fn link_get_stacks_block_info_identity_header_hash_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_stacks_block_info_identity_header_hash_property".to_string(),
                 e,
             ))
@@ -6062,7 +6061,7 @@ fn link_get_stacks_block_info_identity_header_hash_property_fn(
 /// This function is called for the `get-tenure-info? burnchain-header-hash` expression.
 fn link_get_tenure_info_burnchain_header_hash_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6075,7 +6074,7 @@ fn link_get_tenure_info_burnchain_header_hash_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -6110,7 +6109,7 @@ fn link_get_tenure_info_burnchain_header_hash_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_tenure_info_burnchain_header_hash_property".to_string(),
                 e,
             ))
@@ -6121,7 +6120,7 @@ fn link_get_tenure_info_burnchain_header_hash_property_fn(
 /// This function is called for the `get-tenure-info? miner-address` expression.
 fn link_get_tenure_info_miner_address_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6134,7 +6133,7 @@ fn link_get_tenure_info_miner_address_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -6163,7 +6162,7 @@ fn link_get_tenure_info_miner_address_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_tenure_info_miner_address_property".to_string(),
                 e,
             ))
@@ -6174,7 +6173,7 @@ fn link_get_tenure_info_miner_address_property_fn(
 /// This function is called for the `get-tenure-info? time` expression.
 fn link_get_tenure_info_time_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6187,7 +6186,7 @@ fn link_get_tenure_info_time_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -6215,7 +6214,7 @@ fn link_get_tenure_info_time_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_tenure_info_time_property".to_string(),
                 e,
             ))
@@ -6226,7 +6225,7 @@ fn link_get_tenure_info_time_property_fn(
 /// This function is called for the `get-tenure-info? vrf-seed` expression.
 fn link_get_tenure_info_vrf_seed_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6239,7 +6238,7 @@ fn link_get_tenure_info_vrf_seed_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -6274,7 +6273,7 @@ fn link_get_tenure_info_vrf_seed_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_tenure_info_vrf_seed_property".to_string(),
                 e,
             ))
@@ -6285,7 +6284,7 @@ fn link_get_tenure_info_vrf_seed_property_fn(
 /// This function is called for the `get-tenure-info? block-reward` expression.
 fn link_get_tenure_info_block_reward_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6298,7 +6297,7 @@ fn link_get_tenure_info_block_reward_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -6344,7 +6343,7 @@ fn link_get_tenure_info_block_reward_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_tenure_info_block_reward_property".to_string(),
                 e,
             ))
@@ -6355,7 +6354,7 @@ fn link_get_tenure_info_block_reward_property_fn(
 /// This function is called for the `get-tenure-info? miner-spend-total` expression.
 fn link_get_tenure_info_miner_spend_total_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6368,7 +6367,7 @@ fn link_get_tenure_info_miner_spend_total_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -6396,7 +6395,7 @@ fn link_get_tenure_info_miner_spend_total_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_tenure_info_miner_spend_total_property".to_string(),
                 e,
             ))
@@ -6407,7 +6406,7 @@ fn link_get_tenure_info_miner_spend_total_property_fn(
 /// This function is called for the `get-tenure-info? miner-spend-winner` expression.
 fn link_get_tenure_info_miner_spend_winner_property_fn(
     linker: &mut Linker<ClarityWasmContext>,
-) -> Result<(), Error> {
+) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6420,7 +6419,7 @@ fn link_get_tenure_info_miner_spend_winner_property_fn(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 if let Some(height_value) =
                     check_height_valid(&mut caller, memory, height_lo, height_hi, return_offset)?
@@ -6448,7 +6447,7 @@ fn link_get_tenure_info_miner_spend_winner_property_fn(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "get_tenure_info_miner_spend_winner_property".to_string(),
                 e,
             ))
@@ -6457,7 +6456,7 @@ fn link_get_tenure_info_miner_spend_winner_property_fn(
 
 /// Link host interface function, `contract_call`, into the Wasm module.
 /// This function is called for `contract-call?`s.
-fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6482,7 +6481,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -6498,7 +6497,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let contract_id = match &contract_val {
                     Value::Principal(PrincipalData::Contract(contract_id)) => contract_id,
                     _ => {
-                        return Err(CheckErrors::ContractCallExpectName.into());
+                        return Err(CheckErrorKind::ContractCallExpectName.into());
                     }
                 };
 
@@ -6522,7 +6521,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .contract_context
                     .functions
                     .get(function_name.as_str())
-                    .ok_or(CheckErrors::NoSuchPublicFunction(
+                    .ok_or(CheckErrorKind::NoSuchPublicFunction(
                         contract_id.to_string(),
                         function_name.to_string(),
                     ))?;
@@ -6585,7 +6584,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     function
                         .get_return_type()
                         .as_ref()
-                        .ok_or(CheckErrors::DefineFunctionBadSignature)?
+                        .ok_or(CheckErrorKind::DefineFunctionBadSignature)?
                 } else {
                     // This is a dynamic call
                     let trait_id =
@@ -6606,7 +6605,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                         .get(trait_id.name.as_str())
                         .and_then(|trait_functions| trait_functions.get(function_name.as_str()))
                         .map(|f_ty| &f_ty.returns)
-                        .ok_or(CheckErrors::DefineFunctionBadSignature)?
+                        .ok_or(CheckErrorKind::DefineFunctionBadSignature)?
                 };
 
                 write_to_wasm(
@@ -6624,7 +6623,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "contract_call".to_string(),
                 e,
             ))
@@ -6633,7 +6632,7 @@ fn link_contract_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 
 /// Link host interface function, `begin_public_call`, into the Wasm module.
 /// This function is called before a local call to a public function.
-fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6645,7 +6644,7 @@ fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "begin_public_call".to_string(),
                 e,
             ))
@@ -6654,7 +6653,7 @@ fn link_begin_public_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
 
 /// Link host interface function, `begin_read_only_call`, into the Wasm module.
 /// This function is called before a local call to a public function.
-fn link_begin_read_only_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_begin_read_only_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6666,7 +6665,7 @@ fn link_begin_read_only_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "begin_read_only_call".to_string(),
                 e,
             ))
@@ -6676,7 +6675,7 @@ fn link_begin_read_only_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Resu
 /// Link host interface function, `commit_call`, into the Wasm module.
 /// This function is called after a local call to a public function to commit
 /// it's changes into the global context.
-fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6688,7 +6687,7 @@ fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "commit_call".to_string(),
                 e,
             ))
@@ -6699,7 +6698,7 @@ fn link_commit_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Er
 /// This function is called after a local call to roll back it's changes from
 /// the global context. It is called when a public function errors, or a
 /// read-only call completes.
-fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6711,7 +6710,7 @@ fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "roll_back_call".to_string(),
                 e,
             ))
@@ -6720,7 +6719,7 @@ fn link_roll_back_call_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
 
 /// Link host interface function, `print`, into the Wasm module.
 /// This function is called for all contract print statements (`print`).
-fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6736,7 +6735,7 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let serialized_ty = read_identifier_from_wasm(
                     memory,
@@ -6758,13 +6757,13 @@ fn link_print_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
             },
         )
         .map(|_| ())
-        .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("print".to_string(), e)))
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction("print".to_string(), e)))
 }
 
 /// Link host interface function, `enter_at_block`, into the Wasm module.
 /// This function is called before evaluating the inner expression of an
 /// `at-block` expression.
-fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6777,7 +6776,7 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
                 let epoch = caller.data_mut().global_context.epoch_id;
 
                 let block_hash = read_from_wasm(
@@ -6792,12 +6791,12 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                 let bhh = match block_hash {
                     Value::Sequence(SequenceData::Buffer(BuffData { data })) => {
                         if data.len() != 32 {
-                            return Err(RuntimeErrorType::BadBlockHash(data).into());
+                            return Err(RuntimeError::BadBlockHash(data).into());
                         }
                         StacksBlockId::from(data.as_slice())
                     }
                     x => {
-                        return Err(CheckErrors::TypeValueError(
+                        return Err(CheckErrorKind::TypeValueError(
                             Box::new(TypeSignature::BUFFER_32.clone()),
                             Box::new(x),
                         )
@@ -6809,7 +6808,7 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
                     .data_mut()
                     .global_context
                     .add_memory(cost_constants::AT_BLOCK_MEMORY)
-                    .map_err(|e| Error::from(e))?;
+                    .map_err(|e| VmExecutionError::from(e))?;
 
                 caller.data_mut().global_context.begin_read_only();
 
@@ -6826,7 +6825,7 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "enter_at_block".to_string(),
                 e,
             ))
@@ -6836,7 +6835,7 @@ fn link_enter_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(),
 /// Link host interface function, `exit_at_block`, into the Wasm module.
 /// This function is called after evaluating the inner expression of an
 /// `at-block` expression, resetting the state back to the current block.
-fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6866,7 +6865,7 @@ fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "exit_at_block".to_string(),
                 e,
             ))
@@ -6875,7 +6874,7 @@ fn link_exit_at_block_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
 
 /// Link host interface function, `keccak256`, into the Wasm module.
 /// This function is called for the Clarity expression, `keccak256`.
-fn link_keccak256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_keccak256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6889,7 +6888,7 @@ fn link_keccak256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Read the bytes from the memory
                 let bytes =
@@ -6905,7 +6904,7 @@ fn link_keccak256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "keccak256".to_string(),
                 e,
             ))
@@ -6914,7 +6913,7 @@ fn link_keccak256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Erro
 
 /// Link host interface function, `sha512`, into the Wasm module.
 /// This function is called for the Clarity expression, `sha512`.
-fn link_sha512_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_sha512_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6928,7 +6927,7 @@ fn link_sha512_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> 
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Read the bytes from the memory
                 let bytes =
@@ -6943,12 +6942,12 @@ fn link_sha512_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> 
             },
         )
         .map(|_| ())
-        .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("sha512".to_string(), e)))
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction("sha512".to_string(), e)))
 }
 
 /// Link host interface function, `sha512_256`, into the Wasm module.
 /// This function is called for the Clarity expression, `sha512/256`.
-fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -6962,7 +6961,7 @@ fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Read the bytes from the memory
                 let bytes =
@@ -6978,7 +6977,7 @@ fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "sha512_256".to_string(),
                 e,
             ))
@@ -6987,7 +6986,7 @@ fn link_sha512_256_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Err
 
 /// Link host interface function, `secp256k1_recover`, into the Wasm module.
 /// This function is called for the Clarity expression, `secp256k1-recover?`.
-fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -7005,7 +7004,7 @@ fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let ret_ty = TypeSignature::new_response(
                     TypeSignature::BUFFER_33.clone(),
@@ -7018,7 +7017,7 @@ fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
                 // To match the interpreter behavior, if the message is the
                 // wrong length, throw a runtime type error.
                 if msg_bytes.len() != 32 {
-                    return Err(CheckErrors::TypeValueError(
+                    return Err(CheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::BUFFER_32.clone()),
                         Box::new(Value::buff_from(msg_bytes)?),
                     )
@@ -7064,7 +7063,7 @@ fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "secp256k1_recover".to_string(),
                 e,
             ))
@@ -7073,7 +7072,7 @@ fn link_secp256k1_recover_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<
 
 /// Link host interface function, `secp256k1_verify`, into the Wasm module.
 /// This function is called for the Clarity expression, `secp256k1-verify`.
-fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -7091,14 +7090,14 @@ fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Read the message bytes from the memory
                 let msg_bytes = read_bytes_from_wasm(memory, &mut caller, msg_offset, msg_length)?;
                 // To match the interpreter behavior, if the message is the
                 // wrong length, throw a runtime type error.
                 if msg_bytes.len() != 32 {
-                    return Err(CheckErrors::TypeValueError(
+                    return Err(CheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::BUFFER_32.clone()),
                         Box::new(Value::buff_from(msg_bytes)?),
                     )
@@ -7121,7 +7120,7 @@ fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
                 // To match the interpreter behavior, if the public key is the
                 // wrong length, throw a runtime type error.
                 if pk_bytes.len() != 33 {
-                    return Err(CheckErrors::TypeValueError(
+                    return Err(CheckErrorKind::TypeValueError(
                         Box::new(TypeSignature::BUFFER_33.clone()),
                         Box::new(Value::buff_from(pk_bytes)?),
                     )
@@ -7133,7 +7132,7 @@ fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "secp256k1_verify".to_string(),
                 e,
             ))
@@ -7142,7 +7141,7 @@ fn link_secp256k1_verify_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(
 
 /// Link host interface function, `principal_of`, into the Wasm module.
 /// This function is called for the Clarity expression, `principal-of?`.
-fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -7157,7 +7156,7 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -7174,7 +7173,7 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                 let pub_key = match key_val {
                     Value::Sequence(SequenceData::Buffer(BuffData { ref data })) => {
                         if data.len() != 33 {
-                            return Err(CheckErrors::TypeValueError(
+                            return Err(CheckErrorKind::TypeValueError(
                                 Box::new(TypeSignature::BUFFER_33.clone()),
                                 Box::new(key_val),
                             )
@@ -7183,7 +7182,7 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
                         data
                     }
                     _ => {
-                        return Err(CheckErrors::TypeValueError(
+                        return Err(CheckErrorKind::TypeValueError(
                             Box::new(TypeSignature::BUFFER_33.clone()),
                             Box::new(key_val),
                         )
@@ -7230,14 +7229,14 @@ fn link_principal_of_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), E
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "secp256k1_verify".to_string(),
                 e,
             ))
         })
 }
 
-fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -7250,7 +7249,7 @@ fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 let epoch = caller.data_mut().global_context.epoch_id;
 
@@ -7263,9 +7262,9 @@ fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let value_ty = caller
                     .data()
                     .contract_analysis
-                    .ok_or(Error::Wasm(WasmError::DefinesNotFound))?
+                    .ok_or(VmExecutionError::Wasm(WasmError::DefinesNotFound))?
                     .get_variable_type(const_name.as_str())
-                    .ok_or(Error::Wasm(WasmError::DefinesNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::DefinesNotFound))?;
 
                 let value =
                     read_from_wasm_indirect(memory, &mut caller, value_ty, value_offset, epoch)?;
@@ -7282,14 +7281,14 @@ fn link_save_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "save_constant".to_string(),
                 e,
             ))
         })
 }
 
-fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), Error> {
+fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -7302,7 +7301,7 @@ fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // Read constant name from the memory.
                 let const_name =
@@ -7314,7 +7313,7 @@ fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
                     .contract_context()
                     .variables
                     .get(&ClarityName::from(const_name.as_str()))
-                    .ok_or(CheckErrors::UndefinedVariable(const_name.to_string()))?
+                    .ok_or(CheckErrorKind::UndefinedVariable(const_name.to_string()))?
                     .clone();
 
                 // Constant value type
@@ -7335,14 +7334,14 @@ fn link_load_constant_fn(linker: &mut Linker<ClarityWasmContext>) -> Result<(), 
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "load_constant".to_string(),
                 e,
             ))
         })
 }
 
-fn link_skip_list<T>(linker: &mut Linker<T>) -> Result<(), Error> {
+fn link_skip_list<T>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap(
             "clarity",
@@ -7351,7 +7350,7 @@ fn link_skip_list<T>(linker: &mut Linker<T>) -> Result<(), Error> {
                 let memory = caller
                     .get_export("memory")
                     .and_then(|export| export.into_memory())
-                    .ok_or(Error::Wasm(WasmError::MemoryNotFound))?;
+                    .ok_or(VmExecutionError::Wasm(WasmError::MemoryNotFound))?;
 
                 // we will read the remaining serialized buffer here, and start it with the list type prefix
                 let mut serialized_buffer = vec![0u8; (offset_end - offset_beg) as usize + 1];
@@ -7362,7 +7361,7 @@ fn link_skip_list<T>(linker: &mut Linker<T>) -> Result<(), Error> {
                         offset_beg as usize,
                         &mut serialized_buffer[1..],
                     )
-                    .map_err(|e| Error::Wasm(WasmError::Runtime(e.into())))?;
+                    .map_err(|e| VmExecutionError::Wasm(WasmError::Runtime(e.into())))?;
 
                 match Value::deserialize_read_count(&mut serialized_buffer.as_slice(), None, false)
                 {
@@ -7373,7 +7372,7 @@ fn link_skip_list<T>(linker: &mut Linker<T>) -> Result<(), Error> {
         )
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "skip_list".to_string(),
                 e,
             ))
@@ -7383,26 +7382,26 @@ fn link_skip_list<T>(linker: &mut Linker<T>) -> Result<(), Error> {
 /// Link host-interface function, `log`, into the Wasm module.
 /// This function is used for debugging the Wasm, and should not be called in
 /// production.
-fn link_log<T>(linker: &mut Linker<T>) -> Result<(), Error> {
+fn link_log<T>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap("", "log", |_: Caller<'_, T>, param: i64| {
             println!("log: {param}");
         })
         .map(|_| ())
-        .map_err(|e| Error::Wasm(WasmError::UnableToLinkHostFunction("log".to_string(), e)))
+        .map_err(|e| VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction("log".to_string(), e)))
 }
 
 /// Link host-interface function, `debug_msg`, into the Wasm module.
 /// This function is used for debugging the Wasm, and should not be called in
 /// production.
-fn link_debug_msg<T>(linker: &mut Linker<T>) -> Result<(), Error> {
+fn link_debug_msg<T>(linker: &mut Linker<T>) -> Result<(), VmExecutionError> {
     linker
         .func_wrap("", "debug_msg", |_caller: Caller<'_, T>, param: i32| {
             println!("debug messages are currently not supported in cross-contract calls ({param})")
         })
         .map(|_| ())
         .map_err(|e| {
-            Error::Wasm(WasmError::UnableToLinkHostFunction(
+            VmExecutionError::Wasm(WasmError::UnableToLinkHostFunction(
                 "debug_msg".to_string(),
                 e,
             ))
@@ -7413,9 +7412,9 @@ fn link_debug_msg<T>(linker: &mut Linker<T>) -> Result<(), Error> {
 /// issuer principal as 21 bytes + contract name length as byte + contract name as bytes + trait name length as byte + trait name as bytes
 ///
 /// This is a duplication of the function defined in clarity-wasm due to the duplication issue.
-pub fn trait_identifier_from_bytes(bytes: &[u8]) -> Result<TraitIdentifier, Error> {
+pub fn trait_identifier_from_bytes(bytes: &[u8]) -> Result<TraitIdentifier, VmExecutionError> {
     let not_enough_bytes = || {
-        Error::Wasm(WasmError::Expect(
+        VmExecutionError::Wasm(WasmError::Expect(
             "Not enough bytes for a trait deserialization".to_owned(),
         ))
     };
@@ -7431,7 +7430,7 @@ pub fn trait_identifier_from_bytes(bytes: &[u8]) -> Result<TraitIdentifier, Erro
         .split_at_checked(*contract_name_len as usize)
         .ok_or_else(not_enough_bytes)?;
     let contract_name: ContractName = String::from_utf8(contract_name_bytes.to_owned())
-        .map_err(|err| Error::Wasm(WasmError::UnableToReadIdentifier(err)))?
+        .map_err(|err| VmExecutionError::Wasm(WasmError::UnableToReadIdentifier(err)))?
         .try_into()?;
 
     // deserialize trait name
@@ -7440,7 +7439,7 @@ pub fn trait_identifier_from_bytes(bytes: &[u8]) -> Result<TraitIdentifier, Erro
         return Err(not_enough_bytes());
     }
     let trait_name: ClarityName = String::from_utf8(bytes.to_owned())
-        .map_err(|err| Error::Wasm(WasmError::UnableToReadIdentifier(err)))?
+        .map_err(|err| VmExecutionError::Wasm(WasmError::UnableToReadIdentifier(err)))?
         .try_into()?;
 
     Ok(TraitIdentifier::new(issuer, contract_name, trait_name))
@@ -8929,7 +8928,7 @@ mod error_mapping {
         read_bytes_from_wasm, read_from_wasm_indirect, read_identifier_from_wasm,
         signature_from_string,
     };
-    use crate::vm::errors::{CheckErrors, Error, RuntimeErrorType, ShortReturnType, WasmError};
+    use crate::vm::errors::{CheckErrorKind, EarlyReturnError, VmExecutionError, RuntimeError, WasmError};
     use crate::vm::types::{OptionalData, ResponseData};
     use crate::vm::{ClarityVersion, Value};
 
@@ -9039,8 +9038,8 @@ mod error_mapping {
         mut store: impl AsContextMut,
         epoch_id: &StacksEpochId,
         clarity_version: &ClarityVersion,
-    ) -> Error {
-        if let Some(vm_error) = e.root_cause().downcast_ref::<Error>() {
+    ) -> VmExecutionError {
+        if let Some(vm_error) = e.root_cause().downcast_ref::<VmExecutionError>() {
             // SAFETY:
             //
             // This unsafe operation returns the value of a location pointed by `*mut T`.
@@ -9055,16 +9054,16 @@ mod error_mapping {
             // is a dummy value, solely to satisfy the signature of the replace function
             // and not cause harm when it is deallocated.
             //
-            // Specifically, Error::Wasm(WasmError::ModuleNotFound) was selected as the placeholder value.
+            // Specifically, VmExecutionError::Wasm(WasmError::ModuleNotFound) was selected as the placeholder value.
             return unsafe {
                 core::ptr::replace(
-                    (vm_error as *const Error) as *mut Error,
-                    Error::Wasm(WasmError::ModuleNotFound),
+                    (vm_error as *const VmExecutionError) as *mut VmExecutionError,
+                    VmExecutionError::Wasm(WasmError::ModuleNotFound),
                 )
             };
         }
 
-        if let Some(vm_error) = e.root_cause().downcast_ref::<CheckErrors>() {
+        if let Some(vm_error) = e.root_cause().downcast_ref::<CheckErrorKind>() {
             // SAFETY:
             //
             // This unsafe operation returns the value of a location pointed by `*mut T`.
@@ -9079,14 +9078,14 @@ mod error_mapping {
             // is a dummy value, solely to satisfy the signature of the replace function
             // and not cause harm when it is deallocated.
             //
-            // Specifically, CheckErrors::ExpectedName was selected as the placeholder value.
+            // Specifically, CheckErrorKind::ExpectedName was selected as the placeholder value.
             return unsafe {
                 let err = core::ptr::replace(
-                    (vm_error as *const CheckErrors) as *mut CheckErrors,
-                    CheckErrors::ExpectedName,
+                    (vm_error as *const CheckErrorKind) as *mut CheckErrorKind,
+                    CheckErrorKind::ExpectedName,
                 );
 
-                <CheckErrors as std::convert::Into<Error>>::into(err)
+                <CheckErrorKind as std::convert::Into<VmExecutionError>>::into(err)
             };
         }
 
@@ -9100,7 +9099,7 @@ mod error_mapping {
         }
 
         // All other errors are treated as general runtime errors.
-        Error::Wasm(WasmError::Runtime(e))
+        VmExecutionError::Wasm(WasmError::Runtime(e))
     }
 
     /// Converts a WebAssembly runtime error code into a Clarity `Error`.
@@ -9120,43 +9119,43 @@ mod error_mapping {
         e: wasmtime::Error,
         epoch_id: &StacksEpochId,
         clarity_version: &ClarityVersion,
-    ) -> Error {
+    ) -> VmExecutionError {
         let runtime_error_code = get_global_i32(&instance, &mut store, "runtime-error-code");
 
         match ErrorMap::from(runtime_error_code) {
-            ErrorMap::NotClarityError => Error::Wasm(WasmError::Runtime(e)),
+            ErrorMap::NotClarityError => VmExecutionError::Wasm(WasmError::Runtime(e)),
             ErrorMap::ArithmeticOverflow => {
-                Error::Runtime(RuntimeErrorType::ArithmeticOverflow, Some(Vec::new()))
+                VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, Some(Vec::new()))
             }
             ErrorMap::ArithmeticUnderflow => {
-                Error::Runtime(RuntimeErrorType::ArithmeticUnderflow, Some(Vec::new()))
+                VmExecutionError::Runtime(RuntimeError::ArithmeticUnderflow, Some(Vec::new()))
             }
             ErrorMap::DivisionByZero => {
-                Error::Runtime(RuntimeErrorType::DivisionByZero, Some(Vec::new()))
+                VmExecutionError::Runtime(RuntimeError::DivisionByZero, Some(Vec::new()))
             }
-            ErrorMap::ArithmeticLog2Error => Error::Runtime(
-                RuntimeErrorType::Arithmetic(LOG2_ERROR_MESSAGE.into()),
+            ErrorMap::ArithmeticLog2Error => VmExecutionError::Runtime(
+                RuntimeError::Arithmetic(LOG2_ERROR_MESSAGE.into()),
                 Some(Vec::new()),
             ),
-            ErrorMap::ArithmeticSqrtiError => Error::Runtime(
-                RuntimeErrorType::Arithmetic(SQRTI_ERROR_MESSAGE.into()),
+            ErrorMap::ArithmeticSqrtiError => VmExecutionError::Runtime(
+                RuntimeError::Arithmetic(SQRTI_ERROR_MESSAGE.into()),
                 Some(Vec::new()),
             ),
             ErrorMap::BadTypeConstruction => {
-                Error::Runtime(RuntimeErrorType::BadTypeConstruction, Some(Vec::new()))
+                VmExecutionError::Runtime(RuntimeError::BadTypeConstruction, Some(Vec::new()))
             }
             ErrorMap::Panic => {
                 // TODO: see issue: #531
-                // This RuntimeErrorType::UnwrapFailure need to have a proper context.
-                Error::Runtime(RuntimeErrorType::UnwrapFailure, Some(Vec::new()))
+                // This RuntimeError::UnwrapFailure need to have a proper context.
+                VmExecutionError::Runtime(RuntimeError::UnwrapFailure, Some(Vec::new()))
             }
             ErrorMap::ShortReturnAssertionFailure => {
                 let clarity_val =
                     short_return_value(&instance, &mut store, epoch_id, clarity_version);
-                Error::ShortReturn(ShortReturnType::AssertionFailed(Box::new(clarity_val)))
+                VmExecutionError::EarlyReturn(EarlyReturnError::AssertionFailed(Box::new(clarity_val)))
             }
-            ErrorMap::ArithmeticPowError => Error::Runtime(
-                RuntimeErrorType::Arithmetic(POW_ERROR_MESSAGE.into()),
+            ErrorMap::ArithmeticPowError => VmExecutionError::Runtime(
+                RuntimeError::Arithmetic(POW_ERROR_MESSAGE.into()),
                 Some(Vec::new()),
             ),
             ErrorMap::NameAlreadyUsed => {
@@ -9176,12 +9175,12 @@ mod error_mapping {
                 )
                 .unwrap_or_else(|e| panic!("Could not recover arg_name: {e}"));
 
-                Error::Unchecked(CheckErrors::NameAlreadyUsed(arg_name))
+                VmExecutionError::Unchecked(CheckErrorKind::NameAlreadyUsed(arg_name))
             }
             ErrorMap::ShortReturnExpectedValueResponse => {
                 let clarity_val =
                     short_return_value(&instance, &mut store, epoch_id, clarity_version);
-                Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Response(
+                VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Response(
                     ResponseData {
                         committed: false,
                         data: Box::new(clarity_val),
@@ -9189,26 +9188,26 @@ mod error_mapping {
                 ))))
             }
             ErrorMap::ShortReturnExpectedValueOptional => {
-                Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(Value::Optional(
+                VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(Value::Optional(
                     OptionalData { data: None },
                 ))))
             }
             ErrorMap::ShortReturnExpectedValue => {
                 let clarity_val =
                     short_return_value(&instance, &mut store, epoch_id, clarity_version);
-                Error::ShortReturn(ShortReturnType::ExpectedValue(Box::new(clarity_val)))
+                VmExecutionError::EarlyReturn(EarlyReturnError::UnwrapFailed(Box::new(clarity_val)))
             }
             ErrorMap::ArgumentCountMismatch => {
                 let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
-                Error::Unchecked(CheckErrors::IncorrectArgumentCount(expected, got))
+                VmExecutionError::Unchecked(CheckErrorKind::IncorrectArgumentCount(expected, got))
             }
             ErrorMap::ArgumentCountAtLeast => {
                 let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
-                Error::Unchecked(CheckErrors::RequiresAtLeastArguments(expected, got))
+                VmExecutionError::Unchecked(CheckErrorKind::RequiresAtLeastArguments(expected, got))
             }
             ErrorMap::ArgumentCountAtMost => {
                 let (expected, got) = get_runtime_error_arg_lengths(&instance, &mut store);
-                Error::Unchecked(CheckErrors::RequiresAtMostArguments(expected, got))
+                VmExecutionError::Unchecked(CheckErrorKind::RequiresAtMostArguments(expected, got))
             }
             _ => panic!("Runtime error code {} not supported", runtime_error_code),
         }
