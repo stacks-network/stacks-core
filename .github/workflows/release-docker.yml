@@ -26,9 +26,13 @@ concurrency:
 run-name: ${{ inputs.node_tag || inputs.signer_tag }}
 
 env:
-    docker_platforms: "linux/arm64, linux/amd64"
-    docker_registry: ghcr.io
-    provenance: false
+  # build for both x64 and arm64 arch
+  DOCKER_PLATFORMS: "linux/amd64,linux/arm64"
+  # publish images to ghcr
+  DOCKER_REGISTRY: "ghcr.io"
+  # do not generate provenance from the docker build step, instead attest the image specifically
+  PROVENANCE: false
+
 jobs:
     release-images:
         if: |
@@ -65,7 +69,7 @@ jobs:
                   echo "var_build_arch: ${var_build_arch}"
 
                   # set a default docker image: registry/repo/release_type
-                  var_default_image="${{ env.docker_registry }}/${{ github.repository_owner }}/${{ inputs.release_type }}"
+                  var_default_image="${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}"
                   var_artifact_pattern="${{ github.sha }}-${{ inputs.release_type }}-linux-${var_build_arch}*"
                   if [ "${{ inputs.release_type }}" == "stacks-signer" ]; then
                     # stacks-signer
@@ -78,11 +82,10 @@ jobs:
                   fi
 
                   # Add vars to github env for later steps
-                  echo "docker_images=${var_images}" >> $GITHUB_ENV
-                  echo "docker_tag=${var_docker_tag}" >> $GITHUB_ENV
-                  echo "artifact_pattern=${var_artifact_pattern}" >> $GITHUB_ENV
-                  echo "build_arch=${var_build_arch}" >> "$GITHUB_ENV"
-                  echo "dockerfile_name=${var_dockerfile_name}" >> "$GITHUB_ENV"
+                  echo "DOCKER_IMAGES=${var_images}" >> $GITHUB_ENV
+                  echo "DOCKER_TAG=${var_docker_tag}" >> $GITHUB_ENV
+                  echo "ARTIFACT_PATTERN=${var_artifact_pattern}" >> $GITHUB_ENV
+                  echo "DOCKERFILE_NAME=${var_dockerfile_name}" >> "$GITHUB_ENV"
 
             - name: Set Docker Tag RC Flag
               id: docker_tag_rc_flag
@@ -93,14 +96,13 @@ jobs:
                     # is a release candidate
                     var_docker_tag_rc=true
                   fi
-                  echo "var_docker_tag_rc: ${var_docker_tag_rc}"
-                  echo "docker_tag_rc=${var_docker_tag_rc}" >> "$GITHUB_ENV"
+                  echo "DOCKER_TAG_RC=${var_docker_tag_rc}" >> "$GITHUB_ENV"
 
             - name: Download Artifacts
               id: download_artifacts
               uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
               with:
-                  pattern: ${{ env.artifact_pattern }}
+                  pattern: ${{ env.ARTIFACT_PATTERN }}
                   path: /tmp/release
                   merge-multiple: true
 
@@ -109,7 +111,7 @@ jobs:
               id: docker_setup
               uses: stacks-network/actions/docker@main
               with:
-                  registry: ${{ env.docker_registry }} # set the registry to ghcr (default is docker.io)
+                  registry: ${{ env.DOCKER_REGISTRY }} # set the registry to ghcr (default is docker.io)
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
@@ -127,26 +129,26 @@ jobs:
               uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 #v5.9.0
               with:
                   images: |
-                      ${{ env.docker_images }}
+                      ${{ env.DOCKER_IMAGES }}
                   labels: |
                       org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss.SSS[Z]'}}
-                      org.opencontainers.image.version=${{ env.docker_tag }}
+                      org.opencontainers.image.version=${{ env.DOCKER_TAG }}
                   tags: |
                       # debian tags #
                       #  latest tag
-                      type=raw,value=latest,enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
+                      type=raw,value=latest,enable=${{ env.DOCKER_TAG != '' && env.DOCKER_TAG_RC != 'true' && matrix.dist == 'debian' }}
                       #  latest-debian tag
-                      type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'debian' }}
+                      type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.DOCKER_TAG != '' && env.DOCKER_TAG_RC != 'true' && matrix.dist == 'debian' }}
                       #  version tag
-                      type=raw,value=${{ env.docker_tag }},enable=${{ env.docker_tag != '' && matrix.dist == 'debian'}}
+                      type=raw,value=${{ env.DOCKER_TAG }},enable=${{ env.DOCKER_TAG != '' && matrix.dist == 'debian'}}
                       #  version-dist tag
-                      type=raw,value=${{ env.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && matrix.dist == 'debian' }}
+                      type=raw,value=${{ env.DOCKER_TAG }},suffix=-${{ matrix.dist }},enable=${{ env.DOCKER_TAG != '' && matrix.dist == 'debian' }}
                       #
                       # alpine tags #
                       #   latest-alpine tag
-                      type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && env.docker_tag_rc != 'true' && matrix.dist == 'alpine' }}
+                      type=raw,value=latest,suffix=-${{ matrix.dist }},enable=${{ env.DOCKER_TAG != '' && env.DOCKER_TAG_RC != 'true' && matrix.dist == 'alpine' }}
                       #  version-dist tag
-                      type=raw,value=${{ env.docker_tag }},suffix=-${{ matrix.dist }},enable=${{ env.docker_tag != '' && matrix.dist == 'alpine' }}
+                      type=raw,value=${{ env.DOCKER_TAG }},suffix=-${{ matrix.dist }},enable=${{ env.DOCKER_TAG != '' && matrix.dist == 'alpine' }}
 
             ## Build docker image for release
             - name: Build and Push ( ${{matrix.dist}} )
@@ -154,10 +156,10 @@ jobs:
               uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
               with:
                   sbom: false
-                  provenance: ${{ env.provenance }}
+                  provenance: ${{ env.PROVENANCE }}
                   context: /tmp
-                  file: ./.github/actions/dockerfiles/${{ matrix.dist }}/${{ env.dockerfile_name }}
-                  platforms: ${{ env.docker_platforms }}
+                  file: ./.github/actions/dockerfiles/${{ matrix.dist }}/${{ env.DOCKERFILE_NAME }}
+                  platforms: ${{ env.DOCKER_PLATFORMS }}
                   tags: ${{ steps.docker_metadata.outputs.tags }}
                   labels: ${{ steps.docker_metadata.outputs.labels }}
                   annotations: ${{ steps.docker_metadata.outputs.annotations }} # Note: annotations are used for multi-architecture ghcr images
@@ -165,10 +167,12 @@ jobs:
 
             ## Generate docker image attestation(s)
             - name: Attest Image (${{ github.event.repository.name }})
+              if: |
+                  env.PROVENANCE != true
               id: attest_image
               uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
               with:
-                  subject-name: ${{ env.docker_registry }}/${{ github.repository_owner }}/${{ inputs.release_type }}
+                  subject-name: ${{ env.DOCKER_REGISTRY }}/${{ github.repository_owner }}/${{ inputs.release_type }}
                   subject-digest: ${{ steps.docker_build.outputs.digest }}
                   push-to-registry: ${{ env.DOCKER_PUSH }}
 
