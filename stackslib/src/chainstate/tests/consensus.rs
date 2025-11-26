@@ -1620,7 +1620,7 @@ macro_rules! contract_call_consensus_test {
     ) => {
         {
              // Handle deploy_epochs parameter (default to all epochs >= 2.0 if not provided)
-            let deploy_epochs = &clarity::types::StacksEpochId::ALL[1..];
+            let deploy_epochs = &clarity::types::StacksEpochId::since(clarity::types::StacksEpochId::Epoch20);
             $(let deploy_epochs = $deploy_epochs;)?
 
             // Handle call_epochs parameter (default to EPOCHS_TO_TEST if not provided)
@@ -1887,6 +1887,6 @@ fn problematic_supertype_list() {
     (err  1)))
     (print (var-get my-list))
     ",
-    deploy_epochs: &StacksEpochId::ALL[1..],
+    deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch20),
     );
 }

@@ -286,37 +286,52 @@ impl AssetMap {
         }
     }
 
-    // This will get the next amount for a (principal, stx) entry in the stx table.
+    /// This will get the next amount for a (principal, stx) entry in the stx table.
     fn get_next_stx_amount(
         &self,
         principal: &PrincipalData,
         amount: u128,
     ) -> Result<u128, VmExecutionError> {
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - Every `stx-transfer?` or `stx-burn?` is validated against the sender’s
+        //   **unlocked balance** before being queued in `AssetMap`.
+        // - The unlocked balance is a subset of `stx-liquid-supply`.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self.stx_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow.into())
     }
 
-    // This will get the next amount for a (principal, stx) entry in the burn table.
+    /// This will get the next amount for a (principal, stx) entry in the burn table.
     fn get_next_stx_burn_amount(
         &self,
         principal: &PrincipalData,
         amount: u128,
     ) -> Result<u128, VmExecutionError> {
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - Every `stx-burn?` is validated against the sender’s **unlocked balance** first.
+        // - Unlocked balance is a subset of `stx-liquid-supply`, which is <= `u128::MAX`.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self.burn_map.get(principal).unwrap_or(&0);
         current_amount
             .checked_add(amount)
             .ok_or(RuntimeError::ArithmeticOverflow.into())
     }
 
-    // This will get the next amount for a (principal, asset) entry in the asset table.
+    /// This will get the next amount for a (principal, asset) entry in the asset table.
     fn get_next_amount(
         &self,
         principal: &PrincipalData,
         asset: &AssetIdentifier,
         amount: u128,
     ) -> Result<u128, VmExecutionError> {
+        // `ArithmeticOverflow` in this function is **unreachable** in normal Clarity execution because:
+        // - The inner transaction must have **partially succeeded** to log any assets.
+        // - All balance updates in Clarity use the `+` operator **before** logging to `AssetMap`.
+        // - `+` performs `checked_add` and returns `RuntimeError::ArithmeticOverflow` **first**.
         let current_amount = self
             .token_map
             .get(principal)
@@ -1011,6 +1026,13 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         .expressions;
 
         if parsed.is_empty() {
+            // `TypeParseFailure` is **unreachable** in standard Clarity VM execution.
+            // - `eval_read_only` parses a raw program string into an AST.
+            // - Any empty or invalid program would be rejected at publish/deploy time or earlier parsing stages.
+            // - Therefore, `parsed.is_empty()` cannot occur for programs originating from a valid contract
+            // or transaction.
+            // - Only malformed input fed directly to this internal method (e.g., in unit tests or
+            // artificial VM invocations) can trigger this error.
             return Err(RuntimeError::TypeParseFailure(
                 "Expected a program of at least length 1".to_string(),
             )
@@ -1060,6 +1082,12 @@ impl<'a, 'b, 'hooks> Environment<'a, 'b, 'hooks> {
         .expressions;
 
         if parsed.is_empty() {
+            // `TypeParseFailure` is **unreachable** in standard Clarity VM execution.
+            // - `eval_raw` parses a raw program string into an AST.
+            // - All programs deployed or called via the standard VM go through static parsing and validation first.
+            // - Any empty or invalid program would be rejected at publish/deploy time or earlier parsing stages.
+            // - Therefore, `parsed.is_empty()` cannot occur for a program that originates from a valid Clarity contract or transaction.
+            // Only malformed input directly fed to this internal method (e.g., in unit tests) can trigger this error.
             return Err(RuntimeError::TypeParseFailure(
                 "Expected a program of at least length 1".to_string(),
             )
@@ -1940,6 +1968,14 @@ impl<'a> LocalContext<'a> {
 
     pub fn extend(&'a self) -> Result<LocalContext<'a>, VmExecutionError> {
         if self.depth >= MAX_CONTEXT_DEPTH {
+            // `MaxContextDepthReached` in this function is **unreachable** in normal Clarity execution because:
+            // - Every function call in Clarity increments both the call stack depth and the local context depth.
+            // - The VM enforces `MAX_CALL_STACK_DEPTH` (currently 64) **before** `MAX_CONTEXT_DEPTH` (256).
+            // - This means no contract can create more than 64 nested function calls, preventing context depth from reaching 256.
+            // - Nested expressions (`let`, `begin`, `if`, etc.) increment context depth, but the Clarity parser enforces
+            //   `ExpressionStackDepthTooDeep` long before MAX_CONTEXT_DEPTH nested contexts can be written.
+            // - As a result, `MaxContextDepthReached` can only occur in artificial Rust-level tests calling `LocalContext::extend()`,
+            //   not in deployed contract execution.
             Err(RuntimeError::MaxContextDepthReached.into())
         } else {
             Ok(LocalContext {
@@ -2291,5 +2327,109 @@ mod test {
                 .args[0],
             TypeSignature::CallableType(CallableSubtype::Trait(trait_id))
         );
+    }
+
+    #[test]
+    fn asset_map_arithmetic_overflows() {
+        let a_contract_id = QualifiedContractIdentifier::local("a").unwrap();
+        let b_contract_id = QualifiedContractIdentifier::local("b").unwrap();
+        let p1 = PrincipalData::Contract(a_contract_id.clone());
+        let p2 = PrincipalData::Contract(b_contract_id.clone());
+        let t1 = AssetIdentifier {
+            contract_identifier: a_contract_id,
+            asset_name: "a".into(),
+        };
+
+        let mut am1 = AssetMap::new();
+        let mut am2 = AssetMap::new();
+
+        // Token transfer: add u128::MAX followed by 1 to overflow
+        am1.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_token_transfer(&p1, t1.clone(), 1).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+
+        // STX burn: add u128::MAX followed by 1 to overflow
+        am1.add_stx_burn(&p1, u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_stx_burn(&p1, 1).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+
+        // STX transfer: add u128::MAX followed by 1 to overflow
+        am1.add_stx_transfer(&p1, u128::MAX).unwrap();
+        assert!(matches!(
+            am1.add_stx_transfer(&p1, 1).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+
+        // commit_other: merge two maps where sum exceeds u128::MAX
+        am2.add_token_transfer(&p1, t1.clone(), u128::MAX).unwrap();
+        assert!(matches!(
+            am1.commit_other(am2).unwrap_err(),
+            VmExecutionError::Runtime(RuntimeError::ArithmeticOverflow, _)
+        ));
+    }
+
+    #[test]
+    fn eval_raw_empty_program() {
+        // Setup environment
+        let mut tl_env_factory = tl_env_factory();
+        let mut env = tl_env_factory.get_env(StacksEpochId::latest());
+
+        // Call eval_read_only with an empty program
+        let program = ""; // empty program triggers parsed.is_empty()
+        let err = env.eval_raw(program).unwrap_err();
+
+        assert!(
+            matches!(
+            err,
+            VmExecutionError::Runtime(RuntimeError::TypeParseFailure(msg), _) if msg.contains("Expected a program of at least length 1")),
+            "Expected a type parse failure"
+        );
+    }
+
+    #[test]
+    fn eval_read_only_empty_program() {
+        // Setup environment
+        let mut tl_env_factory = tl_env_factory();
+        let mut env = tl_env_factory.get_env(StacksEpochId::latest());
+
+        // Construct a dummy contract context
+        let contract_id = QualifiedContractIdentifier::local("dummy-contract").unwrap();
+
+        // Call eval_read_only with an empty program
+        let program = ""; // empty program triggers parsed.is_empty()
+        let err = env.eval_read_only(&contract_id, program).unwrap_err();
+
+        assert!(
+            matches!(
+            err,
+            VmExecutionError::Runtime(RuntimeError::TypeParseFailure(msg), _) if msg.contains("Expected a program of at least length 1")),
+            "Expected a type parse failure"
+        );
+    }
+
+    #[test]
+    fn max_context_depth_exceeded() {
+        let root = LocalContext {
+            function_context: None,
+            parent: None,
+            callable_contracts: HashMap::new(),
+            variables: HashMap::new(),
+            depth: MAX_CONTEXT_DEPTH - 1,
+        };
+        // We should be able to extend once successfully.
+        let result = root.extend().unwrap();
+        // We are now at the MAX_CONTEXT_DEPTH and should fail.
+        let result_2 = result.extend();
+        assert!(matches!(
+            result_2,
+            Err(VmExecutionError::Runtime(
+                RuntimeError::MaxContextDepthReached,
+                _
+            ))
+        ));
     }
 }
