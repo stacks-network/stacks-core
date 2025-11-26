@@ -867,3 +867,105 @@ fn special_contract_of(
     let contract_principal = Value::Principal(PrincipalData::Contract(contract_identifier.clone()));
     Ok(contract_principal)
 }
+
+#[cfg(test)]
+mod test {
+    use clarity_types::errors::CheckErrorKind;
+    use clarity_types::VmExecutionError;
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::StacksEpochId;
+
+    use super::ClarityVersion;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::functions::special_contract_of;
+    use crate::vm::tests::test_clarity_versions;
+    use crate::vm::types::QualifiedContractIdentifier;
+    use crate::vm::{
+        CallStack, ContractContext, Environment, GlobalContext, LocalContext, SymbolicExpression,
+        Value,
+    };
+
+    /// Tests that if somehow we bypass static analysis checks, contract_of will return
+    /// a ContractOfExpectsTrait for a poorly defined contract-of? call.
+    #[apply(test_clarity_versions)]
+    fn special_contract_of_expect_trait(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+        // --- Non-atom argument: (list u1) ---
+        let non_atom =
+            SymbolicExpression::list(vec![SymbolicExpression::atom_value(Value::UInt(1))]);
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_contract_of(&[non_atom], &mut env, &context).unwrap_err();
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::ContractOfExpectsTrait)
+        );
+    }
+
+    /// Tests that if the argument is an atom but NOT a callable trait binding,
+    /// contract_of returns ContractOfExpectsTrait at runtime.
+    #[apply(test_clarity_versions)]
+    fn special_contract_of_expect_trait_not_callable(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        // --- Atom argument, but NOT registered as a callable trait ---
+        let atom = SymbolicExpression::atom("not_a_trait".into());
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        //  NO callable contracts added to LocalContext
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let err = special_contract_of(&[atom], &mut env, &context).unwrap_err();
+
+        assert_eq!(
+            err,
+            VmExecutionError::Unchecked(CheckErrorKind::ContractOfExpectsTrait)
+        );
+    }
+}

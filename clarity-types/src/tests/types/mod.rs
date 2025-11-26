@@ -599,3 +599,32 @@ fn invalid_utf8_encoding_from_oob_unicode_escape() {
         VmExecutionError::Unchecked(CheckErrorKind::InvalidUTF8Encoding)
     ));
 }
+
+#[test]
+fn invalid_string_ascii_from_bytes() {
+    // 0xFF is NOT:
+    // - ASCII alphanumeric
+    // - ASCII punctuation
+    // - ASCII whitespace
+    let bad_bytes = vec![0xFF];
+
+    let err = Value::string_ascii_from_bytes(bad_bytes).unwrap_err();
+
+    assert!(matches!(
+        err,
+        VmExecutionError::Unchecked(CheckErrorKind::InvalidCharactersDetected)
+    ));
+}
+
+#[test]
+fn invalid_utf8_string_from_bytes() {
+    // 0x80 is an invalid standalone UTF-8 continuation byte
+    let bad_bytes = vec![0x80];
+
+    let err = Value::string_utf8_from_bytes(bad_bytes).unwrap_err();
+
+    assert!(matches!(
+        err,
+        VmExecutionError::Unchecked(CheckErrorKind::InvalidCharactersDetected)
+    ));
+}

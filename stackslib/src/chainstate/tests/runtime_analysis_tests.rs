@@ -168,7 +168,7 @@ fn variant_coverage_report(variant: CheckErrorKind) {
         "`contract-call?` via a trait inside read-only code is rejected at deploy time."
     ),
     ContractOfExpectsTrait => Unreachable_Functionally(
-        "`contract-of` receives a trait-typed argument only; invalid forms fail during analysis."
+        "`contract-of` receives a trait-typed argument only; invalid forms fail during static analysis."
     ),
     UnexpectedTraitOrFieldReference |
     IncompatibleTrait(_, _) |
