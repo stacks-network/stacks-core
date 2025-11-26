@@ -1370,7 +1370,7 @@ pub fn execute_eval_at_chaintip(
     }
 }
 
-/// Like eval_at_chaintip, but accepts an index-block-hash to evaluate at
+/// Like eval-at-chaintip, but accepts an index-block-hash to evaluate at
 /// Evaluates at a specific block height identified by the index block hash.
 /// Reads code from stdin.
 pub fn execute_eval_at_block(

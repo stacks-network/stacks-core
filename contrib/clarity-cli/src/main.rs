@@ -116,7 +116,7 @@ enum Commands {
     },
 
     /// Generate a random Stacks public address
-    #[command(name = "generate_address")]
+    #[command(name = "generate-address")]
     GenerateAddress,
 
     /// Typecheck a potential contract definition
@@ -175,12 +175,12 @@ enum Commands {
     ///
     /// Reads Clarity code from stdin:
     ///
-    ///   echo "(+ 1 2)" | clarity-cli eval_raw
+    ///   echo "(+ 1 2)" | clarity-cli eval-raw
     ///
-    ///   clarity-cli eval_raw < program.clar
+    ///   clarity-cli eval-raw < program.clar
     ///
-    ///   clarity-cli eval_raw <<< "(+ 1 2)"
-    #[command(name = "eval_raw")]
+    ///   clarity-cli eval-raw <<< "(+ 1 2)"
+    #[command(name = "eval-raw")]
     EvalRaw {
         /// Stacks epoch
         #[arg(long)]
@@ -220,7 +220,7 @@ enum Commands {
     },
 
     /// Like eval, but does not advance to a new block
-    #[command(name = "eval_at_chaintip")]
+    #[command(name = "eval-at-chaintip")]
     EvalAtChaintip {
         /// Output cost information
         #[arg(long)]
@@ -251,16 +251,16 @@ enum Commands {
         db_path: PathBuf,
     },
 
-    /// Like eval_at_chaintip, but accepts an index-block-hash to evaluate at.
+    /// Like eval-at-chaintip, but accepts an index-block-hash to evaluate at.
     ///
     /// Reads Clarity code from stdin:
     ///
-    ///   echo "(get-info)" | clarity-cli eval_at_block ...
+    ///   echo "(get-info)" | clarity-cli eval-at-block ...
     ///
-    ///   clarity-cli eval_at_block ... < program.clar
+    ///   clarity-cli eval-at-block ... < program.clar
     ///
-    ///   clarity-cli eval_at_block ... <<< "(get-info)"
-    #[command(name = "eval_at_block")]
+    ///   clarity-cli eval-at-block ... <<< "(get-info)"
+    #[command(name = "eval-at-block")]
     EvalAtBlock {
         /// Output cost information
         #[arg(long)]
