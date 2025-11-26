@@ -52,147 +52,231 @@ fn variant_coverage_report(variant: CheckErrorKind) {
     use VariantCoverage::*;
 
     _ = match variant {
-    CostOverflow |
-    CostBalanceExceeded(_, _) |
-    MemoryBalanceExceeded(_, _) |
-    CostComputationFailed(_) |
-    ExecutionTimeExpired |
-    ValueTooLarge |
-    ValueOutOfBounds |
-    TypeSignatureTooDeep |
-    ExpectedName |
-    SupertypeTooLarge |
-    Expects(_) |
-    BadMatchOptionSyntax(_) |
-    BadMatchResponseSyntax(_) |
-    BadMatchInput(_) |
-    ListTypesMustMatch |
-    ConstructedListTooLarge |
-    TypeError(_, _) |
-    TypeValueError(_, _) |
-    InvalidTypeDescription |
-    UnknownTypeName(_) |
-    UnionTypeError(_, _) |
-    UnionTypeValueError(_, _) |
-    ExpectedOptionalType(_) |
-    ExpectedResponseType(_) |
-    ExpectedOptionalOrResponseType(_) |
-    ExpectedOptionalValue(_) |
-    ExpectedResponseValue(_) |
-    ExpectedOptionalOrResponseValue(_) |
-    CouldNotDetermineResponseOkType |
-    CouldNotDetermineResponseErrType |
-    CouldNotDetermineSerializationType |
-    UncheckedIntermediaryResponses |
-    ExpectedContractPrincipalValue(_) |
-    CouldNotDetermineMatchTypes |
-    CouldNotDetermineType |
-    TypeAlreadyAnnotatedFailure |
-    CheckerImplementationFailure |
-    BadTokenName |
-    DefineNFTBadSignature |
-    NoSuchNFT(_) |
-    NoSuchFT(_) |
-    BadTransferSTXArguments |
-    BadTransferFTArguments |
-    BadTransferNFTArguments |
-    BadMintFTArguments |
-    BadBurnFTArguments |
-    BadTupleFieldName |
-    ExpectedTuple(_) |
-    NoSuchTupleField(_, _) |
-    EmptyTuplesNotAllowed |
-    BadTupleConstruction(_) |
-    NoSuchDataVariable(_) |
-    BadMapName |
-    NoSuchMap(_) |
-    DefineFunctionBadSignature |
-    BadFunctionName |
-    BadMapTypeDefinition |
-    PublicFunctionMustReturnResponse(_) |
-    DefineVariableBadSignature |
-    ReturnTypesMustMatch(_, _) |
-    CircularReference(_) |
-    NoSuchContract(_) |
-    NoSuchPublicFunction(_, _) |
-    PublicFunctionNotReadOnly(_, _) |
-    ContractAlreadyExists(_) |
-    ContractCallExpectName |
-    ExpectedCallableType(_) |
-    NoSuchBlockInfoProperty(_) |
-    NoSuchBurnBlockInfoProperty(_) |
-    NoSuchStacksBlockInfoProperty(_) |
-    NoSuchTenureInfoProperty(_) |
-    GetBlockInfoExpectPropertyName |
-    GetBurnBlockInfoExpectPropertyName |
-    GetStacksBlockInfoExpectPropertyName |
-    GetTenureInfoExpectPropertyName |
-    NameAlreadyUsed(_) |
-    ReservedWord(_) |
-    NonFunctionApplication |
-    ExpectedListApplication |
-    ExpectedSequence(_) |
-    MaxLengthOverflow |
-    BadLetSyntax |
-    BadSyntaxBinding(_) |
-    MaxContextDepthReached |
-    UndefinedFunction(_) |
-    UndefinedVariable(_) |
-    RequiresAtLeastArguments(_, _) |
-    RequiresAtMostArguments(_, _) |
-    IncorrectArgumentCount(_, _) |
-    IfArmsMustMatch(_, _) |
-    MatchArmsMustMatch(_, _) |
-    DefaultTypesMustMatch(_, _) |
-    IllegalOrUnknownFunctionApplication(_) |
-    UnknownFunction(_) |
-    TooManyFunctionParameters(_, _) |
-    NoSuchTrait(_, _) => todo!(),
-    TraitReferenceUnknown(_) => Unreachable_Functionally(
-        "Static analysis verifies all `(use-trait ...)` references at deploy time; \
-        an unknown trait cannot appear at runtime."
-    ),
-    TraitMethodUnknown(_, _) => Unreachable_Functionally(
-        "Trait calls are statically checked; missing methods prevent deployment."
-    ),
-    ExpectedTraitIdentifier => Unreachable_Functionally(
-        "Callable trait values always include their trait identifier after analysis."
-    ),
-    TraitReferenceNotAllowed => Unreachable_NotUsed, // Fuzz-only; never emitted by real Clarity execution
-    BadTraitImplementation(_, _) =>
-        Tested(vec![bad_trait_implementation_mismatched_args]),
-    DefineTraitBadSignature | DefineTraitDuplicateMethod(_) => Unreachable_Functionally(
-        "Malformed trait definitions fail during deployment, never at runtime."
-    ),
-    TraitBasedContractCallInReadOnly => Unreachable_Functionally(
-        "`contract-call?` via a trait inside read-only code is rejected at deploy time."
-    ),
-    ContractOfExpectsTrait => Unreachable_Functionally(
-        "`contract-of` receives a trait-typed argument only; invalid forms fail during static analysis."
-    ),
-    UnexpectedTraitOrFieldReference |
-    IncompatibleTrait(_, _) |
-    WithAllAllowanceNotAllowed |
-    WithAllAllowanceNotAlone |
-    WithNftExpectedListOfIdentifiers |
-    MaxIdentifierLengthExceeded(_, _) => Unreachable_NotUsed, // Static-only; cannot arise at runtime
-    TraitTooManyMethods(_, _) => Unreachable_Functionally(
-        "Trait size limits are enforced at deploy time. They are not modifiable."
-    ),
-    InvalidCharactersDetected |
-    InvalidUTF8Encoding =>
-        Ignored("Only reachable via legacy v1 parsing paths"),
-    WriteAttemptedInReadOnly |
-    AtBlockClosureMustBeReadOnly =>
-        Unreachable_Functionally("Writes in read-only contexts are rejected during static analysis."),
-    ExpectedListOfAllowances(_, _) |
-    AllowanceExprNotAllowed |
-    ExpectedAllowanceExpr(_) |
-    TooManyAllowances(_, _) =>
-        Unreachable_Functionally(
-            "Allowance expressions are purely syntactic; invalid forms cannot be constructed dynamically \
-            and are rejected at deploy time.")
+        CostOverflow
+        | CostBalanceExceeded(_, _)
+        | MemoryBalanceExceeded(_, _)
+        | CostComputationFailed(_)
+        | ExecutionTimeExpired
+        | ValueTooLarge
+        | ValueOutOfBounds
+        | TypeSignatureTooDeep
+        | ExpectedName
+        | SupertypeTooLarge
+        | Expects(_)
+        | BadMatchOptionSyntax(_)
+        | BadMatchResponseSyntax(_)
+        | BadMatchInput(_)
+        | ListTypesMustMatch
+        | ConstructedListTooLarge
+        | TypeError(_, _)
+        | TypeValueError(_, _)
+        | InvalidTypeDescription
+        | UnknownTypeName(_)
+        | UnionTypeError(_, _)
+        | UnionTypeValueError(_, _)
+        | ExpectedOptionalType(_)
+        | ExpectedResponseType(_)
+        | ExpectedOptionalOrResponseType(_)
+        | ExpectedOptionalValue(_)
+        | ExpectedResponseValue(_)
+        | ExpectedOptionalOrResponseValue(_)
+        | CouldNotDetermineResponseOkType
+        | CouldNotDetermineResponseErrType
+        | CouldNotDetermineSerializationType
+        | UncheckedIntermediaryResponses
+        | ExpectedContractPrincipalValue(_)
+        | CouldNotDetermineMatchTypes
+        | CouldNotDetermineType
+        | TypeAlreadyAnnotatedFailure
+        | CheckerImplementationFailure
+        | BadTokenName
+        | DefineNFTBadSignature
+        | NoSuchNFT(_)
+        | NoSuchFT(_)
+        | BadTransferSTXArguments
+        | BadTransferFTArguments
+        | BadTransferNFTArguments
+        | BadMintFTArguments
+        | BadBurnFTArguments
+        | BadTupleFieldName
+        | ExpectedTuple(_)
+        | NoSuchTupleField(_, _)
+        | EmptyTuplesNotAllowed
+        | BadTupleConstruction(_)
+        | NoSuchDataVariable(_)
+        | BadMapName
+        | NoSuchMap(_)
+        | DefineFunctionBadSignature
+        | BadFunctionName
+        | BadMapTypeDefinition
+        | PublicFunctionMustReturnResponse(_)
+        | DefineVariableBadSignature
+        | ReturnTypesMustMatch(_, _)
+        | CircularReference(_)
+        | NoSuchContract(_)
+        | NoSuchPublicFunction(_, _)
+        | PublicFunctionNotReadOnly(_, _) => todo!(),
+        ContractAlreadyExists(_) => Unreachable_Functionally(
+            "Contracts can only be created via SmartContract deployment transactions. \
+             The runtime never performs contract installation or replacement.",
+        ),
+        ContractCallExpectName => Unreachable_Functionally(
+            "Static analysis guarantees that the first argument to `contract-call?` is either \
+             a literal contract principal or a statically-bound trait value.",
+        ),
+        NoSuchBurnBlockInfoProperty(_) => Unreachable_Functionally(
+            "Burn block info property names are validated during static analysis; \
+             unknown properties are rejected at deploy time.",
+        ),
+        NoSuchStacksBlockInfoProperty(_) => Unreachable_Functionally(
+            "Stacks block info property names are validated during static analysis; \
+             unknown properties are rejected at deploy time.",
+        ),
+        NoSuchTenureInfoProperty(_) => Unreachable_Functionally(
+            "Tenure info property names are validated during static analysis; \
+             unknown properties are rejected at deploy time.",
+        ),
+        GetBlockInfoExpectPropertyName => Unreachable_Functionally(
+            "`get-block-info?` requires a literal property name; \
+             non-atom arguments are rejected during static analysis.",
+        ),
+        GetStacksBlockInfoExpectPropertyName => Unreachable_Functionally(
+            "`get-stacks-block-info?` requires a literal property name; \
+             non-atom arguments are rejected during static analysis.",
+        ),
+        GetTenureInfoExpectPropertyName => Unreachable_Functionally(
+            "`get-tenure-info?` requires a literal property name; \
+             non-atom arguments are rejected during static analysis.",
+        ),
+        GetBurnBlockInfoExpectPropertyName => Unreachable_Functionally(
+            "`get-burn-block-info?` requires a literal property name; \
+             non-atom arguments are rejected during static analysis.",
+        ),
+        NameAlreadyUsed(_) => Unreachable_Functionally(
+            "All name bindings are validated during static analysis; \
+             the runtime never introduces or rebinds identifiers.",
+        ),
+        NonFunctionApplication => Unreachable_Functionally(
+            "Malformed function applications are syntactically rejected by the parser \
+             and type checker before execution.",
+        ),
+        ExpectedListApplication => Unreachable_Functionally(
+            "All `append` operations require a statically-checked list argument; \
+             non-list values are rejected during static analysis.",
+        ),
+        ExpectedSequence(_) => Unreachable_Functionally(
+            "Sequence operations are fully type-checked during analysis; \
+             non-sequence values are rejected before execution.",
+        ),
+        BadLetSyntax => Unreachable_Functionally(
+            "`let` binding structure is fully validated during static analysis; \
+             malformed bindings never reach the runtime.",
+        ),
+        BadSyntaxBinding(_) => Unreachable_Functionally(
+            "Binding syntax errors are detected during parsing and analysis; \
+             runtime never re-parses bindings.",
+        ),
+        UndefinedFunction(_) => Unreachable_Functionally(
+            "All function references are resolved during static analysis; \
+             calls to undefined functions cannot reach execution.",
+        ),
+        UndefinedVariable(_) => Unreachable_Functionally(
+            "All variable references are resolved during static analysis; \
+             undefined variables cannot appear in executable code.",
+        ),
+        RequiresAtLeastArguments(_, _) => Unreachable_Functionally(
+            "Minimum arity requirements are enforced during static analysis; \
+             calls with too few arguments cannot reach execution.",
+        ),
+        RequiresAtMostArguments(_, _) => Unreachable_Functionally(
+            "Maximum arity requirements are enforced during static analysis; \
+             calls with too many arguments cannot reach execution.",
+        ),
+        IncorrectArgumentCount(_, _) => {
+            Tested(vec![check_error_kind_incorrect_argument_count_ccall])
+        }
+        TooManyFunctionParameters(_, _) => Unreachable_Functionally(
+            "Trait function parameter limits are enforced during trait parsing at deploy time; \
+             oversized signatures are rejected before execution.",
+        ),
+        NoSuchTrait(_, _) => Unreachable_Functionally(
+            "All trait references are fully resolved during static analysis via `use-trait`; \
+            a missing or unknown trait prevents contract deployment and cannot reach runtime.",
+        ),
+        TraitReferenceUnknown(_) => Unreachable_Functionally(
+            "All `use-trait` references are validated during static analysis; \
+             unknown traits cannot appear at runtime.",
+        ),
+        TraitMethodUnknown(_, _) => Unreachable_Functionally(
+            "Trait method existence is verified during static analysis; \
+             missing methods prevent deployment.",
+        ),
+        ExpectedTraitIdentifier => Unreachable_Functionally(
+            "Callable trait values always include a trait identifier after analysis; \
+             the runtime never receives an untagged trait value.",
+        ),
+        TraitReferenceNotAllowed => Unreachable_NotUsed, // Fuzz-only; never emitted by real Clarity execution
+        BadTraitImplementation(_, _) => Tested(vec![bad_trait_implementation_mismatched_args]),
+        DefineTraitBadSignature | DefineTraitDuplicateMethod(_) => Unreachable_Functionally(
+            "Trait definitions are fully validated during deployment; \
+             malformed trait signatures never reach runtime.",
+        ),
+        TraitBasedContractCallInReadOnly => Unreachable_Functionally(
+            "Read-only contract-call restrictions are enforced during static analysis; \
+             write-capable calls cannot exist in executable read-only code.",
+        ),
+        ContractOfExpectsTrait => Unreachable_Functionally(
+            "`contract-of` only accepts statically-typed trait values; \
+             invalid inputs are rejected during analysis.",
+        ),
+        ExpectedCallableType(_)
+        | NoSuchBlockInfoProperty(_)
+        | IfArmsMustMatch(_, _)
+        | MatchArmsMustMatch(_, _)
+        | ReservedWord(_)
+        | MaxLengthOverflow
+        | MaxContextDepthReached
+        | DefaultTypesMustMatch(_, _)
+        | IllegalOrUnknownFunctionApplication(_)
+        | UnknownFunction(_)
+        | UnexpectedTraitOrFieldReference
+        | IncompatibleTrait(_, _)
+        | WithAllAllowanceNotAllowed
+        | WithAllAllowanceNotAlone
+        | WithNftExpectedListOfIdentifiers
+        | MaxIdentifierLengthExceeded(_, _) => Unreachable_NotUsed, // Static-only; cannot arise at runtime
+        TraitTooManyMethods(_, _) => Unreachable_Functionally(
+            "Trait method count limits are enforced during deployment; \
+             oversized traits cannot appear at runtime.",
+        ),
+        InvalidCharactersDetected | InvalidUTF8Encoding => {
+            Ignored("Only reachable via legacy v1 parsing paths")
+        }
+
+        WriteAttemptedInReadOnly | AtBlockClosureMustBeReadOnly => Unreachable_Functionally(
+            "Write operations inside read-only contexts are rejected during static analysis.",
+        ),
+        ExpectedListOfAllowances(_, _)
+        | AllowanceExprNotAllowed
+        | ExpectedAllowanceExpr(_)
+        | TooManyAllowances(_, _) => Unreachable_Functionally(
+            "Allowance expressions are purely syntactic and fully validated during analysis; \
+                 invalid constructions cannot be produced dynamically at runtime.",
+        ),
     };
+}
+
+/// CheckErrorKind: [`CheckErrorKind::IncorrectArgumentCount`]
+/// Caused by: passing the wrong number of arguments to a function.
+/// Outcome: block accepted.
+#[test]
+fn check_error_kind_incorrect_argument_count_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "check-error-kind",
+        contract_code: "(define-public (trigger-error (x uint)) (ok true))",
+        function_name: "trigger-error",
+        function_args: &[ClarityValue::Bool(true), ClarityValue::Bool(true)],
+    );
 }
 
 /// Error: [`CheckErrorKind::BadTraitImplementation`]
