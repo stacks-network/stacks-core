@@ -37,8 +37,7 @@ fn read_file_or_stdin(path: &str) -> String {
             .expect("Error reading from stdin");
         buffer
     } else {
-        fs::read_to_string(path)
-            .unwrap_or_else(|e| panic!("Error reading file {}: {}", path, e))
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {}: {}", path, e))
     }
 }
 
@@ -411,7 +410,9 @@ fn main() {
             let mainnet = !testnet;
 
             let content = read_file_or_stdin(
-                contract_file.to_str().expect("Invalid UTF-8 in contract_file"),
+                contract_file
+                    .to_str()
+                    .expect("Invalid UTF-8 in contract_file"),
             );
 
             let cid = if let Some(cid_str) = contract_id {
@@ -447,7 +448,7 @@ fn main() {
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
             let mainnet = !testnet;
-            
+
             // Loop
             execute_repl(mainnet, epoch_id, clarity_ver)
         }
