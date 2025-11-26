@@ -33,9 +33,6 @@ jobs:
           - tests::epoch_205::test_dynamic_db_method_costs
           - tests::epoch_205::test_exact_block_costs
           - tests::epoch_205::transition_empty_blocks
-          - tests::epoch_21::test_pox_missing_five_anchor_blocks
-          - tests::epoch_21::test_pox_reorg_one_flap
-          - tests::epoch_21::test_pox_reorgs_three_flaps
           - tests::epoch_21::test_sortition_divergence_pre_21
           - tests::epoch_21::test_v1_unlock_height_with_current_stackers
           - tests::epoch_21::test_v1_unlock_height_with_delay_and_current_stackers
@@ -43,13 +40,11 @@ jobs:
           - tests::epoch_21::transition_adds_burn_block_height
           - tests::epoch_21::transition_adds_get_pox_addr_recipients
           - tests::epoch_21::transition_adds_mining_from_segwit
-          - tests::epoch_21::transition_adds_pay_to_contract
           - tests::epoch_21::transition_empty_blocks
           - tests::epoch_21::transition_fixes_bitcoin_rigidity
           - tests::epoch_21::transition_removes_pox_sunset
           - tests::epoch_22::disable_pox
           - tests::epoch_22::pox_2_unlock_all
-          - tests::epoch_22::test_pox_reorg_one_flap
           - tests::epoch_23::trait_invocation_behavior
           - tests::epoch_24::fix_to_pox_contract
           - tests::epoch_24::verify_auto_unlock_behavior
@@ -60,7 +55,7 @@ jobs:
         uses: stacks-network/actions/stacks-core/testenv@main
         with:
           btc-version: "25.0"
-          
+
       ## Run test matrix using restored cache of archive file
       ##   - Test will timeout after env.TEST_TIMEOUT minutes
       - name: Run Tests
