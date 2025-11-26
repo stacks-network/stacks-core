@@ -599,15 +599,3 @@ fn invalid_utf8_encoding_from_oob_unicode_escape() {
         VmExecutionError::Unchecked(CheckErrorKind::InvalidUTF8Encoding)
     ));
 }
-
-#[test]
-fn invalid_utf8_encoding() {
-    // Valid hex → parse OK
-    // But > 0x10FFFF → char::from_u32 returns None → InvalidUTF8Encoding
-    let bad_literal = "\\u{110000}".to_string();
-    let err = Value::string_utf8_from_string_utf8_literal(bad_literal).unwrap_err();
-    assert!(matches!(
-        err,
-        VmExecutionError::Unchecked(CheckErrorKind::InvalidUTF8Encoding)
-    ));
-}
