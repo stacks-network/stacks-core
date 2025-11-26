@@ -28,6 +28,34 @@ use clarity_cli::{
 };
 use stacks_common::types::StacksEpochId;
 
+/// Read content from a file path or stdin if path is "-"
+fn read_file_or_stdin(path: &str) -> String {
+    if path == "-" {
+        let mut buffer = String::new();
+        io::stdin()
+            .read_to_string(&mut buffer)
+            .expect("Error reading from stdin");
+        buffer
+    } else {
+        fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("Error reading file {}: {}", path, e))
+    }
+}
+
+/// Read content from an optional file path, defaulting to stdin if None or "-"
+fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
+    match path {
+        Some(p) => read_file_or_stdin(p.to_str().expect("Invalid UTF-8 in path")),
+        None => {
+            let mut buffer = String::new();
+            io::stdin()
+                .read_to_string(&mut buffer)
+                .expect("Error reading from stdin");
+            buffer
+        }
+    }
+}
+
 /// Parse epoch string to StacksEpochId
 fn parse_epoch(epoch_str: Option<&String>) -> StacksEpochId {
     if let Some(s) = epoch_str {
@@ -51,17 +79,7 @@ fn parse_clarity_version(cv_str: Option<&String>, epoch: StacksEpochId) -> Clari
 /// Parse allocations from JSON file or stdin
 fn parse_allocations(allocations_file: &Option<PathBuf>) -> Vec<(PrincipalData, u64)> {
     if let Some(filename) = allocations_file {
-        let json_in = if filename.to_str() == Some("-") {
-            let mut buffer = String::new();
-            io::stdin()
-                .read_to_string(&mut buffer)
-                .expect("Error reading from stdin");
-            buffer
-        } else {
-            fs::read_to_string(filename)
-                .unwrap_or_else(|e| panic!("Error reading file {}: {}", filename.display(), e))
-        };
-
+        let json_in = read_file_or_stdin(filename.to_str().expect("Invalid UTF-8 in path"));
         clarity_cli::parse_allocations_json(&json_in).unwrap_or_else(|e| panic!("{}", e))
     } else {
         vec![]
@@ -154,7 +172,15 @@ enum Commands {
         clarity_version: Option<String>,
     },
 
-    /// Typecheck and evaluate an expression without a contract or database context from stdin
+    /// Typecheck and evaluate an expression without a contract or database context.
+    ///
+    /// Reads Clarity code from stdin:
+    ///
+    ///   echo "(+ 1 2)" | clarity-cli eval_raw
+    ///
+    ///   clarity-cli eval_raw < program.clar
+    ///
+    ///   clarity-cli eval_raw <<< "(+ 1 2)"
     #[command(name = "eval_raw")]
     EvalRaw {
         /// Stacks epoch
@@ -185,7 +211,7 @@ enum Commands {
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
 
-        /// Program file (optional, or "-" for stdin; if omitted, reads from stdin)
+        /// Program file (or "-" for stdin; if omitted, reads from stdin)
         #[arg(value_name = "PROGRAM_FILE")]
         program_file: Option<PathBuf>,
 
@@ -217,7 +243,7 @@ enum Commands {
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
 
-        /// Program file (optional, or "-" for stdin; if omitted, reads from stdin)
+        /// Program file (or "-" for stdin; if omitted, reads from stdin)
         #[arg(value_name = "PROGRAM_FILE")]
         program_file: Option<PathBuf>,
 
@@ -226,7 +252,15 @@ enum Commands {
         db_path: PathBuf,
     },
 
-    /// Like eval_at_chaintip, but accepts an index-block-hash to evaluate at (reads code from stdin)
+    /// Like eval_at_chaintip, but accepts an index-block-hash to evaluate at.
+    ///
+    /// Reads Clarity code from stdin:
+    ///
+    ///   echo "(get-info)" | clarity-cli eval_at_block ...
+    ///
+    ///   clarity-cli eval_at_block ... < program.clar
+    ///
+    ///   clarity-cli eval_at_block ... <<< "(get-info)"
     #[command(name = "eval_at_block")]
     EvalAtBlock {
         /// Output cost information
@@ -277,7 +311,7 @@ enum Commands {
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
 
-        /// Contract definition file
+        /// Contract definition file (or "-" for stdin)
         #[arg(value_name = "CONTRACT_FILE")]
         contract_file: PathBuf,
 
@@ -294,7 +328,10 @@ enum Commands {
         db_path: PathBuf,
     },
 
-    /// Execute a public function of a defined contract
+    /// Execute a public function of a defined contract.
+    ///
+    /// Arguments must be valid Clarity values (e.g., "u10" for uint, "'ST1..." for principal).
+    /// Note: Principals require the Clarity quote prefix (').
     #[command(name = "execute")]
     Execute {
         /// Output cost information
@@ -351,7 +388,6 @@ fn main() {
             db_path,
             allocations_file,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let mainnet = !testnet;
             let allocations = parse_allocations(allocations_file);
@@ -370,25 +406,14 @@ fn main() {
             epoch,
             db_path,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
             let mainnet = !testnet;
 
-            // Read contract content
-            let content = if contract_file.to_str() == Some("-") {
-                let mut buffer = String::new();
-                io::stdin()
-                    .read_to_string(&mut buffer)
-                    .expect("Error reading from stdin");
-                buffer
-            } else {
-                fs::read_to_string(contract_file).unwrap_or_else(|e| {
-                    panic!("Error reading file {}: {}", contract_file.display(), e)
-                })
-            };
+            let content = read_file_or_stdin(
+                contract_file.to_str().expect("Invalid UTF-8 in contract_file"),
+            );
 
-            // Parse contract_id or use transient
             let cid = if let Some(cid_str) = contract_id {
                 QualifiedContractIdentifier::parse(cid_str).unwrap_or_else(|e| {
                     panic!("Error parsing contract identifier '{}': {}", cid_str, e)
@@ -397,7 +422,6 @@ fn main() {
                 QualifiedContractIdentifier::transient()
             };
 
-            // Get optional db_path
             let db_path_str = db_path
                 .as_ref()
                 .map(|p| p.to_str().expect("Invalid UTF-8 in db_path"));
@@ -420,11 +444,10 @@ fn main() {
             epoch,
             clarity_version,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
             let mainnet = !testnet;
-
+            
             // Loop
             execute_repl(mainnet, epoch_id, clarity_ver)
         }
@@ -433,17 +456,12 @@ fn main() {
             epoch,
             clarity_version,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
-            // Read content from stdin
-            let mut buffer = String::new();
-            io::stdin()
-                .read_to_string(&mut buffer)
-                .expect("Error reading from stdin");
+            let content = read_file_or_stdin("-");
 
-            execute_eval_raw(&buffer, epoch_id, clarity_ver)
+            execute_eval_raw(&content, epoch_id, clarity_ver)
         }
 
         Commands::Eval {
@@ -454,25 +472,13 @@ fn main() {
             program_file,
             db_path,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
-            // Parse contract identifier
             let cid = QualifiedContractIdentifier::parse(contract_id)
                 .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
 
-            // Read program content (from file or stdin)
-            let content = if let Some(pf) = program_file {
-                fs::read_to_string(pf)
-                    .unwrap_or_else(|e| panic!("Error reading file {}: {}", pf.display(), e))
-            } else {
-                let mut buffer = String::new();
-                io::stdin()
-                    .read_to_string(&mut buffer)
-                    .expect("Error reading from stdin");
-                buffer
-            };
+            let content = read_optional_file_or_stdin(program_file.as_ref());
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
 
@@ -488,25 +494,13 @@ fn main() {
             program_file,
             db_path,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
-            // Parse contract identifier
             let cid = QualifiedContractIdentifier::parse(contract_id)
                 .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
 
-            // Read program content (from file or stdin)
-            let content = if let Some(pf) = program_file {
-                fs::read_to_string(pf)
-                    .unwrap_or_else(|e| panic!("Error reading file {}: {}", pf.display(), e))
-            } else {
-                let mut buffer = String::new();
-                io::stdin()
-                    .read_to_string(&mut buffer)
-                    .expect("Error reading from stdin");
-                buffer
-            };
+            let content = read_optional_file_or_stdin(program_file.as_ref());
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
             let coverage_str = coverage
@@ -533,26 +527,20 @@ fn main() {
             clarity_version,
             vm_dir,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
-            // Parse contract identifier
             let cid = QualifiedContractIdentifier::parse(contract_id)
                 .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
 
-            // Read content from stdin
-            let mut buffer = String::new();
-            io::stdin()
-                .read_to_string(&mut buffer)
-                .expect("Error reading from stdin");
+            let content = read_file_or_stdin("-");
 
             let vm_dir_str = vm_dir.to_str().expect("Invalid UTF-8 in vm_dir");
 
             execute_eval_at_block(
                 index_block_hash,
                 &cid,
-                &buffer,
+                &content,
                 *costs,
                 epoch_id,
                 clarity_ver,
@@ -571,21 +559,16 @@ fn main() {
             epoch,
             db_path,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
-            // Parse contract identifier
             let cid = QualifiedContractIdentifier::parse(contract_id)
                 .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
 
-            // Read contract content
             let contract_src_file = contract_file
                 .to_str()
                 .expect("Invalid UTF-8 in contract_file");
-            let contract_content = fs::read_to_string(contract_file).unwrap_or_else(|e| {
-                panic!("Error reading file {}: {}", contract_file.display(), e)
-            });
+            let contract_content = read_file_or_stdin(contract_src_file);
 
             let db_path_str = db_path.to_str().expect("Invalid UTF-8 in db_path");
             let coverage_str = coverage
@@ -593,7 +576,6 @@ fn main() {
                 .and_then(|p| p.to_str())
                 .map(|s| s.to_string());
 
-            // Call execute_launch directly
             execute_launch(
                 &cid,
                 contract_src_file,
@@ -620,20 +602,16 @@ fn main() {
             sender,
             args: fn_args,
         } => {
-            // Parse arguments
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
-            // Parse contract identifier
             let cid = QualifiedContractIdentifier::parse(contract_id)
                 .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
 
-            // Parse sender
             let sender_principal = PrincipalData::parse_standard_principal(sender)
                 .map(PrincipalData::Standard)
                 .unwrap_or_else(|e| panic!("Unexpected result parsing sender {}: {}", sender, e));
 
-            // Parse function arguments
             let arguments: Vec<_> = fn_args
                 .iter()
                 .map(|argument| {
