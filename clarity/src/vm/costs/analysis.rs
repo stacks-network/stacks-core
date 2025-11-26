@@ -234,7 +234,7 @@ pub fn static_cost(
     let epoch = env.global_context.epoch_id;
     let ast = make_ast(&contract_source, epoch, clarity_version)?;
 
-    static_cost_tree_from_ast(&ast, clarity_version)
+    static_cost_tree_from_ast(&ast, clarity_version, epoch)
 }
 
 /// same idea as `static_cost` but returns the root of the cost analysis tree for each function
@@ -265,14 +265,15 @@ pub fn static_cost_tree(
     let epoch = env.global_context.epoch_id;
     let ast = make_ast(&contract_source, epoch, clarity_version)?;
 
-    static_cost_tree_from_ast(&ast, clarity_version)
+    static_cost_tree_from_ast(&ast, clarity_version, epoch)
 }
 
 pub fn static_cost_from_ast(
     contract_ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<HashMap<String, (StaticCost, Option<TraitCount>)>, String> {
-    let cost_trees_with_traits = static_cost_tree_from_ast(contract_ast, clarity_version)?;
+    let cost_trees_with_traits = static_cost_tree_from_ast(contract_ast, clarity_version, epoch)?;
 
     // Extract trait_count from the first entry (all entries have the same trait_count)
     let trait_count = cost_trees_with_traits
@@ -298,6 +299,7 @@ pub fn static_cost_from_ast(
 pub(crate) fn static_cost_tree_from_ast(
     ast: &crate::vm::ast::ContractAST,
     clarity_version: &ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<HashMap<String, (CostAnalysisNode, Option<TraitCount>)>, String> {
     let exprs = &ast.expressions;
     let user_args = UserArgumentsContext::new();
@@ -313,7 +315,7 @@ pub(crate) fn static_cost_tree_from_ast(
     for expr in exprs {
         if let Some(function_name) = extract_function_name(expr) {
             let (_, cost_analysis_tree) =
-                build_cost_analysis_tree(expr, &user_args, &costs_map, clarity_version)?;
+                build_cost_analysis_tree(expr, &user_args, &costs_map, clarity_version, epoch)?;
             costs.insert(function_name, Some(cost_analysis_tree));
         }
     }
@@ -353,6 +355,7 @@ pub fn build_cost_analysis_tree(
     user_args: &UserArgumentsContext,
     cost_map: &HashMap<String, Option<StaticCost>>,
     clarity_version: &ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<(Option<String>, CostAnalysisNode), String> {
     match &expr.expr {
         SymbolicExpressionType::List(list) => {
@@ -364,6 +367,7 @@ pub fn build_cost_analysis_tree(
                             user_args,
                             cost_map,
                             clarity_version,
+                            epoch,
                         )?;
                     Ok((Some(returned_function_name), cost_analysis_tree))
                 } else {
@@ -372,12 +376,18 @@ pub fn build_cost_analysis_tree(
                         user_args,
                         cost_map,
                         clarity_version,
+                        epoch,
                     )?;
                     Ok((None, cost_analysis_tree))
                 }
             } else {
-                let cost_analysis_tree =
-                    build_listlike_cost_analysis_tree(list, user_args, cost_map, clarity_version)?;
+                let cost_analysis_tree = build_listlike_cost_analysis_tree(
+                    list,
+                    user_args,
+                    cost_map,
+                    clarity_version,
+                    epoch,
+                )?;
                 Ok((None, cost_analysis_tree))
             }
         }
@@ -439,6 +449,7 @@ fn build_function_definition_cost_analysis_tree(
     _user_args: &UserArgumentsContext,
     cost_map: &HashMap<String, Option<StaticCost>>,
     clarity_version: &ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<(String, CostAnalysisNode), String> {
     let define_type = list[0]
         .match_atom()
@@ -476,7 +487,7 @@ fn build_function_definition_cost_analysis_tree(
 
     // Process the function body with the function's user arguments context
     let (_, body_tree) =
-        build_cost_analysis_tree(body, &function_user_args, cost_map, clarity_version)?;
+        build_cost_analysis_tree(body, &function_user_args, cost_map, clarity_version, epoch)?;
     children.push(body_tree);
 
     // Get the function name from the signature
@@ -508,12 +519,14 @@ fn build_listlike_cost_analysis_tree(
     user_args: &UserArgumentsContext,
     cost_map: &HashMap<String, Option<StaticCost>>,
     clarity_version: &ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<CostAnalysisNode, String> {
     let mut children = Vec::new();
 
     // Build children for all exprs
     for expr in exprs[1..].iter() {
-        let (_, child_tree) = build_cost_analysis_tree(expr, user_args, cost_map, clarity_version)?;
+        let (_, child_tree) =
+            build_cost_analysis_tree(expr, user_args, cost_map, clarity_version, epoch)?;
         children.push(child_tree);
     }
 
@@ -521,7 +534,7 @@ fn build_listlike_cost_analysis_tree(
         SymbolicExpressionType::List(_) => {
             // Recursively analyze the nested list structure
             let (_, nested_tree) =
-                build_cost_analysis_tree(&exprs[0], user_args, cost_map, clarity_version)?;
+                build_cost_analysis_tree(&exprs[0], user_args, cost_map, clarity_version, epoch)?;
             // Add the nested tree as a child (its cost will be included when summing children)
             children.insert(0, nested_tree);
             // The root cost is zero - the actual cost comes from the nested expression
@@ -537,7 +550,7 @@ fn build_listlike_cost_analysis_tree(
                 let cost = calculate_function_cost_from_native_function(
                     native_function,
                     children.len() as u64,
-                    clarity_version,
+                    epoch,
                 )?;
                 (CostExprNode::NativeFunction(native_function), cost)
             } else {
@@ -608,7 +621,7 @@ mod tests {
         let user_args = UserArgumentsContext::new();
         let expr = &exprs[0];
         let (_, cost_analysis_tree) =
-            build_cost_analysis_tree(&expr, &user_args, &cost_map, clarity_version)?;
+            build_cost_analysis_tree(&expr, &user_args, &cost_map, clarity_version, epoch)?;
 
         let summing_cost = calculate_total_cost_with_branching(&cost_analysis_tree);
         Ok(summing_cost.into())
@@ -620,7 +633,7 @@ mod tests {
     ) -> Result<HashMap<String, StaticCost>, String> {
         let epoch = StacksEpochId::latest();
         let ast = make_ast(source, epoch, clarity_version)?;
-        let costs = static_cost_from_ast(&ast, clarity_version)?;
+        let costs = static_cost_from_ast(&ast, clarity_version, epoch)?;
         Ok(costs
             .into_iter()
             .map(|(name, (cost, _trait_count))| (name, cost))
@@ -713,9 +726,15 @@ mod tests {
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_map = HashMap::new(); // Empty cost map for tests
-        let (_, cost_tree) =
-            build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
-                .unwrap();
+        let epoch = StacksEpochId::Epoch32;
+        let (_, cost_tree) = build_cost_analysis_tree(
+            expr,
+            &user_args,
+            &cost_map,
+            &ClarityVersion::Clarity3,
+            epoch,
+        )
+        .unwrap();
 
         // Root should be an If node
         assert!(matches!(
@@ -760,9 +779,15 @@ mod tests {
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_map = HashMap::new(); // Empty cost map for tests
-        let (_, cost_tree) =
-            build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
-                .unwrap();
+        let epoch = StacksEpochId::Epoch32;
+        let (_, cost_tree) = build_cost_analysis_tree(
+            expr,
+            &user_args,
+            &cost_map,
+            &ClarityVersion::Clarity3,
+            epoch,
+        )
+        .unwrap();
 
         assert!(matches!(
             cost_tree.expr,
@@ -793,9 +818,15 @@ mod tests {
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_map = HashMap::new(); // Empty cost map for tests
-        let (_, cost_tree) =
-            build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
-                .unwrap();
+        let epoch = StacksEpochId::Epoch32;
+        let (_, cost_tree) = build_cost_analysis_tree(
+            expr,
+            &user_args,
+            &cost_map,
+            &ClarityVersion::Clarity3,
+            epoch,
+        )
+        .unwrap();
 
         assert!(matches!(
             cost_tree.expr,
@@ -816,9 +847,15 @@ mod tests {
         let expr = &ast.expressions[0];
         let user_args = UserArgumentsContext::new();
         let cost_map = HashMap::new(); // Empty cost map for tests
-        let (_, cost_tree) =
-            build_cost_analysis_tree(expr, &user_args, &cost_map, &ClarityVersion::Clarity3)
-                .unwrap();
+        let epoch = StacksEpochId::Epoch32;
+        let (_, cost_tree) = build_cost_analysis_tree(
+            expr,
+            &user_args,
+            &cost_map,
+            &ClarityVersion::Clarity3,
+            epoch,
+        )
+        .unwrap();
 
         assert_eq!(cost_tree.children.len(), 3);
 

@@ -2,6 +2,7 @@ mod trait_counter;
 use std::collections::HashMap;
 
 use clarity_types::types::{CharType, SequenceData};
+use stacks_common::types::StacksEpochId;
 pub use trait_counter::{
     TraitCount, TraitCountCollector, TraitCountContext, TraitCountPropagator, TraitCountVisitor,
 };
@@ -97,10 +98,12 @@ pub(crate) fn calculate_value_cost(value: &Value) -> Result<StaticCost, String> 
 pub(crate) fn calculate_function_cost_from_native_function(
     native_function: NativeFunctions,
     arg_count: u64,
-    clarity_version: &ClarityVersion,
+    epoch: StacksEpochId,
 ) -> Result<StaticCost, String> {
+    // Derive clarity_version from epoch for lookup_reserved_functions
+    let clarity_version = ClarityVersion::default_for_epoch(epoch);
     let cost_function =
-        match lookup_reserved_functions(native_function.to_string().as_str(), clarity_version) {
+        match lookup_reserved_functions(native_function.to_string().as_str(), &clarity_version) {
             Some(CallableType::NativeFunction(_, _, cost_fn)) => cost_fn,
             Some(CallableType::NativeFunction205(_, _, cost_fn, _)) => cost_fn,
             Some(CallableType::SpecialFunction(_, _)) => return Ok(StaticCost::ZERO),
@@ -110,11 +113,22 @@ pub(crate) fn calculate_function_cost_from_native_function(
             }
         };
 
-    let cost = match clarity_version {
-        ClarityVersion::Clarity1 => cost_function.eval::<Costs1>(arg_count),
-        ClarityVersion::Clarity2 => cost_function.eval::<Costs2>(arg_count),
-        ClarityVersion::Clarity3 => cost_function.eval::<Costs3>(arg_count),
-        ClarityVersion::Clarity4 => cost_function.eval::<Costs4>(arg_count),
+    let cost = match epoch {
+        StacksEpochId::Epoch20 => cost_function.eval::<Costs1>(arg_count),
+        StacksEpochId::Epoch2_05 => cost_function.eval::<Costs2>(arg_count),
+        StacksEpochId::Epoch21
+        | StacksEpochId::Epoch22
+        | StacksEpochId::Epoch23
+        | StacksEpochId::Epoch24
+        | StacksEpochId::Epoch25
+        | StacksEpochId::Epoch30
+        | StacksEpochId::Epoch31
+        | StacksEpochId::Epoch32 => cost_function.eval::<Costs3>(arg_count),
+        StacksEpochId::Epoch33 => cost_function.eval::<Costs4>(arg_count),
+        StacksEpochId::Epoch10 => {
+            // fallback to costs 1 since epoch 1 doesn't have direct cost mapping
+            cost_function.eval::<Costs1>(arg_count)
+        }
     }
     .map_err(|e| format!("Cost calculation error: {:?}", e))?;
     Ok(StaticCost {

@@ -33,7 +33,8 @@ fn test_build_cost_analysis_tree_function_definition() {
     let cost_map = HashMap::new();
 
     let clarity_version = ClarityVersion::Clarity3;
-    let result = build_cost_analysis_tree(expr, &user_args, &cost_map, &clarity_version);
+    let epoch = StacksEpochId::Epoch32;
+    let result = build_cost_analysis_tree(expr, &user_args, &cost_map, &clarity_version, epoch);
 
     match result {
         Ok((function_name, node)) => {
@@ -71,7 +72,7 @@ fn test_dependent_function_calls() {
         epoch,
     )
     .unwrap();
-    let function_map = static_cost_from_ast(&ast, &ClarityVersion::Clarity3).unwrap();
+    let function_map = static_cost_from_ast(&ast, &ClarityVersion::Clarity3, epoch).unwrap();
 
     let (add_one_cost, _) = function_map.get("add-one").unwrap();
     let (somefunc_cost, _) = function_map.get("somefunc").unwrap();
@@ -103,7 +104,8 @@ fn test_get_trait_count_direct() {
     )
     .unwrap();
 
-    let costs = static_cost_tree_from_ast(&ast, &ClarityVersion::Clarity3).unwrap();
+    let costs =
+        static_cost_tree_from_ast(&ast, &ClarityVersion::Clarity3, StacksEpochId::Epoch32).unwrap();
 
     // Extract trait_count from the result (all entries have the same trait_count)
     let trait_count = costs
@@ -133,15 +135,11 @@ fn test_trait_counting() {
 (define-private (send (trait <trait-name>) (addr principal)) (trait addr))
 "#;
     let contract_id = QualifiedContractIdentifier::local("trait-counting").unwrap();
-    let ast = crate::vm::ast::build_ast(
-        &contract_id,
-        src,
-        &mut (),
-        ClarityVersion::Clarity3,
-        StacksEpochId::Epoch32,
-    )
-    .unwrap();
-    let static_cost = static_cost_from_ast(&ast, &ClarityVersion::Clarity3)
+    let epoch = StacksEpochId::Epoch32;
+    let ast =
+        crate::vm::ast::build_ast(&contract_id, src, &mut (), ClarityVersion::Clarity3, epoch)
+            .unwrap();
+    let static_cost = static_cost_from_ast(&ast, &ClarityVersion::Clarity3, epoch)
         .unwrap()
         .clone();
     let send_trait_count_map = static_cost.get("send").unwrap().1.clone().unwrap();
@@ -230,7 +228,7 @@ fn test_pox_4_costs() {
     )
     .expect("Failed to build AST from pox-4.clar");
 
-    let cost_map = static_cost_from_ast(&ast, &clarity_version)
+    let cost_map = static_cost_from_ast(&ast, &clarity_version, epoch)
         .expect("Failed to get static cost analysis for pox-4.clar");
 
     // Check some functions in the cost map
