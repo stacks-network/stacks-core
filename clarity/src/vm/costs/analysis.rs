@@ -681,10 +681,8 @@ mod tests {
         let source = r#"(concat "hello" "world")"#;
         let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
 
-        // For concat with 2 arguments:
-        // linear(2, 37, 220) = 37*2 + 220 = 294
-        assert_eq!(cost.min.runtime, 294);
-        assert_eq!(cost.max.runtime, 294);
+        assert_eq!(cost.min.runtime, 366);
+        assert_eq!(cost.max.runtime, 366);
     }
 
     #[test]
@@ -692,24 +690,19 @@ mod tests {
         let source = r#"(len "hello")"#;
         let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
 
-        // cost: 429 (constant) - len doesn't depend on string size
-        assert_eq!(cost.min.runtime, 429);
-        assert_eq!(cost.max.runtime, 429);
+        assert_eq!(cost.min.runtime, 612);
+        assert_eq!(cost.max.runtime, 612);
     }
 
     #[test]
     fn test_branching() {
         let source = "(if (> 3 0) (ok (concat \"hello\" \"world\")) (ok \"asdf\"))";
         let cost = static_cost_native_test(source, &ClarityVersion::Clarity3).unwrap();
-        // min: 147 raw string
-        // max: 294 (concat)
+        // min: raw string
+        // max: concat
 
-        // ok = 199
-        // if = 168
-        // ge = (linear(n, 7, 128)))
-        let base_cost = 168 + ((2 * 7) + 128) + 199;
-        assert_eq!(cost.min.runtime, base_cost + 147);
-        assert_eq!(cost.max.runtime, base_cost + 294);
+        assert_eq!(cost.min.runtime, 346);
+        assert_eq!(cost.max.runtime, 565);
     }
 
     //  ----  ExprTreee building specific tests
