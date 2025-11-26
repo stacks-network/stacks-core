@@ -1,0 +1,238 @@
+// Copyright (C) 2025 Stacks Open Internet Foundation
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+//! This module contains consensus tests related to Clarity CheckErrorKind errors that happens during runtime analysis.
+
+#[allow(unused_imports)]
+use clarity::vm::analysis::CheckErrorKind;
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::Value as ClarityValue;
+
+use crate::chainstate::tests::consensus::{
+    contract_call_consensus_test, SetupContract, FAUCET_PRIV_KEY,
+};
+use crate::core::test_util::to_addr;
+
+/// Generates a coverage classification report for a specific [`CheckErrorKind`] variant.
+///
+/// This method exists purely for **documentation and tracking purposes**.
+/// It helps maintainers understand which error variants have been:
+///
+/// - ✅ **Tested** — verified through consensus tests.
+/// - ⚙️ **Ignored** — not tested on purpose. (e.g. parser v1 related errors).
+/// - 🚫 **Unreachable** — not testable from consensus test side for reasons.
+#[allow(dead_code)]
+fn variant_coverage_report(variant: CheckErrorKind) {
+    enum VariantCoverage {
+        // Cannot occur through valid execution. The string is to explain the reason.
+        Unreachable_Functionally(&'static str),
+        // Unexpected error, that should never happen
+        Unreachable_ExpectLike,
+        // Defined but never used
+        Unreachable_NotUsed,
+        // Not tested on purpose. The string is to explain the reason.
+        Ignored(&'static str),
+        // Covered by consensus tests. The func lists is for to link the variant with the related tests
+        Tested(Vec<fn()>),
+    }
+
+    use CheckErrorKind::*;
+    use VariantCoverage::*;
+
+    _ = match variant {
+    CostOverflow |
+    CostBalanceExceeded(_, _) |
+    MemoryBalanceExceeded(_, _) |
+    CostComputationFailed(_) |
+    ExecutionTimeExpired |
+    ValueTooLarge |
+    ValueOutOfBounds |
+    TypeSignatureTooDeep |
+    ExpectedName |
+    SupertypeTooLarge |
+    Expects(_) |
+    BadMatchOptionSyntax(_) |
+    BadMatchResponseSyntax(_) |
+    BadMatchInput(_) |
+    ListTypesMustMatch |
+    ConstructedListTooLarge |
+    TypeError(_, _) |
+    TypeValueError(_, _) |
+    InvalidTypeDescription |
+    UnknownTypeName(_) |
+    UnionTypeError(_, _) |
+    UnionTypeValueError(_, _) |
+    ExpectedOptionalType(_) |
+    ExpectedResponseType(_) |
+    ExpectedOptionalOrResponseType(_) |
+    ExpectedOptionalValue(_) |
+    ExpectedResponseValue(_) |
+    ExpectedOptionalOrResponseValue(_) |
+    CouldNotDetermineResponseOkType |
+    CouldNotDetermineResponseErrType |
+    CouldNotDetermineSerializationType |
+    UncheckedIntermediaryResponses |
+    ExpectedContractPrincipalValue(_) |
+    CouldNotDetermineMatchTypes |
+    CouldNotDetermineType |
+    TypeAlreadyAnnotatedFailure |
+    CheckerImplementationFailure |
+    BadTokenName |
+    DefineNFTBadSignature |
+    NoSuchNFT(_) |
+    NoSuchFT(_) |
+    BadTransferSTXArguments |
+    BadTransferFTArguments |
+    BadTransferNFTArguments |
+    BadMintFTArguments |
+    BadBurnFTArguments |
+    BadTupleFieldName |
+    ExpectedTuple(_) |
+    NoSuchTupleField(_, _) |
+    EmptyTuplesNotAllowed |
+    BadTupleConstruction(_) |
+    NoSuchDataVariable(_) |
+    BadMapName |
+    NoSuchMap(_) |
+    DefineFunctionBadSignature |
+    BadFunctionName |
+    BadMapTypeDefinition |
+    PublicFunctionMustReturnResponse(_) |
+    DefineVariableBadSignature |
+    ReturnTypesMustMatch(_, _) |
+    CircularReference(_) |
+    NoSuchContract(_) |
+    NoSuchPublicFunction(_, _) |
+    PublicFunctionNotReadOnly(_, _) |
+    ContractAlreadyExists(_) |
+    ContractCallExpectName |
+    ExpectedCallableType(_) |
+    NoSuchBlockInfoProperty(_) |
+    NoSuchBurnBlockInfoProperty(_) |
+    NoSuchStacksBlockInfoProperty(_) |
+    NoSuchTenureInfoProperty(_) |
+    GetBlockInfoExpectPropertyName |
+    GetBurnBlockInfoExpectPropertyName |
+    GetStacksBlockInfoExpectPropertyName |
+    GetTenureInfoExpectPropertyName |
+    NameAlreadyUsed(_) |
+    ReservedWord(_) |
+    NonFunctionApplication |
+    ExpectedListApplication |
+    ExpectedSequence(_) |
+    MaxLengthOverflow |
+    BadLetSyntax |
+    BadSyntaxBinding(_) |
+    MaxContextDepthReached |
+    UndefinedFunction(_) |
+    UndefinedVariable(_) |
+    RequiresAtLeastArguments(_, _) |
+    RequiresAtMostArguments(_, _) |
+    IncorrectArgumentCount(_, _) |
+    IfArmsMustMatch(_, _) |
+    MatchArmsMustMatch(_, _) |
+    DefaultTypesMustMatch(_, _) |
+    IllegalOrUnknownFunctionApplication(_) |
+    UnknownFunction(_) |
+    TooManyFunctionParameters(_, _) |
+    NoSuchTrait(_, _) => todo!(),
+    TraitReferenceUnknown(_) => Unreachable_Functionally(
+        "Static analysis verifies all `(use-trait ...)` references at deploy time; \
+        an unknown trait cannot appear at runtime."
+    ),
+    TraitMethodUnknown(_, _) => Unreachable_Functionally(
+        "Trait calls are statically checked; missing methods prevent deployment."
+    ),
+    ExpectedTraitIdentifier => Unreachable_Functionally(
+        "Callable trait values always include their trait identifier after analysis."
+    ),
+    TraitReferenceNotAllowed => Unreachable_NotUsed, // Fuzz-only; never emitted by real Clarity execution
+    BadTraitImplementation(_, _) =>
+        Tested(vec![bad_trait_implementation_mismatched_args]),
+    DefineTraitBadSignature | DefineTraitDuplicateMethod(_) => Unreachable_Functionally(
+        "Malformed trait definitions fail during deployment, never at runtime."
+    ),
+    TraitBasedContractCallInReadOnly => Unreachable_Functionally(
+        "`contract-call?` via a trait inside read-only code is rejected at deploy time."
+    ),
+    ContractOfExpectsTrait => Unreachable_Functionally(
+        "`contract-of` receives a trait-typed argument only; invalid forms fail during analysis."
+    ),
+    UnexpectedTraitOrFieldReference |
+    IncompatibleTrait(_, _) |
+    WithAllAllowanceNotAllowed |
+    WithAllAllowanceNotAlone |
+    WithNftExpectedListOfIdentifiers |
+    MaxIdentifierLengthExceeded(_, _) => Unreachable_NotUsed, // Static-only; cannot arise at runtime
+    TraitTooManyMethods(_, _) => Unreachable_Functionally(
+        "Trait size limits are enforced at deploy time. They are not modifiable."
+    ),
+    InvalidCharactersDetected |
+    InvalidUTF8Encoding =>
+        Ignored("Only reachable via legacy v1 parsing paths"),
+    WriteAttemptedInReadOnly |
+    AtBlockClosureMustBeReadOnly =>
+        Unreachable_Functionally("Writes in read-only contexts are rejected during static analysis."),
+    ExpectedListOfAllowances(_, _) |
+    AllowanceExprNotAllowed |
+    ExpectedAllowanceExpr(_) |
+    TooManyAllowances(_, _) =>
+        Unreachable_Functionally(
+            "Allowance expressions are purely syntactic; invalid forms cannot be constructed dynamically \
+            and are rejected at deploy time.")
+    };
+}
+
+/// Error: [`CheckErrorKind::BadTraitImplementation`]
+/// Caused by: Dynamic trait dispatch to a concrete contract that has the function,
+/// but with a mismatched argument type (int instead of uint)
+/// Outcome: Block accepted
+#[test]
+fn bad_trait_implementation_mismatched_args() {
+    let trait_definer = SetupContract::new(
+        "traits",
+        "
+        (define-trait getter-trait
+            ((get-1 (uint) (response uint uint))))
+        ",
+    );
+
+    // Target contract has `get-1`, but it takes `int`, not `uint` → signature mismatch
+    let target_contract = SetupContract::new(
+        "target-contract",
+        "
+        (define-public (get-1 (x int))
+            (ok u1))
+        ",
+    );
+
+    contract_call_consensus_test!(
+        contract_name: "dispatching-contract",
+        contract_code: "
+            (use-trait getter-trait .traits.getter-trait)
+
+            (define-public (wrapped-get-1 (contract <getter-trait>))
+                (contract-call? contract get-1 u0))
+        ",
+        function_name: "wrapped-get-1",
+        function_args: &[ClarityValue::Principal(PrincipalData::Contract(
+            QualifiedContractIdentifier::new(
+                to_addr(&FAUCET_PRIV_KEY).into(),
+                "target-contract".into(),
+            )
+        ))],
+        setup_contracts: &[trait_definer, target_contract],
+    );
+}
