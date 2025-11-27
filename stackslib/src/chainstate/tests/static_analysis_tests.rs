@@ -952,6 +952,219 @@ fn static_check_error_get_tenure_info_expect_property_name() {
     );
 }
 
+/// CheckErrorKind: [`CheckErrorKind::NoSuchTenureInfoProperty`]
+/// Caused by: referenced an unknown property of a tenure
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1, and 2
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_no_such_tenure_info_property() {
+    contract_deploy_consensus_test!(
+        contract_name: "no-such-tenure-info",
+        contract_code: "(get-tenure-info? none u1)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TraitReferenceUnknown`]
+/// Caused by: referenced trait is unknown
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_trait_reference_unknown() {
+    contract_deploy_consensus_test!(
+        contract_name: "trait-ref-unknown",
+        contract_code: "(+ 1 <kvstore>)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ContractOfExpectsTrait`]
+/// Caused by: calling `contract-of` with a non-trait argument.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_contract_of_expects_trait() {
+    contract_deploy_consensus_test!(
+        contract_name: "expect-trait",
+        contract_code: "(contract-of u1)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TraitMethodUnknown`]
+/// Caused by: defining a method that is not declared in the trait
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_trait_method_unknown() {
+    contract_deploy_consensus_test!(
+        contract_name: "trait-method-unknown",
+        contract_code: "
+        (define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (contract-call? contract get-2 u0))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::WriteAttemptedInReadOnly`]
+/// Caused by: read-only function `silly` invoking `map-delete`, which performs a write.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_write_attempted_in_read_only() {
+    contract_deploy_consensus_test!(
+        contract_name: "write-attempted-in-ro",
+        contract_code: "
+        (define-read-only (silly)
+            (map-delete map-name (tuple (value 1))))
+        (silly)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::AtBlockClosureMustBeReadOnly`]
+/// Caused by: `at-block` closure must be read-only but contains write operations.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_at_block_closure_must_be_read_only() {
+    contract_deploy_consensus_test!(
+        contract_name: "closure-must-be-ro",
+        contract_code: "
+        (define-data-var foo int 1)
+        (define-private (foo-bar)
+            (at-block (sha256 0)
+               (var-set foo 0)))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::AllowanceExprNotAllowed`]
+/// Caused by: using an allowance expression outside of `restrict-assets?` or `as-contract?`.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_allowance_expr_not_allowed() {
+    contract_deploy_consensus_test!(
+        contract_name: "allow-expr-not-allo",
+        contract_code: "(with-stx u1)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ExpectedListOfAllowances`]
+/// Caused by: post-condition expects a list of asset allowances but received invalid input.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_expected_list_of_allowances() {
+    contract_deploy_consensus_test!(
+        contract_name: "exp-list-of-allowances",
+        contract_code: "(restrict-assets? tx-sender u1 true)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ExpectedAllowanceExpr`]
+/// Caused by: allowance list contains a non-allowance expression.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_expected_allowance_expr() {
+    contract_deploy_consensus_test!(
+        contract_name: "exp-allowa-expr",
+        contract_code: "(restrict-assets? tx-sender ((not true)) true)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::WithAllAllowanceNotAllowed`]
+/// Caused by: `restrict-assets?` allowance list contains `with-all-assets-unsafe`, which is forbidden.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_with_all_allowance_not_allowed() {
+    contract_deploy_consensus_test!(
+        contract_name: "all-allow-not-allowed",
+        contract_code: "(restrict-assets? tx-sender ((with-all-assets-unsafe)) true)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::WithAllAllowanceNotAlone`]
+/// Caused by: combining `with-all-assets-unsafe` with another allowance inside `as-contract?`.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_with_all_allowance_not_alone() {
+    contract_deploy_consensus_test!(
+        contract_name: "all-allow-not-alone",
+        contract_code: "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::WithNftExpectedListOfIdentifiers`]
+/// Caused by: the third argument to `with-nft` is not a list of identifiers.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_with_nft_expected_list_of_identifiers() {
+    contract_deploy_consensus_test!(
+        contract_name: "with-nft-exp-ident",
+        contract_code: r#"(restrict-assets? tx-sender ((with-nft tx-sender "token-name" tx-sender)) true)"#,
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::MaxIdentifierLengthExceeded`]
+/// Caused by: `with-nft` lists 130 identifiers, surpassing [`MAX_NFT_IDENTIFIERS`] (128).
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_max_identifier_length_exceeded() {
+    contract_deploy_consensus_test!(
+        contract_name: "max-ident-len-excd",
+        contract_code: &format!(
+            "(restrict-assets? tx-sender ((with-nft .token \"token-name\" (list {}))) true)",
+            std::iter::repeat_n("u1", 130)
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TooManyAllowances`]
+/// Caused by: allowance list supplies 130 entries, exceeding [`MAX_ALLOWANCES`] (128).
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_too_many_allowances() {
+    contract_deploy_consensus_test!(
+        contract_name: "too-many-allowances",
+        contract_code: &format!(
+            "(restrict-assets? tx-sender ({} ) true)",
+            std::iter::repeat_n("(with-stx u1)", 130)
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::BadTupleConstruction`]
+/// Caused by: tuple literal repeats the `name` field twice.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_tuple_construction() {
+    contract_deploy_consensus_test!(
+        contract_name: "bad-tuple-constr",
+        contract_code: "(tuple (name 1) (name 2))",
+    );
+}
+
 /// Error: [`Error::InvalidStacksTransaction("Duplicate contract")`]
 /// Caused by: trying to deploy a contract that already exists.
 /// Outcome: block rejected.
