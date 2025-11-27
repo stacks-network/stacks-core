@@ -37,7 +37,7 @@ fn read_file_or_stdin(path: &str) -> String {
             .expect("Error reading from stdin");
         buffer
     } else {
-        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {}: {}", path, e))
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("Error reading file {path}: {e}"))
     }
 }
 
@@ -59,7 +59,7 @@ fn read_optional_file_or_stdin(path: Option<&PathBuf>) -> String {
 fn parse_epoch(epoch_str: Option<&String>) -> StacksEpochId {
     if let Some(s) = epoch_str {
         s.parse::<StacksEpochId>()
-            .unwrap_or_else(|_| panic!("Invalid epoch: {}", s))
+            .unwrap_or_else(|_| panic!("Invalid epoch: {s}"))
     } else {
         DEFAULT_CLI_EPOCH
     }
@@ -69,7 +69,7 @@ fn parse_epoch(epoch_str: Option<&String>) -> StacksEpochId {
 fn parse_clarity_version(cv_str: Option<&String>, epoch: StacksEpochId) -> ClarityVersion {
     if let Some(s) = cv_str {
         s.parse::<ClarityVersion>()
-            .unwrap_or_else(|_| panic!("Invalid clarity version: {}", s))
+            .unwrap_or_else(|_| panic!("Invalid clarity version: {s}"))
     } else {
         ClarityVersion::default_for_epoch(epoch)
     }
@@ -79,7 +79,7 @@ fn parse_clarity_version(cv_str: Option<&String>, epoch: StacksEpochId) -> Clari
 fn parse_allocations(allocations_file: &Option<PathBuf>) -> Vec<(PrincipalData, u64)> {
     if let Some(filename) = allocations_file {
         let json_in = read_file_or_stdin(filename.to_str().expect("Invalid UTF-8 in path"));
-        clarity_cli::parse_allocations_json(&json_in).unwrap_or_else(|e| panic!("{}", e))
+        clarity_cli::parse_allocations_json(&json_in).unwrap_or_else(|e| panic!("{e}"))
     } else {
         vec![]
     }
@@ -437,7 +437,7 @@ fn main() {
 
             let cid = if let Some(cid_str) = contract_id {
                 QualifiedContractIdentifier::parse(cid_str).unwrap_or_else(|e| {
-                    panic!("Error parsing contract identifier '{}': {}", cid_str, e)
+                    panic!("Error parsing contract identifier '{cid_str}': {e}")
                 })
             } else {
                 QualifiedContractIdentifier::transient()
@@ -500,7 +500,7 @@ fn main() {
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
             let cid = QualifiedContractIdentifier::parse(contract_id)
-                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
+                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {e}"));
 
             let content = read_optional_file_or_stdin(program_file.as_ref());
 
@@ -522,7 +522,7 @@ fn main() {
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
             let cid = QualifiedContractIdentifier::parse(contract_id)
-                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
+                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {e}"));
 
             let content = read_optional_file_or_stdin(program_file.as_ref());
 
@@ -556,7 +556,7 @@ fn main() {
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
             let cid = QualifiedContractIdentifier::parse(contract_id)
-                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
+                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {e}"));
 
             let content = read_optional_file_or_stdin(program_file.as_ref());
 
@@ -588,7 +588,7 @@ fn main() {
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
             let cid = QualifiedContractIdentifier::parse(contract_id)
-                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
+                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {e}"));
 
             let contract_src_file = contract_file
                 .to_str()
@@ -631,19 +631,19 @@ fn main() {
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
             let cid = QualifiedContractIdentifier::parse(contract_id)
-                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
+                .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {e}"));
 
             let sender_principal = PrincipalData::parse_standard_principal(sender)
                 .map(PrincipalData::Standard)
-                .unwrap_or_else(|e| panic!("Unexpected result parsing sender {}: {}", sender, e));
+                .unwrap_or_else(|e| panic!("Unexpected result parsing sender {sender}: {e}"));
 
             let arguments: Vec<_> = fn_args
                 .iter()
                 .map(|argument| {
                     let argument_parsed = vm_execute_in_epoch(argument, clarity_ver, epoch_id)
-                        .unwrap_or_else(|e| panic!("Error parsing argument '{}': {}", argument, e));
+                        .unwrap_or_else(|e| panic!("Error parsing argument '{argument}': {e}"));
                     let argument_value = argument_parsed.unwrap_or_else(|| {
-                        panic!("Failed to parse a value from the argument: {}", argument)
+                        panic!("Failed to parse a value from the argument: {argument}")
                     });
                     SymbolicExpression::atom_value(argument_value)
                 })

@@ -127,13 +127,13 @@ pub struct InitialAllocation {
 /// Parse allocation JSON string into (PrincipalData, u64) pairs
 pub fn parse_allocations_json(json_content: &str) -> Result<Vec<(PrincipalData, u64)>, String> {
     let initial_allocations: Vec<InitialAllocation> = serde_json::from_str(json_content)
-        .map_err(|e| format!("Failed to parse allocations JSON: {}", e))?;
+        .map_err(|e| format!("Failed to parse allocations JSON: {e}"))?;
 
     initial_allocations
         .into_iter()
         .map(|a| {
             let principal = PrincipalData::parse(&a.principal)
-                .map_err(|e| format!("Failed to parse principal {}: {}", a.principal, e))?;
+                .map_err(|e| format!("Failed to parse principal {}: {e}", a.principal))?;
             Ok((principal, a.amount))
         })
         .collect()
@@ -261,7 +261,7 @@ fn create_or_open_db(path: &String) -> Connection {
                     // need to create
                     if let Some(dirp) = PathBuf::from(path).parent() {
                         fs::create_dir_all(dirp).unwrap_or_else(|e| {
-                            eprintln!("Failed to create {:?}: {:?}", dirp, &e);
+                            eprintln!("Failed to create {dirp:?}: {e:?}");
                             panic_test!();
                         });
                     }
@@ -551,7 +551,7 @@ impl CLIHeadersDB {
 
         friendly_expect(
             tx.commit(),
-            &format!("FATAL: failed to instantiate CLI DB at {:?}", &cli_db_path),
+            &format!("FATAL: failed to instantiate CLI DB at {cli_db_path:?}"),
         );
     }
 
@@ -578,7 +578,7 @@ impl CLIHeadersDB {
     pub fn resume(db_path: &str) -> Result<CLIHeadersDB, String> {
         let cli_db_path = get_cli_db_path(db_path);
         if let Err(e) = fs::metadata(&cli_db_path) {
-            return Err(format!("Failed to access {:?}: {:?}", &cli_db_path, &e));
+            return Err(format!("Failed to access {cli_db_path:?}: {e:?}"));
         }
         let conn = create_or_open_db(&cli_db_path);
         let db = CLIHeadersDB {
@@ -617,9 +617,10 @@ impl CLIHeadersDB {
     }
 
     pub fn advance_cli_chain_tip(&mut self) -> (StacksBlockId, StacksBlockId) {
+        let db_path = &self.db_path;
         let tx = friendly_expect(
             self.conn.transaction(),
-            &format!("FATAL: failed to begin transaction on '{}'", &self.db_path),
+            &format!("FATAL: failed to begin transaction on '{db_path}'"),
         );
 
         let parent_block_hash = get_cli_chain_tip(&tx);
@@ -635,18 +636,12 @@ impl CLIHeadersDB {
                 "INSERT INTO cli_chain_tips (block_hash) VALUES (?1)",
                 [&next_block_hash],
             ),
-            &format!(
-                "FATAL: failed to store next block hash in '{}'",
-                &self.db_path
-            ),
+            &format!("FATAL: failed to store next block hash in '{db_path}'"),
         );
 
         friendly_expect(
             tx.commit(),
-            &format!(
-                "FATAL: failed to commit new chain tip to '{}'",
-                &self.db_path
-            ),
+            &format!("FATAL: failed to commit new chain tip to '{db_path}'"),
         );
 
         (parent_block_hash, next_block_hash)
@@ -856,7 +851,7 @@ fn install_boot_code<C: ClarityStorage>(
                     .unwrap();
             }
             Err(e) => {
-                panic!("failed to instantiate boot contract: {:?}", &e);
+                panic!("failed to instantiate boot contract: {e:?}");
             }
         };
     }
@@ -1010,8 +1005,7 @@ pub fn execute_check(
             // Warn if --testnet was given but we're using DB state
             if testnet_given {
                 eprintln!(
-                    "WARN: ignoring --testnet in favor of DB state in {:?}. Re-instantiate the DB to change.",
-                    vm_filename
+                    "WARN: ignoring --testnet in favor of DB state in {vm_filename:?}. Re-instantiate the DB to change."
                 );
             }
 
