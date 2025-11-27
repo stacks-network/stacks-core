@@ -180,6 +180,10 @@ enum Commands {
     ///   clarity-cli eval-raw <<< "(+ 1 2)"
     #[command(name = "eval-raw")]
     EvalRaw {
+        /// Use testnet configuration
+        #[arg(long)]
+        testnet: bool,
+
         /// Stacks epoch
         #[arg(long)]
         epoch: Option<String>,
@@ -470,16 +474,18 @@ fn main() {
         }
 
         Commands::EvalRaw {
+            testnet,
             epoch,
             clarity_version,
             program_file,
         } => {
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
+            let mainnet = !testnet;
 
             let content = read_optional_file_or_stdin(program_file.as_ref());
 
-            execute_eval_raw(&content, epoch_id, clarity_ver)
+            execute_eval_raw(&content, mainnet, epoch_id, clarity_ver)
         }
 
         Commands::Eval {

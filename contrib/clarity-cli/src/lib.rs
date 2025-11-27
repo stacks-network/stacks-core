@@ -1169,16 +1169,16 @@ pub fn execute_repl(
 }
 
 /// Typecheck and evaluate an expression without a contract or database context.
-/// Note: Always uses mainnet configuration since no database state is involved. TODO: Was this intended?
 pub fn execute_eval_raw(
     content: &str,
+    mainnet: bool,
     epoch: StacksEpochId,
     clarity_version: ClarityVersion,
 ) -> (i32, Option<serde_json::Value>) {
     let mut analysis_marf = MemoryBackingStore::new();
     let mut marf = MemoryBackingStore::new();
     let mut vm_env =
-        OwnedEnvironment::new_free(true, default_chain_id(true), marf.as_clarity_db(), epoch);
+        OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), marf.as_clarity_db(), epoch);
 
     let contract_id = QualifiedContractIdentifier::transient();
     let placeholder_context =
