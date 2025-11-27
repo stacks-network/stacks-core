@@ -372,14 +372,31 @@ fn check_error_kind_expected_contract_principal_value_cdeploy() {
 //                                                  // `native_try_ret` or the option/response matchers.
 //     ExpectedContractPrincipalValue(Box<Value>), [`check_error_kind_expected_contract_principal_value_cdeploy`] [`check_error_kind_expected_contract_principal_value_ccall`]
 //     CouldNotDetermineType, [`check_error_kind_could_not_determine_type_cdeploy`] [`check_error_kind_could_not_determine_type_ccall`]
-//     BadTokenName,
-//     NoSuchNFT(String),
-//     NoSuchFT(String),
-//     BadTransferSTXArguments,
-//     BadTransferFTArguments,
-//     BadTransferNFTArguments,
-//     BadMintFTArguments,
-//     BadBurnFTArguments,
+//     BadTokenName,  // Unreachable: asset natives call `match_atom()` on their token arg during analysis,
+//     NoSuchNFT(String), // Unreachable: analysis uses contract_context.get_nft_type during every nft-* checker,
+//                       // so a reference to an undefined NFT aborts before initialization.
+//     NoSuchFT(String),  // Unreachable: ft-* analyzers call contract_context.ft_exists, preventing undefined
+//                       // fungible tokens from ever reaching the runtime handlers.
+//     BadTransferSTXArguments, // Unreachable: the analyzer routes all `stx-transfer?`,
+//                              // `stx-transfer-memo?`, and `stx-burn?` calls through
+//                              // `check_special_stx_transfer[_memo]` / `check_special_stx_burn`
+//                              // (`clarity/src/vm/analysis/type_checker/v2_1/natives/assets.rs`),
+//                              // which demand a `(uint, principal, principal)` (plus memo) signature
+//                              // before a contract can be published. Because the runtime caches only
+//                              // sanitized values, `special_stx_transfer` never receives a malformed
+//                              // tuple of arguments and this variant cannot fire.
+//     BadTransferFTArguments,  // Unreachable: `check_special_transfer_token` enforces the
+//                              // `(uint, principal, principal)` argument contract for every FT
+//                              // transfer during analysis, so `special_transfer_token` never sees a
+//                              // mismatched set of values at runtime.
+//     BadTransferNFTArguments, // Unreachable: `check_special_transfer_asset` ensures that the NFT
+//                              // identifier plus `(principal, principal)` pair have the right types,
+//                              // preventing `special_transfer_asset` from failing later.
+//     BadMintFTArguments,      // Unreachable: `check_special_mint_token` requires a `(uint, principal)`
+//                              // argument tuple for fungible minting before deployment, so the runtime
+//                              // never raises `BadMintFTArguments`.
+//     BadBurnFTArguments,      // Unreachable: `check_special_burn_token` enforces `(uint, principal)`
+//                              // during static analysis, making the runtime variant unobservable.
 //     ExpectedTuple(Box<TypeSignature>),
 //     NoSuchTupleField(String, TupleTypeSignature),
 //     EmptyTuplesNotAllowed,
