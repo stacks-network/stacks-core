@@ -303,7 +303,7 @@ enum Commands {
         program_file: Option<PathBuf>,
     },
 
-    /// Initialize a new contract in the local state database
+    /// Deploy a new contract in the local state database
     #[command(name = "launch")]
     Launch {
         /// Output cost information
