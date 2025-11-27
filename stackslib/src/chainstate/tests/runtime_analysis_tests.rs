@@ -397,11 +397,26 @@ fn check_error_kind_expected_contract_principal_value_cdeploy() {
 //                              // never raises `BadMintFTArguments`.
 //     BadBurnFTArguments,      // Unreachable: `check_special_burn_token` enforces `(uint, principal)`
 //                              // during static analysis, making the runtime variant unobservable.
-//     ExpectedTuple(Box<TypeSignature>),
-//     NoSuchTupleField(String, TupleTypeSignature),
-//     EmptyTuplesNotAllowed,
-//     NoSuchDataVariable(String),
-//     NoSuchMap(String),
+//     ExpectedTuple(Box<TypeSignature>),        // Unreachable: `check_special_get`/`check_special_merge` ensure every
+//                                              // `(get …)`/`(merge …)` argument is statically typed as a tuple (or
+//                                              // option wrapping a tuple), so `tuple_get` / `tuple_merge` never see
+//                                              // a non-tuple at runtime.
+//     NoSuchTupleField(String, TupleTypeSignature), // Unreachable: `check_special_get` verifies tuple field existence
+//                                                  // for every `(get …)` (including option-wrapped cases) before
+//                                                  // deploy, so `tuple_get` never receives a missing field.
+//     EmptyTuplesNotAllowed, // Unreachable: all code paths producing this error call `parse_type_repr`
+//                            // (via `TupleTypeSignature::try_from`), which runs during BOTH static
+//                            // analysis and runtime. Since static analysis runs first during contract
+//                            // deployment, `StaticCheckErrorKind::EmptyTuplesNotAllowed` is always
+//                            // triggered before the runtime equivalent. The only other path
+//                            // (`TupleData::from_data`) is protected by `check_arguments_at_least(1, args)`
+//                            // in `tuple_cons`, preventing empty tuple construction at runtime.
+//     NoSuchDataVariable(String), // Unreachable: the analyzer registers every `(define-data-var …)`
+//                                 // in `contract_context.meta_data_var` before any other top-level
+//                                 // expression runs, so every `var-get`/`var-set` lookup already
+//                                 // has a descriptor or fails during static analysis.
+//     NoSuchMap(String), // Unreachable: analysis uses contract_context.get_map_type during every
+//                        // map-* checker, so a reference to an undefined map aborts before initialization.
 //     DefineFunctionBadSignature,
 //     BadFunctionName,
 //     PublicFunctionMustReturnResponse(Box<TypeSignature>),
