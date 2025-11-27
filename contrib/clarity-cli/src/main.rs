@@ -676,3 +676,75 @@ fn main() {
 
     process::exit(exit_code);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    /// Validates the clap CLI structure has no configuration errors
+    #[test]
+    fn verify_cli_structure() {
+        Cli::command().debug_assert();
+    }
+
+    /// Tests that variadic arguments after positional args are collected correctly.
+    #[test]
+    fn test_execute_variadic_args() {
+        let cli = Cli::try_parse_from([
+            "clarity-cli",
+            "execute",
+            "ST1.contract",
+            "transfer",
+            "ST1SENDER",
+            "/tmp/db",
+            "u100",
+            "'ST1RECIPIENT",
+            "(list u1 u2 u3)",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Execute { args, .. } => {
+                assert_eq!(args, vec!["u100", "'ST1RECIPIENT", "(list u1 u2 u3)"]);
+            }
+            _ => panic!("Expected Execute command"),
+        }
+    }
+
+    /// Tests that commands with many required positional args fail appropriately
+    /// when args are missing. Execute has the most complex arg structure.
+    #[test]
+    fn test_execute_missing_required_args() {
+        assert!(Cli::try_parse_from(["clarity-cli", "execute"]).is_err());
+        assert!(Cli::try_parse_from(["clarity-cli", "execute", "ST1.contract"]).is_err());
+        assert!(
+            Cli::try_parse_from(["clarity-cli", "execute", "ST1.contract", "func"]).is_err()
+        );
+        assert!(
+            Cli::try_parse_from(["clarity-cli", "execute", "ST1.contract", "func", "SENDER"])
+                .is_err()
+        );
+    }
+
+    /// Tests that launch (another command with multiple required args) validates correctly
+    #[test]
+    fn test_launch_missing_required_args() {
+        assert!(Cli::try_parse_from(["clarity-cli", "launch"]).is_err());
+        assert!(Cli::try_parse_from(["clarity-cli", "launch", "ST1.contract"]).is_err());
+        assert!(
+            Cli::try_parse_from(["clarity-cli", "launch", "ST1.contract", "file.clar"]).is_err()
+        );
+    }
+
+    /// Verifies unknown subcommands are rejected
+    #[test]
+    fn test_unknown_command_rejected() {
+        assert!(Cli::try_parse_from(["clarity-cli", "unknown-command"]).is_err());
+    }
+
+    /// Verifies running with no subcommand is rejected
+    #[test]
+    fn test_no_command_rejected() {
+        assert!(Cli::try_parse_from(["clarity-cli"]).is_err());
+    }
+}
