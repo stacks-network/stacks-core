@@ -1171,8 +1171,12 @@ pub fn execute_eval_raw(
 ) -> (i32, Option<serde_json::Value>) {
     let mut analysis_marf = MemoryBackingStore::new();
     let mut marf = MemoryBackingStore::new();
-    let mut vm_env =
-        OwnedEnvironment::new_free(mainnet, default_chain_id(mainnet), marf.as_clarity_db(), epoch);
+    let mut vm_env = OwnedEnvironment::new_free(
+        mainnet,
+        default_chain_id(mainnet),
+        marf.as_clarity_db(),
+        epoch,
+    );
 
     let contract_id = QualifiedContractIdentifier::transient();
     let placeholder_context =
