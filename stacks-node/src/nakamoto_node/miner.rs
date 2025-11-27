@@ -1668,18 +1668,6 @@ impl BlockMinerThread {
                 info!("Tenure extend: In replay, always extending tenure");
                 self.tenure_extend_reset();
             } else {
-                // Do not extend if we have spent < 50% of the budget, since it is
-                // not necessary.
-                let usage = self
-                    .tenure_budget
-                    .proportion_largest_dimension(&self.tenure_cost);
-                if usage < self.config.miner.tenure_extend_cost_threshold {
-                    return Ok(NakamotoTenureInfo {
-                        coinbase_tx: None,
-                        tenure_change_tx: None,
-                    });
-                }
-
                 let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
                 if get_epoch_time_secs() <= tenure_extend_timestamp
                     && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
