@@ -1465,7 +1465,6 @@ pub fn execute_launch(
     }
 
     // Open database
-    // let header_db = CLIHeadersDB::new(vm_filename, false); // TODO: Can we remove this comment?
     let header_db = friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
     let marf_kv = friendly_expect(
         MarfedKV::open(vm_filename, None, None),
