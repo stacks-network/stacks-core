@@ -173,11 +173,9 @@ enum Commands {
 
     /// Typecheck and evaluate an expression without a contract or database context.
     ///
-    /// Reads Clarity code from stdin:
+    /// Stdin examples:
     ///
     ///   echo "(+ 1 2)" | clarity-cli eval-raw
-    ///
-    ///   clarity-cli eval-raw < program.clar
     ///
     ///   clarity-cli eval-raw <<< "(+ 1 2)"
     #[command(name = "eval-raw")]
@@ -189,9 +187,19 @@ enum Commands {
         /// Clarity version
         #[arg(long)]
         clarity_version: Option<String>,
+
+        /// Program file (or "-" for stdin; if omitted, reads from stdin)
+        #[arg(value_name = "PROGRAM_FILE")]
+        program_file: Option<PathBuf>,
     },
 
-    /// Evaluate (in read-only mode) a program in a given contract context
+    /// Evaluate (in read-only mode) a program in a given contract context.
+    ///
+    /// Stdin examples:
+    ///
+    ///   echo "(+ 1 2)" | clarity-cli eval ...
+    ///
+    ///   clarity-cli eval ... <<< "(+ 1 2)"
     #[command(name = "eval")]
     Eval {
         /// Output cost information
@@ -219,7 +227,13 @@ enum Commands {
         db_path: PathBuf,
     },
 
-    /// Like eval, but does not advance to a new block
+    /// Like eval, but does not advance to a new block.
+    ///
+    /// Stdin examples:
+    ///
+    ///   echo "(+ 1 2)" | clarity-cli eval-at-chaintip ...
+    ///
+    ///   clarity-cli eval-at-chaintip ... <<< "(+ 1 2)"
     #[command(name = "eval-at-chaintip")]
     EvalAtChaintip {
         /// Output cost information
@@ -253,13 +267,11 @@ enum Commands {
 
     /// Like eval-at-chaintip, but accepts an index-block-hash to evaluate at.
     ///
-    /// Reads Clarity code from stdin:
+    /// Stdin examples:
     ///
-    ///   echo "(get-info)" | clarity-cli eval-at-block ...
+    ///   echo "(+ 1 2)" | clarity-cli eval-at-block ...
     ///
-    ///   clarity-cli eval-at-block ... < program.clar
-    ///
-    ///   clarity-cli eval-at-block ... <<< "(get-info)"
+    ///   clarity-cli eval-at-block ... <<< "(+ 1 2)"
     #[command(name = "eval-at-block")]
     EvalAtBlock {
         /// Output cost information
@@ -277,6 +289,10 @@ enum Commands {
         /// Contract identifier
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
+
+        /// Program file (or "-" for stdin; if omitted, reads from stdin)
+        #[arg(value_name = "PROGRAM_FILE")]
+        program_file: Option<PathBuf>,
 
         /// Clarity version
         #[arg(long)]
@@ -456,11 +472,12 @@ fn main() {
         Commands::EvalRaw {
             epoch,
             clarity_version,
+            program_file,
         } => {
             let epoch_id = parse_epoch(epoch.as_ref());
             let clarity_ver = parse_clarity_version(clarity_version.as_ref(), epoch_id);
 
-            let content = read_file_or_stdin("-");
+            let content = read_optional_file_or_stdin(program_file.as_ref());
 
             execute_eval_raw(&content, epoch_id, clarity_ver)
         }
@@ -525,6 +542,7 @@ fn main() {
             epoch,
             index_block_hash,
             contract_id,
+            program_file,
             clarity_version,
             vm_dir,
         } => {
@@ -534,7 +552,7 @@ fn main() {
             let cid = QualifiedContractIdentifier::parse(contract_id)
                 .unwrap_or_else(|e| panic!("Failed to parse contract identifier: {}", e));
 
-            let content = read_file_or_stdin("-");
+            let content = read_optional_file_or_stdin(program_file.as_ref());
 
             let vm_dir_str = vm_dir.to_str().expect("Invalid UTF-8 in vm_dir");
 
