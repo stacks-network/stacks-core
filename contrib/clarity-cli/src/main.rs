@@ -150,7 +150,7 @@ enum Commands {
         #[arg(long)]
         epoch: Option<String>,
 
-        /// Path to VM state database
+        /// Path to VM state database (optional; if omitted, uses in-memory analysis)
         #[arg(value_name = "DB_PATH")]
         db_path: Option<PathBuf>,
     },
@@ -218,13 +218,13 @@ enum Commands {
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
 
-        /// Program file (or "-" for stdin; if omitted, reads from stdin)
-        #[arg(value_name = "PROGRAM_FILE")]
-        program_file: Option<PathBuf>,
-
         /// Path to VM state database
         #[arg(value_name = "DB_PATH")]
         db_path: PathBuf,
+
+        /// Program file (or "-" for stdin; if omitted, reads from stdin)
+        #[arg(value_name = "PROGRAM_FILE")]
+        program_file: Option<PathBuf>,
     },
 
     /// Like eval, but does not advance to a new block.
@@ -256,13 +256,13 @@ enum Commands {
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
 
-        /// Program file (or "-" for stdin; if omitted, reads from stdin)
-        #[arg(value_name = "PROGRAM_FILE")]
-        program_file: Option<PathBuf>,
-
         /// Path to VM state database
         #[arg(value_name = "DB_PATH")]
         db_path: PathBuf,
+
+        /// Program file (or "-" for stdin; if omitted, reads from stdin)
+        #[arg(value_name = "PROGRAM_FILE")]
+        program_file: Option<PathBuf>,
     },
 
     /// Like eval-at-chaintip, but accepts an index-block-hash to evaluate at.
@@ -282,6 +282,10 @@ enum Commands {
         #[arg(long)]
         epoch: Option<String>,
 
+        /// Clarity version
+        #[arg(long)]
+        clarity_version: Option<String>,
+
         /// Index block hash
         #[arg(value_name = "INDEX_BLOCK_HASH")]
         index_block_hash: String,
@@ -290,17 +294,13 @@ enum Commands {
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
 
-        /// Program file (or "-" for stdin; if omitted, reads from stdin)
-        #[arg(value_name = "PROGRAM_FILE")]
-        program_file: Option<PathBuf>,
-
-        /// Clarity version
-        #[arg(long)]
-        clarity_version: Option<String>,
-
         /// Path to VM/clarity directory
         #[arg(value_name = "VM_DIR")]
         vm_dir: PathBuf,
+
+        /// Program file (or "-" for stdin; if omitted, reads from stdin)
+        #[arg(value_name = "PROGRAM_FILE")]
+        program_file: Option<PathBuf>,
     },
 
     /// Initialize a new contract in the local state database
@@ -369,10 +369,6 @@ enum Commands {
         #[arg(long)]
         epoch: Option<String>,
 
-        /// Path to VM state database
-        #[arg(value_name = "DB_PATH")]
-        db_path: PathBuf,
-
         /// Contract identifier
         #[arg(value_name = "CONTRACT_ID")]
         contract_id: String,
@@ -384,6 +380,10 @@ enum Commands {
         /// Sender address
         #[arg(value_name = "SENDER")]
         sender: String,
+
+        /// Path to VM state database
+        #[arg(value_name = "DB_PATH")]
+        db_path: PathBuf,
 
         /// Function arguments
         #[arg(value_name = "ARGS")]
