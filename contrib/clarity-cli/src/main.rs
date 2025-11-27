@@ -679,8 +679,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use clap::CommandFactory;
+
+    use super::*;
 
     /// Validates the clap CLI structure has no configuration errors
     #[test]
@@ -717,9 +718,7 @@ mod tests {
     fn test_execute_missing_required_args() {
         assert!(Cli::try_parse_from(["clarity-cli", "execute"]).is_err());
         assert!(Cli::try_parse_from(["clarity-cli", "execute", "ST1.contract"]).is_err());
-        assert!(
-            Cli::try_parse_from(["clarity-cli", "execute", "ST1.contract", "func"]).is_err()
-        );
+        assert!(Cli::try_parse_from(["clarity-cli", "execute", "ST1.contract", "func"]).is_err());
         assert!(
             Cli::try_parse_from(["clarity-cli", "execute", "ST1.contract", "func", "SENDER"])
                 .is_err()
