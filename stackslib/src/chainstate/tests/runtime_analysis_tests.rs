@@ -19,15 +19,20 @@ use clarity::vm::types::QualifiedContractIdentifier;
 use clarity::vm::Value as ClarityValue;
 
 use crate::chainstate::tests::consensus::{
-    clarity_versions_for_epoch, contract_call_consensus_test, contract_deploy_consensus_test,
-    ConsensusTest, ConsensusUtils, SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_PRIV_KEY,
+    contract_call_consensus_test, SetupContract, FAUCET_ADDRESS,
 };
-use crate::core::test_util::to_addr;
 
 /// TODO: Documentation to be added to the enum
-/// - PublicFunctionNotReadOnly. Functionally Unreachable. Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped.
-/// - NoSuchPublicFunction  Tested. Possible only during contract call. On contract deploy checked during static analysis
-/// - CircularReference. Tested. Possible only during contract call. On contract deploy checked during parsing.
+/// - PublicFunctionNotReadOnly: Functionally Unreachable. Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped.
+/// - NoSuchPublicFunction: Tested. Possible only during contract call. On contract deploy checked during static analysis
+/// - CircularReference: Tested. Possible only during contract call. On contract deploy checked during parsing.
+/// - PublicFunctionMustReturnResponse: Functionally Unreachable. On contract deploy checked during static analysis.
+/// - BadFunctionName: Functionally Unreachable. On contract deploy checked during static analysis.
+/// - DefineFunctionBadSignature: Functionally Unreachable. On contract deploy checked during static analysis.
+/// - NoSuchMap: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)
+/// - NoSuchDataVariable: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)
+/// - EmptyTuplesNotAllowed: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)
+/// - NoSuchTupleField: Functionally Unreachable. On contract deploy checked during static analysis.
 
 /// CheckErrorKind: [`CheckErrorKind::NoSuchPublicFunction`]
 /// Caused by: Attempted to invoke a private function from outside the contract.
@@ -61,11 +66,9 @@ fn check_error_kind_circular_reference_ccall() {
             (define-public (get-1 (x uint)) (ok u1))",
     );
 
-    let dispatch_principal = QualifiedContractIdentifier::parse(&format!(
-        "{}.dispatch-contract",
-        to_addr(&FAUCET_PRIV_KEY)
-    ))
-    .unwrap();
+    let dispatch_principal =
+        QualifiedContractIdentifier::parse(&format!("{}.dispatch-contract", *FAUCET_ADDRESS))
+            .unwrap();
 
     // The main contract is required because `contract_call_consensus_test!` needs a deployed contract.
     // As a result, `dispatch-contract` cannot be used directly, because need to be passed as `function_args`,
