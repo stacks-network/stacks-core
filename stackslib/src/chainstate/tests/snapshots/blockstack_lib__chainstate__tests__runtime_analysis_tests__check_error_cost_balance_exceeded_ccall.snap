@@ -1,0 +1,806 @@
+---
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "00d2dfb9b304e3da9831648bacce5cf34e153409b4579b71cdcb23da9f1387fc",
+    evaluated_epoch: Epoch20,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_0-Clarity1, code_body: [..], clarity_version: None)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2446730000,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2446730000,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5ed1dda327b90dd93fd26b2faad1d11e7b3dc4774f91137427520cef2eeddbdb",
+    evaluated_epoch: Epoch2_05,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_05-Clarity1, code_body: [..], clarity_version: None)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 41651774,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 41651774,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "17f264e7205f44903f97ea24eb9f18cbfc2a0cc87fecbbfca79e1770b6d4dce7",
+    evaluated_epoch: Epoch21,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_1-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "51261ee0ae18c4035b2ddab636484cbb7c1de9949bdf407c5d6ed28952503a8b",
+    evaluated_epoch: Epoch21,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_1-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "35e1db8216526bebc3bf620701ef0793631583ebf071413d29b5cab1918ac0b1",
+    evaluated_epoch: Epoch22,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1d2bba8aa62b7b27e19e1d96ad7b359b0cffeeda2078c5f826e6b46a7c06cd81",
+    evaluated_epoch: Epoch22,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d9bd3136f3f930a6f208b3fb44f623874edf5bdb17cf5a97c7af196cbb7022b7",
+    evaluated_epoch: Epoch23,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5534eaac07e3d50bd3833fb1cd4ef7724243ceeb0e35790b2b36dd2f7fce8a2f",
+    evaluated_epoch: Epoch23,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "56e0c84e6607221f02a999e1607471b8a653742e1886e305d4df8de397469496",
+    evaluated_epoch: Epoch24,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_4-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "ca3c45d618dcaf232f0c5a80abc1601452e818641df640ed5e8b5b16b0691d98",
+    evaluated_epoch: Epoch24,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_4-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "71c4f21ad0fd34cf480278c582f2593188d6f714c046c8b814310a9a606a6180",
+    evaluated_epoch: Epoch25,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_5-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a6257d55bb28a0a585183c1fc7cbb778ca882c997d647b03c1c7054a72a70853",
+    evaluated_epoch: Epoch25,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch2_5-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "06e5fb05eaa53eaa7ec943597bb70d029dd5b19bbe6b83b3b3c505b7979a33de",
+    evaluated_epoch: Epoch30,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_0-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "89322908ee065c1dc4c1c7ab9c0a87a40eeab27f3794d9dfc07aa64aefb8cabb",
+    evaluated_epoch: Epoch30,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_0-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "c885bdced1097efd688a45984dbe3055e2ea08917dcdd539ba1849911b025f3d",
+    evaluated_epoch: Epoch30,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_0-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8c1df9ed18489260405652f596f1dae5df44722324202f253a735685b7fb65a7",
+    evaluated_epoch: Epoch31,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_1-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "3698ff35ec8eb7ecd5e123b29e960df8dc23474949b3ba837923e96991b0fe14",
+    evaluated_epoch: Epoch31,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_1-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "5bb8a214451d72e3206f9187d7077f9210d23b70a0fb74784b7f2244bd712668",
+    evaluated_epoch: Epoch31,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_1-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "7aed8f3362330b0d110607a15831c0e10dc161036fee5164a83751857baa45e9",
+    evaluated_epoch: Epoch32,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_2-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "8568d1308adc1aeb753934b2e13dc499560bd54462e0a6727e186eb69c8f5fec",
+    evaluated_epoch: Epoch32,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_2-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fb5605912e7cffe4698229817c58035837e0567dcfbfc0c5f639b4bf7d914bc0",
+    evaluated_epoch: Epoch32,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_2-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "d42b70c50b2dd260739734f8488b4e02d97f18ed25e54c93dc985b2755126431",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440985,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440985,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fe84ca33333ac73690367473ad3b443826ce71a9dc0212bf99cddb2575100115",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "41321ffe75dab588b9760684ac1d289d20d56c047cd6af3eb7644d19f7a0dfd5",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "6abf1ae89e1dc1c991ecca8d28f30ebbed7c8449f08820bc5fa1c0873562535f",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: cost-balance-exceeded-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 255187,
+          write_count: 4,
+          read_length: 1,
+          read_count: 1,
+          runtime: 10440984,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 255187,
+      write_count: 4,
+      read_length: 1,
+      read_count: 1,
+      runtime: 10440984,
+    ),
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block fcde81e695b7318a2eaf641fe6031f37bbabc6a08ce2ed620f679e9e136b5cd3: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block c3f49409c2f4e8e4b5323cac54a78b6e00a9da2583df2ff45783d2c06860f905: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 932b6a61099a2f42a41948df7bd9cb17b4f91915f0d3eb371a8c1cbbc09e6228: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 8c88f0fa8d6de0b385d3441badfb3ebd67cc7cc14ab82cf05e984fda32b7a4d2: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 951b743a4b4d152a3423018e0c0755510c60e061a912daa83f9db7606bfa8cb4: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block e0c0b7d518d20fd5e0f096cf4b7c8e1a5a1a97156c77f6e57092830e71c7b981: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block a19d3fab56c01e506545b424a4dbc3c15ec729415084f790ede179bc9da33648: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block e459ac195e31be40b133ce0f2d4cd57d178ac0a7ff60a3b2f0977ae371ddce87: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 5684f68ca2266962f0add6d33cfb5fc49bc0650c568c3cd6d3199514ac366e2a: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 42e65eb8eb3dd0df7fb1119dcb1d388a8b94dfa5fc7544cc15e4049ef03ea0ad: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block ec66fbbe8aaad0b95be39b115436ecc3e92d6c259be8b6cf1862c8eb4babff43: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 7f7aa4f7ef04cecaff14050367a05c8b66fcf5f74f59d2810d800908a5fe96bd: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block d8558046f7490ddf4d88f430bd7a57ab191821c409bc1ccc3438d352e6e7facf: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 1d25e538a7c4944dc75c0dc623724a17c60f43bea7f795631e48f47a0a463d04: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 758d8da42a092b9bf01737b340e4d44f43a5d68c1b8b86e8020e53ab12d14943: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 6639e6f5d2028c8a5bbc2ecfe546a1237c71cc229713422cdeb17901021a0881: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block a1f60936e00764222fa885154682854bcbb0d73372546d0d225e3ca502b68fa2: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block e3f566634cf25fbaebb9c54151816f248d2145f4a0910cc36ce5d80859d330cb: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 88f3372bbc5d500d4030eba356724d4328b4018d9c87d6035db16cf734b579df: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 08483292338115de4d82acf499477e73be3b695a7ddedf737a4f1d7fe3adeb3d: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 552c056a4d8dd80d9c7c3f95814d909ba1bd312c11f5e99c4e69fd6ed9af6c62: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 4ba60b77afc52efc0bf9967c193a1ab130710a862f184c64249989ceab918694: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block feea388ebfe00f02e3cc0f87866e9ac49567a45a27093d020d080d8b2cf51f67: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 83f567c33c04f2595e9d0637081bf0c4dc511c39d7ac90a680dc08e4d01e4923: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 145c1e2761a19f561ff31f31f7c7ec3e552959de70c47862fc451befd74d2f43: CostOverflowError(ExecutionCost { write_length: 1020748, write_count: 16, read_length: 4, read_count: 4, runtime: 41763937 }, ExecutionCost { write_length: 1020748, write_count: 16, read_length: 480048, read_count: 15001, runtime: 49486199 }, ExecutionCost { write_length: 15000000, write_count: 15000, read_length: 100000000, read_count: 15000, runtime: 5000000000 })",
+  )),
+]
