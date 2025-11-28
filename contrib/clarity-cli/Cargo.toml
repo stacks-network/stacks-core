@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.44", features = ["derive", "cargo"] }
+clap = { version = "4.5.44", features = ["derive"] }
 clarity = { path = "../../clarity", default-features = false }
 stackslib = { package = "stackslib", path = "../../stackslib", default-features = false }
 stacks-common = { path = "../../stacks-common", default-features = false }
