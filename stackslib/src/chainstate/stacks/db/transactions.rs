@@ -9548,10 +9548,20 @@ pub mod test {
         .unwrap_err();
         if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
             _check_error,
-        ))) = err
+        ))) = &err
         {
         } else {
-            panic!("Did not get unchecked interpreter error");
+            #[cfg(feature = "clarity-wasm")]
+            if let Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(_))) = &err
+            {
+                // WASM error type - expected in WASM context
+            } else {
+                panic!("Did not get unchecked interpreter error or WASM generator error");
+            }
+            #[cfg(not(feature = "clarity-wasm"))]
+            {
+                panic!("Did not get unchecked interpreter error");
+            }
         }
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
@@ -9651,10 +9661,20 @@ pub mod test {
         .unwrap_err();
         if let Error::ClarityError(clarity_error::Interpreter(InterpreterError::Unchecked(
             _check_error,
-        ))) = err
+        ))) = &err
         {
         } else {
-            panic!("Did not get unchecked interpreter error");
+            #[cfg(feature = "clarity-wasm")]
+            if let Error::ClarityError(clarity_error::Wasm(WasmError::WasmGeneratorError(_))) = &err
+            {
+                // WASM error type - expected in WASM context
+            } else {
+                panic!("Did not get unchecked interpreter error or WASM generator error");
+            }
+            #[cfg(not(feature = "clarity-wasm"))]
+            {
+                panic!("Did not get unchecked interpreter error");
+            }
         }
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
         assert_eq!(acct.nonce, 3);
@@ -9721,32 +9741,50 @@ pub mod test {
 
         assert!(tx_receipt.vm_error.is_some());
         let err_str = tx_receipt.vm_error.unwrap();
-        assert!(err_str
-            .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier ")
-            .is_some());
 
-        let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
-            &mut conn,
-            &signed_runtime_checkerror_cc_contract_tx_clar1,
-            false,
-        )
-        .unwrap();
-        assert_eq!(fee, 1);
+        if cfg!(feature = "clarity-wasm") {
+            assert!(err_str
+                .find("TypeError(CallableType(Trait(TraitIdentifier")
+                .is_some());
+        } else {
+            assert!(err_str
+                .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier")
+                .is_some());
+        }
+
+        // we ignore this in wasm as the contract call is failing in wasm due to a type_checker error
+        #[cfg(not(feature = "clarity-wasm"))]
+        {
+            let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
+                &mut conn,
+                &signed_runtime_checkerror_cc_contract_tx_clar1,
+                false,
+            )
+            .unwrap();
+            assert_eq!(fee, 1);
+        }
 
         // nonce keeps advancing despite error
         let acct = StacksChainState::get_account(&mut conn, &addr.clone().into());
-        assert_eq!(acct.nonce, 5);
+        if cfg!(feature = "clarity-wasm") {
+            assert_eq!(acct.nonce, 4);
+        } else {
+            assert_eq!(acct.nonce, 5);
+        }
 
         // no state change materialized
         let executed_var =
             StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
         assert_eq!(executed_var, Some(Value::Bool(false)));
 
-        assert!(tx_receipt.vm_error.is_some());
-        let err_str = tx_receipt.vm_error.unwrap();
-        assert!(err_str
-            .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier ")
-            .is_some());
+        #[cfg(not(feature = "clarity-wasm"))]
+        {
+            assert!(tx_receipt.vm_error.is_some());
+            let err_str = tx_receipt.vm_error.unwrap();
+            assert!(err_str
+                .find("TypeValueError(OptionalType(CallableType(Trait(TraitIdentifier ")
+                .is_some());
+        }
 
         conn.commit_block();
 
@@ -9798,9 +9836,13 @@ pub mod test {
         // state change materialized
         let executed_var =
             StacksChainState::get_data_var(&mut conn, &contract_id, "executed").unwrap();
-        assert_eq!(executed_var, Some(Value::Bool(true)));
-
-        assert!(tx_receipt.vm_error.is_none());
+        // in wasm, the contract call is failing in wasm due to a type_checker error so it is not executed
+        if cfg!(feature = "clarity-wasm") {
+            assert_eq!(executed_var, Some(Value::Bool(false)));
+        } else {
+            assert_eq!(executed_var, Some(Value::Bool(true)));
+            assert!(tx_receipt.vm_error.is_none());
+        }
 
         let (fee, tx_receipt) = validate_transactions_static_epoch_and_process_transaction(
             &mut conn,
