@@ -395,7 +395,9 @@ fn check_error_kind_contract_call_expect_name_ccall() {
 }
 
 /// CheckErrorKind: [`CheckErrorKind::UnionTypeValueError`]
-/// Caused by:
+/// Caused by: evaluating `to-ascii?` with a `(contract <trait-1>)` argument while the contract
+///     is being initialized. The static analysis accepts the form, but the runtime encounters a
+///     `CallableContract` value and the runtime rejects it with the union type error.
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later.
 ///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
@@ -424,7 +426,9 @@ fn check_error_kind_union_type_value_error_cdeploy() {
 }
 
 /// CheckErrorKind: [`CheckErrorKind::UnionTypeValueError`]
-/// Caused by:
+/// Caused by: executing `to-ascii?` inside a public function with a `(contract <trait-1>)`
+///     argument. Deployment succeeds, but calling `trigger-runtime-error` binds a
+///     `CallableContract` value and the runtime rejects it with the union type error.
 /// Outcome: block accepted.
 /// Note: This test only works for Clarity 4 and later.
 ///     Clarity 1, 2, 3 will return a [`StaticCheckErrorKind::UnknownFunction`].
@@ -456,7 +460,9 @@ fn check_error_kind_union_type_value_error_ccall() {
 }
 
 /// CheckErrorKind: [`CheckErrorKind::ListTypesMustMatch`]
-/// Caused by:
+/// Caused by: Contract initialization creates a constant list that mixes callable values
+///     implementing different traits (`trait-a` vs `trait-b`). Runtime sanitization tries to
+///     coerce that mixed list into a single entry type and fails with `ListTypesMustMatch`.
 /// Outcome: block accepted.
 /// Note: The error is only triggered since Clarity 2. In Clarity 1 the tx is valid and accepted.
 #[test]
