@@ -120,10 +120,7 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "Contracts can only be created via SmartContract deployment transactions. \
              The runtime never performs contract installation or replacement.",
         ),
-        ContractCallExpectName => Unreachable_Functionally(
-            "Static analysis guarantees that the first argument to `contract-call?` is either \
-             a literal contract principal or a statically-bound trait value.",
-        ),
+        ContractCallExpectName => todo!(),
         NoSuchBurnBlockInfoProperty(_) => Unreachable_Functionally(
             "Burn block info property names are validated during static analysis; \
              unknown properties are rejected at deploy time.",
@@ -152,10 +149,7 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "`get-burn-block-info?` requires a literal property name; \
              non-atom arguments are rejected during static analysis.",
         ),
-        NameAlreadyUsed(_) => Unreachable_Functionally(
-            "All name bindings are validated during static analysis; \
-             the runtime never introduces or rebinds identifiers.",
-        ),
+        NameAlreadyUsed(_) => todo!(),
         NonFunctionApplication => Unreachable_Functionally(
             "Malformed function applications are syntactically rejected by the parser \
              and type checker before execution.",
@@ -176,10 +170,7 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "Binding syntax errors are detected during parsing and analysis; \
              runtime never re-parses bindings.",
         ),
-        UndefinedFunction(_) => Unreachable_Functionally(
-            "All function references are resolved during static analysis; \
-             calls to undefined functions cannot reach execution.",
-        ),
+        UndefinedFunction(_) => todo!(),
         UndefinedVariable(_) => Unreachable_Functionally(
             "All variable references are resolved during static analysis; \
              undefined variables cannot appear in executable code.",
