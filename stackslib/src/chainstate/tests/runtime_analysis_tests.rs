@@ -417,14 +417,14 @@ fn check_error_kind_expected_contract_principal_value_cdeploy() {
 //                                 // has a descriptor or fails during static analysis.
 //     NoSuchMap(String), // Unreachable: analysis uses contract_context.get_map_type during every
 //                        // map-* checker, so a reference to an undefined map aborts before initialization.
-//     DefineFunctionBadSignature,
-//     BadFunctionName,
-//     PublicFunctionMustReturnResponse(Box<TypeSignature>),
+//     DefineFunctionBadSignature, // Functionally Unreachable. On contract deploy checked during static analysis.
+//     BadFunctionName, // Functionally Unreachable. On contract deploy checked during static analysis.
+//     PublicFunctionMustReturnResponse(Box<TypeSignature>), // Functionally Unreachable. On contract deploy checked during static analysis.
 //     ReturnTypesMustMatch(Box<TypeSignature>, Box<TypeSignature>), [`check_error_kind_return_types_must_match_ccall`]
-//     CircularReference(Vec<String>),
+//     CircularReference(Vec<String>),  // Tested. Possible only during contract call. On contract deploy checked during parsing.
 //     NoSuchContract(String), [`check_error_kind_no_such_contract_ccall`]
-//     NoSuchPublicFunction(String, String),
-//     PublicFunctionNotReadOnly(String, String),
+//     NoSuchPublicFunction(String, String), // Tested. Possible only during contract call. On contract deploy checked during static analysis
+//     PublicFunctionNotReadOnly(String, String), // Functionally Unreachable. Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped.
 //     ContractAlreadyExists(String),
 //     ContractCallExpectName, [`check_error_kind_contract_call_expect_name_cdeploy`]
 //     NoSuchBurnBlockInfoProperty(String),
@@ -438,7 +438,7 @@ fn check_error_kind_expected_contract_principal_value_cdeploy() {
 //     ExpectedSequence(Box<TypeSignature>),
 //     BadLetSyntax,
 //     BadSyntaxBinding(SyntaxBindingError),
-//     UndefinedFunction(String),  // Unreachable? Wasn't able to trigger this error during contract initialization.
+//     UndefinedFunction(String), [`check_error_kind_undefined_function_ccall`]
 //     UndefinedVariable(String),
 //     RequiresAtLeastArguments(usize, usize),
 //     RequiresAtMostArguments(usize, usize),
