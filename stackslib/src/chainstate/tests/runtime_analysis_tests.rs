@@ -498,9 +498,8 @@ fn check_error_kind_list_types_must_match_cdeploy() {
         contract_name: "contract-3",
         contract_code: "
 ;; Contract under test: during initialization it defines a constant list that
-;; mixes callable references to two distinct traits.  The list's entry type is a
-;; `ListUnionType`, which the runtime sanitization in `put_value_with_size`
-;; cannot admit, triggering `CheckErrorKind::CouldNotDetermineType`.
+;; mixes callable references to two distinct traits. That at runtime triggers a
+;; `ListTypesMustMatch` error.
 
 (use-trait trait-a .contract-1.trait-a)
 (use-trait trait-b .contract-1.trait-b)
