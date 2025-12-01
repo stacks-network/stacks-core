@@ -65,27 +65,48 @@ fn variant_coverage_report(variant: RuntimeError) {
 
     _ = match variant {
         Arithmetic(_) => Tested(vec![
-            arithmetic_sqrti_neg,
-            arithmetic_log2_neg,
-            arithmetic_pow_large,
-            arithmetic_pow_neg,
-            arithmetic_zero_n_log_n
+            arithmetic_sqrti_neg_cdeploy,
+            arithmetic_sqrti_neg_ccall,
+            arithmetic_log2_neg_cdeploy,
+            arithmetic_log2_neg_ccall,
+            arithmetic_pow_large_cdeploy,
+            arithmetic_pow_large_ccall,
+            arithmetic_pow_neg_cdeploy,
+            arithmetic_pow_neg_ccall,
+            arithmetic_zero_n_log_n_cdeploy,
+            arithmetic_zero_n_log_n_ccall,
         ]),
         ArithmeticOverflow => Tested(vec![
-            arithmetic_overflow_pow,
-            arithmetic_overflow_mul,
-            arithmetic_overflow_add,
-            arithmetic_overflow_to_int,
+            arithmetic_overflow_pow_at_cdeploy,
+            arithmetic_overflow_pow_ccall,
+            arithmetic_overflow_mul_cdeploy,
+            arithmetic_overflow_mul_ccall,
+            arithmetic_overflow_add_cdeploy,
+            arithmetic_overflow_add_ccall,
+            arithmetic_overflow_to_int_cdeploy,
+            arithmetic_overflow_to_int_ccall,
             ft_mint_overflow,
         ]),
-        ArithmeticUnderflow => Tested(vec![to_uint_underflow, sub_underflow, sub_arg_len_underflow]),
+        ArithmeticUnderflow => Tested(vec![
+            to_uint_underflow_cdeploy,
+            to_uint_underflow_ccall,
+            sub_underflow_cdeploy,
+            sub_underflow_ccall,
+            sub_arg_len_underflow_cdeploy,
+            sub_arg_len_underflow_ccall,
+        ]),
         SupplyOverflow(_, _) => Tested(vec![ft_mint_supply_overflow]),
         SupplyUnderflow(_, _) => Unreachable_Functionally("
             Token supply underflow is prevented by design in Clarity. \
             All transfer/mint/burn operations use checked arithmetic and balance \
             validation, so negative supply is impossible without manual database corruption."
         ),
-        DivisionByZero => Tested(vec![division_by_zero_mod, division_by_zero]),
+        DivisionByZero => Tested(vec![
+            division_by_zero_mod_cdeploy,
+            division_by_zero_mod_ccall,
+            division_by_zero_cdeploy,
+            division_by_zero_ccall,
+        ]),
         TypeParseFailure(_) => Tested(vec![
             parse_tests::test_invalid_principal_literal,
             principal_wrong_byte_length,
@@ -96,7 +117,10 @@ fn variant_coverage_report(variant: RuntimeError) {
             that occurs during a typical contract deploy. These wrapped `ParseError` \
             are exhaustively covered by (`parse_tests`)."
         ),
-        MaxStackDepthReached => Tested(vec![stack_depth_too_deep_call_chain_at_call, stack_depth_too_deep_call_chain_at_deploy]),
+        MaxStackDepthReached => Tested(vec![
+            stack_depth_too_deep_call_chain_ccall,
+            stack_depth_too_deep_call_chain_cdeploy
+        ]),
         MaxContextDepthReached => Unreachable_Functionally(
             "The maximum context depth limit cannot be reached through normal Clarity code. \
             Both the call-stack depth limit and the parser's expression-depth limit \
@@ -137,7 +161,10 @@ fn variant_coverage_report(variant: RuntimeError) {
         ),
         UnknownBlockHeaderHash(_) => Tested(vec![unknown_block_header_hash_fork]),
         BadBlockHash(_) => Tested(vec![bad_block_hash]),
-        UnwrapFailure => Tested(vec![unwrap_err_panic_on_ok_runtime, unwrap_panic_on_err_runtime]),
+        UnwrapFailure => Tested(vec![
+            unwrap_err_panic_on_ok_runtime,
+            unwrap_panic_on_err_runtime
+        ]),
         DefunctPoxContract => Tested(vec![defunct_pox_contracts]),
         PoxAlreadyLocked => Ignored(
             "The active PoX contract already returns ERR_STACKING_ALREADY_STACKED for double-locking attempts. \
@@ -149,10 +176,21 @@ fn variant_coverage_report(variant: RuntimeError) {
 }
 
 /// Error: [`RuntimeError::ArithmeticOverflow`]
-/// Caused by: overflow when doing `pow` arithmetic operation
+/// Caused by: overflow when doing `pow` arithmetic operation at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn arithmetic_overflow_pow() {
+fn arithmetic_overflow_pow_at_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "overflow-pow",
+        contract_code: "(define-constant overflow (pow 2 128))",
+    );
+}
+
+/// Error: [`RuntimeError::ArithmeticOverflow`]
+/// Caused by: overflow when doing `pow` arithmetic operation at call time.
+/// Outcome: block accepted.
+#[test]
+fn arithmetic_overflow_pow_ccall() {
     contract_call_consensus_test!(
         contract_name: "overflow-pow",
         contract_code: "
@@ -165,10 +203,21 @@ fn arithmetic_overflow_pow() {
 }
 
 /// Error: [`RuntimeError::ArithmeticOverflow`]
-/// Caused by: overflow when doing `mul`` arithmetic operation
+/// Caused by: overflow when doing `mul` arithmetic operation at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn arithmetic_overflow_mul() {
+fn arithmetic_overflow_mul_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "overflow-mul",
+        contract_code: &format!("(define-constant overflow (* u{} u2))", u128::MAX),
+    );
+}
+
+/// Error: [`RuntimeError::ArithmeticOverflow`]
+/// Caused by: overflow when doing `mul` arithmetic operation at call time.
+/// Outcome: block accepted.
+#[test]
+fn arithmetic_overflow_mul_ccall() {
     contract_call_consensus_test!(
         contract_name: "overflow-mul",
         contract_code: &format!("
@@ -181,10 +230,21 @@ fn arithmetic_overflow_mul() {
 }
 
 /// Error: [`RuntimeError::ArithmeticOverflow`]
-/// Caused by: overflow when doing `add` arithmetic operation
+/// Caused by: overflow when doing `add` arithmetic operation at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn arithmetic_overflow_add() {
+fn arithmetic_overflow_add_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "overflow-add",
+        contract_code: &format!("(define-constant overflow (+ u{} u1))", u128::MAX),
+    );
+}
+
+/// Error: [`RuntimeError::ArithmeticOverflow`]
+/// Caused by: overflow when doing `add` arithmetic operation at call time.
+/// Outcome: block accepted.
+#[test]
+fn arithmetic_overflow_add_ccall() {
     contract_call_consensus_test!(
         contract_name: "overflow-add",
         contract_code: &format!("
@@ -197,10 +257,21 @@ fn arithmetic_overflow_add() {
 }
 
 /// Error: [`RuntimeError::ArithmeticOverflow`]
-/// Caused by: overflow when doing `add` arithmetic operation
+/// Caused by: overflow when doing `to-int` conversion at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn arithmetic_overflow_to_int() {
+fn arithmetic_overflow_to_int_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "overflow-to-int",
+        contract_code: &format!("(define-constant overflow (to-int u{}))", u128::MAX),
+    );
+}
+
+/// Error: [`RuntimeError::ArithmeticOverflow`]
+/// Caused by: overflow when doing `to-int` conversion at call time.
+/// Outcome: block accepted.
+#[test]
+fn arithmetic_overflow_to_int_ccall() {
     contract_call_consensus_test!(
         contract_name: "overflow-to-int",
         contract_code: &format!("
@@ -257,10 +328,21 @@ fn ft_mint_supply_overflow() {
 }
 
 /// Error: [`RuntimeError::ArithmeticUnderflow`]
-/// Caused by: `native_to_uint` conversion of a negative number.
+/// Caused by: `native_to_uint` conversion of a negative number at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn to_uint_underflow() {
+fn to_uint_underflow_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "to-uint-negative-deploy",
+        contract_code: "(define-constant overflow (to-uint -10))",
+    );
+}
+
+/// Error: [`RuntimeError::ArithmeticUnderflow`]
+/// Caused by: `native_to_uint` conversion of a negative number at call time.
+/// Outcome: block accepted.
+#[test]
+fn to_uint_underflow_ccall() {
     contract_call_consensus_test!(
         contract_name: "to-uint-negative",
         contract_code: "
@@ -273,10 +355,21 @@ fn to_uint_underflow() {
 }
 
 /// Error: [`RuntimeError::ArithmeticUnderflow`]
-/// Caused by: subtraction.
+/// Caused by: subtraction at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn sub_underflow() {
+fn sub_underflow_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "sub-underflow-deploy",
+        contract_code: "(define-constant overflow (- u10 u11))",
+    );
+}
+
+/// Error: [`RuntimeError::ArithmeticUnderflow`]
+/// Caused by: subtraction at call time.
+/// Outcome: block accepted.
+#[test]
+fn sub_underflow_ccall() {
     contract_call_consensus_test!(
         contract_name: "sub-underflow",
         contract_code: "
@@ -289,10 +382,21 @@ fn sub_underflow() {
 }
 
 /// Error: [`RuntimeError::ArithmeticUnderflow`]
-/// Caused by: single-argument subtraction attempts to negate an unsigned integer.
+/// Caused by: single-argument subtraction attempts to negate an unsigned integer at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn sub_arg_len_underflow() {
+fn sub_arg_len_underflow_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "arg-len-underflow-deploy",
+        contract_code: "(define-constant overflow (- u5))",
+    );
+}
+
+/// Error: [`RuntimeError::ArithmeticUnderflow`]
+/// Caused by: single-argument subtraction attempts to negate an unsigned integer at call time.
+/// Outcome: block accepted.
+#[test]
+fn sub_arg_len_underflow_ccall() {
     contract_call_consensus_test!(
         contract_name: "arg-len-underflow",
         contract_code: "
@@ -305,10 +409,21 @@ fn sub_arg_len_underflow() {
 }
 
 /// Error: [`RuntimeError::DivisionByZero`]
-/// Caused by: modulo.
+/// Caused by: modulo at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn division_by_zero_mod() {
+fn division_by_zero_mod_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "division-by-zero-mod-deploy",
+        contract_code: "(define-constant overflow (mod 10 0))",
+    );
+}
+
+/// Error: [`RuntimeError::DivisionByZero`]
+/// Caused by: modulo at call time.
+/// Outcome: block accepted.
+#[test]
+fn division_by_zero_mod_ccall() {
     contract_call_consensus_test!(
         contract_name: "division-by-zero-mod",
         contract_code: "
@@ -321,10 +436,21 @@ fn division_by_zero_mod() {
 }
 
 /// Error: [`RuntimeError::DivisionByZero`]
-/// Caused by: division.
+/// Caused by: division at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn division_by_zero() {
+fn division_by_zero_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "division-by-zero-deploy",
+        contract_code: "(define-constant overflow (/ 10 0))",
+    );
+}
+
+/// Error: [`RuntimeError::DivisionByZero`]
+/// Caused by: division at call time.
+/// Outcome: block accepted.
+#[test]
+fn division_by_zero_ccall() {
     contract_call_consensus_test!(
         contract_name: "division-by-zero",
         contract_code: "
@@ -337,10 +463,21 @@ fn division_by_zero() {
 }
 
 /// Error: [`RuntimeError::Arithmetic`]
-/// Caused by: sqrt of a negative integer.
+/// Caused by: sqrt of a negative integer at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn arithmetic_sqrti_neg() {
+fn arithmetic_sqrti_neg_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "sqrti-neg-deploy",
+        contract_code: "(define-constant overflow (sqrti -1))",
+    );
+}
+
+/// Error: [`RuntimeError::Arithmetic`]
+/// Caused by: sqrt of a negative integer at call time.
+/// Outcome: block accepted.
+#[test]
+fn arithmetic_sqrti_neg_ccall() {
     contract_call_consensus_test!(
         contract_name: "sqrti-neg",
         contract_code: "
@@ -353,10 +490,21 @@ fn arithmetic_sqrti_neg() {
 }
 
 /// Error: [`RuntimeError::Arithmetic`]
-/// Caused by: log2 of a negative integer.
+/// Caused by: log2 of a negative integer at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn arithmetic_log2_neg() {
+fn arithmetic_log2_neg_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "log2-neg-deploy",
+        contract_code: "(define-constant overflow (log2 -8))",
+    );
+}
+
+/// Error: [`RuntimeError::Arithmetic`]
+/// Caused by: log2 of a negative integer at call time.
+/// Outcome: block accepted.
+#[test]
+fn arithmetic_log2_neg_ccall() {
     contract_call_consensus_test!(
         contract_name: "log2-neg",
         contract_code: "
@@ -369,10 +517,24 @@ fn arithmetic_log2_neg() {
 }
 
 /// Error: [`RuntimeError::Arithmetic`]
-/// Caused by: pow of too large a number
+/// Caused by: pow of too large a number at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn arithmetic_pow_large() {
+fn arithmetic_pow_large_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "pow-large-deploy",
+        contract_code: &format!(
+            "(define-constant overflow (pow 2 {}))",
+            u64::from(u32::MAX) + 1
+        ),
+    );
+}
+
+/// Error: [`RuntimeError::Arithmetic`]
+/// Caused by: pow of too large a number at call time.
+/// Outcome: block accepted.
+#[test]
+fn arithmetic_pow_large_ccall() {
     contract_call_consensus_test!(
         contract_name: "pow-large",
         contract_code: &format!("
@@ -385,10 +547,21 @@ fn arithmetic_pow_large() {
 }
 
 /// Error: [`RuntimeError::Arithmetic`]
-/// Caused by: pow of negative number
+/// Caused by: pow of negative number at deploy time.
 /// Outcome: block accepted.
 #[test]
-fn arithmetic_pow_neg() {
+fn arithmetic_pow_neg_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "pow-neg-deploy",
+        contract_code: "(define-constant overflow (pow 2 (- 1)))",
+    );
+}
+
+/// Error: [`RuntimeError::Arithmetic`]
+/// Caused by: pow of negative number at call time.
+/// Outcome: block accepted.
+#[test]
+fn arithmetic_pow_neg_ccall() {
     contract_call_consensus_test!(
         contract_name: "pow-neg",
         contract_code: "
@@ -399,13 +572,26 @@ fn arithmetic_pow_neg() {
         function_args: &[],
     );
 }
+/// Error: [`RuntimeError::Arithmetic`]
+/// Caused by: calling nlogn with n = 0
+/// Outcome: block accepted at deploy time.
+/// Note: Returns a [`clarity::vm::analysis::CheckErrorKind::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
+#[test]
+fn arithmetic_zero_n_log_n_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "zero-n-log-n-deploy",
+        contract_code: "(define-constant overflow (from-consensus-buff? int 0x))",
+        deploy_epochs: &StacksEpochId::since(StacksEpochId::Epoch21),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+    );
+}
 
 /// Error: [`RuntimeError::Arithmetic`]
 /// Caused by: calling nlogn with n = 0
-/// Outcome: block accepted.
+/// Outcome: block accepted at call time.
 /// Note: Returns a [`clarity::vm::analysis::CheckErrorKind::CostComputationFailed`] which wrapps the underlying [`RuntimeError::Arithmetic`] error.
 #[test]
-fn arithmetic_zero_n_log_n() {
+fn arithmetic_zero_n_log_n_ccall() {
     contract_call_consensus_test!(
         contract_name: "zero-n-log-n",
         contract_code: "
@@ -434,10 +620,10 @@ pub fn principal_wrong_byte_length() {
 }
 
 /// Error: [RuntimeError::MaxStackDepthReached]
-/// Caused by: private function call chain exceeding runtime stack depth
+/// Caused by: private function call chain exceeding runtime stack depth at deploy time.
 /// Outcome: block accepted
 #[test]
-fn stack_depth_too_deep_call_chain_at_deploy() {
+fn stack_depth_too_deep_call_chain_cdeploy() {
     // Build a chain of private functions foo-0 → foo-1 → ... → foo-63
     // Each foo-i calls foo-(i-1), so calling foo-63 triggers 64 nested calls.
     let mut defs = Vec::new();
@@ -460,10 +646,10 @@ fn stack_depth_too_deep_call_chain_at_deploy() {
 }
 
 /// Error: [`RuntimeError::MaxStackDepthReached`]
-/// Caused by: private function call chain exceeding runtime stack depth at function call
+/// Caused by: private function call chain exceeding runtime stack depth at function call time.
 /// Outcome: block accepted, execution rejected when function is called
 #[test]
-fn stack_depth_too_deep_call_chain_at_call() {
+fn stack_depth_too_deep_call_chain_ccall() {
     // Build 65 private functions: foo-0 → foo-64
     let mut defs = Vec::new();
 
