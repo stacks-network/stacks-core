@@ -243,7 +243,6 @@ fn variant_coverage_report(variant: CheckErrorKind) {
         InvalidCharactersDetected | InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         }
-
         WriteAttemptedInReadOnly | AtBlockClosureMustBeReadOnly => Unreachable_Functionally(
             "Write operations inside read-only contexts are rejected during static analysis.",
         ),
