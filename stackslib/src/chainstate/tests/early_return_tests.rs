@@ -52,7 +52,7 @@ fn variant_coverage_report(variant: EarlyReturnError) {
             native_unwrap_err_or_ret_cdeploy,
             native_unwrap_or_ret_none_cdeploy,
         ]),
-        AssertionFailed(_) => todo!(),
+        AssertionFailed(_) => Tested(vec![native_special_asserts_cdeploy]),
     };
 }
 
@@ -97,5 +97,16 @@ fn native_unwrap_or_ret_none_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "unwrap-opt",
         contract_code: "(begin (unwrap! (if true none (some true)) (err u9)))",
+    );
+}
+
+/// Error: [`EarlyReturnError::AssertionFailed`]
+/// Caused by: failing `asserts!` condition at deploy time
+/// Outcome: block accepted
+#[test]
+fn native_special_asserts_cdeploy() {
+    contract_deploy_consensus_test!(
+        contract_name: "asserts-fail",
+        contract_code: "(begin (asserts! (is-eq 1 0) (err u0)) (ok u1))",
     );
 }
