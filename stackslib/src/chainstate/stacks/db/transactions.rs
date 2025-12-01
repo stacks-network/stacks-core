@@ -564,6 +564,7 @@ impl StacksChainState {
         }
 
         StacksChainState::account_debit(clarity_tx, &payer_account.principal, fee);
+
         Ok(fee)
     }
 
@@ -1554,6 +1555,8 @@ impl StacksChainState {
         debug!("Process transaction {} ({})", tx.txid(), tx.payload.name());
         let epoch = clarity_block.get_epoch();
 
+        let no_fees = clarity_block.block.no_fees;
+
         StacksChainState::process_transaction_precheck(&clarity_block.config, tx, epoch)?;
 
         // what version of Clarity did the transaction caller want? And, is it valid now?
@@ -1578,7 +1581,10 @@ impl StacksChainState {
 
             let payer_address = payer_account.principal.clone();
             let payer_nonce = payer_account.nonce;
-            StacksChainState::pay_transaction_fee(&mut transaction, fee, payer_account)?;
+
+            if !no_fees {
+                StacksChainState::pay_transaction_fee(&mut transaction, fee, payer_account)?;
+            }
 
             // origin balance may have changed (e.g. if the origin paid the tx fee), so reload the account
             let origin_account =
@@ -1619,8 +1625,10 @@ impl StacksChainState {
                 None,
             )?;
 
-            let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
-            StacksChainState::pay_transaction_fee(&mut transaction, fee, new_payer_account)?;
+            if !no_fees {
+                let new_payer_account = StacksChainState::get_payer_account(&mut transaction, tx);
+                StacksChainState::pay_transaction_fee(&mut transaction, fee, new_payer_account)?;
+            }
 
             // update the account nonces
             StacksChainState::update_account_nonce(

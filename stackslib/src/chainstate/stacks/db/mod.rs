@@ -606,6 +606,10 @@ impl<'a, 'b> ClarityTx<'a, 'b> {
             })
             .expect("FATAL: `ust-liquid-supply` overflowed");
     }
+
+    pub fn disable_fees(&mut self) {
+        self.block.no_fees = true;
+    }
 }
 
 pub struct ChainstateTx<'a> {

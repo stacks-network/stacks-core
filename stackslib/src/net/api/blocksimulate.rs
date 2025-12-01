@@ -16,10 +16,10 @@
 use clarity::vm::costs::ExecutionCost;
 use clarity::vm::Value;
 use regex::{Captures, Regex};
-use stacks_common::codec::StacksMessageCodec;
+use stacks_common::codec::{Error as CodecError, StacksMessageCodec, MAX_PAYLOAD_LEN};
 use stacks_common::types::chainstate::{BlockHeaderHash, ConsensusHash, StacksBlockId, TrieHash};
 use stacks_common::types::net::PeerHost;
-use stacks_common::util::hash::Sha512Trunc256Sum;
+use stacks_common::util::hash::{hex_bytes, Sha512Trunc256Sum};
 use stacks_common::util::secp256k1::MessageSignature;
 use stacks_common::util::serde_serializers::prefix_hex_codec;
 use url::form_urlencoded;
@@ -33,133 +33,58 @@ use crate::chainstate::stacks::events::{StacksTransactionReceipt, TransactionOri
 use crate::chainstate::stacks::miner::{BlockBuilder, BlockLimitFunction, TransactionResult};
 use crate::chainstate::stacks::{Error as ChainError, StacksTransaction, TransactionPayload};
 use crate::config::DEFAULT_MAX_TENURE_BYTES;
+use crate::net::api::blockreplay::{
+    BlockReplayProfilerResult, RPCReplayedBlock, RPCReplayedBlockTransaction,
+};
 use crate::net::http::{
-    parse_json, Error, HttpNotFound, HttpRequest, HttpRequestContents, HttpRequestPreamble,
-    HttpResponse, HttpResponseContents, HttpResponsePayload, HttpResponsePreamble, HttpServerError,
+    parse_json, Error, HttpContentType, HttpNotFound, HttpRequest, HttpRequestContents,
+    HttpRequestPreamble, HttpResponse, HttpResponseContents, HttpResponsePayload,
+    HttpResponsePreamble, HttpServerError,
 };
 use crate::net::httpcore::{RPCRequestHandler, StacksHttpResponse};
 use crate::net::{Error as NetError, StacksHttpRequest, StacksNodeState};
 
-#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
-struct BlockReplayProfiler {
-    perf_event_cpu_instructions: Option<perf_event::Counter>,
-    perf_event_cpu_cycles: Option<perf_event::Counter>,
-    perf_event_cpu_ref_cycles: Option<perf_event::Counter>,
-}
-
-#[cfg(not(all(feature = "profiler", target_os = "linux", target_arch = "x86_64")))]
-struct BlockReplayProfiler();
-
-#[derive(Default)]
-pub struct BlockReplayProfilerResult {
-    cpu_instructions: Option<u64>,
-    cpu_cycles: Option<u64>,
-    cpu_ref_cycles: Option<u64>,
-}
-
-#[cfg(all(feature = "profiler", target_os = "linux", target_arch = "x86_64"))]
-impl BlockReplayProfiler {
-    fn new() -> Self {
-        let mut perf_event_cpu_instructions: Option<perf_event::Counter> = None;
-        let mut perf_event_cpu_cycles: Option<perf_event::Counter> = None;
-        let mut perf_event_cpu_ref_cycles: Option<perf_event::Counter> = None;
-
-        if let Ok(mut perf_event_cpu_instructions_result) =
-            perf_event::Builder::new(perf_event::events::Hardware::INSTRUCTIONS).build()
-        {
-            if perf_event_cpu_instructions_result.enable().is_ok() {
-                perf_event_cpu_instructions = Some(perf_event_cpu_instructions_result);
-            }
-        }
-
-        if let Ok(mut perf_event_cpu_cycles_result) =
-            perf_event::Builder::new(perf_event::events::Hardware::CPU_CYCLES).build()
-        {
-            if perf_event_cpu_cycles_result.enable().is_ok() {
-                perf_event_cpu_cycles = Some(perf_event_cpu_cycles_result);
-            }
-        }
-
-        if let Ok(mut perf_event_cpu_ref_cycles_result) =
-            perf_event::Builder::new(perf_event::events::Hardware::REF_CPU_CYCLES).build()
-        {
-            if perf_event_cpu_ref_cycles_result.enable().is_ok() {
-                perf_event_cpu_ref_cycles = Some(perf_event_cpu_ref_cycles_result);
-            }
-        }
-
-        Self {
-            perf_event_cpu_instructions,
-            perf_event_cpu_cycles,
-            perf_event_cpu_ref_cycles,
-        }
-    }
-
-    fn collect(self) -> BlockReplayProfilerResult {
-        let mut cpu_instructions: Option<u64> = None;
-        let mut cpu_cycles: Option<u64> = None;
-        let mut cpu_ref_cycles: Option<u64> = None;
-
-        if let Some(mut perf_event_cpu_instructions) = self.perf_event_cpu_instructions {
-            if perf_event_cpu_instructions.disable().is_ok() {
-                if let Ok(value) = perf_event_cpu_instructions.read() {
-                    cpu_instructions = Some(value);
-                }
-            }
-        }
-
-        if let Some(mut perf_event_cpu_cycles) = self.perf_event_cpu_cycles {
-            if perf_event_cpu_cycles.disable().is_ok() {
-                if let Ok(value) = perf_event_cpu_cycles.read() {
-                    cpu_cycles = Some(value);
-                }
-            }
-        }
-
-        if let Some(mut perf_event_cpu_ref_cycles) = self.perf_event_cpu_ref_cycles {
-            if perf_event_cpu_ref_cycles.disable().is_ok() {
-                if let Ok(value) = perf_event_cpu_ref_cycles.read() {
-                    cpu_ref_cycles = Some(value);
-                }
-            }
-        }
-
-        BlockReplayProfilerResult {
-            cpu_instructions,
-            cpu_cycles,
-            cpu_ref_cycles,
-        }
-    }
-}
-
-#[cfg(not(all(feature = "profiler", target_os = "linux", target_arch = "x86_64")))]
-impl BlockReplayProfiler {
-    fn new() -> Self {
-        warn!("BlockReplay Profiler is not available in this build.");
-        Self {}
-    }
-    fn collect(self) -> BlockReplayProfilerResult {
-        BlockReplayProfilerResult::default()
-    }
-}
-
 #[derive(Clone)]
-pub struct RPCNakamotoBlockReplayRequestHandler {
+pub struct RPCNakamotoBlockSimulateRequestHandler {
     pub block_id: Option<StacksBlockId>,
     pub auth: Option<String>,
     pub profiler: bool,
+    pub transactions: Vec<StacksTransaction>,
 }
 
-impl RPCNakamotoBlockReplayRequestHandler {
+impl RPCNakamotoBlockSimulateRequestHandler {
     pub fn new(auth: Option<String>) -> Self {
         Self {
             block_id: None,
             auth,
             profiler: false,
+            transactions: vec![],
         }
     }
 
-    pub fn block_replay(
+    fn parse_json(body: &[u8]) -> Result<Vec<StacksTransaction>, Error> {
+        let transactions_hex: Vec<String> = serde_json::from_slice(body)
+            .map_err(|e| Error::DecodeError(format!("Failed to parse body: {e}")))?;
+
+        let mut transactions = vec![];
+
+        for tx_hex in transactions_hex {
+            let tx_bytes =
+                hex_bytes(&tx_hex).map_err(|_e| Error::DecodeError("Failed to parse tx".into()))?;
+            let tx = StacksTransaction::consensus_deserialize(&mut &tx_bytes[..]).map_err(|e| {
+                if let CodecError::DeserializeError(msg) = e {
+                    Error::DecodeError(format!("Failed to deserialize transaction: {}", msg))
+                } else {
+                    e.into()
+                }
+            })?;
+            transactions.push(tx);
+        }
+
+        Ok(transactions)
+    }
+
+    pub fn block_simulate(
         &self,
         sortdb: &SortitionDB,
         chainstate: &mut StacksChainState,
@@ -260,18 +185,13 @@ impl RPCNakamotoBlockReplayRequestHandler {
             Err(e) => return Err(e),
         };
 
+        tenure_tx.disable_fees();
+
         let mut block_fees: u128 = 0;
         let mut txs_receipts = vec![];
 
-        for (i, tx) in block.txs.iter().enumerate() {
+        for (i, tx) in self.transactions.iter().enumerate() {
             let tx_len = tx.tx_len();
-
-            let mut profiler: Option<BlockReplayProfiler> = None;
-            let mut profiler_result = BlockReplayProfilerResult::default();
-
-            if self.profiler {
-                profiler = Some(BlockReplayProfiler::new());
-            }
 
             let tx_result = builder.try_mine_tx_with_len(
                 &mut tenure_tx,
@@ -281,21 +201,23 @@ impl RPCNakamotoBlockReplayRequestHandler {
                 None,
             );
 
-            if let Some(profiler) = profiler {
-                profiler_result = profiler.collect();
-            }
-
             let err = match tx_result {
                 TransactionResult::Success(tx_result) => {
-                    txs_receipts.push((tx_result.receipt, profiler_result));
+                    txs_receipts.push(tx_result.receipt);
                     Ok(())
                 }
-                _ => Err(format!("Problematic tx {i}")),
+                TransactionResult::ProcessingError(e) => {
+                    Err(format!("Error processing tx {}: {}", i, e.error))
+                }
+                TransactionResult::Skipped(e) => Err(format!("Skipped tx {}: {}", i, e.error)),
+                TransactionResult::Problematic(e) => {
+                    Err(format!("Problematic tx {}: {}", i, e.error))
+                }
             };
             if let Err(reason) = err {
                 let txid = tx.txid();
                 return Err(ChainError::InvalidStacksTransaction(
-                    format!("Unable to replay transaction {txid}: {reason}").into(),
+                    format!("Unable to simulate transaction {txid}: {reason}").into(),
                     false,
                 ));
             }
@@ -303,174 +225,37 @@ impl RPCNakamotoBlockReplayRequestHandler {
             block_fees += tx.get_tx_fee() as u128;
         }
 
-        let replayed_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
+        let simulated_block = builder.mine_nakamoto_block(&mut tenure_tx, burn_chain_height);
 
         tenure_tx.rollback_block();
 
         let tx_merkle_root = block.header.tx_merkle_root.clone();
 
         let mut rpc_replayed_block =
-            RPCReplayedBlock::from_block(&replayed_block, block_fees, tenure_id, parent_block_id);
+            RPCReplayedBlock::from_block(&simulated_block, block_fees, tenure_id, parent_block_id);
 
-        for (receipt, profiler_result) in &txs_receipts {
+        for receipt in &txs_receipts {
+            let profiler_result = BlockReplayProfilerResult::default();
             let transaction = RPCReplayedBlockTransaction::from_receipt(receipt, &profiler_result);
             rpc_replayed_block.transactions.push(transaction);
         }
-
-        rpc_replayed_block.valid_merkle_root =
-            tx_merkle_root == replayed_block.header.tx_merkle_root;
 
         Ok(rpc_replayed_block)
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RPCReplayedBlockTransaction {
-    /// transaction id
-    pub txid: Txid,
-    /// index of transaction in the block
-    pub tx_index: u32,
-    /// body (headers + payload) of transaction
-    pub data: Option<StacksTransaction>,
-    /// hex representation of the transaction body
-    pub hex: String,
-    /// result of transaction execution (clarity value)
-    pub result: Value,
-    /// result of the transaction execution (hex string)
-    #[serde(with = "prefix_hex_codec")]
-    pub result_hex: Value,
-    /// amount of burned stx
-    pub stx_burned: u128,
-    /// execution cost infos
-    pub execution_cost: ExecutionCost,
-    /// generated events
-    pub events: Vec<serde_json::Value>,
-    /// Whether the tx was aborted by a post-condition
-    pub post_condition_aborted: bool,
-    /// optional vm error
-    pub vm_error: Option<String>,
-    /// profiling data based on linux perf_events
-    pub cpu_instructions: Option<u64>,
-    pub cpu_cycles: Option<u64>,
-    pub cpu_ref_cycles: Option<u64>,
-}
-
-impl RPCReplayedBlockTransaction {
-    pub fn from_receipt(
-        receipt: &StacksTransactionReceipt,
-        profiler_result: &BlockReplayProfilerResult,
-    ) -> Self {
-        let events = receipt
-            .events
-            .iter()
-            .enumerate()
-            .map(|(event_index, event)| {
-                event
-                    .json_serialize(
-                        event_index,
-                        &receipt.transaction.txid(),
-                        !receipt.post_condition_aborted,
-                    )
-                    .unwrap()
-            })
-            .collect();
-
-        let transaction_data = match &receipt.transaction {
-            TransactionOrigin::Stacks(stacks) => Some(stacks.clone()),
-            TransactionOrigin::Burn(_) => None,
-        };
-
-        let txid = receipt.transaction.txid();
-
-        Self {
-            txid,
-            tx_index: receipt.tx_index,
-            data: transaction_data,
-            hex: receipt.transaction.serialize_to_dbstring(),
-            result: receipt.result.clone(),
-            result_hex: receipt.result.clone(),
-            stx_burned: receipt.stx_burned,
-            execution_cost: receipt.execution_cost.clone(),
-            events,
-            post_condition_aborted: receipt.post_condition_aborted,
-            vm_error: receipt.vm_error.clone(),
-            cpu_instructions: profiler_result.cpu_instructions,
-            cpu_cycles: profiler_result.cpu_cycles,
-            cpu_ref_cycles: profiler_result.cpu_ref_cycles,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct RPCReplayedBlock {
-    /// block id (index_block_hash)
-    pub block_id: StacksBlockId,
-    /// block hash
-    pub block_hash: BlockHeaderHash,
-    /// height of the block
-    pub block_height: u64,
-    /// index_block_hash of the parent
-    pub parent_block_id: StacksBlockId,
-    /// consensus hash of the tenure containing the block
-    pub consensus_hash: ConsensusHash,
-    /// total fees for the transactions in the block
-    pub fees: u128,
-    /// merkle tree root hash of the included transactions
-    pub tx_merkle_root: Sha512Trunc256Sum,
-    /// state index of the MARF
-    pub state_index_root: TrieHash,
-    /// block timestamp
-    pub timestamp: u64,
-    /// signature of the miner
-    pub miner_signature: MessageSignature,
-    /// list of signers signatures
-    pub signer_signature: Vec<MessageSignature>,
-    /// the list of block transactions
-    pub transactions: Vec<RPCReplayedBlockTransaction>,
-    /// check if the computed merkle tree root hash matches the one from the original block
-    pub valid_merkle_root: bool,
-}
-
-impl RPCReplayedBlock {
-    pub fn from_block(
-        block: &NakamotoBlock,
-        block_fees: u128,
-        tenure_id: ConsensusHash,
-        parent_block_id: StacksBlockId,
-    ) -> Self {
-        let block_id = block.block_id();
-        let block_hash = block.header.block_hash();
-
-        Self {
-            block_id,
-            block_hash,
-            block_height: block.header.chain_length,
-            parent_block_id,
-            consensus_hash: tenure_id,
-            fees: block_fees,
-            tx_merkle_root: block.header.tx_merkle_root.clone(),
-            state_index_root: block.header.state_index_root,
-            timestamp: block.header.timestamp,
-            miner_signature: block.header.miner_signature.clone(),
-            signer_signature: block.header.signer_signature.clone(),
-            transactions: vec![],
-            valid_merkle_root: false,
-        }
-    }
-}
-
 /// Decode the HTTP request
-impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
+impl HttpRequest for RPCNakamotoBlockSimulateRequestHandler {
     fn verb(&self) -> &'static str {
-        "GET"
+        "POST"
     }
 
     fn path_regex(&self) -> Regex {
-        Regex::new(r#"^/v3/blocks/replay/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
+        Regex::new(r#"^/v3/blocks/simulate/(?P<block_id>[0-9a-f]{64})$"#).unwrap()
     }
 
     fn metrics_identifier(&self) -> &str {
-        "/v3/blocks/replay/:block_id"
+        "/v3/blocks/simulate/:block_id"
     }
 
     /// Try to decode this request.
@@ -480,7 +265,7 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
         preamble: &HttpRequestPreamble,
         captures: &Captures,
         query: Option<&str>,
-        _body: &[u8],
+        body: &[u8],
     ) -> Result<HttpRequestContents, Error> {
         // If no authorization is set, then the block replay endpoint is not enabled
         let Some(password) = &self.auth else {
@@ -491,11 +276,6 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
         };
         if auth_header != password {
             return Err(Error::Http(401, "Unauthorized".into()));
-        }
-        if preamble.get_content_length() != 0 {
-            return Err(Error::DecodeError(
-                "Invalid Http request: expected 0-length body".to_string(),
-            ));
         }
 
         let block_id_str = captures
@@ -521,11 +301,37 @@ impl HttpRequest for RPCNakamotoBlockReplayRequestHandler {
             }
         }
 
+        if preamble.get_content_length() == 0 {
+            return Err(Error::DecodeError(
+                "Invalid Http request: expected non-zero-length body for block proposal endpoint"
+                    .to_string(),
+            ));
+        }
+        if preamble.get_content_length() > MAX_PAYLOAD_LEN {
+            return Err(Error::DecodeError(
+                "Invalid Http request: BlockProposal body is too big".to_string(),
+            ));
+        }
+
+        self.transactions = match preamble.content_type {
+            Some(HttpContentType::JSON) => Self::parse_json(body)?,
+            Some(_) => {
+                return Err(Error::DecodeError(
+                    "Wrong Content-Type for block proposal; expected application/json".to_string(),
+                ))
+            }
+            None => {
+                return Err(Error::DecodeError(
+                    "Missing Content-Type for block simulation".to_string(),
+                ))
+            }
+        };
+
         Ok(HttpRequestContents::new().query_string(query))
     }
 }
 
-impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
+impl RPCRequestHandler for RPCNakamotoBlockSimulateRequestHandler {
     /// Reset internal state
     fn restart(&mut self) {
         self.block_id = None;
@@ -542,14 +348,14 @@ impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
             return Err(NetError::SendError("Missing `block_id`".into()));
         };
 
-        let replayed_block_res =
+        let simulated_block_res =
             node.with_node_state(|_network, sortdb, chainstate, _mempool, _rpc_args| {
-                self.block_replay(sortdb, chainstate)
+                self.block_simulate(sortdb, chainstate)
             });
 
         // start loading up the block
-        let replayed_block = match replayed_block_res {
-            Ok(replayed_block) => replayed_block,
+        let simulated_block = match simulated_block_res {
+            Ok(simulated_block) => simulated_block,
             Err(ChainError::NoSuchBlockError) => {
                 return StacksHttpResponse::new_error(
                     &preamble,
@@ -560,7 +366,7 @@ impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
             }
             Err(e) => {
                 // nope -- error trying to check
-                let msg = format!("Failed to load block {}: {:?}\n", &block_id, &e);
+                let msg = format!("Failed to simulate block {}: {:?}\n", &block_id, &e);
                 warn!("{}", &msg);
                 return StacksHttpResponse::new_error(&preamble, &HttpServerError::new(msg))
                     .try_into_contents()
@@ -569,24 +375,24 @@ impl RPCRequestHandler for RPCNakamotoBlockReplayRequestHandler {
         };
 
         let preamble = HttpResponsePreamble::ok_json(&preamble);
-        let body = HttpResponseContents::try_from_json(&replayed_block)?;
+        let body = HttpResponseContents::try_from_json(&simulated_block)?;
         Ok((preamble, body))
     }
 }
 
 impl StacksHttpRequest {
     /// Make a new block_replay request to this endpoint
-    pub fn new_block_replay(host: PeerHost, block_id: &StacksBlockId) -> StacksHttpRequest {
+    pub fn new_block_simulate(host: PeerHost, block_id: &StacksBlockId) -> StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/blocks/replay/{block_id}"),
+            format!("/v3/blocks/simulate/{block_id}"),
             HttpRequestContents::new(),
         )
         .expect("FATAL: failed to construct request from infallible data")
     }
 
-    pub fn new_block_replay_with_profiler(
+    pub fn new_block_simulate_with_profiler(
         host: PeerHost,
         block_id: &StacksBlockId,
         profiler: bool,
@@ -594,7 +400,7 @@ impl StacksHttpRequest {
         StacksHttpRequest::new_for_peer(
             host,
             "GET".into(),
-            format!("/v3/blocks/replay/{block_id}"),
+            format!("/v3/blocks/simulate/{block_id}"),
             HttpRequestContents::new().query_arg(
                 "profiler".into(),
                 if profiler { "1".into() } else { "0".into() },
@@ -605,7 +411,7 @@ impl StacksHttpRequest {
 }
 
 /// Decode the HTTP response
-impl HttpResponse for RPCNakamotoBlockReplayRequestHandler {
+impl HttpResponse for RPCNakamotoBlockSimulateRequestHandler {
     /// Decode this response from a byte stream.  This is called by the client to decode this
     /// message
     fn try_parse_response(
@@ -619,7 +425,7 @@ impl HttpResponse for RPCNakamotoBlockReplayRequestHandler {
 }
 
 impl StacksHttpResponse {
-    pub fn decode_replayed_block(self) -> Result<RPCReplayedBlock, NetError> {
+    pub fn decode_simulated_block(self) -> Result<RPCReplayedBlock, NetError> {
         let contents = self.get_http_payload_ok()?;
         let response_json: serde_json::Value = contents.try_into()?;
         let replayed_block: RPCReplayedBlock = serde_json::from_value(response_json)
