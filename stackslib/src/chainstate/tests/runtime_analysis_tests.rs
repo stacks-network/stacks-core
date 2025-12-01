@@ -21,9 +21,8 @@ use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
 use clarity::vm::Value as ClarityValue;
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, SetupContract, FAUCET_PRIV_KEY,
+    contract_call_consensus_test, SetupContract, FAUCET_ADDRESS,
 };
-use crate::core::test_util::to_addr;
 
 /// Generates a coverage classification report for a specific [`CheckErrorKind`] variant.
 ///
@@ -99,23 +98,19 @@ fn variant_coverage_report(variant: CheckErrorKind) {
         | BadMintFTArguments
         | BadBurnFTArguments
         | BadTupleFieldName
-        | ExpectedTuple(_)
-        | NoSuchTupleField(_, _)
-        | EmptyTuplesNotAllowed
-        | BadTupleConstruction(_)
-        | NoSuchDataVariable(_)
-        | BadMapName
-        | NoSuchMap(_)
-        | DefineFunctionBadSignature
-        | BadFunctionName
-        | BadMapTypeDefinition
-        | PublicFunctionMustReturnResponse(_)
-        | DefineVariableBadSignature
-        | ReturnTypesMustMatch(_, _)
-        | CircularReference(_)
-        | NoSuchContract(_)
-        | NoSuchPublicFunction(_, _)
-        | PublicFunctionNotReadOnly(_, _) => todo!(),
+        | ExpectedTuple(_) => todo!(),
+        NoSuchTupleField(_, _) | DefineFunctionBadSignature | BadFunctionName | PublicFunctionMustReturnResponse(_) => Unreachable_Functionally("On contract deploy checked during static analysis."),
+        EmptyTuplesNotAllowed | NoSuchMap(_) => Unreachable_Functionally("On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)"),
+        BadTupleConstruction(_) => todo!(),
+        NoSuchDataVariable(_) => Unreachable_Functionally("On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)"),
+        BadMapName => todo!(),
+        BadMapTypeDefinition => todo!(),
+        DefineVariableBadSignature
+        | ReturnTypesMustMatch(_, _) => todo!(),
+        CircularReference(_) => Tested(vec![check_error_kind_circular_reference_ccall]),
+        NoSuchContract(_) => todo!(),
+        NoSuchPublicFunction(_, _) => Tested(vec![check_error_kind_no_such_public_function_ccall]),
+        PublicFunctionNotReadOnly(_, _) => Unreachable_Functionally("Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped."),
         ContractAlreadyExists(_) => Unreachable_Functionally(
             "Contracts can only be created via SmartContract deployment transactions. \
              The runtime never performs contract installation or replacement.",
@@ -256,6 +251,58 @@ fn variant_coverage_report(variant: CheckErrorKind) {
     };
 }
 
+/// CheckErrorKind: [`CheckErrorKind::NoSuchPublicFunction`]
+/// Caused by: Attempted to invoke a private function from outside the contract.
+/// Outcome: block accepted
+#[test]
+fn check_error_kind_no_such_public_function_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "target-contract",
+        contract_code: "(define-private (get-one) (ok u1))",
+        function_name: "get-one",
+        function_args: &[],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::CircularReference`]
+/// Caused by: circular reference forcing a contract calling itself using a contract call.
+/// Outcome: block accepted
+#[test]
+fn check_error_kind_circular_reference_ccall() {
+    let trait_contract = SetupContract::new(
+        "trait-contract",
+        "(define-trait trait-1 (
+                (get-1 (uint) (response uint uint))))",
+    );
+
+    let dispatching_contract = SetupContract::new(
+        "dispatch-contract",
+        "(use-trait trait-1 .trait-contract.trait-1)
+            (define-public (wrapped-get-1 (contract <trait-1>))
+                (contract-call? contract get-1 u0))
+            (define-public (get-1 (x uint)) (ok u1))",
+    );
+
+    let dispatch_principal =
+        QualifiedContractIdentifier::parse(&format!("{}.dispatch-contract", *FAUCET_ADDRESS))
+            .unwrap();
+
+    // The main contract is required because `contract_call_consensus_test!` needs a deployed contract.
+    // As a result, `dispatch-contract` cannot be used directly, because need to be passed as `function_args`,
+    // and the consensus test mangles the `contract_name`.
+    let main_contract = "(use-trait trait-1 .trait-contract.trait-1)
+            (define-public (main-get-1 (contract <trait-1>))
+            (contract-call? .dispatch-contract wrapped-get-1 contract))";
+
+    contract_call_consensus_test!(
+        contract_name: "main-contract",
+        contract_code: main_contract,
+        function_name: "main-get-1",
+        function_args: &[ClarityValue::from(dispatch_principal)],
+        setup_contracts: &[trait_contract, dispatching_contract],
+    );
+}
+
 /// CheckErrorKind: [`CheckErrorKind::IncorrectArgumentCount`]
 /// Caused by: passing the wrong number of arguments to a function.
 /// Outcome: block accepted.
@@ -303,7 +350,7 @@ fn bad_trait_implementation_mismatched_args() {
         function_name: "wrapped-get-1",
         function_args: &[ClarityValue::Principal(PrincipalData::Contract(
             QualifiedContractIdentifier::new(
-                to_addr(&FAUCET_PRIV_KEY).into(),
+                FAUCET_ADDRESS.clone().into(),
                 "target-contract".into(),
             )
         ))],

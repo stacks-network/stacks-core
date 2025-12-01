@@ -473,9 +473,16 @@ impl Signer {
         BlockAccepted::new(
             block.header.signer_signature_hash(),
             signature,
-            self.signer_db.calculate_tenure_extend_timestamp(
+            self.signer_db.calculate_full_extend_timestamp(
                 self.proposal_config
                     .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                block,
+                true,
+            ),
+            self.signer_db.calculate_read_count_extend_timestamp(
+                self.proposal_config
+                    .read_count_idle_timeout
                     .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 block,
                 true,
@@ -692,9 +699,16 @@ impl Signer {
             reject_reason,
             &self.private_key,
             self.mainnet,
-            self.signer_db.calculate_tenure_extend_timestamp(
+            self.signer_db.calculate_full_extend_timestamp(
                 self.proposal_config
                     .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                block,
+                false,
+            ),
+            self.signer_db.calculate_read_count_extend_timestamp(
+                self.proposal_config
+                    .read_count_idle_timeout
                     .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 block,
                 false,
@@ -1449,9 +1463,16 @@ impl Signer {
             block_validate_reject.clone(),
             &self.private_key,
             self.mainnet,
-            self.signer_db.calculate_tenure_extend_timestamp(
+            self.signer_db.calculate_full_extend_timestamp(
                 self.proposal_config
                     .tenure_idle_timeout
+                    .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
+                &block_info.block,
+                false,
+            ),
+            self.signer_db.calculate_read_count_extend_timestamp(
+                self.proposal_config
+                    .read_count_idle_timeout
                     .saturating_add(self.proposal_config.tenure_idle_timeout_buffer),
                 &block_info.block,
                 false,

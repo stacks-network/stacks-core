@@ -15,6 +15,7 @@
 
 //! This module contains consensus tests related to Clarity CheckErrorKind errors that happens during contract analysis.
 
+use clarity::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::MAX_TYPE_DEPTH;
@@ -436,6 +437,203 @@ fn static_check_error_could_not_determine_serialization_type() {
     );
 }
 
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::IllegalOrUnknownFunctionApplication`]
+/// Caused by: calling `map` with `if` (a non-function) as its function argument.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_illegal_or_unknown_function_application() {
+    contract_deploy_consensus_test!(
+        contract_name: "illegal-or-unknown",
+        contract_code: "(map if (list 1 2 3 4 5))",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownFunction`]
+/// Caused by: invoking the undefined function `ynot`.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_unknown_function() {
+    contract_deploy_consensus_test!(
+        contract_name: "unknown-function",
+        contract_code: "(ynot 1 2)",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::IncorrectArgumentCount`]
+/// Caused by: `len` receives two arguments even though it expects exactly one.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_incorrect_argument_count() {
+    contract_deploy_consensus_test!(
+        contract_name: "incorrect-arg-count",
+        contract_code: "(len (list 1) (list 1))",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadLetSyntax`]
+/// Caused by: `let` is used without a binding list.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_let_syntax() {
+    contract_deploy_consensus_test!(
+        contract_name: "bad-let-syntax",
+        contract_code: "(let 1 2)",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadSyntaxBinding`]
+/// Caused by: `let` binding `((1))` is not a two-element list.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_syntax_binding() {
+    contract_deploy_consensus_test!(
+        contract_name: "bad-syntax-binding",
+        contract_code: "(let ((1)) (+ 1 2))",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedOptionalOrResponseType`]
+/// Caused by: expected an optional or response type, but got a value
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_expected_optional_or_response_type() {
+    contract_deploy_consensus_test!(
+        contract_name: "exp-opt-or-res",
+        contract_code: "(try! 3)",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitBadSignature`]
+/// Caused by: calling `define-trait` with a method signature that is not valid.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_define_trait_bad_signature() {
+    contract_deploy_consensus_test!(
+        contract_name: "def-trait-bad-sign",
+        contract_code: "(define-trait trait-1 ((get-1 uint uint)))",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitDuplicateMethod`]
+/// Caused by: trait definition contains duplicate method names
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
+#[test]
+fn static_check_error_define_trait_duplicate_method() {
+    contract_deploy_consensus_test!(
+        contract_name: "def-trait-dup-method",
+        contract_code: "
+        (define-trait double-method (
+            (foo (uint) (response uint uint))
+            (foo (bool) (response bool bool))
+        ))",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnexpectedTraitOrFieldReference`]
+/// Caused by: unexpected use of trait reference or field
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_unexpected_trait_or_field_reference() {
+    contract_deploy_consensus_test!(
+        contract_name: "trait-or-field-ref",
+        contract_code: "(+ 1 'SZ2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKQ9H6DPR.contract.field)",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::IncompatibleTrait`]
+/// Caused by: pass a trait to a trait parameter which is not compatible.
+/// Outcome: block accepted.
+/// Note: Added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TypeError`].
+#[test]
+fn static_check_error_incompatible_trait() {
+    contract_deploy_consensus_test!(
+        contract_name: "incompatible-trait",
+        contract_code: "
+    (define-trait trait-1 (
+        (get-1 (uint) (response uint uint))
+    ))
+    (define-trait trait-2 (
+        (get-2 (uint) (response uint uint))
+    ))
+    (define-public (wrapped-get-2 (contract <trait-1>))
+        (internal-get-2 contract))
+    (define-public (internal-get-2 (contract <trait-2>))
+        (contract-call? contract get-2 u1))",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitTooManyMethods`]
+/// Caused by: a trait has too many methods.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_trait_too_many_methods() {
+    contract_deploy_consensus_test!(
+        contract_name: "too-many-methods",
+        contract_code: &format!(
+            "(define-trait trait-1 ({}))",
+            (0..(MAX_TRAIT_METHODS + 1))
+                .map(|i| format!("(method-{i} (uint) (response uint uint))"))
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyFunctionParameters`]
+/// Caused by: a function has too many parameters.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_too_many_function_parameters() {
+    contract_deploy_consensus_test!(
+        contract_name: "too-many-params",
+        contract_code: &format!(
+            "(define-trait trait-1 ((method ({}) (response uint uint))))",
+            (0..(MAX_FUNCTION_PARAMETERS + 1))
+                .map(|i| "uint".to_string())
+                .collect::<Vec<String>>()
+                .join(" ")
+        ),
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::ReservedWord`]
+/// Caused by: name is a reserved word
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1 and 2
+///       will trigger a [`CheckErrorKind::NameAlreadyUsed`].
+#[test]
+fn static_check_error_reserved_word() {
+    contract_deploy_consensus_test!(
+        contract_name: "reserved-word",
+        contract_code: "(define-private (block-height) true)",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchBlockInfoProperty`]
+/// Caused by: referenced an unknown property of a burn block
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_no_such_block_info_property() {
+    contract_deploy_consensus_test!(
+        contract_name: "no-such-block-info",
+        contract_code: "(get-burn-block-info? none u1)",
+    );
+}
+
+/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchStacksBlockInfoProperty`]
+/// Caused by: referenced an unknown property of a stacks block
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1, and 2
+///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_no_such_stacks_block_info_property() {
+    contract_deploy_consensus_test!(
+        contract_name: "no-such-stacks-info",
+        contract_code: "(get-stacks-block-info? none u1)",
+    );
+}
+
 /// CheckErrorKind: [`CheckErrorKind::UncheckedIntermediaryResponses`]
 /// Caused by: Intermediate `(ok ...)` expressions inside a `begin` block that are not unwrapped.
 /// Outcome: block accepted.
@@ -612,5 +810,218 @@ fn static_check_error_if_arms_must_match() {
     contract_deploy_consensus_test!(
         contract_name: "if-arms-must-match",
         contract_code: "(if true true 1)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::NoSuchTenureInfoProperty`]
+/// Caused by: referenced an unknown property of a tenure
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1, and 2
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_no_such_tenure_info_property() {
+    contract_deploy_consensus_test!(
+        contract_name: "no-such-tenure-info",
+        contract_code: "(get-tenure-info? none u1)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TraitReferenceUnknown`]
+/// Caused by: referenced trait is unknown
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_trait_reference_unknown() {
+    contract_deploy_consensus_test!(
+        contract_name: "trait-ref-unknown",
+        contract_code: "(+ 1 <kvstore>)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ContractOfExpectsTrait`]
+/// Caused by: calling `contract-of` with a non-trait argument.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_contract_of_expects_trait() {
+    contract_deploy_consensus_test!(
+        contract_name: "expect-trait",
+        contract_code: "(contract-of u1)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TraitMethodUnknown`]
+/// Caused by: defining a method that is not declared in the trait
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_trait_method_unknown() {
+    contract_deploy_consensus_test!(
+        contract_name: "trait-method-unknown",
+        contract_code: "
+        (define-trait trait-1 (
+            (get-1 (uint) (response uint uint))))
+        (define-public (wrapped-get-1 (contract <trait-1>))
+            (contract-call? contract get-2 u0))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::WriteAttemptedInReadOnly`]
+/// Caused by: read-only function `silly` invoking `map-delete`, which performs a write.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_write_attempted_in_read_only() {
+    contract_deploy_consensus_test!(
+        contract_name: "write-attempted-in-ro",
+        contract_code: "
+        (define-read-only (silly)
+            (map-delete map-name (tuple (value 1))))
+        (silly)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::AtBlockClosureMustBeReadOnly`]
+/// Caused by: `at-block` closure must be read-only but contains write operations.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_at_block_closure_must_be_read_only() {
+    contract_deploy_consensus_test!(
+        contract_name: "closure-must-be-ro",
+        contract_code: "
+        (define-data-var foo int 1)
+        (define-private (foo-bar)
+            (at-block (sha256 0)
+               (var-set foo 0)))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::AllowanceExprNotAllowed`]
+/// Caused by: using an allowance expression outside of `restrict-assets?` or `as-contract?`.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_allowance_expr_not_allowed() {
+    contract_deploy_consensus_test!(
+        contract_name: "allow-expr-not-allo",
+        contract_code: "(with-stx u1)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ExpectedListOfAllowances`]
+/// Caused by: post-condition expects a list of asset allowances but received invalid input.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_expected_list_of_allowances() {
+    contract_deploy_consensus_test!(
+        contract_name: "exp-list-of-allowances",
+        contract_code: "(restrict-assets? tx-sender u1 true)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ExpectedAllowanceExpr`]
+/// Caused by: allowance list contains a non-allowance expression.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_expected_allowance_expr() {
+    contract_deploy_consensus_test!(
+        contract_name: "exp-allowa-expr",
+        contract_code: "(restrict-assets? tx-sender ((not true)) true)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::WithAllAllowanceNotAllowed`]
+/// Caused by: `restrict-assets?` allowance list contains `with-all-assets-unsafe`, which is forbidden.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_with_all_allowance_not_allowed() {
+    contract_deploy_consensus_test!(
+        contract_name: "all-allow-not-allowed",
+        contract_code: "(restrict-assets? tx-sender ((with-all-assets-unsafe)) true)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::WithAllAllowanceNotAlone`]
+/// Caused by: combining `with-all-assets-unsafe` with another allowance inside `as-contract?`.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_with_all_allowance_not_alone() {
+    contract_deploy_consensus_test!(
+        contract_name: "all-allow-not-alone",
+        contract_code: "(as-contract? ((with-all-assets-unsafe) (with-stx u1000)) true)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::WithNftExpectedListOfIdentifiers`]
+/// Caused by: the third argument to `with-nft` is not a list of identifiers.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_with_nft_expected_list_of_identifiers() {
+    contract_deploy_consensus_test!(
+        contract_name: "with-nft-exp-ident",
+        contract_code: r#"(restrict-assets? tx-sender ((with-nft tx-sender "token-name" tx-sender)) true)"#,
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::MaxIdentifierLengthExceeded`]
+/// Caused by: `with-nft` lists 130 identifiers, surpassing [`MAX_NFT_IDENTIFIERS`] (128).
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_max_identifier_length_exceeded() {
+    contract_deploy_consensus_test!(
+        contract_name: "max-ident-len-excd",
+        contract_code: &format!(
+            "(restrict-assets? tx-sender ((with-nft .token \"token-name\" (list {}))) true)",
+            std::iter::repeat_n("u1", 130)
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::TooManyAllowances`]
+/// Caused by: allowance list supplies 130 entries, exceeding [`MAX_ALLOWANCES`] (128).
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 4. Clarity 1, 2, and 3
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_too_many_allowances() {
+    contract_deploy_consensus_test!(
+        contract_name: "too-many-allowances",
+        contract_code: &format!(
+            "(restrict-assets? tx-sender ({} ) true)",
+            std::iter::repeat_n("(with-stx u1)", 130)
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2, ClarityVersion::Clarity3],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::BadTupleConstruction`]
+/// Caused by: tuple literal repeats the `name` field twice.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_tuple_construction() {
+    contract_deploy_consensus_test!(
+        contract_name: "bad-tuple-constr",
+        contract_code: "(tuple (name 1) (name 2))",
     );
 }
