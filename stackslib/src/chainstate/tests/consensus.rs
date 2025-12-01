@@ -64,6 +64,9 @@ pub static FAUCET_PRIV_KEY: LazyLock<StacksPrivateKey> = LazyLock::new(|| {
         .expect("Failed to parse private key")
 });
 
+// The address for the faucet account
+pub static FAUCET_ADDRESS: LazyLock<StacksAddress> = LazyLock::new(|| to_addr(&FAUCET_PRIV_KEY));
+
 const FOO_CONTRACT: &str = "(define-public (foo) (ok 1))
                                     (define-public (bar (x uint)) (ok x))";
 

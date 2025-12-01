@@ -15,6 +15,7 @@
 pub mod consensus;
 mod parse_tests;
 mod runtime_tests;
+mod runtime_analysis_tests;
 mod static_analysis_tests;
 
 use std::fs;
