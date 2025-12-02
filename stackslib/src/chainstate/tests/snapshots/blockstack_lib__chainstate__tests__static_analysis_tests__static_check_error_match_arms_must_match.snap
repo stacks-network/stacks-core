@@ -1,0 +1,126 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "256ea4635a6a42d3c1f2156bd5920433c97526be10cff0d883110fd0ecc7f05b",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: match-arms-must-match-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: expression types returned by the arms of \'match\' must match (got \'int\' and \'bool\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 15,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2512,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 15,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2512,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "2b5bff06b55870af1aaa29621e32c792b8579745e0e32cc58e3bf40e7fa79544",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: match-arms-must-match-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: expression types returned by the arms of \'match\' must match (got \'int\' and \'bool\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 15,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2512,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 15,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2512,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "872451e72c2e6d1e11fc4a31eb73857376fd111833247bf3a0cf445bf9ab4d83",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: match-arms-must-match-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: expression types returned by the arms of \'match\' must match (got \'int\' and \'bool\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 15,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2512,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 15,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2512,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "f98dbc36353694cba28fe7d06eb14cc75069cb72af5b21abc7cf533843724423",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: match-arms-must-match-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: expression types returned by the arms of \'match\' must match (got \'int\' and \'bool\')) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 15,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 2512,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 15,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 2512,
+    ),
+  )),
+]

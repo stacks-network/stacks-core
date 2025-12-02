@@ -1,0 +1,36 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "9dd6b272e6b172c3dc38c13567f38974e96caef45e70e4c1b362acaad56c838f",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: max-ident-len-excd-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: with-nft allowance identifiers list must not exceed 128 elements, got 130) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 142,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 16108,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 142,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 16108,
+    ),
+  )),
+]

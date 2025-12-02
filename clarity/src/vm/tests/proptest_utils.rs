@@ -19,7 +19,7 @@
 use std::collections::BTreeSet;
 use std::result::Result;
 
-use clarity_types::errors::InterpreterResult;
+use clarity_types::errors::VmExecutionError;
 use clarity_types::types::{
     CharType, PrincipalData, QualifiedContractIdentifier, SequenceData, StandardPrincipalData,
     TypeSignature, UTF8Data, MAX_TO_ASCII_BUFFER_LEN, MAX_UTF8_VALUE_SIZE, MAX_VALUE_SIZE,
@@ -39,7 +39,6 @@ use crate::vm::analysis::type_checker::v2_1::natives::post_conditions::{
 };
 use crate::vm::contexts::GlobalContext;
 use crate::vm::database::STXBalance;
-use crate::vm::errors::Error as VmError;
 use crate::vm::{execute_with_parameters_and_call_in_global_context, ClarityVersion};
 
 const DEFAULT_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
@@ -51,7 +50,7 @@ const UTF8_SIMPLE_ESCAPES: [&str; 6] = ["\\\"", "\\\\", "\\n", "\\t", "\\r", "\\
 fn initialize_balances(
     g: &mut GlobalContext,
     sender: &StandardPrincipalData,
-) -> Result<(), VmError> {
+) -> Result<(), VmExecutionError> {
     let sender_principal = PrincipalData::Standard(sender.clone());
     let contract_principal = PrincipalData::Contract(QualifiedContractIdentifier::new(
         sender.clone(),
@@ -81,7 +80,7 @@ fn initialize_balances(
 
 /// Execute a Clarity code snippet in a fresh global context with default
 /// parameters, setting up initial balances.
-pub fn execute(snippet: &str) -> InterpreterResult<Option<Value>> {
+pub fn execute(snippet: &str) -> Result<Option<Value>, VmExecutionError> {
     execute_versioned(snippet, DEFAULT_CLARITY_VERSION)
 }
 
@@ -90,7 +89,7 @@ pub fn execute(snippet: &str) -> InterpreterResult<Option<Value>> {
 pub fn execute_versioned(
     snippet: &str,
     version: ClarityVersion,
-) -> InterpreterResult<Option<Value>> {
+) -> Result<Option<Value>, VmExecutionError> {
     let sender_pk = StacksPrivateKey::random();
     let sender: StandardPrincipalData = (&sender_pk).into();
     let contract_id = QualifiedContractIdentifier::new(sender.clone(), "contract".into());
@@ -113,9 +112,9 @@ pub fn execute_and_check<F>(
     snippet: &str,
     sender: StandardPrincipalData,
     check: F,
-) -> InterpreterResult<Option<Value>>
+) -> Result<Option<Value>, VmExecutionError>
 where
-    F: FnMut(&mut GlobalContext) -> InterpreterResult<()>,
+    F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
 {
     execute_and_check_versioned(snippet, DEFAULT_CLARITY_VERSION, sender, check)
 }
@@ -128,9 +127,9 @@ pub fn execute_and_check_versioned<F>(
     version: ClarityVersion,
     sender: StandardPrincipalData,
     mut check: F,
-) -> InterpreterResult<Option<Value>>
+) -> Result<Option<Value>, VmExecutionError>
 where
-    F: FnMut(&mut GlobalContext) -> InterpreterResult<()>,
+    F: FnMut(&mut GlobalContext) -> Result<(), VmExecutionError>,
 {
     let sender_for_init = sender.clone();
     execute_with_parameters_and_call_in_global_context(

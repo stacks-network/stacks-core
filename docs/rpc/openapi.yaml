@@ -43,7 +43,8 @@ components:
       name: authorization
       description: |
         Plain-text secret value that must exactly equal the node's
-        configured password.
+        configured password, which is set as `connection_options.auth_token`
+        in the node's configuration file.
   responses:
     Unauthorized:
       description: Unauthorized. Invalid or missing authentication token.
@@ -449,6 +450,8 @@ paths:
                   externalValue: "./components/examples/read-only-function-failure.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "408":
@@ -2205,7 +2208,8 @@ paths:
       summary: Replay mining of a block and returns its content
       tags:
         - Blocks
-      security: []
+      security:
+        - rpcAuth: []
       operationId: blockReplay
       description: |
         Replay the mining of a block (no data is written in the MARF) and returns its content.
@@ -2228,6 +2232,8 @@ paths:
                 $ref: "./components/examples/block-replay.example.json"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
