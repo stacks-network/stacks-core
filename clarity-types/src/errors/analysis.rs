@@ -1198,6 +1198,8 @@ impl From<CommonCheckErrorKind> for StaticCheckErrorKind {
     }
 }
 
+/// This conversion is provided to support tests in
+/// `clarity/src/vm/analysis/type_checker/v2_1/tests/contracts.rs`.
 #[cfg(any(test, feature = "testing"))]
 impl From<StaticCheckErrorKind> for String {
     fn from(o: StaticCheckErrorKind) -> Self {
