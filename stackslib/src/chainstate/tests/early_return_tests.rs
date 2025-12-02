@@ -17,7 +17,9 @@
 
 use clarity::vm::errors::EarlyReturnError;
 
-use crate::chainstate::tests::consensus::contract_deploy_consensus_test;
+use crate::chainstate::tests::consensus::{
+    contract_call_consensus_test, contract_deploy_consensus_test,
+};
 
 /// Generates a coverage classification report for a specific [`EarlyReturnError`] variant.
 ///
@@ -52,7 +54,10 @@ fn variant_coverage_report(variant: EarlyReturnError) {
             native_unwrap_err_or_ret_cdeploy,
             native_unwrap_or_ret_none_cdeploy,
         ]),
-        AssertionFailed(_) => Tested(vec![native_special_asserts_cdeploy]),
+        AssertionFailed(_) => Tested(vec![
+            native_special_asserts_cdeploy,
+            native_special_asserts_ccall,
+        ]),
     };
 }
 
@@ -79,7 +84,7 @@ fn native_try_ret_none_cdeploy() {
 }
 
 /// Error: [`EarlyReturnError::UnwrapFailed`]
-/// Caused by: calling `unwrap-err!` on an `(ok ...)` value at deploy time
+/// Caused by: calling `unwrap-err!` on an `(ok ...)` value at deploy time.
 /// Outcome: block accepted
 #[test]
 fn native_unwrap_err_or_ret_cdeploy() {
@@ -90,7 +95,7 @@ fn native_unwrap_err_or_ret_cdeploy() {
 }
 
 /// Error: [`EarlyReturnError::UnwrapFailed`]
-/// Caused by: calling `unwrap!` on a `None` optional at deploy time
+/// Caused by: calling `unwrap!` on a `None` optional at deploy time.
 /// Outcome: block accepted
 #[test]
 fn native_unwrap_or_ret_none_cdeploy() {
@@ -101,12 +106,27 @@ fn native_unwrap_or_ret_none_cdeploy() {
 }
 
 /// Error: [`EarlyReturnError::AssertionFailed`]
-/// Caused by: failing `asserts!` condition at deploy time
+/// Caused by: failing `asserts!` condition at deploy time.
 /// Outcome: block accepted
 #[test]
 fn native_special_asserts_cdeploy() {
     contract_deploy_consensus_test!(
         contract_name: "asserts-fail",
         contract_code: "(begin (asserts! (is-eq 1 0) (err u0)) (ok u1))",
+    );
+}
+
+/// Error: [`EarlyReturnError::AssertionFailed`]
+/// Caused by: failing `asserts!` condition at call time.
+/// Outcome: block accepted
+/// Note: [`clarity::vm::callables::DefinedFunction::execute_apply`] converts [`EarlyReturnError::AssertionFailed`]
+/// into a successful return wrapping the internal thrown value.
+#[test]
+fn native_special_asserts_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "asserts-fail",
+        contract_code: "(define-public (trigger) (begin (asserts! false (err u0)) (ok u1)))",
+        function_name: "trigger",
+        function_args: &[],
     );
 }
