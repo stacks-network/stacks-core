@@ -15,13 +15,19 @@
 
 //! This module contains consensus tests related to Clarity CheckErrorKind errors that happens during contract analysis.
 
+use std::collections::HashMap;
+
+use clarity::types::StacksEpochId;
 use clarity::vm::analysis::type_checker::v2_1::{MAX_FUNCTION_PARAMETERS, MAX_TRAIT_METHODS};
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::MAX_TYPE_DEPTH;
 use clarity::vm::ClarityVersion;
 
-use crate::chainstate::tests::consensus::{contract_deploy_consensus_test, SetupContract};
+use crate::chainstate::tests::consensus::{
+    clarity_versions_for_epoch, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
+    SetupContract, TestBlock, EPOCHS_TO_TEST,
+};
 use crate::core::BLOCK_LIMIT_MAINNET_21;
 use crate::util_lib::boot::boot_code_test_addr;
 
@@ -437,7 +443,7 @@ fn static_check_error_could_not_determine_serialization_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::IllegalOrUnknownFunctionApplication`]
+/// CheckErrorKind: [`CheckErrorKind::IllegalOrUnknownFunctionApplication`]
 /// Caused by: calling `map` with `if` (a non-function) as its function argument.
 /// Outcome: block accepted.
 #[test]
@@ -448,7 +454,7 @@ fn static_check_error_illegal_or_unknown_function_application() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnknownFunction`]
+/// CheckErrorKind: [`CheckErrorKind::UnknownFunction`]
 /// Caused by: invoking the undefined function `ynot`.
 /// Outcome: block accepted.
 #[test]
@@ -459,7 +465,7 @@ fn static_check_error_unknown_function() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::IncorrectArgumentCount`]
+/// CheckErrorKind: [`CheckErrorKind::IncorrectArgumentCount`]
 /// Caused by: `len` receives two arguments even though it expects exactly one.
 /// Outcome: block accepted.
 #[test]
@@ -470,7 +476,7 @@ fn static_check_error_incorrect_argument_count() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadLetSyntax`]
+/// CheckErrorKind: [`CheckErrorKind::BadLetSyntax`]
 /// Caused by: `let` is used without a binding list.
 /// Outcome: block accepted.
 #[test]
@@ -481,7 +487,7 @@ fn static_check_error_bad_let_syntax() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::BadSyntaxBinding`]
+/// CheckErrorKind: [`CheckErrorKind::BadSyntaxBinding`]
 /// Caused by: `let` binding `((1))` is not a two-element list.
 /// Outcome: block accepted.
 #[test]
@@ -492,7 +498,7 @@ fn static_check_error_bad_syntax_binding() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ExpectedOptionalOrResponseType`]
+/// CheckErrorKind: [`CheckErrorKind::ExpectedOptionalOrResponseType`]
 /// Caused by: expected an optional or response type, but got a value
 /// Outcome: block accepted.
 #[test]
@@ -503,7 +509,7 @@ fn static_check_error_expected_optional_or_response_type() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitBadSignature`]
+/// CheckErrorKind: [`CheckErrorKind::DefineTraitBadSignature`]
 /// Caused by: calling `define-trait` with a method signature that is not valid.
 /// Outcome: block accepted.
 #[test]
@@ -514,7 +520,7 @@ fn static_check_error_define_trait_bad_signature() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::DefineTraitDuplicateMethod`]
+/// CheckErrorKind: [`CheckErrorKind::DefineTraitDuplicateMethod`]
 /// Caused by: trait definition contains duplicate method names
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 2. Clarity 1 will accept the contract.
@@ -530,7 +536,7 @@ fn static_check_error_define_trait_duplicate_method() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::UnexpectedTraitOrFieldReference`]
+/// CheckErrorKind: [`CheckErrorKind::UnexpectedTraitOrFieldReference`]
 /// Caused by: unexpected use of trait reference or field
 /// Outcome: block accepted.
 #[test]
@@ -541,10 +547,10 @@ fn static_check_error_unexpected_trait_or_field_reference() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::IncompatibleTrait`]
+/// CheckErrorKind: [`CheckErrorKind::IncompatibleTrait`]
 /// Caused by: pass a trait to a trait parameter which is not compatible.
 /// Outcome: block accepted.
-/// Note: Added in Clarity 2. Clarity 1 will trigger a [`StaticCheckErrorKind::TypeError`].
+/// Note: Added in Clarity 2. Clarity 1 will trigger a [`CheckErrorKind::TypeError`].
 #[test]
 fn static_check_error_incompatible_trait() {
     contract_deploy_consensus_test!(
@@ -563,7 +569,7 @@ fn static_check_error_incompatible_trait() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TraitTooManyMethods`]
+/// CheckErrorKind: [`CheckErrorKind::TraitTooManyMethods`]
 /// Caused by: a trait has too many methods.
 /// Outcome: block accepted.
 #[test]
@@ -580,7 +586,7 @@ fn static_check_error_trait_too_many_methods() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::TooManyFunctionParameters`]
+/// CheckErrorKind: [`CheckErrorKind::TooManyFunctionParameters`]
 /// Caused by: a function has too many parameters.
 /// Outcome: block accepted.
 #[test]
@@ -597,7 +603,7 @@ fn static_check_error_too_many_function_parameters() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::ReservedWord`]
+/// CheckErrorKind: [`CheckErrorKind::ReservedWord`]
 /// Caused by: name is a reserved word
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1 and 2
@@ -610,7 +616,7 @@ fn static_check_error_reserved_word() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchBlockInfoProperty`]
+/// CheckErrorKind: [`CheckErrorKind::NoSuchBlockInfoProperty`]
 /// Caused by: referenced an unknown property of a burn block
 /// Outcome: block accepted.
 #[test]
@@ -621,11 +627,11 @@ fn static_check_error_no_such_block_info_property() {
     );
 }
 
-/// StaticCheckErrorKind: [`StaticCheckErrorKind::NoSuchStacksBlockInfoProperty`]
+/// CheckErrorKind: [`CheckErrorKind::NoSuchStacksBlockInfoProperty`]
 /// Caused by: referenced an unknown property of a stacks block
 /// Outcome: block accepted.
 /// Note: This error was added in Clarity 3. Clarity 1, and 2
-///       will trigger a [`StaticCheckErrorKind::UnknownFunction`].
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
 #[test]
 fn static_check_error_no_such_stacks_block_info_property() {
     contract_deploy_consensus_test!(
@@ -810,6 +816,139 @@ fn static_check_error_if_arms_must_match() {
     contract_deploy_consensus_test!(
         contract_name: "if-arms-must-match",
         contract_code: "(if true true 1)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::ExpectedTuple`]
+/// Caused by: `(get ...)` is given `(some 1)` instead of a tuple value.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_expected_tuple() {
+    contract_deploy_consensus_test!(
+        contract_name: "expected-tuple",
+        contract_code: "(get field-0 (some 1))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::NoSuchTupleField`]
+/// Caused by: tuple argument only contains `name`, so requesting `value` fails.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_no_such_tuple_field() {
+    contract_deploy_consensus_test!(
+        contract_name: "no-such-tuple-f",
+        contract_code: "(get value (tuple (name 1)))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::NoSuchMap`]
+/// Caused by: `map-get?` refers to map `non-existent`, which is never defined.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_no_such_map() {
+    contract_deploy_consensus_test!(
+        contract_name: "no-such-map",
+        contract_code: "(map-get? non-existent (tuple (name 1)))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::BadFunctionName`]
+/// Caused by: defining a function whose signature does not start with an atom name.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_function_name() {
+    contract_deploy_consensus_test!(
+        contract_name: "bad-func-name",
+        contract_code: "(define-private (u1) u0)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::DefineFunctionBadSignature`]
+/// Caused by: defining a function with an empty signature list.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_define_function_bad_signature() {
+    contract_deploy_consensus_test!(
+        contract_name: "def-func-bad-sign",
+        contract_code: "(define-private () 1)",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::BadTupleFieldName`]
+/// Caused by: using `(get ...)` with a tuple field argument that is not an atom.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_tuple_field_name() {
+    contract_deploy_consensus_test!(
+        contract_name: "bad-tuple-field-name",
+        contract_code: "(get u1 (tuple (foo u0)))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::BadMapName`]
+/// Caused by: passing a literal instead of a map identifier to `map-get?`.
+/// Outcome: block accepted.
+#[test]
+fn static_check_error_bad_map_name() {
+    contract_deploy_consensus_test!(
+        contract_name: "bad-map-name",
+        contract_code: "(map-get? u1 (tuple (id u0)))",
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::GetBlockInfoExpectPropertyName`]
+/// Caused by: calling `get-block-info` with a non-atom property argument.
+/// Outcome: block accepted.
+/// Note: Only Clarity 1 and 2 will trigger this error. Clarity 3 and 4
+///       will trigger a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_get_block_info_expect_property_name() {
+    contract_deploy_consensus_test!(
+        contract_name: "info-exp-prop-name",
+        contract_code: "(get-block-info? u1 u0)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity3, ClarityVersion::Clarity4],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::GetBurnBlockInfoExpectPropertyName`]
+/// Caused by: calling `get-burn-block-info` with a non-atom property argument.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 2. Clarity 1 will trigger
+///       a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_get_burn_block_info_expect_property_name() {
+    contract_deploy_consensus_test!(
+        contract_name: "burn-exp-prop-name",
+        contract_code: "(get-burn-block-info? u1 u0)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::GetStacksBlockInfoExpectPropertyName`]
+/// Caused by: calling `get-stacks-block-info` with a non-atom property argument.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
+///       a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_get_stacks_block_info_expect_property_name() {
+    contract_deploy_consensus_test!(
+        contract_name: "stacks-exp-prop-name",
+        contract_code: "(get-stacks-block-info? u1 u0)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::GetTenureInfoExpectPropertyName`]
+/// Caused by: calling `get-tenure-info` with a non-atom property argument.
+/// Outcome: block accepted.
+/// Note: This error was added in Clarity 3. Clarity 1 and 2 will trigger
+///       a [`CheckErrorKind::UnknownFunction`].
+#[test]
+fn static_check_error_get_tenure_info_expect_property_name() {
+    contract_deploy_consensus_test!(
+        contract_name: "tenure-exp-prop-name",
+        contract_code: "(get-tenure-info? u1 u0)",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity2],
     );
 }
 
@@ -1024,4 +1163,43 @@ fn static_check_error_bad_tuple_construction() {
         contract_name: "bad-tuple-constr",
         contract_code: "(tuple (name 1) (name 2))",
     );
+}
+
+/// Error: [`Error::InvalidStacksTransaction("Duplicate contract")`]
+/// Caused by: trying to deploy a contract that already exists.
+/// Outcome: block rejected.
+#[test]
+fn error_invalid_stacks_transaction_duplicate_contract() {
+    let contract_code = "(define-constant buff-0 0x00)";
+    let mut nonce = 0;
+
+    let tx_fee = (contract_code.len() * 100) as u64;
+    let mut epochs_blocks: HashMap<StacksEpochId, Vec<TestBlock>> = HashMap::new();
+    let contract_name = "contract-name";
+    let deploy_tx = ConsensusUtils::new_deploy_tx(nonce, contract_name, contract_code, None);
+    nonce += 1;
+    epochs_blocks
+        .entry(*EPOCHS_TO_TEST.first().unwrap())
+        .or_insert(vec![])
+        .push(TestBlock {
+            transactions: vec![deploy_tx],
+        });
+
+    for epoch in EPOCHS_TO_TEST {
+        for version in clarity_versions_for_epoch(*epoch) {
+            let deploy_tx =
+                ConsensusUtils::new_deploy_tx(nonce, contract_name, contract_code, Some(*version));
+
+            let entry = epochs_blocks
+                .entry(*epoch)
+                .or_insert(vec![])
+                .push(TestBlock {
+                    transactions: vec![deploy_tx],
+                });
+        }
+    }
+
+    let result = ConsensusTest::new(function_name!(), vec![], epochs_blocks).run();
+
+    insta::assert_ron_snapshot!(result);
 }
