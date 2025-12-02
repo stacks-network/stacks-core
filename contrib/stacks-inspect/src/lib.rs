@@ -723,7 +723,7 @@ fn replay_staging_block(
     let sort_tx = sortdb.tx_begin_at_tip();
 
     let blocks_path = chainstate.blocks_path.clone();
-    let (mut chainstate_tx, clarity_instance) = chainstate
+    let (chainstate_tx, clarity_instance) = chainstate
         .chainstate_tx_begin()
         .map_err(|e| format!("{e:?}"))?;
     let mut next_staging_block =
@@ -740,7 +740,7 @@ fn replay_staging_block(
     .unwrap_or_default();
 
     let parent_header_info =
-        StacksChainState::get_parent_header_info(&mut chainstate_tx, &next_staging_block)
+        StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)
             .map_err(|e| format!("Failed to get parent header info: {e:?}"))?
             .ok_or_else(|| "Missing parent header info".to_string())?;
 

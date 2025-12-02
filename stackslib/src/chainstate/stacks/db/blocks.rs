@@ -5857,7 +5857,7 @@ impl StacksChainState {
     /// parent block has been processed.
     /// If it's not known, return None.
     pub fn get_parent_header_info(
-        chainstate_tx: &mut ChainstateTx,
+        chainstate_tx: &ChainstateTx,
         next_staging_block: &StagingBlock,
     ) -> Result<Option<StacksHeaderInfo>, Error> {
         let parent_block_header_info = match StacksChainState::get_anchored_block_header_info(
@@ -6056,7 +6056,7 @@ impl StacksChainState {
         );
 
         let parent_header_info = match StacksChainState::get_parent_header_info(
-            &mut chainstate_tx,
+            &chainstate_tx,
             &next_staging_block,
         )? {
             Some(hinfo) => hinfo,
