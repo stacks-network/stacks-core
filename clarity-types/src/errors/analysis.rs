@@ -831,8 +831,6 @@ pub enum CheckErrorKind {
 
     /// Attempt to write to contract state in a read-only function.
     WriteAttemptedInReadOnly,
-    /// `at-block` closure must be read-only but contains write operations.
-    AtBlockClosureMustBeReadOnly,
 
     // contract post-conditions
     /// Post-condition expects a list of asset allowances but received invalid input.
@@ -843,15 +841,6 @@ pub enum CheckErrorKind {
     /// Expected an allowance expression but found invalid input.
     /// The `String` wraps the unexpected input.
     ExpectedAllowanceExpr(String),
-    /// `with-all-assets-unsafe` is not allowed in this context.
-    WithAllAllowanceNotAllowed,
-    /// `with-all-assets-unsafe` cannot be used alongside other allowances.
-    WithAllAllowanceNotAlone,
-    /// `with-nft` allowance requires a list of asset identifiers.
-    WithNftExpectedListOfIdentifiers,
-    /// `with-nft` allowance identifiers list exceeds the maximum allowed length.
-    /// The first `u32` represents the maximum length, and the second represents the actual length.
-    MaxIdentifierLengthExceeded(u32, u32),
     /// Too many allowances specified in post-condition.
     /// The first `usize` represents the maximum allowed, and the second represents the actual count.
     TooManyAllowances(usize, usize),
@@ -1470,7 +1459,6 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::TooManyFunctionParameters(found, allowed) => format!("too many function parameters specified: found {found}, the maximum is {allowed}"),
             CheckErrorKind::TraitBasedContractCallInReadOnly => "use of trait based contract calls are not allowed in read-only context".into(),
             CheckErrorKind::WriteAttemptedInReadOnly => "expecting read-only statements, detected a writing operation".into(),
-            CheckErrorKind::AtBlockClosureMustBeReadOnly => "(at-block ...) closures expect read-only statements, but detected a writing operation".into(),
             CheckErrorKind::BadTokenName => "expecting an token name as an argument".into(),
             CheckErrorKind::NoSuchNFT(asset_name) => format!("tried to use asset function with a undefined asset ('{asset_name}')"),
             CheckErrorKind::NoSuchFT(asset_name) => format!("tried to use token function with a undefined token ('{asset_name}')"),
@@ -1488,10 +1476,6 @@ impl DiagnosableError for CheckErrorKind {
             CheckErrorKind::ExpectedListOfAllowances(fn_name, arg_num) => format!("{fn_name} expects a list of asset allowances as argument {arg_num}"),
             CheckErrorKind::AllowanceExprNotAllowed => "allowance expressions are only allowed in the context of a `restrict-assets?` or `as-contract?`".into(),
             CheckErrorKind::ExpectedAllowanceExpr(got_name) => format!("expected an allowance expression, got: {got_name}"),
-            CheckErrorKind::WithAllAllowanceNotAllowed => "with-all-assets-unsafe is not allowed here, only in the allowance list for `as-contract?`".into(),
-            CheckErrorKind::WithAllAllowanceNotAlone => "with-all-assets-unsafe must not be used along with other allowances".into(),
-            CheckErrorKind::WithNftExpectedListOfIdentifiers => "with-nft allowance must include a list of asset identifiers".into(),
-            CheckErrorKind::MaxIdentifierLengthExceeded(max_len, len) => format!("with-nft allowance identifiers list must not exceed {max_len} elements, got {len}"),
             CheckErrorKind::TooManyAllowances(max_allowed, found) => format!("too many allowances specified, the maximum is {max_allowed}, found {found}"),
         }
     }
