@@ -253,7 +253,7 @@ fn collect_block_entries_for_selection(
     }) {
         let index_block_hash: String = row.get(0).unwrap();
         if !seen.insert(index_block_hash.clone()) {
-            continue;
+            panic!("Duplicate block found: {index_block_hash}");
         }
         entries.push(BlockScanEntry {
             index_block_hash,
@@ -274,7 +274,7 @@ fn collect_block_entries_for_selection(
     }) {
         let index_block_hash: String = row.get(0).unwrap();
         if !seen.insert(index_block_hash.clone()) {
-            continue;
+            panic!("Duplicate block found: {index_block_hash}");
         }
         entries.push(BlockScanEntry {
             index_block_hash,
