@@ -1921,10 +1921,6 @@ fn sip034_tenure_extend_proposal(allow: bool, extend_types: &[TenureChangeCause]
         return;
     }
 
-    if allow {
-        std::env::set_var("SIGNER_TEST_SIP034", "1");
-    }
-
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
