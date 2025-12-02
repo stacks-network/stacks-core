@@ -20,7 +20,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use blockstack_lib::chainstate::nakamoto::NakamotoBlock;
-use blockstack_lib::chainstate::stacks::TransactionPayload;
+use blockstack_lib::chainstate::stacks::{TenureChangeCause, TransactionPayload};
 #[cfg(any(test, feature = "testing"))]
 use blockstack_lib::util_lib::db::FromColumn;
 use blockstack_lib::util_lib::db::{
@@ -220,13 +220,23 @@ impl From<BlockProposal> for BlockInfo {
     }
 }
 impl BlockInfo {
-    /// Whether the block is a tenure change block or not
-    pub fn is_tenure_change(&self) -> bool {
+    /// Whether the block is a tenure extend/change block or not. Used only for schema migrations
+    fn is_tenure_change(&self) -> bool {
         self.block
             .txs
             .first()
             .map(|tx| matches!(tx.payload, TransactionPayload::TenureChange(_)))
             .unwrap_or(false)
+    }
+
+    /// If the block has a tenure change tx, return the cause
+    fn tenure_change_cause(&self) -> Option<TenureChangeCause> {
+        let tx = self.block.txs.first()?;
+        let TransactionPayload::TenureChange(ref tenure_change) = tx.payload else {
+            // if its not a tenure change payload at all, return None
+            return None;
+        };
+        Some(tenure_change.cause)
     }
 
     /// Mark this block as locally accepted, valid, signed over, and records either the self or group signed timestamp in the block info if it wasn't
@@ -687,6 +697,11 @@ CREATE TABLE IF NOT EXISTS block_pre_commits (
     PRIMARY KEY (signer_signature_hash, signer_addr)
 ) STRICT;"#;
 
+static ADD_TENURE_CAUSE: &str = r#"
+ALTER TABLE blocks
+    ADD COLUMN tenure_change_cause INTEGER;
+"#;
+
 static SCHEMA_1: &[&str] = &[
     DROP_SCHEMA_0,
     CREATE_DB_CONFIG,
@@ -805,6 +820,11 @@ static SCHEMA_17: &[&str] = &[
     "INSERT INTO db_config (version) VALUES (17);",
 ];
 
+static SCHEMA_18: &[&str] = &[
+    ADD_TENURE_CAUSE,
+    "INSERT INTO db_config (version) VALUES (18);",
+];
+
 struct Migration {
     version: u32,
     statements: &'static [&'static str],
@@ -879,11 +899,15 @@ static MIGRATIONS: &[Migration] = &[
         version: 17,
         statements: SCHEMA_17,
     },
+    Migration {
+        version: 18,
+        statements: SCHEMA_18,
+    },
 ];
 
 impl SignerDb {
     /// The current schema version used in this build of the signer binary.
-    pub const SCHEMA_VERSION: u32 = 17;
+    pub const SCHEMA_VERSION: u32 = 18;
 
     /// Create a new `SignerState` instance.
     /// This will create a new SQLite database at the given path
@@ -1318,22 +1342,31 @@ impl SignerDb {
             "broadcasted" => ?broadcasted,
             "vote" => vote
         );
-        self.db.execute("INSERT OR REPLACE INTO blocks (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over, broadcasted, stacks_height, consensus_hash, valid, state, signed_group, signed_self, proposed_time, validation_time_ms, tenure_change) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)", params![
-            u64_to_sql(block_info.reward_cycle)?,
-            u64_to_sql(block_info.burn_block_height)?,
-            hash.to_string(),
-            block_json,
-            &block_info.signed_over,
-            &broadcasted,
-            u64_to_sql(block_info.block.header.chain_length)?,
-            block_info.block.header.consensus_hash.to_hex(),
-            &block_info.valid, &block_info.state.to_string(),
-            &block_info.signed_group,
-            &block_info.signed_self,
-            &block_info.proposed_time,
-            &block_info.validation_time_ms,
-            &block_info.is_tenure_change()
-        ])?;
+        self.db.execute(
+            "INSERT OR REPLACE INTO blocks 
+              (reward_cycle, burn_block_height, signer_signature_hash, block_info, signed_over,
+               broadcasted, stacks_height, consensus_hash, valid, state, signed_group, signed_self,
+               proposed_time, validation_time_ms, tenure_change, tenure_change_cause)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+            params![
+                u64_to_sql(block_info.reward_cycle)?,
+                u64_to_sql(block_info.burn_block_height)?,
+                hash.to_string(),
+                block_json,
+                &block_info.signed_over,
+                &broadcasted,
+                u64_to_sql(block_info.block.header.chain_length)?,
+                block_info.block.header.consensus_hash.to_hex(),
+                &block_info.valid,
+                &block_info.state.to_string(),
+                &block_info.signed_group,
+                &block_info.signed_self,
+                &block_info.proposed_time,
+                &block_info.validation_time_ms,
+                &block_info.is_tenure_change(),
+                &block_info.tenure_change_cause().map(|x| x.as_u8()),
+            ],
+        )?;
         Ok(())
     }
 
@@ -1579,29 +1612,43 @@ impl SignerDb {
         Ok(())
     }
 
-    /// Return the start time (epoch time in seconds) and the processing time in milliseconds of the tenure (idenfitied by consensus_hash).
-    fn get_tenure_times(&self, tenure: &ConsensusHash) -> Result<(u64, u64), DBError> {
-        let query = "SELECT tenure_change, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
+    /// Returns:
+    /// * the time (epoch time in seconds) of the last tenure change during the tenure identified by `tenure`
+    ///   where the change cause matches `cause_match`
+    /// * the processing time in milliseconds of the blocks since that time
+    fn get_tenure_times<F>(
+        &self,
+        tenure: &ConsensusHash,
+        cause_match: F,
+    ) -> Result<(u64, u64), DBError>
+    where
+        F: Fn(TenureChangeCause) -> bool,
+    {
+        let query = "SELECT tenure_change_cause, proposed_time, validation_time_ms FROM blocks WHERE consensus_hash = ?1 AND state = ?2 ORDER BY stacks_height DESC";
         let args = params![tenure, BlockState::GloballyAccepted.to_string()];
         let mut stmt = self.db.prepare(query)?;
         let rows = stmt.query_map(args, |row| {
-            let tenure_change_block: bool = row.get(0)?;
+            let tenure_change_cause: Option<u8> = row.get(0)?;
+            let tenure_change_cause = tenure_change_cause
+                .and_then(|cause_byte| TenureChangeCause::try_from(cause_byte).ok());
             let proposed_time: u64 = row.get(1)?;
             let validation_time_ms: Option<u64> = row.get(2)?;
-            Ok((tenure_change_block, proposed_time, validation_time_ms))
+            Ok((tenure_change_cause, proposed_time, validation_time_ms))
         })?;
         let mut tenure_processing_time_ms = 0_u64;
         let mut tenure_start_time = None;
         let mut nmb_rows = 0;
         for (i, row) in rows.enumerate() {
             nmb_rows += 1;
-            let (tenure_change_block, proposed_time, validation_time_ms) = row?;
+            let (tenure_change_cause, proposed_time, validation_time_ms) = row?;
             tenure_processing_time_ms =
                 tenure_processing_time_ms.saturating_add(validation_time_ms.unwrap_or(0));
             tenure_start_time = Some(proposed_time);
-            if tenure_change_block {
-                debug!("Found tenure change block {i} blocks ago in tenure {tenure}");
-                break;
+            if let Some(tenure_change_cause) = tenure_change_cause {
+                if cause_match(tenure_change_cause) {
+                    debug!("Found matching tenure change block {i} blocks ago in tenure {tenure}");
+                    break;
+                }
             }
         }
         debug!("Calculated tenure extend timestamp from {nmb_rows} blocks in tenure {tenure}");
@@ -1611,22 +1658,85 @@ impl SignerDb {
         ))
     }
 
-    /// Calculate the tenure extend timestamp. If determine the timestamp for a block rejection, check_tenure_extend should be set to false to avoid recalculating
+    /// Calculate the timestamp for the next read count tenure extend.
+    ///
+    /// If determining the timestamp for a block rejection, check_tenure_extend should be set to false to avoid recalculating
     /// the tenure extend timestamp for a tenure extend block.
-    pub fn calculate_tenure_extend_timestamp(
+    #[allow(unused)]
+    pub fn calculate_read_count_extend_timestamp(
         &self,
         tenure_idle_timeout: Duration,
         block: &NakamotoBlock,
         check_tenure_extend: bool,
     ) -> u64 {
-        if check_tenure_extend && block.get_tenure_tx_payload().is_some() {
-            let tenure_extend_timestamp =
-                get_epoch_time_secs().wrapping_add(tenure_idle_timeout.as_secs());
-            debug!("Calculated tenure extend timestamp for a tenure extend block. Rolling over timestamp: {tenure_extend_timestamp}");
-            return tenure_extend_timestamp;
+        self.calculate_tenure_extend_timestamp(
+            tenure_idle_timeout,
+            block,
+            check_tenure_extend,
+            |change_cause| {
+                matches!(
+                    change_cause,
+                    // Note: we want to "reset" our timestamp whenever the read-count dimension is extended. This means
+                    //  that "full" extends should also reset our timestamp
+                    TenureChangeCause::BlockFound
+                        | TenureChangeCause::Extended
+                        | TenureChangeCause::ExtendedReadCount
+                )
+            },
+        )
+    }
+
+    /// Calculate the (full) tenure extend timestamp.
+    ///
+    /// If determining the timestamp for a block rejection, check_tenure_extend should be set to false to avoid recalculating
+    /// the tenure extend timestamp for a tenure extend block.
+    pub fn calculate_full_extend_timestamp(
+        &self,
+        tenure_idle_timeout: Duration,
+        block: &NakamotoBlock,
+        check_tenure_extend: bool,
+    ) -> u64 {
+        self.calculate_tenure_extend_timestamp(
+            tenure_idle_timeout,
+            block,
+            check_tenure_extend,
+            |change_cause| {
+                matches!(
+                    change_cause,
+                    TenureChangeCause::BlockFound | TenureChangeCause::Extended
+                )
+            },
+        )
+    }
+
+    fn calculate_tenure_extend_timestamp<F>(
+        &self,
+        tenure_idle_timeout: Duration,
+        block: &NakamotoBlock,
+        check_tenure_extend: bool,
+        tenure_change_match: F,
+    ) -> u64
+    where
+        F: Fn(TenureChangeCause) -> bool,
+    {
+        if check_tenure_extend {
+            if let Some(tenure_change) = block.get_tenure_change_tx_payload() {
+                if tenure_change_match(tenure_change.cause) {
+                    let tenure_extend_timestamp =
+                        get_epoch_time_secs().wrapping_add(tenure_idle_timeout.as_secs());
+                    debug!("Calculated tenure extend timestamp for a tenure extend block. Rolling over timestamp: {tenure_extend_timestamp}");
+                    return tenure_extend_timestamp;
+                }
+            }
         }
         let tenure_idle_timeout_secs = tenure_idle_timeout.as_secs();
-        let (tenure_start_time, tenure_process_time_ms) = self.get_tenure_times(&block.header.consensus_hash).inspect_err(|e| error!("Error occurred calculating tenure extend timestamp: {e:?}. Defaulting to {tenure_idle_timeout_secs} from now.")).unwrap_or((get_epoch_time_secs(), 0));
+        let (tenure_start_time, tenure_process_time_ms) = self.get_tenure_times(
+            &block.header.consensus_hash,
+            tenure_change_match,
+        ).unwrap_or_else(|e| {
+            error!("Error occurred calculating tenure extend timestamp: {e:?}. Defaulting to {tenure_idle_timeout_secs} from now.");
+            (get_epoch_time_secs(), 0)
+        });
         // Plus (ms + 999)/1000 to round up to the nearest second
         let tenure_extend_timestamp = tenure_start_time
             .saturating_add(tenure_idle_timeout_secs)
@@ -2835,15 +2945,24 @@ pub mod tests {
         db.insert_block(&block_infos[0]).unwrap();
         db.insert_block(&block_infos[1]).unwrap();
 
+        let change_match = |change_cause| {
+            matches!(
+                change_cause,
+                TenureChangeCause::BlockFound | TenureChangeCause::Extended
+            )
+        };
+
         // Verify tenure consensus_hash_1
-        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_1).unwrap();
+        let (start_time, processing_time) =
+            db.get_tenure_times(consensus_hash_1, change_match).unwrap();
         assert_eq!(start_time, block_infos[0].proposed_time);
         assert_eq!(processing_time, 3000);
 
         db.insert_block(&block_infos[2]).unwrap();
         db.insert_block(&block_infos[3]).unwrap();
 
-        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_1).unwrap();
+        let (start_time, processing_time) =
+            db.get_tenure_times(consensus_hash_1, change_match).unwrap();
         assert_eq!(start_time, block_infos[2].proposed_time);
         assert_eq!(processing_time, 5000);
 
@@ -2851,12 +2970,15 @@ pub mod tests {
         db.insert_block(&block_infos[5]).unwrap();
 
         // Verify tenure consensus_hash_2
-        let (start_time, processing_time) = db.get_tenure_times(consensus_hash_2).unwrap();
+        let (start_time, processing_time) =
+            db.get_tenure_times(consensus_hash_2, change_match).unwrap();
         assert_eq!(start_time, block_infos[4].proposed_time);
         assert_eq!(processing_time, 20000);
 
         // Verify tenure consensus_hash_3 (unknown hash)
-        let (start_time, validation_time) = db.get_tenure_times(&consensus_hash_3).unwrap();
+        let (start_time, validation_time) = db
+            .get_tenure_times(&consensus_hash_3, change_match)
+            .unwrap();
         assert!(start_time < block_infos[0].proposed_time, "Should have been generated from get_epoch_time_secs() making it much older than our artificially late proposal times");
         assert_eq!(validation_time, 0);
     }
@@ -2876,7 +2998,7 @@ pub mod tests {
         let tenure_idle_timeout = Duration::from_secs(10);
         // Verify tenure consensus_hash_1
         let timestamp_hash_1_before =
-            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, true);
+            db.calculate_full_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, true);
         assert_eq!(
             timestamp_hash_1_before,
             block_infos[0]
@@ -2889,7 +3011,7 @@ pub mod tests {
         db.insert_block(&block_infos[3]).unwrap();
 
         let timestamp_hash_1_after =
-            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, true);
+            db.calculate_full_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, true);
 
         assert_eq!(
             timestamp_hash_1_after,
@@ -2903,7 +3025,7 @@ pub mod tests {
         db.insert_block(&block_infos[5]).unwrap();
 
         // Verify tenure consensus_hash_2
-        let timestamp_hash_2 = db.calculate_tenure_extend_timestamp(
+        let timestamp_hash_2 = db.calculate_full_extend_timestamp(
             tenure_idle_timeout,
             &block_infos.last().unwrap().block,
             true,
@@ -2918,13 +3040,13 @@ pub mod tests {
 
         let now = get_epoch_time_secs().saturating_add(tenure_idle_timeout.as_secs());
         let timestamp_hash_2_no_tenure_extend =
-            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, false);
+            db.calculate_full_extend_timestamp(tenure_idle_timeout, &block_infos[0].block, false);
         assert_ne!(timestamp_hash_2, timestamp_hash_2_no_tenure_extend);
         assert!(now < timestamp_hash_2_no_tenure_extend);
 
         // Verify tenure consensus_hash_3 (unknown hash)
         let timestamp_hash_3 =
-            db.calculate_tenure_extend_timestamp(tenure_idle_timeout, &unknown_block, true);
+            db.calculate_full_extend_timestamp(tenure_idle_timeout, &unknown_block, true);
         assert!(
             timestamp_hash_3.saturating_add(tenure_idle_timeout.as_secs())
                 < block_infos[0].proposed_time

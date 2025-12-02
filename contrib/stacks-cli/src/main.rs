@@ -25,6 +25,7 @@ use std::{env, fs, io};
 use clarity::vm::errors::{RuntimeError, VmExecutionError};
 use clarity::vm::types::PrincipalData;
 use clarity::vm::{ClarityName, ClarityVersion, ContractName, Value};
+use clarity_cli::vm_execute;
 use stacks_common::address::{AddressHashMode, b58};
 use stacks_common::codec::{Error as CodecError, StacksMessageCodec};
 use stacks_common::types::chainstate::StacksAddress;
@@ -41,7 +42,6 @@ use stackslib::chainstate::stacks::{
     TransactionContractCall, TransactionPayload, TransactionPostConditionMode,
     TransactionSmartContract, TransactionSpendingCondition, TransactionVersion,
 };
-use stackslib::clarity_cli::vm_execute;
 use stackslib::core::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
 use stackslib::net::Error as NetError;
 use stackslib::util_lib::strings::StacksString;

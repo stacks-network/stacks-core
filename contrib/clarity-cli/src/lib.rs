@@ -14,12 +14,28 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+#[macro_use]
+extern crate serde_derive;
+
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::{fs, io};
 
+use clarity::vm::analysis::contract_interface_builder::build_contract_interface;
+use clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
+use clarity::vm::ast::build_ast;
+use clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
+use clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
 use clarity::vm::coverage::CoverageReporter;
-use clarity::vm::errors::StaticCheckError;
+use clarity::vm::database::{
+    BurnStateDB, ClarityDatabase, HeadersDB, NULL_BURN_STATE_DB, STXBalance,
+};
+use clarity::vm::errors::{RuntimeError, StaticCheckError, VmExecutionError};
+use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
+use clarity::vm::{
+    ClarityVersion, ContractContext, ContractName, SymbolicExpression, Value, analysis, ast,
+    eval_all,
+};
 use lazy_static::lazy_static;
 use rand::Rng;
 use rusqlite::{Connection, OpenFlags};
@@ -27,41 +43,27 @@ use serde::Serialize;
 use serde_json::json;
 use stacks_common::address::c32::c32_address;
 use stacks_common::consts::{CHAIN_ID_MAINNET, CHAIN_ID_TESTNET};
+use stacks_common::debug;
 use stacks_common::types::chainstate::{
     BlockHeaderHash, BurnchainHeaderHash, ConsensusHash, StacksAddress, StacksBlockId, VRFSeed,
 };
 use stacks_common::types::sqlite::NO_PARAMS;
 use stacks_common::util::get_epoch_time_ms;
-use stacks_common::util::hash::{bytes_to_hex, Hash160, Sha512Trunc256Sum};
-
-use crate::burnchains::{PoxConstants, Txid};
-use crate::chainstate::stacks::boot::{
-    BOOT_CODE_BNS, BOOT_CODE_COSTS, BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET,
-    BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4, BOOT_CODE_COST_VOTING_MAINNET,
-    BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET,
-    BOOT_CODE_POX_TESTNET, POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
+use stacks_common::util::hash::{Hash160, Sha512Trunc256Sum, bytes_to_hex};
+use stackslib::burnchains::{PoxConstants, Txid};
+use stackslib::chainstate::stacks::boot::{
+    BOOT_CODE_BNS, BOOT_CODE_COST_VOTING_MAINNET, BOOT_CODE_COST_VOTING_TESTNET, BOOT_CODE_COSTS,
+    BOOT_CODE_COSTS_2, BOOT_CODE_COSTS_2_TESTNET, BOOT_CODE_COSTS_3, BOOT_CODE_COSTS_4,
+    BOOT_CODE_GENESIS, BOOT_CODE_LOCKUP, BOOT_CODE_POX_MAINNET, BOOT_CODE_POX_TESTNET,
+    POX_2_MAINNET_CODE, POX_2_TESTNET_CODE,
 };
-use crate::chainstate::stacks::index::ClarityMarfTrieId;
-use crate::clarity::vm::analysis::contract_interface_builder::build_contract_interface;
-use crate::clarity::vm::analysis::{AnalysisDatabase, ContractAnalysis};
-use crate::clarity::vm::ast::build_ast;
-use crate::clarity::vm::contexts::{AssetMap, GlobalContext, OwnedEnvironment};
-use crate::clarity::vm::costs::{ExecutionCost, LimitedCostTracker};
-use crate::clarity::vm::database::{
-    BurnStateDB, ClarityDatabase, HeadersDB, STXBalance, NULL_BURN_STATE_DB,
-};
-use crate::clarity::vm::errors::{RuntimeError, VmExecutionError};
-use crate::clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use crate::clarity::vm::{
-    analysis, ast, eval_all, ClarityVersion, ContractContext, ContractName, SymbolicExpression,
-    Value,
-};
-use crate::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
-use crate::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
-use crate::clarity_vm::database::MemoryBackingStore;
-use crate::core::{StacksEpochId, BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20};
-use crate::util_lib::boot::{boot_code_addr, boot_code_id};
-use crate::util_lib::db::{sqlite_open, FromColumn};
+use stackslib::chainstate::stacks::index::ClarityMarfTrieId;
+use stackslib::clarity_vm::clarity::{ClarityMarfStore, ClarityMarfStoreTransaction};
+use stackslib::clarity_vm::database::MemoryBackingStore;
+use stackslib::clarity_vm::database::marf::{MarfedKV, PersistentWritableMarfStore};
+use stackslib::core::{BLOCK_LIMIT_MAINNET_205, HELIUM_BLOCK_LIMIT_20, StacksEpochId};
+use stackslib::util_lib::boot::{boot_code_addr, boot_code_id};
+use stackslib::util_lib::db::{FromColumn, sqlite_open};
 
 lazy_static! {
     pub static ref STACKS_BOOT_CODE_MAINNET_2_1: [(&'static str, &'static str); 10] = [
@@ -105,7 +107,7 @@ macro_rules! panic_test {
 
 fn print_usage(invoked_by: &str) {
     eprintln!(
-        "Usage: {} [command]
+        "Usage: {invoked_by} [command]
 where command is one of:
 
   initialize         to initialize a local VM state database.
@@ -119,22 +121,21 @@ where command is one of:
   repl               to typecheck and evaluate expressions in a stdin/stdout loop.
   execute            to execute a public function of a defined contract.
   generate_address   to generate a random Stacks public address for testing purposes.
-",
-        invoked_by
+"
     );
     panic_test!()
 }
 
 fn friendly_expect<A, B: std::fmt::Display>(input: Result<A, B>, msg: &str) -> A {
     input.unwrap_or_else(|e| {
-        eprintln!("{}\nCaused by: {}", msg, e);
+        eprintln!("{msg}\nCaused by: {e}");
         panic_test!();
     })
 }
 
 fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
     input.unwrap_or_else(|| {
-        eprintln!("{}", msg);
+        eprintln!("{msg}");
         panic_test!();
     })
 }
@@ -142,6 +143,7 @@ fn friendly_expect_opt<A>(input: Option<A>, msg: &str) -> A {
 pub const DEFAULT_CLI_EPOCH: StacksEpochId = StacksEpochId::Epoch33;
 
 struct EvalInput {
+    #[allow(dead_code)]
     marf_kv: MarfedKV,
     contract_identifier: QualifiedContractIdentifier,
     content: String,
@@ -273,7 +275,7 @@ fn create_or_open_db(path: &String) -> Connection {
                     }
                     OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE
                 } else {
-                    panic!("FATAL: could not stat {}", path);
+                    panic!("FATAL: could not stat {path}");
                 }
             }
             Ok(_md) => {
@@ -283,11 +285,10 @@ fn create_or_open_db(path: &String) -> Connection {
         }
     };
 
-    let conn = friendly_expect(
+    friendly_expect(
         sqlite_open(path, open_flags, false),
-        &format!("FATAL: failed to open '{}'", path),
-    );
-    conn
+        &format!("FATAL: failed to open '{path}'"),
+    )
 }
 
 fn get_cli_chain_tip(conn: &Connection) -> StacksBlockId {
@@ -315,16 +316,11 @@ fn get_cli_block_height(conn: &Connection, block_id: &StacksBlockId) -> Option<u
         conn.prepare("SELECT id FROM cli_chain_tips WHERE block_hash = ?1"),
         "FATAL: could not prepare query",
     );
-    let mut rows = friendly_expect(stmt.query(&[block_id]), "FATAL: could not fetch rows");
-    let mut row_opt = None;
+    let mut rows = friendly_expect(stmt.query([block_id]), "FATAL: could not fetch rows");
 
-    while let Some(row) = rows.next().expect("FATAL: could not read block hash") {
-        let rowid = friendly_expect(u64::from_column(row, "id"), "FATAL: could not parse row ID");
-        row_opt = Some(rowid);
-        break;
-    }
-
-    row_opt
+    rows.next()
+        .expect("FATAL: could not read block hash")
+        .map(|row| friendly_expect(u64::from_column(row, "id"), "FATAL: could not parse row ID"))
 }
 
 fn get_cli_db_path(db_path: &str) -> String {
@@ -334,11 +330,11 @@ fn get_cli_db_path(db_path: &str) -> String {
 
     let mut cli_db_path_buf = PathBuf::from(db_path);
     cli_db_path_buf.push("cli.sqlite");
-    let cli_db_path = cli_db_path_buf
+
+    cli_db_path_buf
         .to_str()
-        .unwrap_or_else(|| panic!("FATAL: failed to convert '{}' to a string", db_path))
-        .to_string();
-    cli_db_path
+        .unwrap_or_else(|| panic!("FATAL: failed to convert '{db_path}' to a string"))
+        .to_string()
 }
 
 // This function is pretty weird! But it helps cut down on
@@ -401,12 +397,11 @@ where
 }
 
 fn default_chain_id(mainnet: bool) -> u32 {
-    let chain_id = if mainnet {
+    if mainnet {
         CHAIN_ID_MAINNET
     } else {
         CHAIN_ID_TESTNET
-    };
-    chain_id
+    }
 }
 
 fn with_env_costs<F, R>(
@@ -512,7 +507,7 @@ fn save_coverage(
     match (coverage_folder, coverage) {
         (Some(coverage_folder), Some(coverage)) => {
             let mut coverage_file = PathBuf::from(coverage_folder);
-            coverage_file.push(&format!("{}_{}", prefix, get_epoch_time_ms()));
+            coverage_file.push(format!("{prefix}_{}", get_epoch_time_ms()));
             coverage_file.set_extension("clarcov");
 
             coverage
@@ -535,7 +530,7 @@ impl CLIHeadersDB {
         let cli_db_path = self.get_cli_db_path();
         let tx = friendly_expect(
             self.conn.transaction(),
-            &format!("FATAL: failed to begin transaction on '{}'", cli_db_path),
+            &format!("FATAL: failed to begin transaction on '{cli_db_path}'"),
         );
 
         friendly_expect(
@@ -556,7 +551,7 @@ impl CLIHeadersDB {
 
         if !mainnet {
             friendly_expect(
-                tx.execute("INSERT INTO cli_config (testnet) VALUES (?1)", &[&true]),
+                tx.execute("INSERT INTO cli_config (testnet) VALUES (?1)", [&true]),
                 "FATAL: failed to set testnet flag",
             );
         }
@@ -569,7 +564,7 @@ impl CLIHeadersDB {
 
     /// Create or open a new CLI DB at db_path.  If it already exists, then this method is a no-op.
     pub fn new(db_path: &str, mainnet: bool) -> CLIHeadersDB {
-        let instantiate = db_path == ":memory:" || fs::metadata(&db_path).is_err();
+        let instantiate = db_path == ":memory:" || fs::metadata(db_path).is_err();
 
         let cli_db_path = get_cli_db_path(db_path);
         let conn = create_or_open_db(&cli_db_path);
@@ -603,8 +598,7 @@ impl CLIHeadersDB {
 
     /// Make a new CLI DB in memory.
     pub fn new_memory(mainnet: bool) -> CLIHeadersDB {
-        let db = CLIHeadersDB::new(":memory:", mainnet);
-        db
+        CLIHeadersDB::new(":memory:", mainnet)
     }
 
     fn get_cli_db_path(&self) -> String {
@@ -637,7 +631,7 @@ impl CLIHeadersDB {
 
         let parent_block_hash = get_cli_chain_tip(&tx);
 
-        let random_bytes = rand::thread_rng().gen::<[u8; 32]>();
+        let random_bytes = rand::thread_rng().r#gen::<[u8; 32]>();
         let next_block_hash = friendly_expect_opt(
             StacksBlockId::from_bytes(&random_bytes),
             "Failed to generate random block header.",
@@ -646,7 +640,7 @@ impl CLIHeadersDB {
         friendly_expect(
             tx.execute(
                 "INSERT INTO cli_chain_tips (block_hash) VALUES (?1)",
-                &[&next_block_hash],
+                [&next_block_hash],
             ),
             &format!(
                 "FATAL: failed to store next block hash in '{}'",
@@ -735,29 +729,17 @@ impl HeadersDB for CLIHeadersDB {
         _epoch: Option<&StacksEpochId>,
     ) -> Option<u64> {
         let conn = self.conn();
-        if let Some(height) = get_cli_block_height(conn, id_bhh) {
-            Some(height * 600 + 1231006505)
-        } else {
-            None
-        }
+        get_cli_block_height(conn, id_bhh).map(|height| height * 600 + 1231006505)
     }
 
     fn get_stacks_block_time_for_block(&self, id_bhh: &StacksBlockId) -> Option<u64> {
         let conn = self.conn();
-        if let Some(height) = get_cli_block_height(conn, id_bhh) {
-            Some(height * 10 + 1713799973)
-        } else {
-            None
-        }
+        get_cli_block_height(conn, id_bhh).map(|height| height * 10 + 1713799973)
     }
 
     fn get_burn_block_height_for_block(&self, id_bhh: &StacksBlockId) -> Option<u32> {
         let conn = self.conn();
-        if let Some(height) = get_cli_block_height(conn, id_bhh) {
-            Some(height as u32)
-        } else {
-            None
-        }
+        get_cli_block_height(conn, id_bhh).map(|height| height as u32)
     }
 
     fn get_miner_address(
@@ -807,8 +789,8 @@ impl HeadersDB for CLIHeadersDB {
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
         eprintln!(
-            "Usage: {} {} [--costs] [--epoch E] [--clarity_version N] [contract-identifier] (program.clar) [vm-state.db]",
-            invoked_by, args[0]
+            "Usage: {invoked_by} {} [--costs] [--epoch E] [--clarity_version N] [contract-identifier] (program.clar) [vm-state.db]",
+            args[0]
         );
         panic_test!();
     }
@@ -841,11 +823,11 @@ fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
         "Failed to open VM database.",
     );
     // return (marf_kv, contract_identifier, vm_filename, content);
-    return EvalInput {
+    EvalInput {
         marf_kv,
         contract_identifier,
         content,
-    };
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -861,7 +843,7 @@ fn consume_arg(
 ) -> Result<Option<String>, String> {
     if let Some(ref switch) = args
         .iter()
-        .find(|ref arg| argnames.iter().find(|ref argname| argname == arg).is_some())
+        .find(|ref arg| argnames.iter().any(|ref argname| argname == arg))
     {
         let idx = args
             .iter()
@@ -932,8 +914,7 @@ fn install_boot_code<C: ClarityStorage>(
         let contract_content = *boot_code_contract;
 
         debug!(
-            "Instantiate boot code contract '{}' ({} bytes)...",
-            &contract_identifier,
+            "Instantiate boot code contract '{contract_identifier}' ({} bytes)...",
             boot_code_contract.len()
         );
 
@@ -1026,15 +1007,11 @@ pub fn add_serialized_output(result: &mut serde_json::Value, value: Value) {
 
 /// Parse --clarity_version flag. Defaults to version for epoch.
 fn parse_clarity_version_flag(argv: &mut Vec<String>, epoch: StacksEpochId) -> ClarityVersion {
-    if let Ok(optarg) = consume_arg(argv, &["--clarity_version"], true) {
-        if let Some(s) = optarg {
-            friendly_expect(
-                s.parse::<ClarityVersion>(),
-                &format!("Invalid clarity version: {s}"),
-            )
-        } else {
-            ClarityVersion::default_for_epoch(epoch)
-        }
+    if let Ok(Some(s)) = consume_arg(argv, &["--clarity_version"], true) {
+        friendly_expect(
+            s.parse::<ClarityVersion>(),
+            &format!("Invalid clarity version: {s}"),
+        )
     } else {
         ClarityVersion::default_for_epoch(epoch)
     }
@@ -1042,12 +1019,8 @@ fn parse_clarity_version_flag(argv: &mut Vec<String>, epoch: StacksEpochId) -> C
 
 /// Parse --epoch flag. Defaults to DEFAULT_CLI_EPOCH.
 fn parse_epoch_flag(argv: &mut Vec<String>) -> StacksEpochId {
-    if let Ok(optarg) = consume_arg(argv, &["--epoch"], true) {
-        if let Some(s) = optarg {
-            friendly_expect(s.parse::<StacksEpochId>(), &format!("Invalid epoch: {}", s))
-        } else {
-            DEFAULT_CLI_EPOCH
-        }
+    if let Ok(Some(s)) = consume_arg(argv, &["--epoch"], true) {
+        friendly_expect(s.parse::<StacksEpochId>(), &format!("Invalid epoch: {s}"))
     } else {
         DEFAULT_CLI_EPOCH
     }
@@ -1079,7 +1052,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 } else {
                     friendly_expect(
                         fs::read_to_string(filename),
-                        &format!("Error reading file: {}", filename),
+                        &format!("Error reading file: {filename}"),
                     )
                 };
                 let allocations: Vec<InitialAllocation> =
@@ -1103,12 +1076,16 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 (&argv[1], Vec::new())
             } else {
                 eprintln!(
-                    "Usage: {} {} [--testnet] [--epoch E] (initial-allocations.json) [vm-state.db]",
-                    invoked_by, argv[0]
+                    "Usage: {invoked_by} {} [--testnet] [--epoch E] (initial-allocations.json) [vm-state.db]",
+                    argv[0]
                 );
-                eprintln!("   initial-allocations.json is a JSON array of {{ principal: \"ST...\", amount: 100 }} like objects.");
+                eprintln!(
+                    "   initial-allocations.json is a JSON array of {{ principal: \"ST...\", amount: 100 }} like objects."
+                );
                 eprintln!("   if the provided filename is `-`, the JSON is read from stdin.");
-                eprintln!("   If --testnet is given, then testnet bootcode and block-limits are used instead of mainnet.");
+                eprintln!(
+                    "   If --testnet is given, then testnet bootcode and block-limits are used instead of mainnet."
+                );
                 panic_test!();
             };
 
@@ -1141,7 +1118,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         snapshot.set_balance(balance);
                         snapshot.save().unwrap();
 
-                        println!("{} credited: {} uSTX", principal, total_balance);
+                        println!("{principal} credited: {total_balance} uSTX");
                     }
                     db.commit().unwrap();
                 };
@@ -1172,18 +1149,18 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 panic_test!();
             }
             // random 20 bytes
-            let random_bytes = rand::thread_rng().gen::<[u8; 20]>();
+            let random_bytes = rand::thread_rng().r#gen::<[u8; 20]>();
             // version = 22
             let addr =
                 friendly_expect(c32_address(22, &random_bytes), "Failed to generate address");
 
-            (0, Some(json!({ "address": format!("{}", addr) })))
+            (0, Some(json!({ "address": format!("{addr}") })))
         }
         "check" => {
             if args.len() < 2 {
                 eprintln!(
-                    "Usage: {} {} [program-file.clar] [--contract_id CONTRACT_ID] [--output_analysis] [--costs] [--testnet] [--clarity_version N] [--epoch E] (vm-state.db)",
-                    invoked_by, args[0]
+                    "Usage: {invoked_by} {} [program-file.clar] [--contract_id CONTRACT_ID] [--output_analysis] [--costs] [--testnet] [--clarity_version N] [--epoch E] (vm-state.db)",
+                    args[0]
                 );
                 panic_test!();
             }
@@ -1196,7 +1173,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     .map(|optarg_str| {
                         friendly_expect(
                             QualifiedContractIdentifier::parse(&optarg_str),
-                            &format!("Error parsing contract identifier '{}", &optarg_str),
+                            &format!("Error parsing contract identifier '{optarg_str}"),
                         )
                     })
                     .unwrap_or(QualifiedContractIdentifier::transient())
@@ -1247,7 +1224,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 if argv.len() >= 3 {
                     // use a persisted marf
                     if testnet_given {
-                        eprintln!("WARN: ignoring --testnet in favor of DB state in {:?}. Re-instantiate the DB to change.", &argv[2]);
+                        eprintln!(
+                            "WARN: ignoring --testnet in favor of DB state in {:?}. Re-instantiate the DB to change.",
+                            &argv[2]
+                        );
                     }
 
                     let vm_filename = &argv[2];
@@ -1258,7 +1238,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         "Failed to open VM database.",
                     );
 
-                    let result = at_chaintip(&argv[2], marf_kv, |mut marf| {
+                    at_chaintip(&argv[2], marf_kv, |mut marf| {
                         let result = run_analysis(
                             &contract_id,
                             &mut ast,
@@ -1269,8 +1249,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             epoch,
                         );
                         (marf, result)
-                    });
-                    result
+                    })
                 } else {
                     let header_db = CLIHeadersDB::new_memory(mainnet);
                     let mut analysis_marf = MemoryBackingStore::new();
@@ -1315,7 +1294,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if output_analysis {
                 result["analysis"] =
-                    serde_json::to_value(&build_contract_interface(&contract_analysis).unwrap())
+                    serde_json::to_value(build_contract_interface(&contract_analysis).unwrap())
                         .unwrap();
             }
             (0, Some(result))
@@ -1353,7 +1332,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             loop {
                 let content: String = {
                     let mut buffer = String::new();
-                    stdout.write(b"> ").unwrap_or_else(|e| {
+                    stdout.write_all(b"> ").unwrap_or_else(|e| {
                         panic!("Failed to write stdout prompt string:\n{e}");
                     });
                     stdout.flush().unwrap_or_else(|e| {
@@ -1400,7 +1379,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     }
                 };
 
-                println!("{}", eval_result);
+                println!("{eval_result}");
             }
         }
         "eval_raw" => {
@@ -1468,7 +1447,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                             1,
                             Some(json!({
                                 "error": {
-                                    "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
+                                    "runtime": serde_json::to_value(format!("{error}")).unwrap()
                                 }
                             })),
                         ),
@@ -1480,7 +1459,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                         1,
                         Some(json!({
                             "error": {
-                                "analysis": serde_json::to_value(&format!("{}", error)).unwrap()
+                                "analysis": serde_json::to_value(format!("{error}")).unwrap()
                             }
                         })),
                     )
@@ -1494,7 +1473,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
 
-            let evalInput = get_eval_input(invoked_by, &argv);
+            let eval_input = get_eval_input(invoked_by, &argv);
             let vm_filename = if argv.len() == 3 { &argv[2] } else { &argv[3] };
             let header_db =
                 friendly_expect(CLIHeadersDB::resume(vm_filename), "Failed to open CLI DB");
@@ -1511,7 +1490,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     with_env_costs(mainnet, epoch, &header_db, &mut marf, None, |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &placeholder_context)
-                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                            .eval_read_only(&eval_input.contract_identifier, &eval_input.content)
                     });
                 (header_db, marf, result_and_cost)
             });
@@ -1531,7 +1510,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 (Err(error), cost) => {
                     let mut result_json = json!({
                         "error": {
-                            "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
+                            "runtime": serde_json::to_value(format!("{error}")).unwrap()
                         },
                         "success": false,
                     });
@@ -1550,7 +1529,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let costs = matches!(consume_arg(&mut argv, &["--costs"], false), Ok(Some(_)));
             let coverage_folder = consume_arg(&mut argv, &["--c"], true).unwrap_or(None);
 
-            let evalInput = get_eval_input(invoked_by, &argv);
+            let eval_input = get_eval_input(invoked_by, &argv);
             let vm_filename = if argv.len() == 3 {
                 &argv[2].clone()
             } else {
@@ -1581,7 +1560,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     |vm_env| {
                         vm_env
                             .get_exec_environment(None, None, &placeholder_context)
-                            .eval_read_only(&evalInput.contract_identifier, &evalInput.content)
+                            .eval_read_only(&eval_input.contract_identifier, &eval_input.content)
                     },
                 );
                 let (result, cost) = result_and_cost;
@@ -1606,7 +1585,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     save_coverage(coverage_folder, coverage, "eval");
                     let mut result_json = json!({
                         "error": {
-                            "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
+                            "runtime": serde_json::to_value(format!("{error}")).unwrap()
                         },
                         "success": false,
                     });
@@ -1626,8 +1605,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if argv.len() != 4 {
                 eprintln!(
-                    "Usage: {} {} [--costs] [--epoch E] [index-block-hash] [contract-identifier] [--clarity_version N] [vm/clarity dir]",
-                    invoked_by, &argv[0]
+                    "Usage: {invoked_by} {} [--costs] [--epoch E] [index-block-hash] [contract-identifier] [--clarity_version N] [vm/clarity dir]",
+                    &argv[0]
                 );
                 panic_test!();
             }
@@ -1680,7 +1659,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 (Err(error), cost) => {
                     let mut result_json = json!({
                         "error": {
-                            "runtime": serde_json::to_value(&format!("{}", error)).unwrap()
+                            "runtime": serde_json::to_value(format!("{error}")).unwrap()
                         },
                         "success": false,
                     });
@@ -1706,8 +1685,8 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if argv.len() < 4 {
                 eprintln!(
-                    "Usage: {} {} [--costs] [--assets] [--output_analysis] [contract-identifier] [contract-definition.clar] [--clarity_version N] [--epoch E] [vm-state.db]",
-                    invoked_by, argv[0]
+                    "Usage: {invoked_by} {} [--costs] [--assets] [--output_analysis] [contract-identifier] [contract-definition.clar] [--clarity_version N] [--epoch E] [vm-state.db]",
+                    argv[0]
                 );
                 panic_test!();
             }
@@ -1721,7 +1700,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             let contract_content: String = friendly_expect(
                 fs::read_to_string(contract_src_file),
-                &format!("Error reading file: {}", contract_src_file),
+                &format!("Error reading file: {contract_src_file}"),
             );
 
             let mut ast = friendly_expect(
@@ -1736,7 +1715,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
             if let Some(ref coverage_folder) = coverage_folder {
                 let mut coverage_file = PathBuf::from(coverage_folder);
-                coverage_file.push(&format!("launch_{}", get_epoch_time_ms()));
+                coverage_file.push(format!("launch_{}", get_epoch_time_ms()));
                 coverage_file.set_extension("clarcovref");
                 CoverageReporter::register_src_file(
                     &contract_identifier,
@@ -1810,7 +1789,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
 
                     if output_analysis {
                         result["analysis"] = serde_json::to_value(
-                            &build_contract_interface(&contract_analysis).unwrap(),
+                            build_contract_interface(&contract_analysis).unwrap(),
                         )
                         .unwrap();
                     }
@@ -1826,7 +1805,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let (error, cost_tracker) = *boxed;
                     let mut result = json!({
                         "error": {
-                            "initialization": serde_json::to_value(&format!("{}", error)).unwrap()
+                            "initialization": serde_json::to_value(format!("{error}")).unwrap()
                         }
                     });
 
@@ -1838,7 +1817,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     1,
                     Some(json!({
                         "error": {
-                            "initialization": serde_json::to_value(&format!("{}", error)).unwrap()
+                            "initialization": serde_json::to_value(format!("{error}")).unwrap()
                         }
                     })),
                 ),
@@ -1854,7 +1833,10 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
             let assets = matches!(consume_arg(&mut argv, &["--assets"], false), Ok(Some(_)));
 
             if argv.len() < 5 {
-                eprintln!("Usage: {} {} [--costs] [--assets] [--clarity_version N] [--epoch E] [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]", invoked_by, argv[0]);
+                eprintln!(
+                    "Usage: {invoked_by} {} [--costs] [--assets] [--clarity_version N] [--epoch E] [vm-state.db] [contract-identifier] [public-function-name] [sender-address] [args...]",
+                    argv[0]
+                );
                 panic_test!();
             }
 
@@ -1878,7 +1860,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 if let Ok(sender) = PrincipalData::parse_standard_principal(sender_in) {
                     PrincipalData::Standard(sender)
                 } else {
-                    eprintln!("Unexpected result parsing sender: {}", sender_in);
+                    eprintln!("Unexpected result parsing sender: {sender_in}");
                     panic_test!();
                 }
             };
@@ -1888,11 +1870,11 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                 .map(|argument| {
                     let argument_parsed = friendly_expect(
                         vm_execute_in_epoch(argument, clarity_version, epoch),
-                        &format!("Error parsing argument \"{}\"", argument),
+                        &format!("Error parsing argument \"{argument}\""),
                     );
                     let argument_value = friendly_expect_opt(
                         argument_parsed,
-                        &format!("Failed to parse a value from the argument: {}", argument),
+                        &format!("Failed to parse a value from the argument: {argument}"),
                     );
                     SymbolicExpression::atom_value(argument_value)
                 })
@@ -1976,7 +1958,7 @@ pub fn invoke_command(invoked_by: &str, args: &[String]) -> (i32, Option<serde_j
                     let result = json!({
                         "error": {
                             "runtime": "Transaction execution error.",
-                            "error": serde_json::to_value(&format!("{}", error)).unwrap()
+                            "error": serde_json::to_value(format!("{error}")).unwrap()
                         },
                         "success": false,
                     });
@@ -2001,9 +1983,9 @@ mod test {
 
     #[test]
     fn test_initial_alloc() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
-        let json_name = format!("/tmp/test-alloc_{}.json", rand::thread_rng().gen::<i32>());
-        let clar_name = format!("/tmp/test-alloc_{}.clar", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
+        let json_name = format!("/tmp/test-alloc_{}.json", rand::thread_rng().r#gen::<i32>());
+        let clar_name = format!("/tmp/test-alloc_{}.clar", rand::thread_rng().r#gen::<i32>());
 
         fs::write(
             &json_name,
@@ -2041,14 +2023,14 @@ mod test {
             ],
         );
         let exit = invoked.0;
-        let result = invoked.1.unwrap();
+        let _ = invoked.1.unwrap();
 
         assert_eq!(exit, 0);
     }
 
     #[test]
     fn test_init_mainnet() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
         let invoked = invoke_command("test", &["initialize".to_string(), db_name.clone()]);
 
         let exit = invoked.0;
@@ -2063,7 +2045,7 @@ mod test {
 
     #[test]
     fn test_init_testnet() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
         let invoked = invoke_command(
             "test",
             &[
@@ -2092,7 +2074,7 @@ mod test {
 
     #[test]
     fn test_samples() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
 
         eprintln!("initialize");
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
@@ -2373,7 +2355,7 @@ mod test {
 
     #[test]
     fn test_assets() {
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
 
         eprintln!("initialize");
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
@@ -2413,8 +2395,7 @@ mod test {
         assert_eq!(exit, 0);
         assert!(!result["message"].as_str().unwrap().is_empty());
         assert!(
-            result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]
-                ["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]
+            result["assets"]["tokens"]["S1G2081040G2081040G2081040G208105NK8PE5"]["S1G2081040G2081040G2081040G208105NK8PE5.tokens-ft::tokens"]
                 == "10300"
         );
         assert!(result["events"].as_array().unwrap().len() == 3);
@@ -2469,7 +2450,7 @@ mod test {
         // Arrange
         let clar_path = format!(
             "/tmp/version-flag-c3-allow-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(
             &clar_path,
@@ -2513,7 +2494,7 @@ mod test {
         // Arrange
         let clar_path = format!(
             "/tmp/version-flag-c2-reject-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(
             &clar_path,
@@ -2558,7 +2539,7 @@ mod test {
         // Arrange
         let clar_path = format!(
             "/tmp/version-flag-c2-reject-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(
             &clar_path,
@@ -2601,12 +2582,12 @@ mod test {
     #[test]
     fn test_launch_clarity3_contract_passes_with_clarity3_flag() {
         // Arrange
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
 
         let clar_path = format!(
             "/tmp/version-flag-launch-c3-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(
             &clar_path,
@@ -2650,12 +2631,12 @@ mod test {
     #[test]
     fn test_launch_clarity3_contract_fails_with_clarity2_flag() {
         // Arrange
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
 
         let clar_path = format!(
             "/tmp/version-flag-launch-c2-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(
             &clar_path,
@@ -2699,13 +2680,13 @@ mod test {
     #[test]
     fn test_eval_clarity3_contract_passes_with_clarity3_flag() {
         // Arrange
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
 
         // Launch minimal contract at target for eval context.
         let launch_src = format!(
             "/tmp/version-flag-eval-launch-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(&launch_src, "(define-read-only (dummy) true)").unwrap();
         let _ = invoke_command(
@@ -2721,7 +2702,7 @@ mod test {
         // Use a Clarity3-only native expression.
         let clar_path = format!(
             "/tmp/version-flag-eval-c3-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(&clar_path, "(get-tenure-info? time u1)").unwrap();
 
@@ -2752,13 +2733,13 @@ mod test {
     #[test]
     fn test_eval_clarity3_contract_fails_with_clarity2_flag() {
         // Arrange
-        let db_name = format!("/tmp/db_{}", rand::thread_rng().gen::<i32>());
+        let db_name = format!("/tmp/db_{}", rand::thread_rng().r#gen::<i32>());
         invoke_command("test", &["initialize".to_string(), db_name.clone()]);
 
         // Launch minimal contract at target for eval context.
         let launch_src = format!(
             "/tmp/version-flag-eval-launch-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(&launch_src, "(define-read-only (dummy) true)").unwrap();
         let _ = invoke_command(
@@ -2776,7 +2757,7 @@ mod test {
         // Use a Clarity3-only native expression.
         let clar_path = format!(
             "/tmp/version-flag-eval-c2-{}.clar",
-            rand::thread_rng().gen::<i32>()
+            rand::thread_rng().r#gen::<i32>()
         );
         fs::write(&clar_path, "(get-tenure-info? time u1)").unwrap();
 
