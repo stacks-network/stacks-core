@@ -36,6 +36,7 @@ pub use self::signatures::{
     AssetIdentifier, BufferLength, ListTypeData, SequenceSubtype, StringSubtype, StringUTF8Length,
     TupleTypeSignature, TypeSignature,
 };
+use crate::errors::analysis::CommonCheckErrorKind;
 use crate::errors::{CheckErrorKind, RuntimeError, VmExecutionError, VmInternalError};
 use crate::representations::{ClarityName, ContractName, SymbolicExpression};
 
@@ -711,7 +712,7 @@ impl fmt::Display for UTF8Data {
 }
 
 pub trait SequencedValue<T> {
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind>;
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind>;
 
     fn items(&self) -> &Vec<T>;
 
@@ -736,7 +737,7 @@ impl SequencedValue<Value> for ListData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         Ok(TypeSignature::SequenceType(SequenceSubtype::ListType(
             self.type_signature.clone(),
         )))
@@ -756,9 +757,11 @@ impl SequencedValue<u8> for BuffData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
-            CheckErrorKind::Expects("ERROR: Too large of a buffer successfully constructed.".into())
+            CommonCheckErrorKind::Expects(
+                "ERROR: Too large of a buffer successfully constructed.".into(),
+            )
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::BufferType(
             buff_length,
@@ -779,9 +782,11 @@ impl SequencedValue<u8> for ASCIIData {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let buff_length = BufferLength::try_from(self.data.len()).map_err(|_| {
-            CheckErrorKind::Expects("ERROR: Too large of a buffer successfully constructed.".into())
+            CommonCheckErrorKind::Expects(
+                "ERROR: Too large of a buffer successfully constructed.".into(),
+            )
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::ASCII(buff_length),
@@ -805,9 +810,11 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
         self.data.drain(..).collect()
     }
 
-    fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
+    fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let str_len = StringUTF8Length::try_from(self.data.len()).map_err(|_| {
-            CheckErrorKind::Expects("ERROR: Too large of a buffer successfully constructed.".into())
+            CommonCheckErrorKind::Expects(
+                "ERROR: Too large of a buffer successfully constructed.".into(),
+            )
         })?;
         Ok(TypeSignature::SequenceType(SequenceSubtype::StringType(
             StringSubtype::UTF8(str_len),
@@ -823,19 +830,19 @@ impl SequencedValue<Vec<u8>> for UTF8Data {
 }
 
 impl OptionalData {
-    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
+    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let type_result = match self.data {
             Some(ref v) => TypeSignature::new_option(TypeSignature::type_of(v)?),
             None => TypeSignature::new_option(TypeSignature::NoType),
         };
         type_result.map_err(|_| {
-            CheckErrorKind::Expects("Should not have constructed too large of a type.".into())
+            CommonCheckErrorKind::Expects("Should not have constructed too large of a type.".into())
         })
     }
 }
 
 impl ResponseData {
-    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CheckErrorKind> {
+    pub fn type_signature(&self) -> std::result::Result<TypeSignature, CommonCheckErrorKind> {
         let type_result = match self.committed {
             true => TypeSignature::new_response(
                 TypeSignature::type_of(&self.data)?,
@@ -847,7 +854,7 @@ impl ResponseData {
             ),
         };
         type_result.map_err(|_| {
-            CheckErrorKind::Expects("Should not have constructed too large of a type.".into())
+            CommonCheckErrorKind::Expects("Should not have constructed too large of a type.".into())
         })
     }
 }

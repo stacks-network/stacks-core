@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use clarity_types::errors::analysis::CommonCheckErrorKind;
 use stacks_common::types::StacksEpochId;
 
 use crate::vm::callables::{cost_input_sized_vararg, CallableType, NativeHandle};
@@ -711,7 +712,7 @@ pub fn handle_binding_list<F, E>(
 ) -> std::result::Result<(), E>
 where
     F: FnMut(&ClarityName, &SymbolicExpression) -> std::result::Result<(), E>,
-    E: for<'a> From<(CheckErrorKind, &'a SymbolicExpression)>,
+    E: for<'a> From<(CommonCheckErrorKind, &'a SymbolicExpression)>,
 {
     for (i, binding) in bindings.iter().enumerate() {
         let binding_expression = binding.match_list().ok_or_else(|| {

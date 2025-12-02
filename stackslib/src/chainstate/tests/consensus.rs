@@ -1065,7 +1065,7 @@ impl ContractConsensusTest<'_> {
         assert!(
             setup_contracts
                 .iter()
-                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() >= *min_deploy_epoch),
+                .all(|c| c.deploy_epoch.is_none() || c.deploy_epoch.unwrap() <= *min_deploy_epoch),
             "All setup contracts must have a deploy epoch >= the minimum deploy epoch"
         );
 
@@ -1440,7 +1440,7 @@ impl TestTxFactory {
             TestTxSpec::ContractDeploy { sender, .. } => sender,
             TestTxSpec::ContractCall { sender, .. } => sender,
         };
-        let address = StacksAddress::p2pkh(false, &StacksPublicKey::from_private(sender_privk));
+        let address = to_addr(sender_privk);
         let nonce = self
             .nonce_counter
             .get_mut(&address)
@@ -1670,7 +1670,7 @@ pub(crate) use contract_call_consensus_test;
 /// * `contract_name` — Name of the contract being tested.
 /// * `contract_code` — The Clarity source code of the contract.
 /// * `deploy_epochs` — *(optional)* Epochs in which to deploy the contract. Defaults to [`EPOCHS_TO_TEST`].
-/// * `clarity_versions` — *(optional)* Clarity versions to test. For each epoch to test, at least one of the clarity versions must be supported. Defaults to all Clarity versions.
+/// * `exclude_clarity_versions` — *(optional)* Clarity versions to exclude from testing. For each epoch to test, at least one of the clarity versions must be supported. Defaults to no Clarity versions.
 /// * `setup_contracts` — *(optional)* Slice of [`SetupContract`] values to deploy before the main contract.
 ///
 /// # Example

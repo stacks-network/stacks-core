@@ -20,7 +20,7 @@ pub mod lexer;
 
 use std::{error, fmt};
 
-pub use analysis::{CheckErrorKind, StaticCheckError};
+pub use analysis::{CheckErrorKind, CommonCheckErrorKind, StaticCheckError, StaticCheckErrorKind};
 pub use ast::{ParseError, ParseErrorKind, ParseResult};
 pub use cost::CostErrors;
 pub use lexer::LexerError;
@@ -292,15 +292,21 @@ impl From<RuntimeError> for VmExecutionError {
     }
 }
 
+impl From<CommonCheckErrorKind> for VmExecutionError {
+    fn from(err: CommonCheckErrorKind) -> Self {
+        VmExecutionError::Unchecked(err.into())
+    }
+}
+
 impl From<CheckErrorKind> for VmExecutionError {
     fn from(err: CheckErrorKind) -> Self {
         VmExecutionError::Unchecked(err)
     }
 }
 
-impl From<(CheckErrorKind, &SymbolicExpression)> for VmExecutionError {
-    fn from(err: (CheckErrorKind, &SymbolicExpression)) -> Self {
-        VmExecutionError::Unchecked(err.0)
+impl From<(CommonCheckErrorKind, &SymbolicExpression)> for VmExecutionError {
+    fn from(err: (CommonCheckErrorKind, &SymbolicExpression)) -> Self {
+        VmExecutionError::Unchecked(err.0.into())
     }
 }
 

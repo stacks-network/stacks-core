@@ -71,7 +71,7 @@ const SIMPLE_TOKENS: &str = "(define-map tokens { account: principal } { balance
                    (token-credit! to amount)))))
          (define-public (faucet)
            (let ((original-sender tx-sender))
-             (as-contract (print (token-transfer (print original-sender) u1)))))                     
+             (as-contract (print (token-transfer (print original-sender) u1)))))
          (define-public (mint-after (block-to-release uint))
            (if (>= block-height block-to-release)
                (faucet)
@@ -512,7 +512,7 @@ fn inner_test_simple_naming_system(owned_env: &mut OwnedEnvironment, version: Cl
                         \"not enough balance\")
                    (err 1) (err 3)))))
 
-         (define-public (register 
+         (define-public (register
                         (recipient-principal principal)
                         (name int)
                         (salt int))

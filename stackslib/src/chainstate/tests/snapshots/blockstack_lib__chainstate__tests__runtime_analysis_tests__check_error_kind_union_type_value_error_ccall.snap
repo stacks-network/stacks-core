@@ -1,0 +1,64 @@
+---
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "7c0dcc19543ecca0386f4e3cc052e097cc11f8633787e51bde1e021915f965fa",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-2-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 296,
+          write_count: 2,
+          read_length: 3,
+          read_count: 2,
+          runtime: 20202,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 296,
+      write_count: 2,
+      read_length: 3,
+      read_count: 2,
+      runtime: 20202,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "72bc1062d04aba71e6dd6699d63e92a38894aee94ef51d79d5438b0722d7e5db",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: contract-2-Epoch3_3-Clarity4, function_name: trigger-runtime-error, function_args: [[]])",
+        vm_error: "Some(UnionTypeValueError([IntType, UIntType, BoolType, PrincipalType, SequenceType(BufferType(BufferLength(524284))), SequenceType(StringType(UTF8(StringUTF8Length(262144))))], CallableContract(CallableData { contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"contract-1\") }, trait_identifier: Some(TraitIdentifier { name: ClarityName(\"trait-1\"), contract_identifier: QualifiedContractIdentifier { issuer: StandardPrincipalData(ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP), name: ContractName(\"contract-2-Epoch3_3-Clarity4\") } }) }))) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 267,
+          read_count: 3,
+          runtime: 5835,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 267,
+      read_count: 3,
+      runtime: 5835,
+    ),
+  )),
+]
