@@ -333,7 +333,7 @@ fn ft_mint_supply_overflow() {
 #[test]
 fn to_uint_underflow_cdeploy() {
     contract_deploy_consensus_test!(
-        contract_name: "to-uint-negative-deploy",
+        contract_name: "to-uint-negative",
         contract_code: "(define-constant overflow (to-uint -10))",
     );
 }
@@ -387,7 +387,7 @@ fn sub_underflow_ccall() {
 #[test]
 fn sub_arg_len_underflow_cdeploy() {
     contract_deploy_consensus_test!(
-        contract_name: "arg-len-underflow-deploy",
+        contract_name: "arg-len-underflow",
         contract_code: "(define-constant overflow (- u5))",
     );
 }
@@ -414,7 +414,7 @@ fn sub_arg_len_underflow_ccall() {
 #[test]
 fn division_by_zero_mod_cdeploy() {
     contract_deploy_consensus_test!(
-        contract_name: "division-by-zero-mod-deploy",
+        contract_name: "division-by-zero-mod",
         contract_code: "(define-constant overflow (mod 10 0))",
     );
 }
@@ -441,7 +441,7 @@ fn division_by_zero_mod_ccall() {
 #[test]
 fn division_by_zero_cdeploy() {
     contract_deploy_consensus_test!(
-        contract_name: "division-by-zero-deploy",
+        contract_name: "division-by-zero",
         contract_code: "(define-constant overflow (/ 10 0))",
     );
 }
