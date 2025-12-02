@@ -6055,13 +6055,11 @@ impl StacksChainState {
             &next_staging_block.parent_microblock_hash,
         );
 
-        let parent_header_info = match StacksChainState::get_parent_header_info(
-            &chainstate_tx,
-            &next_staging_block,
-        )? {
-            Some(hinfo) => hinfo,
-            None => return Ok((None, None)),
-        };
+        let parent_header_info =
+            match StacksChainState::get_parent_header_info(&chainstate_tx, &next_staging_block)? {
+                Some(hinfo) => hinfo,
+                None => return Ok((None, None)),
+            };
 
         let block = StacksChainState::extract_stacks_block(&next_staging_block)?;
         let block_size = u64::try_from(next_staging_block.block_data.len())
