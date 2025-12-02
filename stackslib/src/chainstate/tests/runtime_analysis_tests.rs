@@ -25,10 +25,22 @@ use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_test, contract_deploy_consensus_test, ConsensusTest, ConsensusUtils,
-    SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_PRIV_KEY,
+    SetupContract, TestBlock, EPOCHS_TO_TEST, FAUCET_ADDRESS, FAUCET_PRIV_KEY,
 };
 use crate::core::test_util::to_addr;
 use crate::core::BLOCK_LIMIT_MAINNET_21;
+
+/// TODO: Documentation to be added to the enum
+/// - PublicFunctionNotReadOnly: Functionally Unreachable. Environment::inner_execute_contract is invoked with read_only = false on the relevant code path, causing PublicFunctionNotReadOnly check to be skipped.
+/// - NoSuchPublicFunction: Tested. Possible only during contract call. On contract deploy checked during static analysis
+/// - CircularReference: Tested. Possible only during contract call. On contract deploy checked during parsing.
+/// - PublicFunctionMustReturnResponse: Functionally Unreachable. On contract deploy checked during static analysis.
+/// - BadFunctionName: Functionally Unreachable. On contract deploy checked during static analysis.
+/// - DefineFunctionBadSignature: Functionally Unreachable. On contract deploy checked during static analysis.
+/// - NoSuchMap: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)
+/// - NoSuchDataVariable: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin and for handle prepare phase)
+/// - EmptyTuplesNotAllowed: Functionally Unreachable. On contract deploy checked during static analysis. (At runtime, just used for loading cost functions on block begin)
+/// - NoSuchTupleField: Functionally Unreachable. On contract deploy checked during static analysis.
 
 /// CheckErrorKind: [`CheckErrorKind::CostBalanceExceeded`]
 /// Caused by: exceeding the cost analysis budget during contract initialization.
@@ -69,6 +81,19 @@ fn check_error_cost_balance_exceeded_ccall() {
             "(var-get foo)\n".repeat(BLOCK_LIMIT_MAINNET_21.read_count as usize + 1)
         ),
         function_name: "trigger-error",
+        function_args: &[],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::NoSuchPublicFunction`]
+/// Caused by: Attempted to invoke a private function from outside the contract.
+/// Outcome: block accepted
+#[test]
+fn check_error_kind_no_such_public_function_ccall() {
+    contract_call_consensus_test!(
+        contract_name: "target-contract",
+        contract_code: "(define-private (get-one) (ok u1))",
+        function_name: "get-one",
         function_args: &[],
     );
 }
@@ -706,5 +731,44 @@ fn check_error_kind_could_not_determine_type_ccall() {
         call_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
         exclude_clarity_versions: &[ClarityVersion::Clarity1, ClarityVersion::Clarity3, ClarityVersion::Clarity4],
         setup_contracts: &[trait_contract, trait_impl],
+    );
+}
+
+/// CheckErrorKind: [`CheckErrorKind::CircularReference`]
+/// Caused by: circular reference forcing a contract calling itself using a contract call.
+/// Outcome: block accepted
+#[test]
+fn check_error_kind_circular_reference_ccall() {
+    let trait_contract = SetupContract::new(
+        "trait-contract",
+        "(define-trait trait-1 (
+                (get-1 (uint) (response uint uint))))",
+    );
+
+    let dispatching_contract = SetupContract::new(
+        "dispatch-contract",
+        "(use-trait trait-1 .trait-contract.trait-1)
+            (define-public (wrapped-get-1 (contract <trait-1>))
+                (contract-call? contract get-1 u0))
+            (define-public (get-1 (x uint)) (ok u1))",
+    );
+
+    let dispatch_principal =
+        QualifiedContractIdentifier::parse(&format!("{}.dispatch-contract", *FAUCET_ADDRESS))
+            .unwrap();
+
+    // The main contract is required because `contract_call_consensus_test!` needs a deployed contract.
+    // As a result, `dispatch-contract` cannot be used directly, because need to be passed as `function_args`,
+    // and the consensus test mangles the `contract_name`.
+    let main_contract = "(use-trait trait-1 .trait-contract.trait-1)
+            (define-public (main-get-1 (contract <trait-1>))
+            (contract-call? .dispatch-contract wrapped-get-1 contract))";
+
+    contract_call_consensus_test!(
+        contract_name: "main-contract",
+        contract_code: main_contract,
+        function_name: "main-get-1",
+        function_args: &[ClarityValue::from(dispatch_principal)],
+        setup_contracts: &[trait_contract, dispatching_contract],
     );
 }

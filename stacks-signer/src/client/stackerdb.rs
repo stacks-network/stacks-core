@@ -341,6 +341,7 @@ mod tests {
             response_data: BlockResponseData::new(
                 thread_rng().next_u64(),
                 RejectReason::RejectedInPriorRound,
+                thread_rng().next_u64(),
             ),
         };
         let signer_message = SignerMessage::BlockResponse(BlockResponse::Rejected(block_reject));

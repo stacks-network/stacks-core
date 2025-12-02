@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 mod commands;
-#[cfg(feature = "build-signer-v3-1-0-0-13")]
+#[cfg(feature = "build-signer-v3-3-0-0-1")]
 pub mod multiversion;
 pub mod v0;
 
@@ -1673,7 +1673,8 @@ impl<Z: SpawnedSignerTrait> SignerTest<Z> {
         let accepted = BlockResponse::accepted(
             block.header.signer_signature_hash(),
             signature,
-            get_epoch_time_secs().wrapping_add(u64::MAX),
+            get_epoch_time_secs().saturating_add(u64::MAX),
+            get_epoch_time_secs().saturating_add(u64::MAX),
         );
         stackerdb
             .send_message_with_retry::<SignerMessage>(accepted.into())
