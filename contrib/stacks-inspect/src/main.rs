@@ -85,7 +85,6 @@ use stackslib::chainstate::stacks::index::marf::{MARF, MARFOpenOpts, MarfConnect
 use stackslib::clarity::vm::ClarityVersion;
 use stackslib::clarity::vm::costs::ExecutionCost;
 use stackslib::clarity::vm::types::StacksAddressExtensions;
-use stackslib::clarity_cli;
 use stackslib::core::MemPoolDB;
 use stackslib::cost_estimates::UnitEstimator;
 use stackslib::cost_estimates::metrics::UnitMetric;
