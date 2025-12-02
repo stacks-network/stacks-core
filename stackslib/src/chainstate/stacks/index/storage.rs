@@ -2180,17 +2180,22 @@ impl<'a, T: MarfTrieId> TrieStorageTransaction<'a, T> {
                     if real_bhh != &bhh {
                         // note: this was moved from the block_retarget function
                         //  to avoid stepping on the borrow checker.
-                        debug!("Retarget block {} to {}", bhh, real_bhh);
+                        debug!(
+                            "Retarget block {} to {}. Current block ID is {:?}",
+                            bhh, real_bhh, &self.data.cur_block_id
+                        );
                         // switch over state
                         self.data.retarget_block(real_bhh.clone());
                     }
-                    self.with_trie_blobs(|db, blobs| match blobs {
+                    let new_block_id = self.with_trie_blobs(|db, blobs| match blobs {
                         Some(blobs) => blobs.store_trie_blob(db, real_bhh, &buffer),
                         None => {
                             test_debug!("Stored trie blob {} to db", real_bhh);
                             trie_sql::write_trie_blob(db, real_bhh, &buffer)
                         }
-                    })?
+                    })?;
+                    self.data.set_block(real_bhh.clone(), Some(new_block_id));
+                    new_block_id
                 }
                 FlushOptions::MinedTable(real_bhh) => {
                     if self.unconfirmed() {
@@ -2610,11 +2615,14 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     ///   when following a backptr, which stores the block identifier directly.
     pub fn open_block_known_id(&mut self, bhh: &T, id: u32) -> Result<(), Error> {
         trace!(
-            "open_block_known_id({},{}) (unconfirmed={:?},{})",
+            "open_block_known_id({},{}) (unconfirmed={:?},{}) from {},{:?} in {}",
             bhh,
             id,
             &self.unconfirmed_block_id,
-            self.unconfirmed()
+            self.unconfirmed(),
+            &self.data.cur_block,
+            &self.data.cur_block_id,
+            self.db_path,
         );
         if *bhh == self.data.cur_block && self.data.cur_block_id.is_some() {
             // no-op
@@ -2636,10 +2644,11 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
     /// that all node reads will occur relative to it.
     pub fn open_block(&mut self, bhh: &T) -> Result<(), Error> {
         trace!(
-            "open_block({}) (unconfirmed={:?},{})",
+            "open_block({}) (unconfirmed={:?},{}) in {}",
             bhh,
             &self.unconfirmed_block_id,
-            self.unconfirmed()
+            self.unconfirmed(),
+            self.db_path
         );
         self.bench.open_block_start();
 
@@ -3059,8 +3068,9 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
             self.unconfirmed()
         );
 
+        let (saved_block_hash, saved_block_id) = self.get_cur_block_and_id();
+
         let cur_block_id = block_id;
-        let cur_block = self.get_block_hash_caching(cur_block_id)?.to_owned();
         let mut node_hash_opt = None;
         let mut patches: Vec<(u32, TriePtr, TrieNodePatch)> = vec![];
         for _ in 0..MAX_PATCH_DEPTH {
@@ -3070,7 +3080,7 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     let node = node.apply_patches(&patches, cur_block_id).ok_or_else(|| {
                         Error::CorruptionError("Failed to apply patches to node".to_string())
                     })?;
-                    self.open_block(&cur_block)?;
+                    self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
                     return Ok((node, node_hash_opt.unwrap_or(hash)));
                 }
                 Err(Error::Patch(hash_opt, node_patch)) => {
@@ -3087,12 +3097,12 @@ impl<T: MarfTrieId> TrieStorageConnection<'_, T> {
                     }
                 }
                 Err(e) => {
-                    self.open_block(&cur_block)?;
+                    self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
                     return Err(e);
                 }
             }
         }
-        self.open_block(&cur_block)?;
+        self.open_block_maybe_id(&saved_block_hash, saved_block_id)?;
         return Err(Error::NodeTooDeep);
     }
 
