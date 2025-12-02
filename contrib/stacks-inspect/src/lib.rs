@@ -346,7 +346,7 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
         match &entry.source {
             BlockSource::Nakamoto => {
                 if let Err(e) =
-                    replay_naka_staging_block(db_path, &entry.index_block_hash, Some(&conf))
+                    replay_naka_staging_block(db_path, &entry.index_block_hash, Some(conf))
                 {
                     println!(
                         "Failed to validate Nakamoto block {}: {e:?}",
@@ -358,9 +358,8 @@ pub fn command_validate_block(argv: &[String], conf: Option<&Config>) {
                     errors.push(entry.index_block_hash.clone());
                 }
             }
-            BlockSource::Epoch2 { .. } => {
-                if let Err(e) = replay_staging_block(&db_path, &entry.index_block_hash, Some(&conf))
-                {
+            BlockSource::Epoch2 => {
+                if let Err(e) = replay_staging_block(db_path, &entry.index_block_hash, Some(conf)) {
                     println!("Failed to validate block {}: {e:?}", entry.index_block_hash);
                     if early_exit {
                         process::exit(1);
