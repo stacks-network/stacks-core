@@ -1,0 +1,66 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "5e4bbfaf3781fa1f6772bafc466a0e54ead257511f09e1d83bd8e461a4ef60d4",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: stacks-exp-prop-name-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1066,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1066,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "90e34b79ab849883221a3981a8f4fe037dbeab06e328a921038a7741ab99de42",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: stacks-exp-prop-name-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: missing property name for stacks block info introspection) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 5,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 1066,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 5,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 1066,
+    ),
+  )),
+]

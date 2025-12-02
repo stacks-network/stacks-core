@@ -1,0 +1,126 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "0d3b93bec153507aa367e009aaf31d22810569f48e6710442e930725c81135ab",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "76b2af45f6a0ef7f8700b0733fb4a1bfaae4237d3c7e2dec921eaab45cf118e0",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "fb0ff80618f517a6af2b659b1d71197d3fdeced528462234d5ac23815757173e",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "79a0353d25a40feeb4524c567a7593a9e69ef0fb6b676350a7ecc43e0058d357",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: def-func-bad-sign-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid function definition) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 720,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 720,
+    ),
+  )),
+]

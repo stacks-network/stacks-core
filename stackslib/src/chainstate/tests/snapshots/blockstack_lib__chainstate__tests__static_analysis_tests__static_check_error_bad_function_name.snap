@@ -1,0 +1,126 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "958e85fdbd6d7dee181af20aa952a51577ebbf3bba213cfd6c19e98817192959",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-func-name-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 801,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 801,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "25bedf706335e24c42cf710d27337a19863fb7aac1d2fd0048887173f02643b1",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-func-name-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 801,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 801,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "52dd982457d65c8ba04a17e0f6f04b60bf2aaa0b575366704f15774f476856c7",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-func-name-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 801,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 801,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "526adbd4cb28ab037c2bca72d6bab0bfec3062a9690290c83badcab759d6d2a1",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: bad-func-name-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: invalid function name) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 0,
+          read_count: 0,
+          runtime: 801,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 0,
+      read_count: 0,
+      runtime: 801,
+    ),
+  )),
+]
