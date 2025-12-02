@@ -193,6 +193,12 @@ pub enum MinerReason {
         /// sortition.
         burn_view_consensus_hash: ConsensusHash,
     },
+    /// Issue a read-count only extension
+    ReadCountExtend {
+        /// Current consensus hash on the underlying burnchain.  Corresponds to the last-seen
+        /// sortition.
+        burn_view_consensus_hash: ConsensusHash,
+    },
 }
 
 impl MinerReason {
@@ -200,6 +206,7 @@ impl MinerReason {
         match self {
             Self::BlockFound { ref late } => *late,
             Self::Extended { .. } => false,
+            Self::ReadCountExtend { .. } => false,
         }
     }
 }
@@ -215,6 +222,12 @@ impl std::fmt::Display for MinerReason {
             } => write!(
                 f,
                 "Extended: burn_view_consensus_hash = {burn_view_consensus_hash:?}",
+            ),
+            MinerReason::ReadCountExtend {
+                burn_view_consensus_hash,
+            } => write!(
+                f,
+                "Read-Count Extend: burn_view_consensus_hash = {burn_view_consensus_hash:?}",
             ),
         }
     }
@@ -1628,6 +1641,92 @@ impl BlockMinerThread {
         .map_err(NakamotoNodeError::from)
     }
 
+    fn should_full_tenure_extend(
+        &self,
+        coordinator: &mut SignerCoordinator,
+    ) -> Result<bool, NakamotoNodeError> {
+        if self.last_block_mined.is_none() {
+            // if we haven't mined blocks yet, no tenure extends needed
+            return Ok(false);
+        }
+        let is_replay = self.config.miner.replay_transactions
+            && coordinator
+                .get_signer_global_state()
+                .map(|state| state.tx_replay_set.is_some())
+                .unwrap_or(false);
+        if is_replay {
+            // we're in replay, we should always TenureExtend
+            info!("Tenure extend: In replay, always extending tenure");
+            return Ok(true);
+        }
+
+        // Do not extend if we have spent a threshold amount of the
+        // budget, since it is not necessary.
+        let usage = self
+            .tenure_budget
+            .proportion_largest_dimension(&self.tenure_cost);
+        if usage < self.config.miner.tenure_extend_cost_threshold {
+            return Ok(false);
+        }
+
+        let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
+        if get_epoch_time_secs() <= tenure_extend_timestamp
+            && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
+        {
+            return Ok(false);
+        }
+
+        info!("Miner: Time-based tenure extend";
+              "current_timestamp" => get_epoch_time_secs(),
+              "tenure_extend_timestamp" => tenure_extend_timestamp,
+              "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
+              "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
+        );
+        Ok(true)
+    }
+
+    fn should_read_count_extend(
+        &self,
+        coordinator: &mut SignerCoordinator,
+    ) -> Result<bool, NakamotoNodeError> {
+        if self.last_block_mined.is_none() {
+            // if we haven't mined blocks yet, no tenure extends needed
+            return Ok(false);
+        }
+
+        // Do not extend if we have spent a threshold amount of the
+        // read-count budget, since it is not necessary.
+        let usage = self
+            .tenure_budget
+            .proportion_largest_dimension(&self.tenure_cost);
+        if usage < self.config.miner.read_count_extend_cost_threshold {
+            info!(
+                "Miner: not read-count extending because threshold not reached";
+                "threshold" => self.config.miner.read_count_extend_cost_threshold,
+                "usage" => usage
+            );
+            return Ok(false);
+        }
+
+        let tenure_extend_timestamp = coordinator.get_read_count_extend_timestamp();
+        if get_epoch_time_secs() <= tenure_extend_timestamp {
+            info!(
+                "Miner: not read-count extending because idle timestamp not reached";
+                "now" => get_epoch_time_secs(),
+                "extend_ts" => tenure_extend_timestamp,
+            );
+            return Ok(false);
+        }
+
+        info!("Miner: Time-based read-count extend";
+              "current_timestamp" => get_epoch_time_secs(),
+              "tenure_extend_timestamp" => tenure_extend_timestamp,
+              "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
+              "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
+        );
+        Ok(true)
+    }
+
     #[cfg_attr(test, mutants::skip)]
     /// Create the tenure start info for the block we're going to build
     fn make_tenure_start_info(
@@ -1656,47 +1755,18 @@ impl BlockMinerThread {
                 }
             }
         };
-        // Check if we can and should include a time-based tenure extend.
         if self.last_block_mined.is_some() {
-            if self.config.miner.replay_transactions
-                && coordinator
-                    .get_signer_global_state()
-                    .map(|state| state.tx_replay_set.is_some())
-                    .unwrap_or(false)
-            {
-                // we're in replay, we should always TenureExtend
-                info!("Tenure extend: In replay, always extending tenure");
-                self.tenure_extend_reset();
+            // if we've already mined blocks, we only issue tenure_change_txs in the case of an extend,
+            //  so check if that's necessary and otherwise return None.
+            if self.should_full_tenure_extend(coordinator)? {
+                self.set_full_tenure_extend();
+            } else if self.should_read_count_extend(coordinator)? {
+                self.set_read_count_tenure_extend();
             } else {
-                // Do not extend if we have spent < 50% of the budget, since it is
-                // not necessary.
-                let usage = self
-                    .tenure_budget
-                    .proportion_largest_dimension(&self.tenure_cost);
-                if usage < self.config.miner.tenure_extend_cost_threshold {
-                    return Ok(NakamotoTenureInfo {
-                        coinbase_tx: None,
-                        tenure_change_tx: None,
-                    });
-                }
-
-                let tenure_extend_timestamp = coordinator.get_tenure_extend_timestamp();
-                if get_epoch_time_secs() <= tenure_extend_timestamp
-                    && self.tenure_change_time.elapsed() <= self.config.miner.tenure_timeout
-                {
-                    return Ok(NakamotoTenureInfo {
-                        coinbase_tx: None,
-                        tenure_change_tx: None,
-                    });
-                }
-
-                info!("Miner: Time-based tenure extend";
-                    "current_timestamp" => get_epoch_time_secs(),
-                    "tenure_extend_timestamp" => tenure_extend_timestamp,
-                    "tenure_change_time_elapsed" => self.tenure_change_time.elapsed().as_secs(),
-                    "tenure_timeout_secs" => self.config.miner.tenure_timeout.as_secs(),
-                );
-                self.tenure_extend_reset();
+                return Ok(NakamotoTenureInfo {
+                    coinbase_tx: None,
+                    tenure_change_tx: None,
+                });
             }
         }
 
@@ -1742,6 +1812,30 @@ impl BlockMinerThread {
                 let tenure_change_tx = self.generate_tenure_change_tx(current_miner_nonce, payload);
                 (Some(tenure_change_tx), None)
             }
+            MinerReason::ReadCountExtend {
+                burn_view_consensus_hash,
+            } => {
+                let num_blocks_so_far = NakamotoChainState::get_nakamoto_tenure_length(
+                    chainstate.db(),
+                    &parent_block_id,
+                )
+                .map_err(NakamotoNodeError::MiningFailure)?;
+                info!("Miner: Extending read-count";
+                      "burn_view_consensus_hash" => %burn_view_consensus_hash,
+                      "parent_block_id" => %parent_block_id,
+                      "num_blocks_so_far" => num_blocks_so_far,
+                );
+
+                // NOTE: this switches payload.cause to TenureChangeCause::Extend
+                payload = payload.extend_with_cause(
+                    burn_view_consensus_hash.clone(),
+                    parent_block_id,
+                    num_blocks_so_far,
+                    TenureChangeCause::ExtendedReadCount,
+                );
+                let tenure_change_tx = self.generate_tenure_change_tx(current_miner_nonce, payload);
+                (Some(tenure_change_tx), None)
+            }
         };
 
         debug!(
@@ -1773,9 +1867,19 @@ impl BlockMinerThread {
         }
     }
 
-    fn tenure_extend_reset(&mut self) {
+    /// Set up the miner to try to issue a full tenure extend
+    fn set_full_tenure_extend(&mut self) {
         self.tenure_change_time = Instant::now();
         self.reason = MinerReason::Extended {
+            burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
+        };
+        self.mined_blocks = 0;
+    }
+
+    /// Set up the miner to try to issue a full tenure extend
+    fn set_read_count_tenure_extend(&mut self) {
+        self.tenure_change_time = Instant::now();
+        self.reason = MinerReason::ReadCountExtend {
             burn_view_consensus_hash: self.burn_block.consensus_hash.clone(),
         };
         self.mined_blocks = 0;
