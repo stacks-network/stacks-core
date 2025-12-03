@@ -1641,7 +1641,7 @@ impl TupleData {
     pub fn shallow_merge(
         mut base: TupleData,
         updates: TupleData,
-    ) -> Result<TupleData, VmExecutionError> {
+    ) -> TupleData {
         let TupleData {
             data_map,
             mut type_signature,
@@ -1650,7 +1650,7 @@ impl TupleData {
             base.data_map.insert(name, value);
         }
         base.type_signature.shallow_merge(&mut type_signature);
-        Ok(base)
+        base
     }
 }
 

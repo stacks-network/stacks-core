@@ -679,10 +679,7 @@ fn inner_synthesize_pox_event_info(
                     .expect_tuple()
                     .expect("FATAL: unexpected clarity value");
                 let event_tuple =
-                    TupleData::shallow_merge(base_event_tuple, data_tuple).map_err(|e| {
-                        error!("Failed to merge data-info and event-info: {e:?}");
-                        e
-                    })?;
+                    TupleData::shallow_merge(base_event_tuple, data_tuple);
 
                 Ok(Value::Tuple(event_tuple))
             },
