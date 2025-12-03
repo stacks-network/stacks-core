@@ -17,6 +17,7 @@
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::str::FromStr;
 use std::sync::LazyLock;
 
 #[cfg(feature = "rusqlite")]
@@ -28,7 +29,12 @@ use crate::address::{
     C32_ADDRESS_VERSION_MAINNET_MULTISIG, C32_ADDRESS_VERSION_MAINNET_SINGLESIG,
     C32_ADDRESS_VERSION_TESTNET_MULTISIG, C32_ADDRESS_VERSION_TESTNET_SINGLESIG,
 };
-use crate::consts::MICROSTACKS_PER_STACKS;
+use crate::consts::{
+    MICROSTACKS_PER_STACKS, PEER_VERSION_EPOCH_1_0, PEER_VERSION_EPOCH_2_0,
+    PEER_VERSION_EPOCH_2_05, PEER_VERSION_EPOCH_2_1, PEER_VERSION_EPOCH_2_2,
+    PEER_VERSION_EPOCH_2_3, PEER_VERSION_EPOCH_2_4, PEER_VERSION_EPOCH_2_5, PEER_VERSION_EPOCH_3_0,
+    PEER_VERSION_EPOCH_3_1, PEER_VERSION_EPOCH_3_2, PEER_VERSION_EPOCH_3_3,
+};
 use crate::types::chainstate::{StacksAddress, StacksPublicKey};
 use crate::util::hash::Hash160;
 use crate::util::secp256k1::{MessageSignature, Secp256k1PublicKey};
@@ -69,6 +75,12 @@ pub trait PublicKey: Clone + fmt::Debug + serde::Serialize + serde::de::Deserial
 pub trait PrivateKey: Clone + fmt::Debug + serde::Serialize + serde::de::DeserializeOwned {
     fn to_bytes(&self) -> Vec<u8>;
     fn sign(&self, data_hash: &[u8]) -> Result<MessageSignature, &'static str>;
+    #[cfg(any(test, feature = "testing"))]
+    fn sign_with_noncedata(
+        &self,
+        data_hash: &[u8],
+        noncedata: &[u8; 32],
+    ) -> Result<MessageSignature, &'static str>;
 }
 
 pub trait Address: Clone + fmt::Debug + fmt::Display {
@@ -89,9 +101,23 @@ pub const MINING_COMMITMENT_WINDOW: u8 = 6;
 // Only relevant for Nakamoto (epoch 3.x)
 pub const MINING_COMMITMENT_FREQUENCY_NAKAMOTO: u8 = 3;
 
-#[repr(u32)]
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Copy, Serialize, Deserialize)]
-pub enum StacksEpochId {
+macro_rules! define_stacks_epochs {
+    ($($variant:ident = $value:expr),* $(,)?) => {
+        #[repr(u32)]
+        #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        pub enum StacksEpochId {
+            $($variant = $value),*
+        }
+
+        impl StacksEpochId {
+            pub const ALL: &'static [StacksEpochId] = &[
+                $(StacksEpochId::$variant),*
+            ];
+        }
+    };
+}
+
+define_stacks_epochs! {
     Epoch10 = 0x01000,
     Epoch20 = 0x02000,
     Epoch2_05 = 0x02005,
@@ -104,6 +130,26 @@ pub enum StacksEpochId {
     Epoch31 = 0x03001,
     Epoch32 = 0x03002,
     Epoch33 = 0x03003,
+}
+
+impl StacksEpochId {
+    /// Return the network epoch associated with the StacksEpochId
+    pub fn network_epoch(epoch: StacksEpochId) -> u8 {
+        match epoch {
+            StacksEpochId::Epoch10 => PEER_VERSION_EPOCH_1_0,
+            StacksEpochId::Epoch20 => PEER_VERSION_EPOCH_2_0,
+            StacksEpochId::Epoch2_05 => PEER_VERSION_EPOCH_2_05,
+            StacksEpochId::Epoch21 => PEER_VERSION_EPOCH_2_1,
+            StacksEpochId::Epoch22 => PEER_VERSION_EPOCH_2_2,
+            StacksEpochId::Epoch23 => PEER_VERSION_EPOCH_2_3,
+            StacksEpochId::Epoch24 => PEER_VERSION_EPOCH_2_4,
+            StacksEpochId::Epoch25 => PEER_VERSION_EPOCH_2_5,
+            StacksEpochId::Epoch30 => PEER_VERSION_EPOCH_3_0,
+            StacksEpochId::Epoch31 => PEER_VERSION_EPOCH_3_1,
+            StacksEpochId::Epoch32 => PEER_VERSION_EPOCH_3_2,
+            StacksEpochId::Epoch33 => PEER_VERSION_EPOCH_3_3,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -440,13 +486,6 @@ impl StacksEpochId {
     pub const fn latest() -> StacksEpochId {
         StacksEpochId::Epoch33
     }
-
-    pub const ALL_GTE_30: &'static [StacksEpochId] = &[
-        StacksEpochId::Epoch30,
-        StacksEpochId::Epoch31,
-        StacksEpochId::Epoch32,
-        StacksEpochId::Epoch33,
-    ];
 
     /// In this epoch, how should the mempool perform garbage collection?
     pub fn mempool_garbage_behavior(&self) -> MempoolCollectionBehavior {
@@ -857,6 +896,28 @@ impl std::fmt::Display for StacksEpochId {
             StacksEpochId::Epoch31 => write!(f, "3.1"),
             StacksEpochId::Epoch32 => write!(f, "3.2"),
             StacksEpochId::Epoch33 => write!(f, "3.3"),
+        }
+    }
+}
+
+impl FromStr for StacksEpochId {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1.0" => Ok(StacksEpochId::Epoch10),
+            "2.0" => Ok(StacksEpochId::Epoch20),
+            "2.05" => Ok(StacksEpochId::Epoch2_05),
+            "2.1" => Ok(StacksEpochId::Epoch21),
+            "2.2" => Ok(StacksEpochId::Epoch22),
+            "2.3" => Ok(StacksEpochId::Epoch23),
+            "2.4" => Ok(StacksEpochId::Epoch24),
+            "2.5" => Ok(StacksEpochId::Epoch25),
+            "3.0" => Ok(StacksEpochId::Epoch30),
+            "3.1" => Ok(StacksEpochId::Epoch31),
+            "3.2" => Ok(StacksEpochId::Epoch32),
+            "3.3" => Ok(StacksEpochId::Epoch33),
+            _ => Err("Invalid epoch string"),
         }
     }
 }

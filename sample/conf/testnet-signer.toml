@@ -87,4 +87,4 @@ start_height = 71525
 
 [[burnchain.epochs]]
 epoch_name = "3.3"
-start_height = 108800
+start_height = 109280

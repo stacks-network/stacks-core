@@ -14,12 +14,13 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt::Display;
 use std::hash::Hash;
 use std::{error, fmt, io};
 
 use clarity::vm::contexts::GlobalContext;
 use clarity::vm::costs::{CostErrors, ExecutionCost};
-use clarity::vm::errors::Error as clarity_interpreter_error;
+use clarity::vm::errors::VmExecutionError;
 use clarity::vm::representations::{ClarityName, ContractName};
 use clarity::vm::types::{
     PrincipalData, QualifiedContractIdentifier, StandardPrincipalData, Value,
@@ -43,7 +44,7 @@ use crate::chainstate::burn::ConsensusHash;
 use crate::chainstate::stacks::db::accounts::MinerReward;
 use crate::chainstate::stacks::db::{MinerRewardInfo, StacksHeaderInfo};
 use crate::chainstate::stacks::index::Error as marf_error;
-use crate::clarity_vm::clarity::Error as clarity_error;
+use crate::clarity_vm::clarity::ClarityError;
 use crate::net::Error as net_error;
 use crate::util_lib::db::Error as db_error;
 use crate::util_lib::strings::StacksString;
@@ -99,7 +100,7 @@ pub enum Error {
     MicroblockStreamTooLongError,
     IncompatibleSpendingConditionError,
     CostOverflowError(ExecutionCost, ExecutionCost, ExecutionCost),
-    ClarityError(clarity_error),
+    ClarityError(ClarityError),
     DBError(db_error),
     NetError(net_error),
     CodecError(codec_error),
@@ -120,6 +121,7 @@ pub enum Error {
     /// This error indicates a Epoch2 block attempted to build off of a Nakamoto block.
     InvalidChildOfNakomotoBlock,
     NoRegisteredSigners(u64),
+    TenureTooBigError,
 }
 
 impl From<marf_error> for Error {
@@ -128,8 +130,8 @@ impl From<marf_error> for Error {
     }
 }
 
-impl From<clarity_error> for Error {
-    fn from(e: clarity_error) -> Error {
+impl From<ClarityError> for Error {
+    fn from(e: ClarityError) -> Error {
         Error::ClarityError(e)
     }
 }
@@ -222,6 +224,7 @@ impl fmt::Display for Error {
             Error::NotInSameFork => {
                 write!(f, "The supplied block identifiers are not in the same fork")
             }
+            Error::TenureTooBigError => write!(f, "Too much data in tenure"),
         }
     }
 }
@@ -268,6 +271,7 @@ impl error::Error for Error {
             Error::ExpectedTenureChange => None,
             Error::NoRegisteredSigners(_) => None,
             Error::NotInSameFork => None,
+            Error::TenureTooBigError => None,
         }
     }
 }
@@ -314,6 +318,7 @@ impl Error {
             Error::ExpectedTenureChange => "ExpectedTenureChange",
             Error::NoRegisteredSigners(_) => "NoRegisteredSigners",
             Error::NotInSameFork => "NotInSameFork",
+            Error::TenureTooBigError => "TenureTooBigError",
         }
     }
 
@@ -342,9 +347,9 @@ impl From<db_error> for Error {
     }
 }
 
-impl From<clarity_interpreter_error> for Error {
-    fn from(e: clarity_interpreter_error) -> Error {
-        Error::ClarityError(clarity_error::Interpreter(e))
+impl From<VmExecutionError> for Error {
+    fn from(e: VmExecutionError) -> Error {
+        Error::ClarityError(ClarityError::Interpreter(e))
     }
 }
 
@@ -705,6 +710,21 @@ pub enum TenureChangeCause {
     ExtendedWriteLength = 6,
 }
 
+impl Display for TenureChangeCause {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            TenureChangeCause::BlockFound => "BlockFound",
+            TenureChangeCause::Extended => "Extend",
+            TenureChangeCause::ExtendedRuntime => "ExtendRuntime",
+            TenureChangeCause::ExtendedReadCount => "ExtendReadCount",
+            TenureChangeCause::ExtendedReadLength => "ExtendReadLength",
+            TenureChangeCause::ExtendedWriteCount => "ExtendWriteCount",
+            TenureChangeCause::ExtendedWriteLength => "ExtendWriteLength",
+        };
+        name.fmt(f)
+    }
+}
+
 impl TryFrom<u8> for TenureChangeCause {
     type Error = ();
 
@@ -770,6 +790,26 @@ impl TenureChangeCause {
             (_, _) => false,
         }
     }
+
+    pub fn is_full_extend(&self) -> bool {
+        matches!(self, TenureChangeCause::Extended)
+    }
+
+    pub fn is_read_count_extend(&self) -> bool {
+        matches!(self, TenureChangeCause::ExtendedReadCount)
+    }
+
+    pub fn is_extended(&self) -> bool {
+        match self {
+            TenureChangeCause::BlockFound => false,
+            TenureChangeCause::Extended => true,
+            TenureChangeCause::ExtendedRuntime => true,
+            TenureChangeCause::ExtendedReadCount => true,
+            TenureChangeCause::ExtendedReadLength => true,
+            TenureChangeCause::ExtendedWriteCount => true,
+            TenureChangeCause::ExtendedWriteLength => true,
+        }
+    }
 }
 
 /// Reasons why a `TenureChange` transaction can be bad
@@ -822,6 +862,22 @@ impl TenureChangePayload {
             cause: TenureChangeCause::Extended,
             pubkey_hash: self.pubkey_hash.clone(),
         }
+    }
+
+    pub fn extend_with_cause(
+        &self,
+        burn_view_consensus_hash: ConsensusHash,
+        last_tenure_block_id: StacksBlockId,
+        num_blocks_so_far: u32,
+        cause: TenureChangeCause,
+    ) -> Self {
+        let mut ext = self.extend(
+            burn_view_consensus_hash,
+            last_tenure_block_id,
+            num_blocks_so_far,
+        );
+        ext.cause = cause;
+        ext
     }
 }
 

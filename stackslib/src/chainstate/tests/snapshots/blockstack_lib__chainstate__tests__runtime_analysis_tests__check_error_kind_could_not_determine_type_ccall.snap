@@ -1,0 +1,214 @@
+---
+source: stackslib/src/chainstate/tests/runtime_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "847643b0f429f82e39efe0557b9028e28e39fb96a44e47a413d025aa3fd49693",
+    evaluated_epoch: Epoch23,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: mixed-constant-Epoch2_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 469,
+          write_count: 2,
+          read_length: 15,
+          read_count: 5,
+          runtime: 40411,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 469,
+      write_count: 2,
+      read_length: 15,
+      read_count: 5,
+      runtime: 40411,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "1e1c2a70d338329d148e1b417a2cfc785d1e0c26403cae5b97a8b49a34ba1af9",
+    evaluated_epoch: Epoch24,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 720,
+          read_count: 3,
+          runtime: 1426,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 720,
+      read_count: 3,
+      runtime: 1426,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "571c0c7f27296ce1732975416706e9502f9c04ec2ca0fd3c9009fcab7f09288f",
+    evaluated_epoch: Epoch25,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 720,
+          read_count: 3,
+          runtime: 1426,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 720,
+      read_count: 3,
+      runtime: 1426,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "22b69b427d8707933848097bff4c3c4108a8c28e7b8a42f792bfc2e4bbb4468b",
+    evaluated_epoch: Epoch30,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 720,
+          read_count: 3,
+          runtime: 1426,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 720,
+      read_count: 3,
+      runtime: 1426,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e3985286d1b6361bebb65227b3c751394afd010718e802ab838ee9d471d10061",
+    evaluated_epoch: Epoch31,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 720,
+          read_count: 3,
+          runtime: 1426,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 720,
+      read_count: 3,
+      runtime: 1426,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "28561492691efc4d14197ee64e9480d2b386a427b472a8dcafa5547c4fe18661",
+    evaluated_epoch: Epoch32,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 720,
+          read_count: 3,
+          runtime: 1426,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 720,
+      read_count: 3,
+      runtime: 1426,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "e325646aeb312545532ec162e66287dcb0c6027c9c3dc51e2aaa7e65b7cb3a08",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "ContractCall(address: ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP, contract_name: mixed-constant-Epoch2_3-Clarity2, function_name: trigger-error, function_args: [[]])",
+        vm_error: "Some(CouldNotDetermineType) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 0,
+          write_count: 0,
+          read_length: 720,
+          read_count: 3,
+          runtime: 1426,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 0,
+      write_count: 0,
+      read_length: 720,
+      read_count: 3,
+      runtime: 1426,
+    ),
+  )),
+]

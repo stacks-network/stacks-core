@@ -1,0 +1,126 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "5757a72059ef9758e18238aad508b3c505548d4ec91c188b0331abbf516231e2",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_3-Clarity1, code_body: [..], clarity_version: Some(Clarity1))",
+        vm_error: "Some(:0:0: attempted to obtain \'ok\' value from response, but \'ok\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 7,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 931,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 7,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 931,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "a09db656c9da7a1005ce5a15439dbfec1bffe9b82cdaf00bff43630360e4ff90",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_3-Clarity2, code_body: [..], clarity_version: Some(Clarity2))",
+        vm_error: "Some(:0:0: attempted to obtain \'ok\' value from response, but \'ok\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 7,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 931,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 7,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 931,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "93a84e8c359dd5d96b6c929ef52a44da3ed8fdbdea210940cfb0d1421cb51998",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_3-Clarity3, code_body: [..], clarity_version: Some(Clarity3))",
+        vm_error: "Some(:0:0: attempted to obtain \'ok\' value from response, but \'ok\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 7,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 931,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 7,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 931,
+    ),
+  )),
+  Success(ExpectedBlockOutput(
+    marf_hash: "97339d9c87866821ad51d00c83114e095e42be9787302e6e902b48efe3373774",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: could-not-determine-Epoch3_3-Clarity4, code_body: [..], clarity_version: Some(Clarity4))",
+        vm_error: "Some(:0:0: attempted to obtain \'ok\' value from response, but \'ok\' type is indeterminate) [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: false,
+          data: Optional(OptionalData(
+            data: None,
+          )),
+        )),
+        cost: ExecutionCost(
+          write_length: 7,
+          write_count: 1,
+          read_length: 1,
+          read_count: 1,
+          runtime: 931,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 7,
+      write_count: 1,
+      read_length: 1,
+      read_count: 1,
+      runtime: 931,
+    ),
+  )),
+]

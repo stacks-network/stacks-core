@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use clarity_types::errors::CheckErrors;
+use clarity_types::errors::CheckErrorKind;
 use clarity_types::types::{
     BufferLength, ListTypeData, SequenceSubtype, StringSubtype, TypeSignature,
     MAX_TO_ASCII_BUFFER_LEN,
@@ -99,7 +99,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         (
             &format!("(to-ascii? 0x{})", "ff".repeat(524285)),
             "oversized buffer type",
-            Err(CheckErrors::UnionTypeError(
+            Err(CheckErrorKind::UnionTypeError(
                 to_ascii_expected_types.clone(),
                 Box::new(TypeSignature::SequenceType(SequenceSubtype::BufferType(
                     BufferLength::try_from(524285u32).unwrap(),
@@ -125,7 +125,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         (
             "(to-ascii? \"60 percent of the time, it works every time\")",
             "ascii string",
-            Err(CheckErrors::UnionTypeError(
+            Err(CheckErrorKind::UnionTypeError(
                 to_ascii_expected_types.clone(),
                 Box::new(TypeSignature::SequenceType(SequenceSubtype::StringType(
                     StringSubtype::ASCII(BufferLength::try_from(43u32).unwrap()),
@@ -135,7 +135,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         (
             "(to-ascii? (list 1 2 3))",
             "list type",
-            Err(CheckErrors::UnionTypeError(
+            Err(CheckErrorKind::UnionTypeError(
                 to_ascii_expected_types.clone(),
                 Box::new(TypeSignature::SequenceType(SequenceSubtype::ListType(
                     ListTypeData::new_list(TypeSignature::IntType, 3).unwrap(),
@@ -145,7 +145,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         (
             "(to-ascii? { a: 1, b: u2 })",
             "tuple type",
-            Err(CheckErrors::UnionTypeError(
+            Err(CheckErrorKind::UnionTypeError(
                 to_ascii_expected_types.clone(),
                 Box::new(TypeSignature::TupleType(
                     vec![
@@ -160,7 +160,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         (
             "(to-ascii? (some u789))",
             "optional type",
-            Err(CheckErrors::UnionTypeError(
+            Err(CheckErrorKind::UnionTypeError(
                 to_ascii_expected_types.clone(),
                 Box::new(TypeSignature::new_option(TypeSignature::UIntType).unwrap()),
             )),
@@ -168,7 +168,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         (
             "(to-ascii? (ok true))",
             "response type",
-            Err(CheckErrors::UnionTypeError(
+            Err(CheckErrorKind::UnionTypeError(
                 to_ascii_expected_types.clone(),
                 Box::new(
                     TypeSignature::new_response(TypeSignature::BoolType, TypeSignature::NoType)
@@ -185,7 +185,7 @@ fn test_to_ascii(#[case] version: ClarityVersion, #[case] epoch: StacksEpochId) 
         let expected = if version >= ClarityVersion::Clarity4 {
             clarity4_expected
         } else {
-            &Err(CheckErrors::UnknownFunction("to-ascii?".to_string()))
+            &Err(CheckErrorKind::UnknownFunction("to-ascii?".to_string()))
         };
 
         assert_eq!(&actual, expected, "Failed for test case: {description}");

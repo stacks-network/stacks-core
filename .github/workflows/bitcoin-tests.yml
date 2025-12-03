@@ -1,4 +1,4 @@
-## Github workflow to run bitcoin tests
+## Github workflow to run bitcoin tests in multiple github matrices
 
 name: Tests::Bitcoin
 
@@ -13,16 +13,17 @@ env:
   TEST_TIMEOUT: 30
 
 concurrency:
-  group: bitcoin-tests-${{ github.head_ref || github.ref || github.run_id}}
+  group: bitcoin-tests-${{ github.head_ref || github.ref || github.run_id }}
   ## Only cancel in progress if this is for a PR
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   generate-tests:
-    name: Generate JSON of tests to run
+    name: Generate balanced test matrix
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      matrix1: ${{ steps.set-matrix.outputs.matrix1 }}
+      matrix2: ${{ steps.set-matrix.outputs.matrix2 }}
     steps:
       ## Setup test environment
       - name: Setup Test Environment
@@ -30,83 +31,142 @@ jobs:
         uses: stacks-network/actions/stacks-core/testenv@main
         with:
           btc-version: "25.0"
-      - name: Generate tests JSON
-        id: generate_tests_json
-        # List all of the tests using the nextest archive (so we don't need to do another build task)
-        # Filter them such that we only select tests from `--bin stacks-node` which are marked `ignored`
-        # Transform the output JSON into something that can be used as the matrix input
-        run: |
-          cargo nextest list --archive-file ~/test_archive.tar.zst -Tjson | \
-          jq -c '.["rust-suites"]["stacks-node::bin/stacks-node"]["testcases"] | map_values(select(.["ignored"] == true)) | keys' > ./tests.json
-      - id: set-matrix
-        run: |
-          json_obj=`cat ./tests.json`
-          echo "matrix=$json_obj" >> $GITHUB_OUTPUT
 
-  # Bitcoin integration tests with code coverage
-  integration-tests:
-    needs: generate-tests
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    strategy:
-      ## Continue with the test matrix even if we've had a failure
-      fail-fast: false
-      ## Run a maximum of 32 concurrent tests from the test matrix
-      max-parallel: 32
-      matrix:
-        test-name: ${{fromJson(needs.generate-tests.outputs.matrix)}}
-        exclude:
+      - name: Build Test Archive
+        run: |
+          set -euo pipefail
+          cargo nextest archive --archive-file ~/test_archive.tar.zst --bin stacks-node
+
+      - name: List ignored tests
+        id: list
+        run: |
+          set -euo pipefail
+          cargo nextest list --archive-file ~/test_archive.tar.zst -Tjson > nextest_output.json
+
+          jq -c '
+            .["rust-suites"]["stacks-node::bin/stacks-node"]["testcases"]
+            | [to_entries[] | select(.value.ignored) | .key]
+          ' nextest_output.json > ignored_tests.json
+
+          echo "Ignored tests count: $(jq 'length' ignored_tests.json)"
+
+      # The following tests are excluded from CI runs. Some of these may be
+      #  worth investigating adding back into the CI
+      - name: Excluded tests
+        id: exclude
+        run: |
+          cat << 'EOF' > raw_exclude.txt
           # The following tests are excluded from CI runs. Some of these may be
           #  worth investigating adding back into the CI
-          - test-name: tests::nakamoto_integrations::consensus_hash_event_dispatcher
-          - test-name: tests::neon_integrations::atlas_integration_test
-          - test-name: tests::neon_integrations::atlas_stress_integration_test
-          - test-name: tests::neon_integrations::bitcoind_resubmission_test
-          - test-name: tests::neon_integrations::block_replay_integration_test
-          - test-name: tests::neon_integrations::deep_contract
-          - test-name: tests::neon_integrations::filter_txs_by_origin
-          - test-name: tests::neon_integrations::filter_txs_by_type
-          - test-name: tests::neon_integrations::lockup_integration
-          - test-name: tests::neon_integrations::most_recent_utxo_integration_test
-          - test-name: tests::neon_integrations::run_with_custom_wallet
-          - test-name: tests::neon_integrations::test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf
-          - test-name: tests::neon_integrations::test_one_miner_build_anchor_blocks_on_same_chain_without_rbf
-          - test-name: tests::signer::v0::tenure_extend_after_2_bad_commits
-          - test-name: tests::stackerdb::test_stackerdb_event_observer
-          - test-name: tests::stackerdb::test_stackerdb_load_store
+          tests::nakamoto_integrations::consensus_hash_event_dispatcher
+          tests::neon_integrations::atlas_integration_test
+          tests::neon_integrations::atlas_stress_integration_test
+          tests::neon_integrations::bitcoind_resubmission_test
+          tests::neon_integrations::block_replay_integration_test
+          tests::neon_integrations::deep_contract
+          tests::neon_integrations::filter_txs_by_origin
+          tests::neon_integrations::filter_txs_by_type
+          tests::neon_integrations::lockup_integration
+          tests::neon_integrations::most_recent_utxo_integration_test
+          tests::neon_integrations::run_with_custom_wallet
+          tests::neon_integrations::test_competing_miners_build_anchor_blocks_on_same_chain_without_rbf
+          tests::neon_integrations::test_one_miner_build_anchor_blocks_on_same_chain_without_rbf
+          tests::signer::v0::tenure_extend_after_2_bad_commits
+          tests::stackerdb::test_stackerdb_event_observer
+          tests::stackerdb::test_stackerdb_load_store
           # Epoch tests are covered by the epoch-tests CI workflow, and don't need to run
           #  on every PR (for older epochs)
-          - test-name: tests::epoch_205::test_cost_limit_switch_version205
-          - test-name: tests::epoch_205::test_dynamic_db_method_costs
-          - test-name: tests::epoch_205::test_exact_block_costs
-          - test-name: tests::epoch_205::transition_empty_blocks
-          - test-name: tests::epoch_21::test_sortition_divergence_pre_21
-          - test-name: tests::epoch_21::test_v1_unlock_height_with_current_stackers
-          - test-name: tests::epoch_21::test_v1_unlock_height_with_delay_and_current_stackers
-          - test-name: tests::epoch_21::trait_invocation_cross_epoch
-          - test-name: tests::epoch_21::transition_adds_burn_block_height
-          - test-name: tests::epoch_21::transition_adds_get_pox_addr_recipients
-          - test-name: tests::epoch_21::transition_adds_mining_from_segwit
-          - test-name: tests::epoch_21::transition_adds_pay_to_alt_recipient_contract
-          - test-name: tests::epoch_21::transition_adds_pay_to_alt_recipient_principal
-          - test-name: tests::epoch_21::transition_empty_blocks
-          - test-name: tests::epoch_21::transition_fixes_bitcoin_rigidity
-          - test-name: tests::epoch_21::transition_removes_pox_sunset
-          - test-name: tests::epoch_22::disable_pox
-          - test-name: tests::epoch_22::pox_2_unlock_all
-          - test-name: tests::epoch_23::trait_invocation_behavior
-          - test-name: tests::epoch_24::fix_to_pox_contract
-          - test-name: tests::epoch_24::verify_auto_unlock_behavior
+          tests::epoch_205::test_cost_limit_switch_version205
+          tests::epoch_205::test_dynamic_db_method_costs
+          tests::epoch_205::test_exact_block_costs
+          tests::epoch_205::transition_empty_blocks
+          tests::epoch_21::test_sortition_divergence_pre_21
+          tests::epoch_21::test_v1_unlock_height_with_current_stackers
+          tests::epoch_21::test_v1_unlock_height_with_delay_and_current_stackers
+          tests::epoch_21::trait_invocation_cross_epoch
+          tests::epoch_21::transition_adds_burn_block_height
+          tests::epoch_21::transition_adds_get_pox_addr_recipients
+          tests::epoch_21::transition_adds_mining_from_segwit
+          tests::epoch_21::transition_adds_pay_to_alt_recipient_contract
+          tests::epoch_21::transition_adds_pay_to_alt_recipient_principal
+          tests::epoch_21::transition_empty_blocks
+          tests::epoch_21::transition_fixes_bitcoin_rigidity
+          tests::epoch_21::transition_removes_pox_sunset
+          tests::epoch_22::disable_pox
+          tests::epoch_22::pox_2_unlock_all
+          tests::epoch_23::trait_invocation_behavior
+          tests::epoch_24::fix_to_pox_contract
+          tests::epoch_24::verify_auto_unlock_behavior
           # Disable this flaky test. We don't need continue testing Epoch 2 -> 3 transition
-          - test-name: tests::nakamoto_integrations::flash_blocks_on_epoch_3_FLAKY
+          tests::nakamoto_integrations::flash_blocks_on_epoch_3_FLAKY
           # These mempool tests take a long time to run, and are meant to be run manually
-          - test-name: tests::nakamoto_integrations::large_mempool_original_constant_fee
-          - test-name: tests::nakamoto_integrations::large_mempool_original_random_fee
-          - test-name: tests::nakamoto_integrations::large_mempool_next_constant_fee
-          - test-name: tests::nakamoto_integrations::large_mempool_next_random_fee
-          - test-name: tests::nakamoto_integrations::larger_mempool
-          - test-name: tests::signer::v0::larger_mempool
+          tests::nakamoto_integrations::large_mempool_original_constant_fee
+          tests::nakamoto_integrations::large_mempool_original_random_fee
+          tests::nakamoto_integrations::large_mempool_next_constant_fee
+          tests::nakamoto_integrations::large_mempool_next_random_fee
+          tests::nakamoto_integrations::larger_mempool
+          tests::signer::v0::larger_mempool
+          EOF
 
+          # Clean: remove empty lines and comments
+          grep -v '^\s*$' raw_exclude.txt | grep -v '^\s*#' > clean_exclude.txt
+
+          # Convert to proper JSON array
+          jq -R . clean_exclude.txt | jq -s . > exclude.json
+
+          echo "Excluded tests count: $(jq length exclude.json)"
+
+      - name: Filter out excluded tests
+        run: |
+          set -euo pipefail
+
+          # Validate inputs
+          jq -e 'type == "array"' ignored_tests.json > /dev/null
+          jq -e 'type == "array"' exclude.json > /dev/null
+
+          # Keep only ignored tests NOT in exclude list
+          # First sort the inputs to use comm -23
+          jq -r '.[]' ignored_tests.json | sort > ignored_sorted.txt
+          jq -r '.[]' exclude.json     | sort > exclude_sorted.txt
+
+          comm -23 ignored_sorted.txt exclude_sorted.txt > filtered.txt
+
+          echo "Final test count: $(wc -l < filtered.txt)"
+
+      - name: Split into two balanced matrices
+        id: set-matrix
+        run: |
+          set -euo pipefail
+          mapfile -t tests < filtered.txt
+          total=${#tests[@]}
+          echo "Total filtered tests: $total"
+
+          if (( total > 512 )); then
+            echo "ERROR: $total tests exceed 512 limit (2 × 256)"
+            echo "Split into 3+ jobs required."
+            exit 1
+          fi
+
+          base=$(( total / 2 ))
+          remainder=$(( total % 2 ))
+          size1=$(( base + remainder ))
+
+          # Compact JSON output for fromJSON()
+          matrix1=$(printf '%s\n' "${tests[@]:0:$size1}" | jq -R . | jq -s -c .)
+          matrix2=$(printf '%s\n' "${tests[@]:$size1}" | jq -R . | jq -s -c .)
+
+          echo "matrix1=$matrix1" >> "$GITHUB_OUTPUT"
+          echo "matrix2=$matrix2" >> "$GITHUB_OUTPUT"
+
+  integration-tests-1:
+    needs: generate-tests
+    runs-on: ubuntu-latest
+    if: ${{ needs.generate-tests.outputs.matrix1 != '[]' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 32
+      matrix:
+        test-name: ${{ fromJSON(needs.generate-tests.outputs.matrix1) }}
     steps:
       ## Setup test environment
       - name: Setup Test Environment
@@ -130,9 +190,40 @@ jobs:
           test-name: ${{ matrix.test-name }}
           threads: 1
 
-      ## Create and upload code coverage file
       - name: Code Coverage
-        id: codecov
+        uses: stacks-network/actions/codecov@main
+        with:
+          test-name: ${{ matrix.test-name }}
+
+  integration-tests-2:
+    needs: generate-tests
+    runs-on: ubuntu-latest
+    if: ${{ needs.generate-tests.outputs.matrix2 != '[]' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 32
+      matrix:
+        test-name: ${{ fromJSON(needs.generate-tests.outputs.matrix2) }}
+    steps:
+      - name: Setup Test Environment
+        uses: stacks-network/actions/stacks-core/testenv@main
+        with:
+          btc-version: "25.0"
+
+      ## Increase open file descriptors limit
+      - name: Increase Open File Descriptors
+        run: |
+          sudo prlimit --nofile=4096:4096
+
+      - name: Run Test
+        id: run_tests
+        timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT) }}
+        uses: stacks-network/actions/stacks-core/run-tests@main
+        with:
+          test-name: ${{ matrix.test-name }}
+          threads: 1
+
+      - name: Code Coverage
         uses: stacks-network/actions/codecov@main
         with:
           test-name: ${{ matrix.test-name }}
@@ -142,7 +233,8 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs:
-      - integration-tests
+      - integration-tests-1
+      - integration-tests-2
     steps:
       - name: Check Tests Status
         id: check_tests_status

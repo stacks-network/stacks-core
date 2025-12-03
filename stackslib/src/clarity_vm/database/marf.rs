@@ -24,9 +24,7 @@ use clarity::vm::database::sqlite::{
     sqlite_insert_metadata,
 };
 use clarity::vm::database::{ClarityBackingStore, SpecialCaseHandler, SqliteConnection};
-use clarity::vm::errors::{
-    IncomparableError, InterpreterError, InterpreterResult, RuntimeErrorType,
-};
+use clarity::vm::errors::{IncomparableError, RuntimeError, VmExecutionError, VmInternalError};
 use clarity::vm::types::QualifiedContractIdentifier;
 use rusqlite;
 use rusqlite::Connection;
@@ -67,16 +65,15 @@ impl MarfedKV {
         path_str: &str,
         unconfirmed: bool,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MARF<StacksBlockId>> {
+    ) -> Result<MARF<StacksBlockId>, VmExecutionError> {
         let mut path = PathBuf::from(path_str);
 
-        std::fs::create_dir_all(&path)
-            .map_err(|_| InterpreterError::FailedToCreateDataDirectory)?;
+        std::fs::create_dir_all(&path).map_err(|_| VmInternalError::FailedToCreateDataDirectory)?;
 
         path.push("marf.sqlite");
         let marf_path = path
             .to_str()
-            .ok_or_else(|| InterpreterError::BadFileName)?
+            .ok_or_else(|| VmInternalError::BadFileName)?
             .to_string();
 
         let mut marf_opts = marf_opts.unwrap_or(MARFOpenOpts::default());
@@ -84,10 +81,10 @@ impl MarfedKV {
 
         let mut marf: MARF<StacksBlockId> = if unconfirmed {
             MARF::from_path_unconfirmed(&marf_path, marf_opts)
-                .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
+                .map_err(|err| VmInternalError::MarfFailure(err.to_string()))?
         } else {
             MARF::from_path(&marf_path, marf_opts)
-                .map_err(|err| InterpreterError::MarfFailure(err.to_string()))?
+                .map_err(|err| VmInternalError::MarfFailure(err.to_string()))?
         };
 
         if SqliteConnection::check_schema(marf.sqlite_conn()).is_ok() {
@@ -97,11 +94,11 @@ impl MarfedKV {
 
         let tx = marf
             .storage_tx()
-            .map_err(|err| InterpreterError::DBError(err.to_string()))?;
+            .map_err(|err| VmInternalError::DBError(err.to_string()))?;
 
         SqliteConnection::initialize_conn(&tx)?;
         tx.commit()
-            .map_err(|err| InterpreterError::SqliteError(IncomparableError { err }))?;
+            .map_err(|err| VmInternalError::SqliteError(IncomparableError { err }))?;
 
         Ok(marf)
     }
@@ -110,7 +107,7 @@ impl MarfedKV {
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MarfedKV> {
+    ) -> Result<MarfedKV, VmExecutionError> {
         let marf = MarfedKV::setup_db(path_str, false, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -128,7 +125,7 @@ impl MarfedKV {
         path_str: &str,
         miner_tip: Option<&StacksBlockId>,
         marf_opts: Option<MARFOpenOpts>,
-    ) -> InterpreterResult<MarfedKV> {
+    ) -> Result<MarfedKV, VmExecutionError> {
         let marf = MarfedKV::setup_db(path_str, true, marf_opts)?;
         let chain_tip = match miner_tip {
             Some(miner_tip) => miner_tip.clone(),
@@ -200,14 +197,14 @@ impl MarfedKV {
     pub fn begin_read_only_checked<'a>(
         &'a mut self,
         at_block: Option<&StacksBlockId>,
-    ) -> InterpreterResult<ReadOnlyMarfStore<'a>> {
+    ) -> Result<ReadOnlyMarfStore<'a>, VmExecutionError> {
         let chain_tip = if let Some(at_block) = at_block {
             self.marf.open_block(at_block).map_err(|e| {
                 debug!(
                     "Failed to open read only connection at {}: {:?}",
                     at_block, &e
                 );
-                InterpreterError::MarfFailure(Error::NotFoundError.to_string())
+                VmInternalError::MarfFailure(Error::NotFoundError.to_string())
             })?;
             at_block.clone()
         } else {
@@ -290,14 +287,14 @@ impl MarfedKV {
         &'a mut self,
         base_tip: &StacksBlockId,
         ephemeral_next: &StacksBlockId,
-    ) -> InterpreterResult<EphemeralMarfStore<'a>> {
+    ) -> Result<EphemeralMarfStore<'a>, VmExecutionError> {
         // sanity check -- `base_tip` must be mapped
         self.marf.open_block(&base_tip).map_err(|e| {
             debug!(
                 "Failed to open read only connection at {}: {:?}",
                 &base_tip, &e
             );
-            InterpreterError::MarfFailure(Error::NotFoundError.to_string())
+            VmInternalError::MarfFailure(Error::NotFoundError.to_string())
         })?;
 
         // set up ephemeral MARF
@@ -306,17 +303,17 @@ impl MarfedKV {
             MARFOpenOpts::new(TrieHashCalculationMode::Deferred, "noop", false),
         )
         .map_err(|e| {
-            InterpreterError::Expect(format!("Failed to instantiate ephemeral MARF: {:?}", &e))
+            VmInternalError::Expect(format!("Failed to instantiate ephemeral MARF: {:?}", &e))
         })?;
 
         let mut ephemeral_marf = MARF::from_storage(ephemeral_marf_storage);
         let tx = ephemeral_marf
             .storage_tx()
-            .map_err(|err| InterpreterError::DBError(err.to_string()))?;
+            .map_err(|err| VmInternalError::DBError(err.to_string()))?;
 
         SqliteConnection::initialize_conn(&tx)?;
         tx.commit()
-            .map_err(|err| InterpreterError::SqliteError(IncomparableError { err }))?;
+            .map_err(|err| VmInternalError::SqliteError(IncomparableError { err }))?;
 
         self.ephemeral_marf = Some(ephemeral_marf);
 
@@ -333,7 +330,7 @@ impl MarfedKV {
         // attach the disk-backed MARF to the ephemeral MARF
         EphemeralMarfStore::attach_read_only_marf(&ephemeral_marf, &read_only_marf).map_err(
             |e| {
-                InterpreterError::Expect(format!(
+                VmInternalError::Expect(format!(
                     "Failed to attach read-only MARF to ephemeral MARF: {:?}",
                     &e
                 ))
@@ -341,19 +338,19 @@ impl MarfedKV {
         )?;
 
         let mut tx = ephemeral_marf.begin_tx().map_err(|e| {
-            InterpreterError::Expect(format!("Failed to open ephemeral MARF tx: {:?}", &e))
+            VmInternalError::Expect(format!("Failed to open ephemeral MARF tx: {:?}", &e))
         })?;
 
         tx.begin(&StacksBlockId::sentinel(), ephemeral_next)
             .map_err(|e| {
-                InterpreterError::Expect(format!(
+                VmInternalError::Expect(format!(
                     "Failed to begin first ephemeral MARF block: {:?}",
                     &e
                 ))
             })?;
 
         let ephemeral_marf_store = EphemeralMarfStore::new(read_only_marf, tx).map_err(|e| {
-            InterpreterError::Expect(format!(
+            VmInternalError::Expect(format!(
                 "Failed to instantiate ephemeral MARF store: {:?}",
                 &e
             ))
@@ -406,8 +403,8 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
     /// metadata rows with `self.chain_tip` as their block identifier to have `target` instead.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         SqliteConnection::commit_metadata_to(self.marf.sqlite_tx(), &self.chain_tip, target)
     }
 
@@ -415,8 +412,8 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
     /// as their block identifier.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         SqliteConnection::drop_metadata(self.marf.sqlite_tx(), target)
     }
 
@@ -438,8 +435,8 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
     /// also any unconfirmed trie data from the sqlite DB as well as its associated metadata.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn drop_unconfirmed(mut self) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn drop_unconfirmed(mut self) -> Result<(), VmExecutionError> {
         let chain_tip = self.chain_tip.clone();
         debug!("Drop unconfirmed MARF trie {}", &chain_tip);
         self.drop_metadata_for_trie(&chain_tip)?;
@@ -452,13 +449,13 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
     /// drops this MARF store.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn commit_to_processed_block(mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn commit_to_processed_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         debug!("commit_to({})", target);
         self.commit_metadata_for_trie(target)?;
         let _ = self.marf.commit_to(target).map_err(|e| {
             error!("Failed to commit to MARF block {target}: {e:?}");
-            InterpreterError::Expect("Failed to commit to MARF block".into())
+            VmInternalError::Expect("Failed to commit to MARF block".into())
         })?;
         Ok(())
     }
@@ -468,8 +465,8 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
     /// the transaction and drops this MARF store.
     ///
     /// Returns Ok(()) on success
-    /// Returns Err(InterpreterError(..)) on sqlite failure
-    fn commit_to_mined_block(mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    /// Returns Err(VmInternalError(..)) on sqlite failure
+    fn commit_to_mined_block(mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         debug!("commit_mined_block: ({}->{})", &self.chain_tip, target);
         // rollback the side_store
         //    the side_store shouldn't commit data for blocks that won't be
@@ -480,7 +477,7 @@ impl ClarityMarfStoreTransaction for PersistentWritableMarfStore<'_> {
         self.drop_metadata_for_trie(&chain_tip)?;
         let _ = self.marf.commit_mined(target).map_err(|e| {
             error!("Failed to commit to mined MARF block {target}: {e:?}",);
-            InterpreterError::Expect("Failed to commit to MARF block".into())
+            VmInternalError::Expect("Failed to commit to MARF block".into())
         })?;
         Ok(())
     }
@@ -540,13 +537,13 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     }
 
     /// Sets the chain tip at which queries will happen.  Used for `(at-block ..)`
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError> {
         self.marf
             .check_ancestor_block_hash(&bhh)
             .map_err(|e| match e {
                 Error::NotFoundError => {
                     test_debug!("No such block {:?} (NotFoundError)", &bhh);
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 Error::NonMatchingForks(_bh1, _bh2) => {
                     test_debug!(
@@ -555,7 +552,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                         BlockHeaderHash(_bh1),
                         BlockHeaderHash(_bh2)
                     );
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
@@ -629,19 +626,22 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .expect("Attempted to get the open chain tip from an unopened context.")
     }
 
-    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
                 Error::NotFoundError => Ok(None),
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
                 let data =
                     SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -654,19 +654,19 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         self.marf
             .get_with_proof_from_hash(&self.chain_tip, hash)
             .or_else(|e| match e {
                 Error::NotFoundError => Ok(None),
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
                 let data =
                     SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -676,7 +676,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .transpose()
     }
 
-    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
         self.marf
             .get(&self.chain_tip, key)
             .or_else(|e| match e {
@@ -698,11 +698,11 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                     Err(e)
                 }
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -712,7 +712,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .transpose()
     }
 
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>, VmExecutionError> {
         trace!("MarfedKV get_from_hash: {:?} tip={}", hash, &self.chain_tip);
         self.marf
             .get_from_hash(&self.chain_tip, hash)
@@ -727,12 +727,12 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
                 }
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 trace!("MarfedKV get side-key for {:?}: {:?}", hash, &side_key);
                 SqliteConnection::get(self.get_side_store(), &side_key)?.ok_or_else(|| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -742,7 +742,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
             .transpose()
     }
 
-    fn put_all_data(&mut self, _items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, _items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
         error!("Attempted to commit changes to read-only MARF");
         panic!("BUG: attempted commit to read-only MARF");
     }
@@ -750,7 +750,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
         sqlite_get_contract_hash(self, contract)
     }
 
@@ -759,7 +759,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         _contract: &QualifiedContractIdentifier,
         _key: &str,
         _value: &str,
-    ) -> InterpreterResult<()> {
+    ) -> Result<(), VmExecutionError> {
         error!("Attempted to commit metadata changes to read-only MARF");
         panic!("BUG: attempted metadata commit to read-only MARF");
     }
@@ -768,7 +768,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata(self, contract, key)
     }
 
@@ -777,7 +777,7 @@ impl ClarityBackingStore for ReadOnlyMarfStore<'_> {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }
@@ -791,13 +791,13 @@ impl PersistentWritableMarfStore<'_> {
 }
 
 impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError> {
         self.marf
             .check_ancestor_block_hash(&bhh)
             .map_err(|e| match e {
                 Error::NotFoundError => {
                     test_debug!("No such block {:?} (NotFoundError)", &bhh);
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 Error::NonMatchingForks(_bh1, _bh2) => {
                     test_debug!(
@@ -806,7 +806,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
                         BlockHeaderHash(_bh1),
                         BlockHeaderHash(_bh2)
                     );
-                    RuntimeErrorType::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
+                    RuntimeError::UnknownBlockHeaderHash(BlockHeaderHash(bhh.0))
                 }
                 _ => panic!("ERROR: Unexpected MARF failure: {}", e),
             })?;
@@ -821,7 +821,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
         Some(&handle_contract_call_special_cases)
     }
 
-    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
         trace!("MarfedKV get: {:?} tip={}", key, &self.chain_tip);
         self.marf
             .get(&self.chain_tip, key)
@@ -836,12 +836,12 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
                 }
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 trace!("MarfedKV get side-key for {:?}: {:?}", key, &side_key);
                 SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -851,7 +851,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
             .transpose()
     }
 
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>, VmExecutionError> {
         trace!("MarfedKV get_from_hash: {:?} tip={}", hash, &self.chain_tip);
         self.marf
             .get_from_hash(&self.chain_tip, hash)
@@ -866,12 +866,12 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
                 }
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|marf_value| {
                 let side_key = marf_value.to_hex();
                 trace!("MarfedKV get side-key for {:?}: {:?}", hash, &side_key);
                 SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
-                    InterpreterError::Expect(format!(
+                    VmInternalError::Expect(format!(
                         "ERROR: MARF contained value_hash not found in side storage: {}",
                         side_key
                     ))
@@ -881,19 +881,22 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
             .transpose()
     }
 
-    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         self.marf
             .get_with_proof(&self.chain_tip, key)
             .or_else(|e| match e {
                 Error::NotFoundError => Ok(None),
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
                 let data =
                     SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -906,19 +909,19 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         self.marf
             .get_with_proof_from_hash(&self.chain_tip, hash)
             .or_else(|e| match e {
                 Error::NotFoundError => Ok(None),
                 _ => Err(e),
             })
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure on GET".into()))?
             .map(|(marf_value, proof)| {
                 let side_key = marf_value.to_hex();
                 let data =
                     SqliteConnection::get(self.marf.sqlite_tx(), &side_key)?.ok_or_else(|| {
-                        InterpreterError::Expect(format!(
+                        VmInternalError::Expect(format!(
                             "ERROR: MARF contained value_hash not found in side storage: {}",
                             side_key
                         ))
@@ -991,7 +994,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
         }
     }
 
-    fn put_all_data(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
         let mut keys = Vec::with_capacity(items.len());
         let mut values = Vec::with_capacity(items.len());
         for (key, value) in items.into_iter() {
@@ -1002,13 +1005,13 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
         }
         self.marf
             .insert_batch(&keys, values)
-            .map_err(|_| InterpreterError::Expect("ERROR: Unexpected MARF Failure".into()).into())
+            .map_err(|_| VmInternalError::Expect("ERROR: Unexpected MARF Failure".into()).into())
     }
 
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
         sqlite_get_contract_hash(self, contract)
     }
 
@@ -1017,7 +1020,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> InterpreterResult<()> {
+    ) -> Result<(), VmExecutionError> {
         sqlite_insert_metadata(self, contract, key, value)
     }
 
@@ -1025,7 +1028,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata(self, contract, key)
     }
 
@@ -1034,7 +1037,7 @@ impl ClarityBackingStore for PersistentWritableMarfStore<'_> {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         sqlite_get_metadata_manual(self, at_height, contract, key)
     }
 }
@@ -1060,15 +1063,15 @@ impl WritableMarfStore for PersistentWritableMarfStore<'_> {}
 /// corresponding function in `ClarityMarfStoreTransaction` with a reference to the boxed instance.
 pub trait BoxedClarityMarfStoreTransaction {
     fn boxed_drop_current_trie(self: Box<Self>);
-    fn boxed_drop_unconfirmed(self: Box<Self>) -> InterpreterResult<()>;
+    fn boxed_drop_unconfirmed(self: Box<Self>) -> Result<(), VmExecutionError>;
     fn boxed_commit_to_processed_block(
         self: Box<Self>,
         target: &StacksBlockId,
-    ) -> InterpreterResult<()>;
+    ) -> Result<(), VmExecutionError>;
     fn boxed_commit_to_mined_block(
         self: Box<Self>,
         target: &StacksBlockId,
-    ) -> InterpreterResult<()>;
+    ) -> Result<(), VmExecutionError>;
     fn boxed_commit_unconfirmed(self: Box<Self>);
 
     #[cfg(test)]
@@ -1080,21 +1083,21 @@ impl<T: ClarityMarfStoreTransaction> BoxedClarityMarfStoreTransaction for T {
         <Self as ClarityMarfStoreTransaction>::drop_current_trie(*self)
     }
 
-    fn boxed_drop_unconfirmed(self: Box<Self>) -> InterpreterResult<()> {
+    fn boxed_drop_unconfirmed(self: Box<Self>) -> Result<(), VmExecutionError> {
         <Self as ClarityMarfStoreTransaction>::drop_unconfirmed(*self)
     }
 
     fn boxed_commit_to_processed_block(
         self: Box<Self>,
         target: &StacksBlockId,
-    ) -> InterpreterResult<()> {
+    ) -> Result<(), VmExecutionError> {
         <Self as ClarityMarfStoreTransaction>::commit_to_processed_block(*self, target)
     }
 
     fn boxed_commit_to_mined_block(
         self: Box<Self>,
         target: &StacksBlockId,
-    ) -> InterpreterResult<()> {
+    ) -> Result<(), VmExecutionError> {
         <Self as ClarityMarfStoreTransaction>::commit_to_mined_block(*self, target)
     }
 
@@ -1109,11 +1112,11 @@ impl<T: ClarityMarfStoreTransaction> BoxedClarityMarfStoreTransaction for T {
 }
 
 impl<'a> ClarityMarfStoreTransaction for Box<dyn WritableMarfStore + 'a> {
-    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    fn commit_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         ClarityMarfStoreTransaction::commit_metadata_for_trie(self.deref_mut(), target)
     }
 
-    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> InterpreterResult<()> {
+    fn drop_metadata_for_trie(&mut self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         ClarityMarfStoreTransaction::drop_metadata_for_trie(self.deref_mut(), target)
     }
 
@@ -1125,14 +1128,14 @@ impl<'a> ClarityMarfStoreTransaction for Box<dyn WritableMarfStore + 'a> {
         BoxedClarityMarfStoreTransaction::boxed_drop_current_trie(self)
     }
 
-    fn drop_unconfirmed(self) -> InterpreterResult<()> {
+    fn drop_unconfirmed(self) -> Result<(), VmExecutionError> {
         BoxedClarityMarfStoreTransaction::boxed_drop_unconfirmed(self)
     }
-    fn commit_to_processed_block(self, target: &StacksBlockId) -> InterpreterResult<()> {
+    fn commit_to_processed_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         BoxedClarityMarfStoreTransaction::boxed_commit_to_processed_block(self, target)
     }
 
-    fn commit_to_mined_block(self, target: &StacksBlockId) -> InterpreterResult<()> {
+    fn commit_to_mined_block(self, target: &StacksBlockId) -> Result<(), VmExecutionError> {
         BoxedClarityMarfStoreTransaction::boxed_commit_to_mined_block(self, target)
     }
 
@@ -1147,30 +1150,33 @@ impl<'a> ClarityMarfStoreTransaction for Box<dyn WritableMarfStore + 'a> {
 }
 
 impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
-    fn put_all_data(&mut self, items: Vec<(String, String)>) -> InterpreterResult<()> {
+    fn put_all_data(&mut self, items: Vec<(String, String)>) -> Result<(), VmExecutionError> {
         ClarityBackingStore::put_all_data(self.deref_mut(), items)
     }
 
-    fn get_data(&mut self, key: &str) -> InterpreterResult<Option<String>> {
+    fn get_data(&mut self, key: &str) -> Result<Option<String>, VmExecutionError> {
         ClarityBackingStore::get_data(self.deref_mut(), key)
     }
 
-    fn get_data_from_path(&mut self, hash: &TrieHash) -> InterpreterResult<Option<String>> {
+    fn get_data_from_path(&mut self, hash: &TrieHash) -> Result<Option<String>, VmExecutionError> {
         ClarityBackingStore::get_data_from_path(self.deref_mut(), hash)
     }
 
-    fn get_data_with_proof(&mut self, key: &str) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    fn get_data_with_proof(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         ClarityBackingStore::get_data_with_proof(self.deref_mut(), key)
     }
 
     fn get_data_with_proof_from_path(
         &mut self,
         hash: &TrieHash,
-    ) -> InterpreterResult<Option<(String, Vec<u8>)>> {
+    ) -> Result<Option<(String, Vec<u8>)>, VmExecutionError> {
         ClarityBackingStore::get_data_with_proof_from_path(self.deref_mut(), hash)
     }
 
-    fn set_block_hash(&mut self, bhh: StacksBlockId) -> InterpreterResult<StacksBlockId> {
+    fn set_block_hash(&mut self, bhh: StacksBlockId) -> Result<StacksBlockId, VmExecutionError> {
         ClarityBackingStore::set_block_hash(self.deref_mut(), bhh)
     }
 
@@ -1201,7 +1207,7 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
     fn get_contract_hash(
         &mut self,
         contract: &QualifiedContractIdentifier,
-    ) -> InterpreterResult<(StacksBlockId, Sha512Trunc256Sum)> {
+    ) -> Result<(StacksBlockId, Sha512Trunc256Sum), VmExecutionError> {
         ClarityBackingStore::get_contract_hash(self.deref_mut(), contract)
     }
 
@@ -1210,7 +1216,7 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
         contract: &QualifiedContractIdentifier,
         key: &str,
         value: &str,
-    ) -> InterpreterResult<()> {
+    ) -> Result<(), VmExecutionError> {
         ClarityBackingStore::insert_metadata(self.deref_mut(), contract, key, value)
     }
 
@@ -1218,7 +1224,7 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
         &mut self,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         ClarityBackingStore::get_metadata(self.deref_mut(), contract, key)
     }
 
@@ -1227,7 +1233,7 @@ impl<'a> ClarityBackingStore for Box<dyn WritableMarfStore + 'a> {
         at_height: u32,
         contract: &QualifiedContractIdentifier,
         key: &str,
-    ) -> InterpreterResult<Option<String>> {
+    ) -> Result<Option<String>, VmExecutionError> {
         ClarityBackingStore::get_metadata_manual(self.deref_mut(), at_height, contract, key)
     }
 }

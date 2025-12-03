@@ -22,9 +22,9 @@ use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
 use std::time::Instant;
 
-use clarity::vm::ast::errors::ParseErrors;
+use clarity::vm::ast::errors::ParseErrorKind;
 use clarity::vm::database::BurnStateDB;
-use clarity::vm::errors::Error as InterpreterError;
+use clarity::vm::errors::VmExecutionError;
 use serde::Deserialize;
 use stacks_common::codec::StacksMessageCodec;
 use stacks_common::types::chainstate::{
@@ -50,7 +50,8 @@ use crate::chainstate::stacks::db::unconfirmed::UnconfirmedState;
 use crate::chainstate::stacks::db::{ChainstateTx, ClarityTx, StacksChainState};
 use crate::chainstate::stacks::events::StacksTransactionReceipt;
 use crate::chainstate::stacks::{Error, StacksBlockHeader, StacksMicroblockHeader, *};
-use crate::clarity_vm::clarity::{ClarityInstance, Error as clarity_error};
+use crate::clarity_vm::clarity::{ClarityError, ClarityInstance};
+use crate::config::DEFAULT_MAX_TENURE_BYTES;
 use crate::core::mempool::*;
 use crate::core::*;
 use crate::monitoring::{
@@ -242,6 +243,7 @@ pub struct BlockBuilderSettings {
     /// Should the builder attempt to confirm any parent microblocks
     pub confirm_microblocks: bool,
     pub max_execution_time: Option<std::time::Duration>,
+    pub max_tenure_bytes: u64,
 }
 
 impl BlockBuilderSettings {
@@ -254,6 +256,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
         }
     }
 
@@ -266,6 +269,7 @@ impl BlockBuilderSettings {
             miner_status: Arc::new(Mutex::new(MinerStatus::make_ready(0))),
             confirm_microblocks: true,
             max_execution_time: None,
+            max_tenure_bytes: u64::from(DEFAULT_MAX_TENURE_BYTES),
         }
     }
 }
@@ -655,11 +659,11 @@ impl TransactionResult {
                 }
                 // recover original ClarityError
                 ClarityRuntimeTxError::Acceptable { error, .. } => {
-                    if let clarity_error::Parse(ref parse_err) = error {
+                    if let ClarityError::Parse(ref parse_err) = error {
                         info!("Parse error: {}", parse_err; "txid" => %tx.txid());
                         match *parse_err.err {
-                            ParseErrors::ExpressionStackDepthTooDeep
-                            | ParseErrors::VaryExpressionStackDepthTooDeep => {
+                            ParseErrorKind::ExpressionStackDepthTooDeep
+                            | ParseErrorKind::VaryExpressionStackDepthTooDeep => {
                                 info!("Problematic transaction failed AST depth check"; "txid" => %tx.txid());
                                 return (true, Error::ClarityError(error));
                             }
@@ -669,11 +673,11 @@ impl TransactionResult {
                     Error::ClarityError(error)
                 }
                 ClarityRuntimeTxError::CostError(cost, budget) => {
-                    Error::ClarityError(clarity_error::CostError(cost, budget))
+                    Error::ClarityError(ClarityError::CostError(cost, budget))
                 }
                 ClarityRuntimeTxError::AnalysisError(e) => {
-                    let clarity_err = Error::ClarityError(clarity_error::Interpreter(
-                        InterpreterError::Unchecked(e),
+                    let clarity_err = Error::ClarityError(ClarityError::Interpreter(
+                        VmExecutionError::Unchecked(e),
                     ));
                     if epoch_id < StacksEpochId::Epoch21 {
                         // this would invalidate the block, so it's problematic
@@ -688,7 +692,7 @@ impl TransactionResult {
                     assets_modified,
                     tx_events,
                     reason,
-                } => Error::ClarityError(clarity_error::AbortedByCallback {
+                } => Error::ClarityError(ClarityError::AbortedByCallback {
                     output: output.map(Box::new),
                     assets_modified: Box::new(assets_modified),
                     tx_events,
@@ -1536,6 +1540,7 @@ impl StacksBlockBuilder {
             burn_header_height: genesis_burn_header_height,
             anchored_block_size: 0,
             burn_view: None,
+            total_tenure_size: 0,
         };
 
         let mut builder = StacksBlockBuilder::from_parent_pubkey_hash(
