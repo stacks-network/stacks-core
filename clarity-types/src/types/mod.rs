@@ -1638,10 +1638,7 @@ impl TupleData {
         })
     }
 
-    pub fn shallow_merge(
-        mut base: TupleData,
-        updates: TupleData,
-    ) -> TupleData {
+    pub fn shallow_merge(mut base: TupleData, updates: TupleData) -> TupleData {
         let TupleData {
             data_map,
             mut type_signature,

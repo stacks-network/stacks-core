@@ -410,8 +410,7 @@ pub fn synthesize_pox_2_or_3_event_info(
                 let data_tuple = data_event_info
                     .expect_tuple()
                     .expect("FATAL: unexpected clarity value");
-                let event_tuple =
-                    TupleData::shallow_merge(base_event_tuple, data_tuple);
+                let event_tuple = TupleData::shallow_merge(base_event_tuple, data_tuple);
 
                 Ok(Value::Tuple(event_tuple))
             },
