@@ -790,13 +790,25 @@ impl HeadersDB for CLIHeadersDB {
 fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
     if args.len() < 3 || args.len() > 4 {
         eprintln!(
-            "Usage: {invoked_by} {} [--costs] [--epoch E] [--clarity_version N] [contract-identifier] (program.clar) [vm-state.db]",
+            "Usage: {invoked_by} {} [--costs] [--epoch E] [--clarity_version N] contract-identifier [program.clar] vm-state.db",
             args[0]
         );
+        eprintln!();
+        eprintln!("  If a program file name is not provided, the program is read from stdin.");
         panic_test!();
     }
 
     let vm_filename = if args.len() == 3 { &args[2] } else { &args[3] };
+
+    let contract_identifier = friendly_expect(
+        QualifiedContractIdentifier::parse(&args[1]),
+        "Failed to parse contract identifier.",
+    );
+
+    let marf_kv = friendly_expect(
+        MarfedKV::open(vm_filename, None, None),
+        "Failed to open VM database.",
+    );
 
     let content: String = {
         if args.len() == 3 {
@@ -814,16 +826,6 @@ fn get_eval_input(invoked_by: &str, args: &[String]) -> EvalInput {
         }
     };
 
-    let contract_identifier = friendly_expect(
-        QualifiedContractIdentifier::parse(&args[1]),
-        "Failed to parse contract identifier.",
-    );
-
-    let marf_kv = friendly_expect(
-        MarfedKV::open(vm_filename, None, None),
-        "Failed to open VM database.",
-    );
-    // return (marf_kv, contract_identifier, vm_filename, content);
     EvalInput {
         marf_kv,
         contract_identifier,
