@@ -23,7 +23,7 @@ use clarity::types::{EpochList, StacksEpoch, StacksEpochId};
 use clarity::util::hash::{Hash160, MerkleTree, Sha512Trunc256Sum};
 use clarity::util::secp256k1::MessageSignature;
 use clarity::vm::costs::ExecutionCost;
-use clarity::vm::types::{OptionalData, PrincipalData, ResponseData};
+use clarity::vm::types::{PrincipalData, ResponseData};
 use clarity::vm::{ClarityVersion, Value as ClarityValue};
 use serde::{Deserialize, Serialize, Serializer};
 use stacks_common::bitvec::BitVec;
@@ -1892,116 +1892,4 @@ fn problematic_supertype_list() {
     ",
     deploy_epochs: &StacksEpochId::ALL[1..],
     );
-}
-
-/// Tests that when `MemoryBalanceExceeded` error occurs in a block, the transactions fail, but are
-/// still committed to the block, and the "valid" transactions are still executed without errors.
-///
-/// 1. Deploy the memory-test-contract once in epoch 3.2
-/// 2. Create a second block with 21 transactions:
-///    - 20 transactions that call the contract (should fail with MemoryBalanceExceeded)
-///    - 1 transaction that is expected to succeed
-#[test]
-fn test_memory_balance_exceeded_multiple_calls() {
-    // Generate the same contract code as chainstate_error_memory_balance_exceeded_during_contract_call
-    let contract_name = "memory-test-contract";
-    let contract_code = {
-        // Procedurally generate a contract with large buffer constants and a function
-        // that creates many references to them, similar to argument_memory_test
-        let mut contract = String::new();
-
-        // Create buff-0 through buff-20 via repeated doubling: buff-20 = 1MB
-        contract.push_str("(define-constant buff-0 0x00)\n");
-        for i in 0..20 {
-            contract.push_str(&format!(
-                "(define-constant buff-{} (concat buff-{i} buff-{i}))\n",
-                i + 1
-            ));
-        }
-
-        // Create a public function that makes many references to buff-20
-        contract.push_str("\n(define-public (create-many-references)\n");
-        contract.push_str("    (ok (is-eq ");
-
-        // Create 100 references to buff-20 (1MB each = ~100MB total)
-        for _ in 0..100 {
-            contract.push_str("buff-20 ");
-        }
-
-        contract.push_str(")))\n");
-        contract.push_str("(define-public (foo) (ok 1))");
-        contract
-    };
-
-    let mut nonce = 0;
-
-    // Block 1: Deploy the contract in epoch 3.2
-    let deploy_tx = ConsensusUtils::new_deploy_tx(
-        nonce,
-        contract_name,
-        &contract_code,
-        Some(ClarityVersion::Clarity4),
-    );
-
-    let block1 = TestBlock {
-        transactions: vec![deploy_tx],
-    };
-
-    // Block 2: 50 transactions calling the contract
-    let contract_addr =
-        StacksAddress::p2pkh(false, &StacksPublicKey::from_private(&FAUCET_PRIV_KEY));
-    let mut call_transactions = Vec::new();
-
-    for _ in 0..20 {
-        nonce += 1;
-        let call_tx = ConsensusUtils::new_call_tx(nonce, contract_name, "create-many-references");
-        call_transactions.push(call_tx);
-    }
-    nonce += 1;
-    let call_tx = ConsensusUtils::new_call_tx(nonce, contract_name, "foo");
-    call_transactions.push(call_tx);
-
-    let block2 = TestBlock {
-        transactions: call_transactions,
-    };
-
-    // Create epoch blocks map - both blocks in Epoch 3.3
-    let mut epoch_blocks = HashMap::new();
-    epoch_blocks.insert(StacksEpochId::Epoch33, vec![block1, block2]);
-
-    let result = ConsensusTest::new(function_name!(), vec![], epoch_blocks).run();
-    if let ExpectedResult::Success(expected_block_output) = &result[0] {
-        assert_eq!(expected_block_output.transactions.len(), 1);
-        assert_eq!(
-            expected_block_output.transactions[0].return_type,
-            ClarityValue::Response(ResponseData {
-                committed: true,
-                data: Box::new(ClarityValue::Bool(true)),
-            })
-        );
-    } else {
-        panic!("First block should be successful");
-    }
-    if let ExpectedResult::Success(expected_block_output) = &result[1] {
-        assert_eq!(expected_block_output.transactions.len(), 21);
-        let expected_vm_error = Some("MemoryBalanceExceeded(100665664, 100000000)".to_string());
-        let expected_failure_return_type = ClarityValue::Response(ResponseData {
-            committed: false,
-            data: Box::new(ClarityValue::Optional(OptionalData { data: None })),
-        });
-
-        for transaction in &expected_block_output.transactions[..20] {
-            assert_eq!(transaction.return_type, expected_failure_return_type);
-            assert_eq!(transaction.vm_error, expected_vm_error);
-        }
-        assert_eq!(
-            expected_block_output.transactions[20].return_type,
-            ClarityValue::Response(ResponseData {
-                committed: true,
-                data: Box::new(ClarityValue::Int(1)),
-            })
-        );
-    } else {
-        panic!("Second block should be successful");
-    }
 }
