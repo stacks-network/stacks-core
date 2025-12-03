@@ -15,7 +15,9 @@
 
 //! This module contains consensus tests related to EarlyReturn errors.
 
-use clarity::vm::{Value as ClarityValue, errors::EarlyReturnError, types::ResponseData};
+use clarity::vm::errors::EarlyReturnError;
+use clarity::vm::types::ResponseData;
+use clarity::vm::Value as ClarityValue;
 
 use crate::chainstate::tests::consensus::{
     contract_call_consensus_test, contract_deploy_consensus_test,
@@ -95,12 +97,11 @@ fn native_try_ret_err_ccall() {
         ",
         function_name: "trigger",
         function_args: &[ClarityValue::Response(ResponseData {
-            committed: false, 
+            committed: false,
             data: Box::new(ClarityValue::UInt(42))
         })],
     );
 }
-
 
 /// Error: [`EarlyReturnError::UnwrapFailed`]
 /// Caused by: attempting to `try!` unwrap a `None` optional at deploy time.
