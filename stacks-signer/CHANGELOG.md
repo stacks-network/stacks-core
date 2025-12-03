@@ -12,6 +12,10 @@ and this project adheres to the versioning scheme outlined in the [README.md](RE
 
 - Added two-phase commit to signer block responses ensuring signers only issue a signature in a BlockResponse when a majority threshold number have pre-committed to sign a proposed Naka block
 - When determining a global transaction replay set, the state evaluator now uses a longest-common-prefix algorithm to find a replay set in the case where a single replay set has less than 70% of signer weight.
+- Support read-count tenure extends
+  - Added `read_count_idle_timeout_secs` config option to set the amount of seconds of idle time must pass before a read-count tenure extend is allowed (defaults to 20 seconds)
+  - Send a read-count tenure extend timestamp in the block responses
+  - Approve a block with a read-count tenure extend when the appropriate amount of idle time has passed
 
 ### Changed
 
