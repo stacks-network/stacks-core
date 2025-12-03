@@ -134,7 +134,10 @@ fn check_error_memory_balance_exceeded_ccall() {
         },
         function_name: "create-many-references",
         function_args: &[],
-        deploy_epochs: &[StacksEpochId::Epoch30, StacksEpochId::Epoch31, StacksEpochId::Epoch32, StacksEpochId::Epoch33],
+        // we only test epochs 2.4 and later because the call takes ~200 milion runtime cost,
+        // if we test all epochs, the tenure limit will be exceeded and the last 2 calls in
+        // epoch 3.3 will cause a block rejection.
+        deploy_epochs: &StacksEpochId::ALL[6..], // Epochs 2.4 and later
     );
 }
 
