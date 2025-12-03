@@ -18,10 +18,10 @@
 #[allow(unused_imports)]
 use clarity::vm::analysis::CheckErrorKind;
 use clarity::vm::types::{PrincipalData, QualifiedContractIdentifier};
-use clarity::vm::Value as ClarityValue;
+use clarity::vm::{ClarityVersion, Value as ClarityValue};
 
 use crate::chainstate::tests::consensus::{
-    contract_call_consensus_test, SetupContract, FAUCET_ADDRESS,
+    contract_call_consensus_test, contract_deploy_consensus_test, SetupContract, FAUCET_ADDRESS,
 };
 
 /// Generates a coverage classification report for a specific [`CheckErrorKind`] variant.
@@ -235,7 +235,11 @@ fn variant_coverage_report(variant: CheckErrorKind) {
             "Trait method count limits are enforced during deployment; \
              oversized traits cannot appear at runtime.",
         ),
-        InvalidCharactersDetected | InvalidUTF8Encoding => {
+        InvalidCharactersDetected => Tested(vec![
+            invalid_characters_detected_invalid_ascii,
+            invalid_characters_detected_invalid_utf8
+        ]),
+        InvalidUTF8Encoding => {
             Ignored("Only reachable via legacy v1 parsing paths")
         }
         WriteAttemptedInReadOnly | AtBlockClosureMustBeReadOnly => Unreachable_Functionally(
@@ -355,5 +359,43 @@ fn bad_trait_implementation_mismatched_args() {
             )
         ))],
         setup_contracts: &[trait_definer, target_contract],
+    );
+}
+
+/// Error: [`CheckErrorKind::InvalidCharactersDetected`]
+/// Caused by: deserializing an invalid ascii string using `from-consensus-buf` which eventually calls [`ClarityValue::string_ascii_from_bytes`].
+/// Outcome: Block accepted
+/// Note: [`CheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
+/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
+#[test]
+fn invalid_characters_detected_invalid_ascii() {
+    contract_deploy_consensus_test!(
+        contract_name: "invalid-ascii",
+        contract_code: "
+            (define-constant deserialized-invalid-ascii
+                ;; This buffer represents: string-ascii with bytes [0x00, 0x01, 0x02]
+                ;; (0x0d = string-ascii type, 0x00000003 = length 3, then invalid bytes)
+                (from-consensus-buff? (string-ascii 3) 0x0d00000003000102))
+        ",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
+    );
+}
+
+/// Error: [`CheckErrorKind::InvalidCharactersDetected`]
+/// Caused by: deserializing an invalid utf8 string using `from-consensus-buf` which eventually calls [`ClarityValue::string_utf8_from_bytes`].
+/// Outcome: Block accepted
+/// Note: [`CheckErrorKind::InvalidCharactersDetected`] is converted to a serialization error in `inner_deserialize_read` which in turn is
+/// converted to `None` in `conversions::from_consensus_buff` during its handling of the result of `try_deserialize_bytes_exact`.
+#[test]
+fn invalid_characters_detected_invalid_utf8() {
+    contract_deploy_consensus_test!(
+        contract_name: "invalid-utf8",
+        contract_code: "
+            (define-constant deserialized-invalid-utf8
+                ;; This buffer represents: string-utf8 with invalid UTF-8 bytes [0xff, 0xfe]
+                ;; (0x0e = string-utf8 type, 0x00000002 = length 2, then invalid UTF-8)
+                (from-consensus-buff? (string-utf8 2) 0x0e00000002fffe))
+        ",
+        exclude_clarity_versions: &[ClarityVersion::Clarity1], // Clarity1 does not support from-consensus-buf?
     );
 }
