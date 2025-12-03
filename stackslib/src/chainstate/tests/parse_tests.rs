@@ -131,7 +131,7 @@ fn variant_coverage_report(variant: ParseErrorKind) {
 /// Note: This cost error is remapped as [`crate::chainstate::stacks::Error::CostOverflowError`]
 #[test]
 fn test_cost_balance_exceeded() {
-    const RUNTIME_LIMIT: u64 = BLOCK_LIMIT_MAINNET_21.runtime as u64;
+    const RUNTIME_LIMIT: u64 = BLOCK_LIMIT_MAINNET_21.runtime;
     // Arbitrary parameters determined through empirical testing
     const CONTRACT_FUNC_INVOCATIONS: u64 = 29_022;
     const CALL_RUNTIME_COST: u64 = 249_996_284;
@@ -455,8 +455,9 @@ fn test_name_too_long() {
 /// ParserError: [`ParseErrorKind::InvalidPrincipalLiteral`]
 /// Caused by: valid principal chars but wrong format (due to the starting "AAA")
 /// Outcome: block accepted
+/// Note: gets converted from [`clarity::vm::errors::RuntimeError::TypeParseFailure`]
 #[test]
-fn test_invalid_principal_literal() {
+pub fn test_invalid_principal_literal() {
     contract_deploy_consensus_test!(
         contract_name: "my-contract",
         contract_code: "(define-constant my-principal 'AAAST3J2GVMMM2R07ZFBJDWTYEYAR8FZH5WKDTFJ9AHA)",
