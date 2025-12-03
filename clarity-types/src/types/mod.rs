@@ -1445,6 +1445,10 @@ impl PrincipalData {
         literal: &str,
     ) -> Result<StandardPrincipalData, VmExecutionError> {
         let (version, data) = c32::c32_address_decode(literal).map_err(|x| {
+            // This `TypeParseFailure` is unreachable in normal Clarity execution.
+            // - All principal literals are validated by the Clarity lexer *before* reaching `parse_standard_principal`.
+            // - The lexer rejects any literal containing characters outside the C32 alphabet.
+            // Therefore, only malformed input fed directly into low-level VM entry points can cause this branch to execute.
             RuntimeError::TypeParseFailure(format!("Invalid principal literal: {x}"))
         })?;
         if data.len() != 20 {
