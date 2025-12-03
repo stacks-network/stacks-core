@@ -452,7 +452,7 @@ impl SequenceData {
             _ => return Err(CheckErrorKind::ListTypesMustMatch.into()),
         };
 
-        Value::some(Value::Sequence(new_seq_data))
+        Ok(Value::some(Value::Sequence(new_seq_data))?)
     }
 
     pub fn contains(&self, to_find: Value) -> Result<Option<usize>, VmExecutionError> {
@@ -867,7 +867,7 @@ impl PartialEq for TupleData {
 pub const NONE: Value = Value::Optional(OptionalData { data: None });
 
 impl Value {
-    pub fn some(data: Value) -> Result<Value, VmExecutionError> {
+    pub fn some(data: Value) -> Result<Value, CheckErrorKind> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(CheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
@@ -904,7 +904,7 @@ impl Value {
         })
     }
 
-    pub fn okay(data: Value) -> Result<Value, VmExecutionError> {
+    pub fn okay(data: Value) -> Result<Value, CheckErrorKind> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(CheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
@@ -917,7 +917,7 @@ impl Value {
         }
     }
 
-    pub fn error(data: Value) -> Result<Value, VmExecutionError> {
+    pub fn error(data: Value) -> Result<Value, CheckErrorKind> {
         if data.size()? + WRAPPER_VALUE_SIZE > MAX_VALUE_SIZE {
             Err(CheckErrorKind::ValueTooLarge.into())
         } else if data.depth()? + 1 > MAX_TYPE_DEPTH {
@@ -930,11 +930,11 @@ impl Value {
         }
     }
 
-    pub fn size(&self) -> Result<u32, VmExecutionError> {
+    pub fn size(&self) -> Result<u32, CheckErrorKind> {
         Ok(TypeSignature::type_of(self)?.size()?)
     }
 
-    pub fn depth(&self) -> Result<u8, VmExecutionError> {
+    pub fn depth(&self) -> Result<u8, CheckErrorKind> {
         Ok(TypeSignature::type_of(self)?.depth())
     }
 
@@ -985,7 +985,7 @@ impl Value {
     pub fn cons_list(
         list_data: Vec<Value>,
         epoch: &StacksEpochId,
-    ) -> Result<Value, VmExecutionError> {
+    ) -> Result<Value, CheckErrorKind> {
         // Constructors for TypeSignature ensure that the size of the Value cannot
         //   be greater than MAX_VALUE_SIZE (they error on such constructions)
         // Aaron: at this point, we've _already_ allocated memory for this type.
@@ -1009,7 +1009,7 @@ impl Value {
 
     /// # Errors
     /// - CheckErrorKind::ValueTooLarge if `buff_data` is too large.
-    pub fn buff_from(buff_data: Vec<u8>) -> Result<Value, VmExecutionError> {
+    pub fn buff_from(buff_data: Vec<u8>) -> Result<Value, CheckErrorKind> {
         // check the buffer size
         BufferLength::try_from(buff_data.len())?;
         // construct the buffer
@@ -1022,13 +1022,13 @@ impl Value {
         Value::Sequence(SequenceData::Buffer(BuffData { data: vec![byte] }))
     }
 
-    pub fn string_ascii_from_bytes(bytes: Vec<u8>) -> Result<Value, VmExecutionError> {
+    pub fn string_ascii_from_bytes(bytes: Vec<u8>) -> Result<Value, CheckErrorKind> {
         // check the string size
         BufferLength::try_from(bytes.len())?;
 
         for b in bytes.iter() {
             if !b.is_ascii_alphanumeric() && !b.is_ascii_punctuation() && !b.is_ascii_whitespace() {
-                return Err(CheckErrorKind::InvalidCharactersDetected.into());
+                return Err(CheckErrorKind::InvalidCharactersDetected);
             }
         }
         // construct the string
@@ -1078,10 +1078,10 @@ impl Value {
         ))))
     }
 
-    pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value, VmExecutionError> {
+    pub fn string_utf8_from_bytes(bytes: Vec<u8>) -> Result<Value, CheckErrorKind> {
         let validated_utf8_str = match str::from_utf8(&bytes) {
             Ok(string) => string,
-            _ => return Err(CheckErrorKind::InvalidCharactersDetected.into()),
+            _ => return Err(CheckErrorKind::InvalidCharactersDetected),
         };
         let data = validated_utf8_str
             .chars()
@@ -1588,7 +1588,7 @@ impl TupleData {
 
     // TODO: add tests from mutation testing results #4833
     #[cfg_attr(test, mutants::skip)]
-    pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData, VmExecutionError> {
+    pub fn from_data(data: Vec<(ClarityName, Value)>) -> Result<TupleData, CheckErrorKind> {
         let mut type_map = BTreeMap::new();
         let mut data_map = BTreeMap::new();
         for (name, value) in data.into_iter() {
@@ -1626,15 +1626,15 @@ impl TupleData {
         Ok(Self::new(expected.clone(), data_map))
     }
 
-    pub fn get(&self, name: &str) -> Result<&Value, VmExecutionError> {
+    pub fn get(&self, name: &str) -> Result<&Value, CheckErrorKind> {
         self.data_map.get(name).ok_or_else(|| {
-            CheckErrorKind::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
+            CheckErrorKind::NoSuchTupleField(name.to_string(), self.type_signature.clone())
         })
     }
 
-    pub fn get_owned(mut self, name: &str) -> Result<Value, VmExecutionError> {
+    pub fn get_owned(mut self, name: &str) -> Result<Value, CheckErrorKind> {
         self.data_map.remove(name).ok_or_else(|| {
-            CheckErrorKind::NoSuchTupleField(name.to_string(), self.type_signature.clone()).into()
+            CheckErrorKind::NoSuchTupleField(name.to_string(), self.type_signature.clone())
         })
     }
 

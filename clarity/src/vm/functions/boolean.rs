@@ -22,14 +22,13 @@ use crate::vm::eval;
 use crate::vm::representations::SymbolicExpression;
 use crate::vm::types::{TypeSignature, Value};
 
-fn type_force_bool(value: &Value) -> Result<bool, VmExecutionError> {
+fn type_force_bool(value: &Value) -> Result<bool, CheckErrorKind> {
     match *value {
         Value::Bool(boolean) => Ok(boolean),
         _ => Err(CheckErrorKind::TypeValueError(
             Box::new(TypeSignature::BoolType),
             Box::new(value.clone()),
-        )
-        .into()),
+        )),
     }
 }
 

@@ -37,7 +37,7 @@ pub fn tuple_cons(
     let bindings = parse_eval_bindings(args, SyntaxBindingErrorType::TupleCons, env, context)?;
     runtime_cost(ClarityCostFunction::TupleCons, env, bindings.len())?;
 
-    TupleData::from_data(bindings).map(Value::from)
+    Ok(TupleData::from_data(bindings).map(Value::from)?)
 }
 
 pub fn tuple_get(
@@ -76,7 +76,7 @@ pub fn tuple_get(
         }
         Value::Tuple(tuple_data) => {
             runtime_cost(ClarityCostFunction::TupleGet, env, tuple_data.len())?;
-            tuple_data.get_owned(arg_name)
+            Ok(tuple_data.get_owned(arg_name)?)
         }
         _ => Err(CheckErrorKind::ExpectedTuple(Box::new(TypeSignature::type_of(&value)?)).into()),
     }

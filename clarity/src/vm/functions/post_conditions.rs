@@ -258,7 +258,7 @@ pub fn special_restrict_assets(
         Ok(None) => {}
         Ok(Some(violation_index)) => {
             env.global_context.roll_back()?;
-            return Value::error(Value::UInt(violation_index));
+            return Ok(Value::error(Value::UInt(violation_index))?);
         }
         Err(e) => {
             env.global_context.roll_back()?;
@@ -272,7 +272,7 @@ pub fn special_restrict_assets(
     match eval_result {
         Ok(Some(last)) => {
             // body completed successfully — commit and return ok(last)
-            Value::okay(last)
+            Ok(Value::okay(last)?)
         }
         Ok(None) => {
             // Body had no expressions (shouldn't happen due to argument checks)
@@ -352,7 +352,7 @@ pub fn special_as_contract(
             Ok(None) => {}
             Ok(Some(violation_index)) => {
                 nested_env.global_context.roll_back()?;
-                return Value::error(Value::UInt(violation_index));
+                return Ok(Value::error(Value::UInt(violation_index))?);
             }
             Err(e) => {
                 nested_env.global_context.roll_back()?;
@@ -366,7 +366,7 @@ pub fn special_as_contract(
         match eval_result {
             Ok(Some(last)) => {
                 // body completed successfully — commit and return ok(last)
-                Value::okay(last)
+                Ok(Value::okay(last)?)
             }
             Ok(None) => {
                 // Body had no expressions (shouldn't happen due to argument checks)

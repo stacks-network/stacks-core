@@ -240,7 +240,7 @@ pub fn special_stx_account(
     let v2_unlock_ht = env.global_context.database.get_v2_unlock_height()?;
     let v3_unlock_ht = env.global_context.database.get_v3_unlock_height()?;
 
-    TupleData::from_data(vec![
+    Ok(TupleData::from_data(vec![
         (
             "unlocked"
                 .try_into()
@@ -264,7 +264,7 @@ pub fn special_stx_account(
             ))),
         ),
     ])
-    .map(Value::Tuple)
+    .map(Value::Tuple)?)
 }
 
 pub fn special_stx_burn(

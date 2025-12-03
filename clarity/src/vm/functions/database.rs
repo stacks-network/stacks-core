@@ -882,7 +882,7 @@ pub fn special_get_block_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the `get-burn-block-info?` special function.
@@ -941,11 +941,11 @@ pub fn special_get_burn_block_info(
                 .get_burnchain_block_header_hash_for_burnchain_height(height_value)?;
 
             match burnchain_header_hash_opt {
-                Some(burnchain_header_hash) => {
-                    Value::some(Value::Sequence(SequenceData::Buffer(BuffData {
+                Some(burnchain_header_hash) => Ok(Value::some(Value::Sequence(
+                    SequenceData::Buffer(BuffData {
                         data: burnchain_header_hash.as_bytes().to_vec(),
-                    })))
-                }
+                    }),
+                ))?),
                 None => Ok(Value::none()),
             }
         }
@@ -1060,7 +1060,7 @@ pub fn special_get_stacks_block_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the function `get-tenure-info?` special function.
@@ -1173,7 +1173,7 @@ pub fn special_get_tenure_info(
         }
     };
 
-    Value::some(result)
+    Ok(Value::some(result)?)
 }
 
 /// Handles the function `contract-hash?`
@@ -1212,5 +1212,7 @@ pub fn special_contract_hash(
         return Ok(Value::err_uint(2));
     };
 
-    Value::okay(Value::buff_from(contract_hash.as_bytes().to_vec())?)
+    Ok(Value::okay(Value::buff_from(
+        contract_hash.as_bytes().to_vec(),
+    )?)?)
 }

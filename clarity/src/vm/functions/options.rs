@@ -225,45 +225,45 @@ pub fn special_match(
 }
 
 pub fn native_some(input: Value) -> Result<Value, VmExecutionError> {
-    Value::some(input)
+    Ok(Value::some(input)?)
 }
 
-fn is_some(input: Value) -> Result<bool, VmExecutionError> {
+fn is_some(input: Value) -> Result<bool, CheckErrorKind> {
     match input {
         Value::Optional(ref data) => Ok(data.data.is_some()),
-        _ => Err(CheckErrorKind::ExpectedOptionalValue(Box::new(input)).into()),
+        _ => Err(CheckErrorKind::ExpectedOptionalValue(Box::new(input))),
     }
 }
 
-fn is_okay(input: Value) -> Result<bool, VmExecutionError> {
+fn is_okay(input: Value) -> Result<bool, CheckErrorKind> {
     match input {
         Value::Response(data) => Ok(data.committed),
-        _ => Err(CheckErrorKind::ExpectedResponseValue(Box::new(input)).into()),
+        _ => Err(CheckErrorKind::ExpectedResponseValue(Box::new(input))),
     }
 }
 
 pub fn native_is_some(input: Value) -> Result<Value, VmExecutionError> {
-    is_some(input).map(Value::Bool)
+    Ok(is_some(input).map(Value::Bool)?)
 }
 
 pub fn native_is_none(input: Value) -> Result<Value, VmExecutionError> {
-    is_some(input).map(|is_some| Value::Bool(!is_some))
+    Ok(is_some(input).map(|is_some| Value::Bool(!is_some))?)
 }
 
 pub fn native_is_okay(input: Value) -> Result<Value, VmExecutionError> {
-    is_okay(input).map(Value::Bool)
+    Ok(is_okay(input).map(Value::Bool)?)
 }
 
 pub fn native_is_err(input: Value) -> Result<Value, VmExecutionError> {
-    is_okay(input).map(|is_ok| Value::Bool(!is_ok))
+    Ok(is_okay(input).map(|is_ok| Value::Bool(!is_ok))?)
 }
 
 pub fn native_okay(input: Value) -> Result<Value, VmExecutionError> {
-    Value::okay(input)
+    Ok(Value::okay(input)?)
 }
 
 pub fn native_error(input: Value) -> Result<Value, VmExecutionError> {
-    Value::error(input)
+    Ok(Value::error(input)?)
 }
 
 pub fn native_default_to(default: Value, input: Value) -> Result<Value, VmExecutionError> {

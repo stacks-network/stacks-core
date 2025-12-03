@@ -45,7 +45,8 @@ pub fn list_cons(
 
     runtime_cost(ClarityCostFunction::ListCons, env, arg_size)?;
 
-    Value::cons_list(args, env.epoch())
+    let value = Value::cons_list(args, env.epoch())?;
+    Ok(value)
 }
 
 pub fn special_filter(
@@ -178,7 +179,8 @@ pub fn special_map(
         mapped_results.push(res);
     }
 
-    Value::cons_list(mapped_results, env.epoch())
+    let value = Value::cons_list(mapped_results, env.epoch())?;
+    Ok(value)
 }
 
 pub fn special_append(
@@ -205,7 +207,7 @@ pub fn special_append(
             )?;
             if entry_type.is_no_type() {
                 assert_eq!(size, 0);
-                return Value::cons_list(vec![element], env.epoch());
+                return Ok(Value::cons_list(vec![element], env.epoch())?);
             }
             if let Ok(next_entry_type) =
                 TypeSignature::least_supertype(env.epoch(), &entry_type, &element_type)
@@ -335,7 +337,7 @@ pub fn native_len(sequence: Value) -> Result<Value, VmExecutionError> {
 pub fn native_index_of(sequence: Value, to_find: Value) -> Result<Value, VmExecutionError> {
     if let Value::Sequence(sequence_data) = sequence {
         match sequence_data.contains(to_find)? {
-            Some(index) => Value::some(Value::UInt(index as u128)),
+            Some(index) => Ok(Value::some(Value::UInt(index as u128))?),
             None => Ok(Value::none()),
         }
     } else {
@@ -367,7 +369,7 @@ pub fn native_element_at(sequence: Value, index: Value) -> Result<Value, VmExecu
     };
 
     if let Some(result) = sequence_data.element_at(index)? {
-        Value::some(result)
+        Ok(Value::some(result)?)
     } else {
         Ok(Value::none())
     }
@@ -409,7 +411,7 @@ pub fn special_slice(
                 )?;
                 let seq_value =
                     seq.slice(env.epoch(), left_position as usize, right_position as usize)?;
-                Value::some(seq_value)
+                Ok(Value::some(seq_value)?)
             }
             _ => Err(RuntimeError::BadTypeConstruction.into()),
         }
