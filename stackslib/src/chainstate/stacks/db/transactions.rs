@@ -10843,11 +10843,9 @@ pub mod test {
             _ => panic!("expected successful call"),
         }
         if cfg!(feature = "clarity-wasm") {
-            assert!(tx_receipt
-                .vm_error
-                .unwrap()
-                .find("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"foo\")")
-                .is_some());
+            assert!(tx_receipt.vm_error.unwrap().contains(
+                "TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"foo\")"
+            ));
         } else {
             assert_eq!(
                 tx_receipt.vm_error,
@@ -10913,11 +10911,9 @@ pub mod test {
             _ => panic!("expected successful call"),
         }
         if cfg!(feature = "clarity-wasm") {
-            assert!(tx_receipt
-                .vm_error
-                .unwrap()
-                .find("TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"foo\")")
-                .is_some());
+            assert!(tx_receipt.vm_error.unwrap().contains(
+                "TypeError(CallableType(Trait(TraitIdentifier { name: ClarityName(\"foo\")"
+            ))
         } else {
             assert_eq!(
                 tx_receipt.vm_error,
