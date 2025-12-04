@@ -460,3 +460,129 @@ pub fn evaluate_define(
         Ok(DefineResult::NoDefine)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use clarity_types::errors::CheckErrorKind;
+    use clarity_types::representations::SymbolicExpression;
+    use clarity_types::types::QualifiedContractIdentifier;
+    use clarity_types::{Value, VmExecutionError};
+    use stacks_common::consts::CHAIN_ID_TESTNET;
+    use stacks_common::types::StacksEpochId;
+
+    use crate::vm::analysis::type_checker::v2_1::MAX_FUNCTION_PARAMETERS;
+    use crate::vm::callables::DefineType;
+    use crate::vm::contexts::GlobalContext;
+    use crate::vm::costs::LimitedCostTracker;
+    use crate::vm::database::MemoryBackingStore;
+    use crate::vm::functions::define::{handle_define_function, handle_define_trait};
+    use crate::vm::tests::test_clarity_versions;
+    use crate::vm::{CallStack, ClarityVersion, ContractContext, Environment, LocalContext};
+
+    #[apply(test_clarity_versions)]
+    fn bad_syntax_binding_define_function(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        // ---- BAD SIGNATURE ----
+        // Instead of ((x uint)), we pass (x)
+        let bad_signature = vec![
+            SymbolicExpression::atom("f".into()),
+            SymbolicExpression::atom("x".into()), // NOT a (name type) list
+        ];
+
+        let body = SymbolicExpression::atom_value(Value::UInt(1));
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let context = LocalContext::new();
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let result = handle_define_function(&bad_signature, &body, &mut env, DefineType::Public);
+
+        assert!(matches!(
+            result,
+            Err(VmExecutionError::Unchecked(
+                CheckErrorKind::BadSyntaxBinding(_)
+            ))
+        ));
+    }
+
+    #[apply(test_clarity_versions)]
+    fn handle_define_trait_too_many_function_parameters(
+        #[case] version: ClarityVersion,
+        #[case] epoch: StacksEpochId,
+    ) {
+        if epoch < StacksEpochId::Epoch33 {
+            return;
+        }
+        // Build a trait method with MORE than MAX_FUNCTION_PARAMETERS arguments
+        // (f (uint uint uint ... ) (response uint uint))
+        let too_many_args =
+            vec![SymbolicExpression::atom("uint".into()); MAX_FUNCTION_PARAMETERS + 1];
+
+        let method = SymbolicExpression::list(vec![
+            SymbolicExpression::atom("f".into()),
+            SymbolicExpression::list(too_many_args),
+            SymbolicExpression::list(vec![
+                SymbolicExpression::atom("response".into()),
+                SymbolicExpression::atom("uint".into()),
+                SymbolicExpression::atom("uint".into()),
+            ]),
+        ]);
+
+        // This is the `( (f (...) (response ...)) )` wrapper
+        let trait_body = vec![SymbolicExpression::list(vec![method])];
+
+        let mut marf = MemoryBackingStore::new();
+        let mut global_context = GlobalContext::new(
+            false,
+            CHAIN_ID_TESTNET,
+            marf.as_clarity_db(),
+            LimitedCostTracker::new_free(),
+            epoch,
+        );
+
+        let contract_context =
+            ContractContext::new(QualifiedContractIdentifier::transient(), version);
+
+        let mut call_stack = CallStack::new();
+
+        let mut env = Environment::new(
+            &mut global_context,
+            &contract_context,
+            &mut call_stack,
+            None,
+            None,
+            None,
+        );
+
+        let result = handle_define_trait(&"bad-trait".into(), &trait_body, &mut env);
+
+        assert!(matches!(
+            result,
+            Err(VmExecutionError::Unchecked(
+                CheckErrorKind::TooManyFunctionParameters(found, max)
+            ))
+        ));
+    }
+}

@@ -1052,6 +1052,8 @@ impl Value {
                     .ok_or_else(|| VmInternalError::Expect("Expected capture".into()))?;
                 let scalar_value = window[matched.start()..matched.end()].to_string();
                 let unicode_char = {
+                    // This first InvalidUTF8Encoding is logically unreachable: the escape regex rejects non-hex digits,
+                    // so from_str_radix only sees valid hex and never errors here.
                     let u = u32::from_str_radix(&scalar_value, 16)
                         .map_err(|_| CheckErrorKind::InvalidUTF8Encoding)?;
                     let c = char::from_u32(u).ok_or_else(|| CheckErrorKind::InvalidUTF8Encoding)?;
