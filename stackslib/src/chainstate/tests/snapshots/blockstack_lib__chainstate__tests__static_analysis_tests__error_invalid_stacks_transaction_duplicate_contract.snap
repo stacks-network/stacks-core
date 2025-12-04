@@ -1,0 +1,50 @@
+---
+source: stackslib/src/chainstate/tests/static_analysis_tests.rs
+expression: result
+---
+[
+  Success(ExpectedBlockOutput(
+    marf_hash: "2d7d0b29a889aa04c79c2b794ad5ecc9e7f2ff84cdf99cf62b6ead24e11263a1",
+    evaluated_epoch: Epoch33,
+    transactions: [
+      ExpectedTransactionOutput(
+        tx: "SmartContract(name: contract-name, code_body: [..], clarity_version: None)",
+        vm_error: "None [NON-CONSENSUS BREAKING]",
+        return_type: Response(ResponseData(
+          committed: true,
+          data: Bool(true),
+        )),
+        cost: ExecutionCost(
+          write_length: 35,
+          write_count: 2,
+          read_length: 1,
+          read_count: 1,
+          runtime: 8817,
+        ),
+      ),
+    ],
+    total_block_cost: ExecutionCost(
+      write_length: 35,
+      write_count: 2,
+      read_length: 1,
+      read_count: 1,
+      runtime: 8817,
+    ),
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 6eabb186436e51578fc50c56e538cf22e2bf23d1de977132342e5b2af71ca95f: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 470e5ea2d1c22a84f1cf95731ada6d25b9df8813f2032a6c12a8ce8118de59e0: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 5c99bb620d852120112bb10ac3850a5a104a4ec70998867d1aaae65efe4e91c3: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
+  Failure(ExpectedFailureOutput(
+    evaluated_epoch: Epoch33,
+    error: "Invalid Stacks block 15c7400f3a64a32f4d0b8ea5b04b24bbfbfede36ce82f1fa063a40e714eff8a2: InvalidStacksTransaction(\"Duplicate contract \'ST1AW6EKPGT61SQ9FNVDS17RKNWT8ZP582VF9HSCP.contract-name\'\", false)",
+  )),
+]
